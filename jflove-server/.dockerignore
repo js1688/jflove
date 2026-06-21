@@ -1,0 +1,16 @@
+# 不允许进入镜像的内容
+venv/
+build/
+logs/
+tests/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+.idea/
+.vscode/
+*.md
+# 任何意外存在的开发库
+**/jflove-dev.db

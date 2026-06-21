@@ -1,0 +1,14 @@
+# 文件作用：统一不同编辑器和 IDE 的代码格式设置，如缩进风格、换行符等，Copilot 也会遵循这些设置。
+
+root = true  # 表示这是项目最顶层的 .editorconfig 文件，编辑器会停止向上查找父级目录中的配置文件
+
+[*]  # 下列规则应用于项目中的所有文件（* 是通配符）
+indent_style = space  # 使用空格作为缩进方式，而不是 Tab
+indent_size = 2       # 缩进大小为 2 个空格
+end_of_line = lf      # 行尾统一使用 LF（\n）换行符，避免 Windows（CRLF）和 Unix 系统混用的问题
+charset = utf-8       # 文件编码统一为 UTF-8，避免中文或其他字符乱码
+trim_trailing_whitespace = true  # 保存文件时自动删除行尾的多余空白字符
+insert_final_newline = true      # 确保文件末尾保留一个空行，符合 POSIX 规范
+
+[*.md]  # 下列规则仅应用于扩展名为 .md 的 Markdown 文件
+trim_trailing_whitespace = false # Markdown 文件行尾空白可能有特殊含义（如强制换行），所以不自动删除

@@ -1,0 +1,37 @@
+# 文件作用：告诉 Git 忽略哪些文件或目录，避免将依赖包、编译产物、敏感信息等提交到仓库。
+
+# 依赖
+node_modules/
+
+# Python 虚拟环境（支持 Linux / Windows / macOS 多平台共存）
+venv/
+venv-linux/
+venv-win/
+venv-mac/
+__pycache__/
+.pytest_cache
+
+# 编译输出
+dist/
+build/
+
+# 环境变量文件（包含密钥）
+.env
+.env.local
+.env.*.local
+
+# IDE 配置
+# .vscode/ 保留启动配置，可指引开发启动
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 数据库文件
+# jflove-dev.db 为开发数据，不提交
+# jflove-prod.db 为生产空表结构，需提交
+jflove-db/jflove-dev.db
+
+# 运行时日志（可能含本地路径、用户名等个人隐私）
+logs/

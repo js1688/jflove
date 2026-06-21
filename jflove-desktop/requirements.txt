@@ -1,0 +1,7 @@
+PySide6==6.11.0
+PySide6-Fluent-Widgets==1.11.2
+requests==2.33.1
+cryptography==47.0.0
+markdown==3.10.2
+pygments==2.20.0
+pyinstaller==6.20.0

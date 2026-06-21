@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "jflove-server",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["src.main:app", "--host", "0.0.0.0", "--port", "8989"],
+      "cwd": "${workspaceFolder}/jflove-server",
+      // 第一个是 linux启动位置, 第二个是 windows启动位置
+      "python": "${workspaceFolder}/jflove-server/venv/bin/python",
+      //"python": "${workspaceFolder}/jflove-server/venv/Scripts/python.exe",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/jflove-server"
+      }
+    },{
+      "name": "jflove-desktop",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/jflove-desktop/src/main.py",
+      "cwd": "${workspaceFolder}/jflove-desktop",
+      // 第一个是 linux启动位置, 第二个是 windows启动位置
+      "python": "${workspaceFolder}/jflove-desktop/venv-linux/bin/python",
+      //"python": "${workspaceFolder}/jflove-desktop/venv-win/Scripts/python.exe",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
