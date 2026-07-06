@@ -31,6 +31,31 @@ description: 负责 jflove-desktop 跨平台桌面应用开发，支持 Windows�
 - 路径：`文档记录/桌面端开发记录/<版本号>.md`；同步更新 `jflove-desktop/README.md`
 - 必须包含：功能与改动点、页面/组件/服务方法、调用的后端接口、逻辑对比、设计取舍
 
+## 开发环境（必读）
+
+### 虚拟环境路径
+
+**默认寻找 项目下的 venv 目录,如果没有,则按下方目录寻找**
+| 平台 | Python 路径 |
+|------|-----------|
+| Linux | `jflove-desktop/venv-linux/bin/python` |
+| Windows | `jflove-desktop/venv-win/Scripts/python.exe` |
+
+**自测命令**（始终使用上面对应平台的 Python 解释器执行）：
+
+```bash
+# flake8 代码风格检查
+python -m flake8 src/ tests/ --max-line-length=99
+
+# pytest 单元测试
+python -m pytest tests/ -v
+```
+
+> ⚠ 如果 flake8 / pytest 未安装，先用对应平台的 pip 安装：
+> ```bash
+> python -m pip install flake8 pytest
+> ```
+
 ## 安全宪法（参见 AGENTS.md §9）
 
 - **HTTP**：禁止在 `services/`/`ui/`/`components/` 直接 `import requests`，全部走 `http_client`

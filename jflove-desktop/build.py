@@ -58,7 +58,7 @@ def assert_no_secrets() -> None:
         for needle in forbidden_substrings:
             if needle in text:
                 fail(f"{py.relative_to(ROOT)} 中发现疑似硬编码 session_key")
-    log("源代码扫描：未发现硬编码 session_key ✓")
+    log("源代码扫描：未发现硬编码 session_key [OK]")
 
 
 def file_sha256(p: Path) -> str:

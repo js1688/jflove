@@ -8,7 +8,7 @@
   - 同步引擎事件：实时反映 started / finished / error
 
 **重要 UI 提示**：删除配置仅删除映射关系，不会删除任何实际文件；
-本地手动删除文件后下一轮同步会从远端重新下载（删除远端文件须在文档管理页操作）。
+本地手动删除文件后下一轮同步会从远端自动恢复（删除远端文件须在文档管理页操作）。
 """
 
 from __future__ import annotations
@@ -16,9 +16,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QAbstractItemView, QHeaderView, QFileDialog, QDialog, QFormLayout,
+    QListWidget, QListWidgetItem,
 )
 from qfluentwidgets import (
     SubtitleLabel, BodyLabel, CaptionLabel, StrongBodyLabel,
@@ -28,7 +30,7 @@ from qfluentwidgets import (
     CardWidget,
 )
 
-from src.services import sync_service, file_service
+from src.services import sync_service, file_service, disk_service
 from src.utils.worker import Worker
 from src.utils.sync_engine import sync_engine, SyncResult
 from src.utils.icon import get_app_icon
@@ -60,6 +62,146 @@ def _format_interval(seconds: int) -> str:
     return f"{seconds // 3600} 小时"
 
 
+# ── 远端目录选择对话框 ──────────────────────────
+
+class _RemoteDirBrowserDialog(QDialog):
+    """
+    远端虚拟磁盘目录浏览选择对话框。
+
+    用户在同步配置中创建/编辑时，通过该对话框浏览远端虚拟磁盘上的目录结构，
+    双击进入子目录，点击「选择当前目录」确认选择，避免手填路径。
+    """
+
+    def __init__(self, disk_id: int, disk_name: str,
+                 current_path: str = "", parent=None):
+        """
+        :param disk_id: 虚拟磁盘 ID
+        :param disk_name: 磁盘展示名称（用于窗口标题）
+        :param current_path: 当前已选路径（编辑模式预填充）
+        :param parent: 父窗口
+        """
+        super().__init__(parent)
+        self.setWindowTitle(f"选择远端目录 - {disk_name}")
+        self.setWindowIcon(get_app_icon())
+        self.resize(520, 420)
+        self._disk_id = disk_id
+        # 路径栈：栈顶为当前正在浏览的相对路径
+        self._path_stack: list[str] = [current_path] if current_path else [""]
+        self._selected_path: str = ""  # 用户最终选择的路径
+        self._setup_ui()
+        self._refresh()
+
+    def _setup_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+
+        layout.addWidget(SubtitleLabel("浏览并选择远端目录"))
+        layout.addWidget(CaptionLabel(
+            "提示：双击文件夹进入子目录，点击「选择当前目录」确认。"
+        ))
+
+        # 当前路径展示 + 操作按钮
+        path_row = QHBoxLayout()
+        path_row.setSpacing(8)
+        path_row.addWidget(BodyLabel("当前路径："))
+        self._path_label = StrongBodyLabel("/")
+        self._path_label.setWordWrap(False)
+        path_row.addWidget(self._path_label, stretch=1)
+
+        self._back_btn = ToolButton(FIF.RETURN)
+        self._back_btn.setToolTip("返回上级目录")
+        self._back_btn.clicked.connect(self._on_go_back)
+        path_row.addWidget(self._back_btn)
+
+        root_btn = ToolButton(FIF.CANCEL_MEDIUM)
+        root_btn.setToolTip("返回根目录")
+        root_btn.clicked.connect(self._on_go_root)
+        path_row.addWidget(root_btn)
+
+        layout.addLayout(path_row)
+
+        # 目录列表
+        self._dir_list = QListWidget()
+        self._dir_list.setMinimumHeight(220)
+        self._dir_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._dir_list.itemDoubleClicked.connect(self._on_enter_dir)
+        layout.addWidget(self._dir_list, stretch=1)
+
+        # 按钮行
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = PushButton("取消")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+        select_btn = PrimaryPushButton("选择当前目录")
+        select_btn.setMinimumWidth(160)
+        select_btn.clicked.connect(self._on_select)
+        btn_row.addWidget(select_btn)
+        layout.addLayout(btn_row)
+
+    def _refresh(self) -> None:
+        """刷新当前路径下的子目录列表"""
+        current_path = self._path_stack[-1]
+        self._path_label.setText("/" + current_path if current_path else "/")
+        self._back_btn.setEnabled(len(self._path_stack) > 1)
+
+        def fetch():
+            return disk_service.browse_dirs(self._disk_id, current_path)
+
+        worker = Worker(fetch)
+        worker.finished.connect(self._on_dirs_loaded)
+        worker.error.connect(lambda e: self._show_error(f"加载目录失败：{e}"))
+        worker.start()
+
+    def _on_dirs_loaded(self, dirs: list) -> None:
+        """目录列表加载回调"""
+        self._dir_list.clear()
+        if not dirs:
+            placeholder = QListWidgetItem("（此目录下没有子文件夹）")
+            placeholder.setFlags(Qt.NoItemFlags)
+            self._dir_list.addItem(placeholder)
+            return
+        for d in dirs:
+            item = QListWidgetItem(f"📁  {d['name']}")
+            item.setData(Qt.UserRole, d["path"])
+            self._dir_list.addItem(item)
+
+    def _on_enter_dir(self, item: QListWidgetItem) -> None:
+        """双击进入子目录"""
+        path = item.data(Qt.UserRole)
+        if not path:
+            return
+        self._path_stack.append(path)
+        self._refresh()
+
+    def _on_go_back(self) -> None:
+        """返回上级目录"""
+        if len(self._path_stack) > 1:
+            self._path_stack.pop()
+            self._refresh()
+
+    def _on_go_root(self) -> None:
+        """返回根目录"""
+        self._path_stack = [""]
+        self._refresh()
+
+    def _on_select(self) -> None:
+        """选择当前浏览的目录路径"""
+        self._selected_path = self._path_stack[-1]
+        self.accept()
+
+    def _show_error(self, msg: str) -> None:
+        InfoBar.error("错误", msg, parent=self,
+                      duration=4000, position=InfoBarPosition.TOP)
+
+    def get_selected_path(self) -> str:
+        """
+        :returns: 用户选择的相对路径（空字符串表示根目录）
+        """
+        return self._selected_path
+
+
 # ── 创建/编辑对话框 ─────────────────────────────
 
 class _SyncConfigDialog(QDialog):
@@ -73,6 +215,7 @@ class _SyncConfigDialog(QDialog):
         self.setWindowIcon(get_app_icon())
         self.resize(560, 480)
         self._result_data: Optional[dict] = None
+        self._remote_path: str = ""  # 远端目录（独立于输入控件存储）
         self._setup_ui()
         if config:
             self._load(config)
@@ -114,11 +257,26 @@ class _SyncConfigDialog(QDialog):
         self._disk_combo.setPlaceholderText("选择远端虚拟磁盘")
         for d in self._disks:
             self._disk_combo.addItem(d["name"], userData=d["id"])
+        self._disk_combo.currentIndexChanged.connect(self._on_disk_changed)
         form.addRow("远端虚拟磁盘", self._disk_combo)
 
-        self._remote_input = LineEdit()
-        self._remote_input.setPlaceholderText("磁盘内子目录（留空表示根目录）")
-        form.addRow("远端子目录", self._remote_input)
+        # 远端子目录：标签展示 + 浏览按钮，不再手填
+        remote_row = QHBoxLayout()
+        remote_row.setSpacing(8)
+        self._remote_label = StrongBodyLabel("（未选择）")
+        self._remote_label.setWordWrap(False)
+        remote_row.addWidget(self._remote_label, stretch=1)
+        browse_remote_btn = PushButton(FIF.FOLDER, "浏览…")
+        browse_remote_btn.setToolTip("浏览远端目录")
+        browse_remote_btn.clicked.connect(self._on_browse_remote)
+        remote_row.addWidget(browse_remote_btn)
+        clear_remote_btn = ToolButton(FIF.CANCEL_MEDIUM)
+        clear_remote_btn.setToolTip("重置为根目录")
+        clear_remote_btn.clicked.connect(self._on_clear_remote)
+        remote_row.addWidget(clear_remote_btn)
+        remote_holder = QWidget()
+        remote_holder.setLayout(remote_row)
+        form.addRow("远端子目录", remote_holder)
 
         # 自动同步
         self._auto_switch = SwitchButton()
@@ -159,6 +317,41 @@ class _SyncConfigDialog(QDialog):
         if path:
             self._local_input.setText(path)
 
+    def _on_disk_changed(self, index: int) -> None:
+        """切换远端磁盘时，清空已选的远端目录（不同磁盘目录结构不同）"""
+        self._remote_path = ""
+        self._remote_label.setText("（未选择）")
+
+    def _on_browse_remote(self) -> None:
+        """打开远端目录浏览对话框"""
+        if self._disk_combo.currentIndex() < 0:
+            self._show_warning("请先选择远端虚拟磁盘")
+            return
+        disk_id = self._disk_combo.currentData()
+        disk_name = self._disk_combo.currentText()
+        dlg = _RemoteDirBrowserDialog(
+            disk_id=int(disk_id),
+            disk_name=disk_name,
+            current_path=self._remote_path,
+            parent=self,
+        )
+        if dlg.exec() == QDialog.Accepted:
+            selected = dlg.get_selected_path()
+            self._remote_path = selected
+            self._update_remote_label()
+
+    def _on_clear_remote(self) -> None:
+        """重置远端路径为根目录"""
+        self._remote_path = ""
+        self._remote_label.setText("（根目录）")
+
+    def _update_remote_label(self) -> None:
+        """更新远端目录的展示标签"""
+        if not self._remote_path:
+            self._remote_label.setText("（根目录）")
+        else:
+            self._remote_label.setText(f"/{self._remote_path}")
+
     def _load(self, config: dict) -> None:
         """编辑模式下填充已有数据"""
         self._name_input.setText(config.get("name", ""))
@@ -169,7 +362,9 @@ class _SyncConfigDialog(QDialog):
             if d["id"] == target_disk_id:
                 self._disk_combo.setCurrentIndex(i)
                 break
-        self._remote_input.setText(config.get("remote_path", "") or "")
+        # 远端目录
+        self._remote_path = config.get("remote_path", "") or ""
+        self._update_remote_label()
         self._auto_switch.setChecked(bool(config.get("auto_sync", False)))
         self._interval_spin.setValue(int(config.get("sync_interval", 300)))
         self._enabled_switch.setChecked(bool(config.get("enabled", True)))
@@ -188,7 +383,7 @@ class _SyncConfigDialog(QDialog):
             self._show_warning("请选择远端虚拟磁盘")
             return
         disk_id = self._disk_combo.currentData()
-        remote_path = self._remote_input.text().strip().strip("/")
+        remote_path = self._remote_path.strip().strip("/")
         if self._interval_spin.value() < 30:
             self._show_warning("同步间隔不能小于 30 秒")
             return

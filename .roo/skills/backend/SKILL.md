@@ -31,6 +31,31 @@ description: 负责 jflove-server 后端业务代码开发，完成 RESTful API 
 - 路径：`文档记录/后端开发记录/<版本号>.md`；同步更新 `jflove-server/README.md`
 - 必须包含：功能与改动点、接口/类/方法、DDL/DML、修改前后逻辑对比、关键设计取舍
 
+## 开发环境（必读）
+
+### 虚拟环境路径
+
+**默认寻找 项目下的 venv 目录,如果没有,则按下方目录寻找**
+| 平台 | Python 路径 |
+|------|-----------|
+| Linux | `jflove-server/venv-linux/bin/python` |
+| Windows | `jflove-server/venv-win/Scripts/python.exe` |
+
+**自测命令**（始终使用上面对应平台的 Python 解释器执行）：
+
+```bash
+# flake8 代码风格检查（0 警告才算通过）
+python -m flake8 src/ tests/ --max-line-length=99
+
+# pytest 单元测试（全部通过才算通过）
+python -m pytest tests/ -v
+```
+
+> ⚠ 如果 flake8 / pytest 未安装，先用对应平台的 pip 安装：
+> ```bash
+> python -m pip install flake8 pytest
+> ```
+
 ## 安全宪法（参见 AGENTS.md §9）
 
 新接口开发前对照 §9.7 清单逐条勾选。流程重点：
