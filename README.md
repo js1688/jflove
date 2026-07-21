@@ -1,8 +1,8 @@
 # JFLove — 私有文档与笔记协同管理系统
 
-![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.8.0.2-orange) ![License](https://img.shields.io/badge/License-Proprietary-red)
+![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.8.0.2-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.27%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.6%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
-JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统，提供服务端 + 桌面客户端双端架构。所有通信经过端到端加密（X25519 ECDH + ChaCha20-Poly1305），保障用户数据隐私。
+JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统，提供服务端 + 桌面客户端 + 移动端三端架构。所有通信经过端到端加密（X25519 ECDH + ChaCha20-Poly1305），保障用户数据隐私。
 
 ---
 
@@ -14,48 +14,30 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 
 | 工具 | 说明 |
 |------|------|
-| **操作系统** | Linux 7.0（开发主力）/ Windows / macOS（桌面端构建） |
+| **操作系统** | Linux 7.0（开发主力）/ Windows / macOS（桌面端/iOS 构建） |
 | **IDE** | Visual Studio Code |
-| **AI 插件** | ZOO CODE AI（驱动多角色 AI 代理工作流） |
-| **AI 模型** | DeepSeek-v4-pro（深度推理模型）, DeepSeek-v4-flash（编码模型） |
+| **AI 插件** | GitHub Copilot + DeepSeek V4 for Copilot Chat（集成 deepseek-v4-pro 模型，驱动多角色 AI 代理工作流） |
+| **AI 模型** | deepseek-v4-pro（通过 GitHub Copilot Chat 接入） |
 | **代码风格** | EditorConfig 统一缩进（2 空格，UTF-8，LF 换行） |
-| **调试配置** | VS Code launch.json 预设服务端/桌面端启动配置 |
+| **调试配置** | VS Code launch.json 预设服务端/桌面端/移动端启动配置 |
 
-### AI 代理角色与模型
+### AI 代理角色
 
-项目采用 **多代理协作架构**，每个角色由专用 AI 模型驱动，通过规范化流水线协同工作：
+项目采用 **多代理协作架构**，通过 `.claude/skills/` 目录下的技能文件驱动 10 个 AI 角色协同工作：
 
-| 角色 | 模式 | 模型类型 | 职责 |
-|------|------|---------|------|
-| **Product** | 🏗️ Architect | 深度推理模型 | 需求挖掘、编写需求文档 |
-| **Designer** | 🏗️ Architect | 深度推理模型 | 系统架构、数据库、API 设计 |
-| **Backend** | 💻 Code | 编码模型 | 后端业务代码实现 |
-| **Desktop** | 💻 Code | 编码模型 | 桌面端 UI 与交互实现 |
-| **Code Review** | 💻 Code | 编码模型 | 代码规范、质量、安全审查 |
-| **Testing** | 💻 Code | 编码模型 | 自动化测试用例编写与执行 |
-| **PMO** | 💻 Code | 编码模型 | 项目管理、任务跟踪、版本控制 |
-| **DevOps** | 💻 Code | 编码模型 | 构建、打包、部署、发布 |
+| 角色 | 职责 |
+|------|------|
+| **Product** | 需求挖掘、编写需求文档 |
+| **Designer** | 系统架构、数据库、API 设计 |
+| **Backend** | 后端业务代码实现（FastAPI） |
+| **Desktop** | 桌面端 UI 与交互实现（PySide6） |
+| **Mobile** | 移动端 UI 与交互实现（Flutter + Dart） |
+| **Code Review** | 代码规范、质量、安全审查 |
+| **Testing** | 自动化测试用例编写与执行 |
+| **PMO** | 项目管理、任务跟踪、版本控制 |
+| **DevOps** | 构建、打包、部署、发布 |
 
-### 版本迭代流水线
-
-每个版本严格按以下阶段顺序执行，前一阶段完成后才能进入下一阶段：
-
-```
-Phase 1              Phase 2              Phase 3              Phase 4
-┌──────────┐        ┌──────────┐        ┌──────────┐        ┌──────────┐
-│ 📋 需求编写 │   →   │ 🏗️ 设计文档 │   →   │ 🔧 后端开发 │   →   │ 🖥️ 桌面端开发 │
-│ Architect │        │ Architect │        │   Code   │        │   Code   │
-└──────────┘        └──────────┘        └──────────┘        └──────────┘
-                                                                    │
-                                                                    ▼
-Phase 8              Phase 7              Phase 6              Phase 5
-┌──────────┐        ┌──────────┐        ┌──────────┐        ┌──────────┐
-│ 🚀 版本发布 │   ←   │ 📊 PMO管理  │   ←   │ 🧪 测试报告 │   ←   │ 🔍 代码审查 │
-│   Code   │        │   Code   │        │   Code   │        │   Code   │
-└──────────┘        └──────────┘        └──────────┘        └──────────┘
-```
-
-> 详细开发流程与角色规范见 [`AGENTS.md`](AGENTS.md)。
+> 详细角色规范与工作流程见 [`AGENTS.md`](AGENTS.md)。
 
 ---
 
@@ -65,8 +47,8 @@ Phase 8              Phase 7              Phase 6              Phase 5
 |------|------|------|---------|
 | **jflove-server** | [`jflove-server/`](jflove-server/) | 后端服务（FastAPI + SQLite） | ✅ 在研 |
 | **jflove-desktop** | [`jflove-desktop/`](jflove-desktop/) | 跨平台桌面客户端（PySide6） | ✅ 在研 |
+| **jflove-app** | [`jflove-app/`](jflove-app/) | 跨平台移动端 App（Flutter + Dart），首版 Android-only，iOS/鸿蒙预留 | ✅ 在研 |
 | jflove-web | `jflove-web/` | 浏览器 Web 端 | ⏸️ 暂不开发 |
-| jflove-app | `jflove-app/` | iOS / Android 移动端 | ⏸️ 暂不开发 |
 
 > **模块边界**：各模块独立开发，互不越界。详细代码规范与工作手册见 [`AGENTS.md`](AGENTS.md)。
 
@@ -160,6 +142,8 @@ Phase 8              Phase 7              Phase 6              Phase 5
 
 ## 版本变化
 
+[点击查看构建产物发布记录](https://github.com/js1688/jflove/releases)
+
 > 以下记录从 v1.1.6 开始的版本变化。更早版本参见 `文档记录/需求文档/`。
 
 ### v1.1.6（当前版本）— 同步配置客户端本地化
@@ -203,6 +187,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
 | 设计文档 | [`文档记录/设计文档/`](文档记录/设计文档/) |
 | 后端开发记录 | [`文档记录/后端开发记录/`](文档记录/后端开发记录/) |
 | 桌面端开发记录 | [`文档记录/桌面端开发记录/`](文档记录/桌面端开发记录/) |
+| 移动端开发记录 | [`文档记录/移动端开发记录/`](文档记录/移动端开发记录/) |
 | 代码审查报告 | [`文档记录/代码审查报告/`](文档记录/代码审查报告/) |
 | 测试报告 | [`文档记录/测试报告/`](文档记录/测试报告/) |
 | 项目管理记录 | [`文档记录/项目管理记录/`](文档记录/项目管理记录/) |
@@ -214,5 +199,6 @@ Phase 8              Phase 7              Phase 6              Phase 5
 
 - 服务端技术文档 → [`jflove-server/README.md`](jflove-server/README.md)
 - 桌面端技术文档 → [`jflove-desktop/README.md`](jflove-desktop/README.md)
+- 移动端技术文档 → [`jflove-app/README.md`](jflove-app/README.md)
 - 项目工作手册 → [`AGENTS.md`](AGENTS.md)
 - 数据库文件 → [`jflove-db/`](jflove-db/)

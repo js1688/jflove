@@ -1,8 +1,13 @@
 """
-同步配置服务（客户端 v1.1.6 重构版）
+同步配置服务（客户端 v1.2.0 账号隔离版）
+
+v1.2.0 变更：
+  - 同步配置文件按账号隔离，每个登录用户使用独立的 sync_configs_{username}.json，
+    避免 A 账号看到 B 账号的配置
+  - 未登录时使用 sync_configs_default.json 作为兜底
 
 v1.1.6 变更：
-  - 所有同步配置改为客户端本地 JSON 文件管理（sync_configs.json）
+  - 所有同步配置改为客户端本地 JSON 文件管理
   - 不再调服务端 CRUD 接口（服务端已移除 sync_configs 表）
   - create_config/update_config/delete_config 仅读写本地文件
   - get_remote_snapshot 改为 POST /api/v1/sync/snapshot（传 disk_id + remote_path）
@@ -22,11 +27,26 @@ from datetime import datetime, timezone
 from src.config.settings import LOCAL_STORAGE_DIR
 from src.utils.http_client import http_client
 from src.utils.logger import get_logger
+from src.utils.session import session_manager
 
 logger = get_logger(__name__)
 
-# ── 本地存储文件路径 ──────────────────────────────
-_SYNC_CONFIGS_FILE = os.path.join(LOCAL_STORAGE_DIR, "sync_configs.json")
+# ── 本地存储文件路径（按账号隔离） ──────────────────
+
+
+def _get_sync_configs_path() -> str:
+    """
+    获取当前账号对应的同步配置文件路径。
+
+    每个登录用户拥有独立的 sync_configs_{username}.json，避免 A 账号看到 B 账号的配置。
+    未登录时使用 sync_configs_default.json 作为兜底。
+    """
+    username = (session_manager.username or "").strip()
+    if not username:
+        filename = "sync_configs_default.json"
+    else:
+        filename = f"sync_configs_{username}.json"
+    return os.path.join(LOCAL_STORAGE_DIR, filename)
 
 
 # ── 本地文件读写 ──────────────────────────────────
@@ -34,32 +54,34 @@ _SYNC_CONFIGS_FILE = os.path.join(LOCAL_STORAGE_DIR, "sync_configs.json")
 
 def _read_local_configs() -> list[dict]:
     """
-    从本地 sync_configs.json 读取全部同步配置。
+    从当前账号对应的本地 JSON 文件读取全部同步配置。
 
     :returns: 配置列表，文件不存在或损坏时返回空列表
     """
-    if not os.path.exists(_SYNC_CONFIGS_FILE):
+    path = _get_sync_configs_path()
+    if not os.path.exists(path):
         return []
     try:
-        with open(_SYNC_CONFIGS_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data.get("configs", []) if isinstance(data, dict) else []
     except Exception as e:
-        logger.warning("读取 sync_configs.json 失败：%s", e)
+        logger.warning("读取 %s 失败：%s", os.path.basename(path), e)
         return []
 
 
 def _write_local_configs(configs: list[dict]) -> None:
     """
-    将同步配置列表原子写入本地 JSON 文件。
+    将同步配置列表原子写入当前账号对应的本地 JSON 文件。
 
     :param configs: 配置列表
     """
-    os.makedirs(os.path.dirname(_SYNC_CONFIGS_FILE), exist_ok=True)
-    tmp = _SYNC_CONFIGS_FILE + ".tmp"
+    path = _get_sync_configs_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"configs": configs}, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, _SYNC_CONFIGS_FILE)
+    os.replace(tmp, path)
 
 
 # ── CRUD（全本地操作） ────────────────────────────

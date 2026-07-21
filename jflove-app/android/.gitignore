@@ -1,0 +1,4 @@
+# 已在根 .gitignore 统一管理，此处仅保留根目录未覆盖的条目
+/gradlew
+/gradlew.bat
+GeneratedPluginRegistrant.java

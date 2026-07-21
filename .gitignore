@@ -38,3 +38,30 @@ jflove-db/jflove-dev.db
 
 # 运行时日志（可能含本地路径、用户名等个人隐私）
 logs/
+
+# Flutter / Dart 相关
+.dart_tool/
+.pub-cache/
+.pub/
+.flutter-plugins
+.flutter-plugins-dependencies
+jflove-app/*.iml
+jflove-app/coverage/
+
+# 首次只做 Android，暂不需要的桌面平台目录
+jflove-app/linux/
+jflove-app/macos/
+jflove-app/windows/
+
+# Android 构建缓存与本地配置（jflove-app）
+jflove-app/android/.gradle/
+jflove-app/android/.kotlin/
+jflove-app/android/.cxx/
+jflove-app/android/captures/
+jflove-app/android/local.properties
+jflove-app/android/key.properties
+jflove-app/android/**/*.keystore
+jflove-app/android/**/*.jks
+
+# Windows 系统工件
+$null

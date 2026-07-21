@@ -1,6 +1,6 @@
 # 项目工作手册（jflove）
 
-> 本文件是项目的总纲。具体角色的工作细则放在 `.roo/skills/<角色名>/SKILL.md`，本文件只做规则定义与角色调度。
+> 本文件是项目的总纲。具体角色的工作细则放在 `.claude/skills/<角色名>/SKILL.md`（兼容 GitHub Copilot / Claude Code / Cursor / Windsurf 等），本文件只做规则定义与角色调度。
 
 ## 1. 项目模块与开发状态
 
@@ -9,7 +9,7 @@
 | jflove-server | `jflove-server/` | 后端服务（FastAPI） | 在研 |
 | jflove-desktop | `jflove-desktop/` | 跨平台桌面应用（PySide6） | 在研 |
 | jflove-web | `jflove-web/` | 浏览器 Web 端 | 暂不开发 |
-| jflove-app | `jflove-app/` | iOS / Android 移动端 | 暂不开发 |
+| jflove-app | `jflove-app/` | 移动端（Flutter + Dart）首版 Android-only，iOS/鸿蒙预留 | 在研 |
 
 **模块边界（强制）**：
 
@@ -17,28 +17,36 @@
 - 标记为"暂不开发"的模块，未获用户明确要求一律不动。
 - 永远不要自动修改 `.github`、`.vscode`、`.gitignore`、`.git`、`.idea`，除非用户明确要求。
 
+## 1.1 计划先行（强制）
+
+- **任何任务开始前，必须先列出完整计划**（包含每个步骤的具体内容、涉及的文件、依赖关系），经用户确认无误后，再逐步执行。
+- **在处理新任务时也必须先列出 todo 清单**（写入 `plan.md`），经用户确认后再动手。
+- **禁止跳过计划步骤直接编码**，即使是小改动也需要先说明改什么、改哪里、为什么改。
+- **上下文截断风险防范**：长对话中，AI 应主动做阶段性总结并重新对齐计划，防止因上下文窗口截断导致工作不稳定。
+
+### 1.1.1 计划文件管理（强制）
+
+- **所有计划必须写入 `plans/` 目录**，每份计划独立一个文件，文件名格式：`plans/<模块>-<任务简述>.md`（如 `plans/mobile-crypto-layer.md`、`plans/server-bugfix-login-ttl.md`）。
+- **每份计划文件必须包含**：
+  - 任务目标（简要描述要完成什么）
+  - 当前完成状态（已完成步骤 / 进行中步骤 / 待完成步骤，使用 `[x]` / `[-]` / `[ ]` 标记）
+  - 涉及的源文件列表（预估会被修改的文件路径）
+  - 依赖关系（此任务依赖哪些前置任务/文档）
+- **任务中断与续接**：
+  - 每次开始工作时，AI 必须先读取 `plans/` 下最近相关的计划文件，了解当前进度。
+  - 工作过程中及时更新计划文件的完成状态，确保即使上下文截断、新对话重新加载后也能准确续接。
+  - 所有步骤完成并验证通过后，将计划文件移至 `plans/归档/`（或直接在文件名前加 `DONE-` 前缀）。
+- **避免计划间相互干扰**：每份计划文件只覆盖一个明确的任务范围。多个独立任务并行时，分别建立独立计划文件，不混在同一份文件中。
+
 ## 2. 技术栈
 
-### 2.1 jflove-server（后端）
+| 模块 | 语言 | 框架 / 关键库 | 详细技术栈 |
+|------|------|-------------|-----------|
+| jflove-server | Python 3.14+ | FastAPI + SQLite3 + PyJWT(ES256) + cryptography | `backend/SKILL.md` |
+| jflove-desktop | Python 3.14+ | PySide6 6.8 + Fluent-Widgets + requests | `cross-platform-desktop/SKILL.md` |
+| jflove-app | Dart 3.6+ | Flutter 3.27 + Riverpod + dio + pointycastle | `cross-platform-mobile/SKILL.md` |
 
-- 语言：Python 3.14+
-- Web 框架：FastAPI；接口规范：OpenAPI
-- 数据库：SQLite3
-- 认证：PyJWT（ES256）
-- 加密：cryptography（对称 ChaCha20-Poly1305，非对称 ECDH X25519）
-- 测试：pytest；风格检查：flake8
-- 构建：pyinstaller；依赖：pip + `requirements.txt`
-- 日志：Python logging，INFO/ERROR 双级，**中文日志**，写入 `logs/`
-- 异常：全局异常处理 + 友好提示
-- 性能：耗时操作使用 asyncio / 多线程
-
-### 2.2 jflove-desktop（桌面端）
-
-- 语言：Python 3.14+
-- 框架：PySide6 6.8.0.2；UI 规范：Material Design；组件库：PySide6-Fluent-Widgets
-- 状态管理：Redux 模式（基于信号槽实现）
-- HTTP：requests
-- 加密 / JWT / 测试 / 风格 / 构建 / 依赖 / 日志 / 异常 / 性能：与后端一致
+> **加密协议三端统一**：X25519 ECDH + ChaCha20-Poly1305 + HKDF-SHA256（盐 `b"jflove-v1"`，32B）。
 
 ## 3. 项目目录结构
 
@@ -79,6 +87,53 @@
 └── README.md
 ```
 
+### jflove-app
+
+```jflove-app/
+├── lib/
+│   ├── main.dart                         # 入口，ProviderScope + App widget
+│   ├── app.dart                          # MaterialApp.router + 主题
+│   ├── config/                           # 应用配置（常量、主题）
+│   ├── models/                           # 数据模型（不可变类）
+│   ├── providers/                        # Riverpod 状态管理
+│   ├── services/                         # 业务服务层（9 个 service）
+│   ├── pages/                            # 页面（按路由组织）
+│   ├── widgets/                          # 可复用 UI 组件
+│   └── utils/                            # 工具模块（crypto / http / session）
+├── test/                                 # 单元 + Widget 测试
+├── integration_test/                     # 集成测试
+├── android/                              # Android 原生壳
+├── ios/                                  # iOS 原生壳（预留）
+├── ohos/                                 # 鸿蒙原生壳（预留，flutter_ohos）
+├── pubspec.yaml                          # 依赖声明
+├── analysis_options.yaml                 # 静态分析规则
+├── build.py                              # 构建脚本
+└── README.md
+```
+
+## 3.1 开发环境变量约定
+
+以下为系统级环境变量，**所有角色统一使用**，不在 SKILL.md 中硬编码路径。
+
+| 变量名 | 值 | 用途 |
+|--------|-----|------|
+| `FLUTTER_HOME` | `D:\flutter\flutter_3.44.6-stable` | Flutter SDK 根目录，用于移动端开发 |
+|  | `%FLUTTER_HOME%\bin` 已追加到 `PATH` | 确保 `flutter` / `dart` 命令可直接执行 |
+
+新增 Flutter/Dart SDK 后依此模式添加 `FLUTTER_HOME` 及其 `bin` 目录到 PATH。
+
+### Python venv 路径约定
+
+后端与桌面端遵循统一 venv 路径模式（各 SKILL.md 不再重复描述）：
+- **Windows**：`<模块>/venv-win/Scripts/python.exe`
+- **Linux**：`<模块>/venv-linux/bin/python`
+
+自测命令（统一使用对应平台的 Python 解释器）：
+- flake8：`python -m flake8 src/ tests/ --max-line-length=99`
+- pytest：`python -m pytest tests/ -v`
+
+---
+
 ### 文档目录（统一在仓库根 `文档记录/` 下）
 
 ```text
@@ -87,6 +142,7 @@
 ├── 设计文档/              # designer 输出
 ├── 后端开发记录/           # backend 输出
 ├── 桌面端开发记录/         # cross-platform-desktop 输出
+├── 移动端开发记录/         # cross-platform-mobile 输出
 ├── 代码审查报告/           # code-review 输出
 ├── 测试报告/              # testing 输出
 ├── 项目管理记录/           # pmo 输出
@@ -135,65 +191,71 @@
 
 ## 6. 角色与命令对应表
 
+每次工作如果命中技能时,应当主动告知用户当前命中了哪些技能
+
 | 角色（agent） | 命令文件 | 模块归属 | 输出文档目录 |
 | --- | --- | --- | --- |
-| product | `.roo/skills/product/SKILL.md` | 产品 | `文档记录/需求文档/` |
-| designer | `.roo/skills/designer/SKILL.md` | 架构设计 | `文档记录/设计文档/` |
-| backend | `.roo/skills/backend/SKILL.md` | jflove-server | `文档记录/后端开发记录/` + `jflove-server/README.md` |
-| cross-platform-desktop | `.roo/skills/cross-platform-desktop/SKILL.md` | jflove-desktop | `文档记录/桌面端开发记录/` + `jflove-desktop/README.md` |
-| web-frontend | `.roo/skills/web-frontend/SKILL.md` | jflove-web（暂不开发） | 启用后建立 |
-| cross-platform-mobile | `.roo/skills/cross-platform-mobile/SKILL.md` | jflove-app（暂不开发） | 启用后建立 |
-| code-review | `.roo/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
-| testing | `.roo/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
-| pmo | `.roo/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
-| devops | `.roo/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/` |
+| product | `.claude/skills/product/SKILL.md` | 产品 | `文档记录/需求文档/` |
+| designer | `.claude/skills/designer/SKILL.md` | 架构设计 | `文档记录/设计文档/` |
+| backend | `.claude/skills/backend/SKILL.md` | jflove-server | `文档记录/后端开发记录/` + `jflove-server/README.md` |
+| cross-platform-desktop | `.claude/skills/cross-platform-desktop/SKILL.md` | jflove-desktop | `文档记录/桌面端开发记录/` + `jflove-desktop/README.md` |
+| web-frontend | `.claude/skills/web-frontend/SKILL.md` | jflove-web（暂不开发） | 启用后建立 |
+| cross-platform-mobile | `.claude/skills/cross-platform-mobile/SKILL.md` | jflove-app | `文档记录/移动端开发记录/` + `jflove-app/README.md` |
+| code-review | `.claude/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
+| testing | `.claude/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
+| pmo | `.claude/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
+| devops | `.claude/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/` |
 
 **调度原则**：
 
-- 角色定位、行为规范、技术栈细节均以 `.roo/skills/<角色名>/SKILL.md` 为准；本文件不重复展开。
+- 角色定位、行为规范、技术栈细节均以 `.claude/skills/<角色名>/SKILL.md` 为准；本文件不重复展开。
 - 命中具体流程后，必须在该流程内工作，不得越界处理其他流程的事。
 
 ## 7. 版本迭代流程（核心流水线）
 
 > **每个版本迭代必须按以下固定阶段顺序执行，前一阶段完成后才能进入下一阶段。**
->
-> 项目使用 ZOO CODE AI 插件管理两种模式：
-> - **🏗️ Architect（思考模式）**：配置深度推理模型，用于需求分析、架构设计等需要深度思考的任务
-> - **💻 Code（编码模式）**：配置编码模型，用于代码实现、审查、测试等执行类任务
 
 ### 7.1 完整流水线
 
 ```
-Phase 1              Phase 2              Phase 3              Phase 4
-┌──────────┐        ┌──────────┐        ┌──────────┐        ┌──────────┐
-│ 📋 需求编写 │   →   │ 🏗️ 设计文档 │   →   │ 🔧 后端开发 │   →   │ 🖥️ 桌面端开发 │
-│ Architect │        │ Architect │        │   Code   │        │   Code   │
-└──────────┘        └──────────┘        └──────────┘        └──────────┘
-                                                                    │
-                                                                    ▼
+Phase 1              Phase 2              Phase 3
+┌──────────┐        ┌──────────┐        ┌──────────┐
+│ 📋 需求编写 │   →   │ 🏗️ 设计文档 │   →   │ 🔧 后端开发 │
+└──────────┘        └──────────┘        └──────────┘
+                                              │
+                                              ▼
+                                    ┌──────────────────┐
+                                    │ 选择开发目标        │
+                                    ├──────────────────┤
+                                    │ Phase 4a: 🖥️ 桌面端 │
+                                    │ Phase 4b: 📱 移动端 │
+                                    │ （可并行或二选一）   │
+                                    └────────┬─────────┘
+                                             │
+                                             ▼
 Phase 8              Phase 7              Phase 6              Phase 5
 ┌──────────┐        ┌──────────┐        ┌──────────┐        ┌──────────┐
 │ 🚀 版本发布 │   ←   │ 📊 PMO管理  │   ←   │ 🧪 测试报告 │   ←   │ 🔍 代码审查 │
-│   Code   │        │   Code   │        │   Code   │        │   Code   │
 └──────────┘        └──────────┘        └──────────┘        └──────────┘
 ```
 
 ### 7.2 各阶段详细说明
 
-| 阶段 | 模式 | 触发关键词 | 角色 | 输入 | 产出 |
-|------|------|-----------|------|------|------|
-| **Phase 1** 需求编写 | 🏗️ Architect | "产品设计" / "开启新版本" | product | 用户原始需求 | `文档记录/需求文档/<版本号>.md` |
-| **Phase 2** 设计文档 | 🏗️ Architect | "技术设计" | designer | 需求文档（Phase 1） | `文档记录/设计文档/<版本号>.md` |
-| **Phase 3** 后端开发 | 💻 Code | "后端开发" | backend | 设计文档（Phase 2） | 后端代码 + `文档记录/后端开发记录/<版本号>.md` |
-| **Phase 4** 桌面端开发 | 💻 Code | "桌面端开发" | cross-platform-desktop | 设计文档 + 后端记录 | 桌面端代码 + `文档记录/桌面端开发记录/<版本号>.md` |
-| **Phase 5** 代码审查 | 💻 Code | "代码审查" | code-review | 所有代码变更 + 需求/设计文档 | `文档记录/代码审查报告/<版本号>.md` |
-| **Phase 6** 测试 | 💻 Code | "测试" | testing | 需求/设计文档 + 代码 | 补全 pytest 用例 + `文档记录/测试报告/<版本号>.md` |
-| **Phase 7** 项目管理 | 💻 Code | "项目管理" | pmo | 版本范围与任务列表 | `文档记录/项目管理记录/<版本号>.md` |
-| **Phase 8** 版本发布 | 💻 Code | "发布" | devops | 审查/测试通过（Phase 5+6） | 构建产物 + `文档记录/版本发布记录/<版本号>.md` |
+| 阶段 | 触发关键词 | 角色 | 输入 | 产出 |
+|------|-----------|------|------|------|
+| **Phase 1** 需求编写 | "产品设计" / "开启新版本" | product | 用户原始需求 | `文档记录/需求文档/<版本号>.md` |
+| **Phase 2** 设计文档 | "技术设计" | designer | 需求文档（Phase 1） | `文档记录/设计文档/<版本号>.md` |
+| **Phase 3** 后端开发 | "后端开发" | backend | 设计文档（Phase 2） | 后端代码 + `文档记录/后端开发记录/<版本号>.md` |
+| **Phase 4a** 桌面端开发 | "桌面端开发" | cross-platform-desktop | 设计文档 + 后端记录 | 桌面端代码 + `文档记录/桌面端开发记录/<版本号>.md` |
+| **Phase 4b** 移动端开发 | "移动端开发" | cross-platform-mobile | 设计文档 + 后端记录 | 移动端代码 + `文档记录/移动端开发记录/<版本号>.md` |
+| **Phase 5** 代码审查 | "代码审查" | code-review | 所有代码变更 + 需求/设计文档 | `文档记录/代码审查报告/<版本号>.md` |
+| **Phase 6** 测试 | "测试" | testing | 需求/设计文档 + 代码 | 补全测试用例 + `文档记录/测试报告/<版本号>.md` |
+| **Phase 7** 项目管理 | "项目管理" | pmo | 版本范围与任务列表 | `文档记录/项目管理记录/<版本号>.md` |
+| **Phase 8** 版本发布 | "发布" | devops | 审查/测试通过（Phase 5+6） | 构建产物 + `文档记录/版本发布记录/<版本号>.md` |
 
 ### 7.3 各阶段关键步骤
 
-#### Phase 1：需求编写（Architect 模式）
+#### Phase 1：需求编写
 
 1. 确认本次版本号（遵循 §8 版本号策略）
 2. 多轮对话挖掘需求，明确功能边界
@@ -201,7 +263,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
 4. 明确验收标准（AC-1 ~ AC-n）
 5. 用户确认收尾
 
-#### Phase 2：设计文档（Architect 模式）
+#### Phase 2：设计文档
 
 1. 对齐最新版需求文档作为基线
 2. 设计系统架构、数据库表结构、API 接口
@@ -209,49 +271,57 @@ Phase 8              Phase 7              Phase 6              Phase 5
 4. 输出 `文档记录/设计文档/<版本号>.md`，包含 Mermaid 架构图
 5. 用户确认收尾
 
-#### Phase 3：后端开发（Code 模式）
+#### Phase 3：后端开发
 
 1. 阅读最新设计文档 + 上一版本代码审查/测试报告
 2. 在 `jflove-server/` 内开发，不越界
 3. 自测：flake8 0 警告 + pytest 全通过
 4. 更新 `文档记录/后端开发记录/<版本号>.md` 与 `jflove-server/README.md`
 
-#### Phase 4：桌面端开发（Code 模式）
+#### Phase 4a：桌面端开发
 
 1. 阅读最新设计文档 + 最新后端开发记录
 2. 在 `jflove-desktop/` 内开发，不越界
 3. 自测：flake8 0 警告 + pytest 全通过
 4. 更新 `文档记录/桌面端开发记录/<版本号>.md` 与 `jflove-desktop/README.md`
 
-#### Phase 5：代码审查（Code 模式）
+#### Phase 4b：移动端开发
+
+1. 阅读最新设计文档 + 最新后端开发记录
+2. 在 `jflove-app/` 内开发，不越界
+3. 自测：`dart analyze lib/` 零错误 + `flutter test` 全通过
+4. 更新 `文档记录/移动端开发记录/<版本号>.md` 与 `jflove-app/README.md`
+
+#### Phase 5：代码审查
 
 1. 对照最新需求/设计文档逐文件审查
 2. **不修改代码**，仅输出审查结论
 3. 对照 §9 安全宪法逐条核查，违反标记严重/中等
 4. 输出 `文档记录/代码审查报告/<版本号>.md`
 
-#### Phase 6：测试（Code 模式）
+#### Phase 6：测试
 
 1. 对齐最新需求/设计文档
 2. 在 `tests/` 下补全 pytest 用例
 3. **必须包含 §9 安全宪法要求的全部安全用例**（任一缺失或失败即视为不完整，不得出报告）
 4. 输出 `文档记录/测试报告/<版本号>.md`
 
-#### Phase 7：项目管理（Code 模式）
+#### Phase 7：项目管理
 
 1. 确认版本号与范围
 2. 拆解任务并标注角色
 3. 跟踪状态/风险/里程碑
 4. 维护 `文档记录/项目管理记录/<版本号>.md`
 
-#### Phase 8：版本发布（Code 模式）
+#### Phase 8：版本发布
 
 1. 校验审查报告（Phase 5）和测试报告（Phase 6）均已通过
-2. 核查全部版本号字段（服务端 3 处 + 桌面端 2 处）
+2. 核查全部版本号字段（服务端 3 处 + 桌面端 2 处 + 移动端 1 处）
 3. 同步生产库表结构（带回滚脚本）
-4. **同时构建服务端和桌面端**：
+4. **同时构建所有已开发模块**：
    - 服务端：`cd jflove-server && python build.py` → Docker 镜像
    - 桌面端：`cd jflove-desktop && python build.py` → PyInstaller 单文件
+   - 移动端：`cd jflove-app && flutter build apk --debug` → APK
 5. 执行冒烟测试
 6. 输出 `文档记录/版本发布记录/<版本号>.md`
 
@@ -261,22 +331,12 @@ Phase 8              Phase 7              Phase 6              Phase 5
 - 开始任何任务前，先阅读项目根 `README.md` 与本文件 `AGENTS.md`。
 - 命中某个阶段后，只做该阶段的事；交叉需求需先得到用户确认。
 - **严格顺序执行**：前一阶段完成后才能进入下一阶段。如果跳过某个阶段，后续阶段必须补上。
-- 需求/设计阶段使用 **Architect（思考模式）**，其余阶段使用 **Code（编码模式）**。
 
-### 7.5 模式切换指引
-
-| 当前阶段 | 需要切换到的模式 | 说明 |
-|---------|----------------|------|
-| 开启新版本 / "产品设计" | 🏗️ Architect | 需求挖掘与文档编写需要深度思考 |
-| "技术设计" | 🏗️ Architect | 架构设计需要多轮推敲 |
-| 后端/桌面端开发 | 💻 Code | 代码实现 |
-| 代码审查 / 测试 / 发布 | 💻 Code | 执行与验证 |
-
-### 7.6 BUG 修复分流流程
+### 7.5 BUG 修复分流流程
 
 > 用户使用产品后反馈问题时，AI 必须先做**问题分类**，再决定执行路径。不能无条件走完整版本迭代流程。
 
-#### 7.6.1 决策树
+#### 7.5.1 决策树
 
 ```
 用户反馈问题
@@ -317,7 +377,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
                               └──────────────────────┘
 ```
 
-#### 7.6.2 分类标准
+#### 7.5.2 分类标准
 
 | 类别 | 子类 | 典型特征 | 处理路径 | 触发关键词示例 |
 |---|---|---|---|---|
@@ -326,7 +386,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
 | | 设计 BUG | 设计文档中的架构、接口、表结构与需求不一致、遗漏鉴权标注 | **完整版本迭代**（当前版本号，Phase 1→8） | "接口设计有问题" / "数据库表结构不对" |
 | | 代码 BUG | 代码实现未遵循设计文档、逻辑错误、崩溃、异常未处理、安全漏洞 | **快速修复通道**（当前版本号，跳过 Phase 1/2/7） | "报错" / "崩溃" / "闪退" / "返回不对" / "这个 BUG" |
 
-#### 7.6.3 快速修复通道（代码 BUG）
+#### 7.5.3 快速修复通道（代码 BUG）
 
 当判定为**纯代码 BUG**（需求正确、设计正确、仅实现有误）时，按以下精简流程：
 
@@ -337,19 +397,19 @@ Phase 8              Phase 7              Phase 6              Phase 5
 Step 1：确认 BUG 根因（必须定位到具体文件/函数/行）
   │
   ▼
-Step 2：调用 backend 或 cross-platform-desktop 技能修复代码
+Step 2：调用 backend / cross-platform-desktop / cross-platform-mobile 技能修复代码
   │
   ▼
-Step 3：代码审查（Code 模式，code-review）
+Step 3：代码审查（code-review）
   │  └─ 仅审查 BUG 修复涉及的变更文件
   │
   ▼
-Step 4：测试（Code 模式，testing）
+Step 4：测试（testing）
   │  └─ 补全 BUG 相关的回归用例 + 安全用例
   │
   ▼
-Step 5：发布（Code 模式，devops）
-  │  └─ 校验审查/测试通过 → flake8 + pytest + 构建 + 冒烟
+Step 5：发布（devops）
+  │  └─ 校验审查/测试通过 → flake8 + pytest（后端/桌面端）或 dart analyze + flutter test（移动端）+ 构建 + 冒烟
   │
   ▼
 完成（版本号不变，记录在对应版本的开发记录中）
@@ -362,19 +422,14 @@ Step 5：发布（Code 模式，devops）
 - **跳过 Phase 2（设计）**：设计文档无变动
 - **跳过 Phase 7（PMO）**：不重新拆解任务
 - **必须保留 Phase 5/6/8**：代码审查 + 测试 + 发布一个不能少
-- **开发记录**：在 `文档记录/后端开发记录/<版本号>.md` 或 `桌面端开发记录/<版本号>.md` 中追加 BUG 修复记录（标注"BUG 修复"标签）
+- **开发记录**：在 `文档记录/后端开发记录/<版本号>.md` 或 `桌面端开发记录/<版本号>.md` 或 `文档记录/移动端开发记录/<版本号>.md` 中追加 BUG 修复记录（标注"BUG 修复"标签）
 
-#### 7.6.4 模式选择
+### 7.6 版本迭代前置（通用规则）
 
-| 步骤 | 模式 |
-|---|---|
-| BUG 分类与根因分析 | 🏗️ Architect（需要深度推理判断） |
-| 代码修复 | 💻 Code |
-| 代码审查 | 💻 Code |
-| 测试 | 💻 Code |
-| 发布 | 💻 Code |
-
-> **注意**：BUG 分类推理建议使用 Architect 模式，因为它需要深度思考区分"这是体验问题？需求问题？设计问题？还是代码问题？"
+> **适用于所有开发、审查、测试角色。在开始本版本工作前，必须先阅读上一版本的代码审查报告和测试报告：**
+> - 「严重」和「中等」级别的问题列为**必须修复**项，不得遗漏
+> - 「轻微」问题酌情修复
+> - 开发记录 / 审查报告 / 测试报告中逐条注明每个问题的处理方式（已修复 / 已忽略及原因）
 
 ## 8. 文档与版本管理
 
@@ -385,7 +440,7 @@ Step 5：发布（Code 模式，devops）
 
 ## 9. 安全宪法（强制条款，不可降级）
 
-> 本节由用户与 Claude 协商后固化，**所有角色（product / designer / backend / cross-platform-desktop / code-review / testing / devops 等）默认遵守**，不需要在每次对话中重新提及。任何违背本节的设计或实现都视为缺陷，必须修复。
+> 本节由用户与 Claude 协商后固化，**所有角色（product / designer / backend / cross-platform-desktop / cross-platform-mobile / code-review / testing / devops 等）默认遵守**，不需要在每次对话中重新提及。任何违背本节的设计或实现都视为缺陷，必须修复。
 >
 > 详细安全审查报告见 `文档记录/代码审查报告/v1.1-安全专项-MITM抗性-修复后复查.md`。
 
@@ -449,6 +504,7 @@ Step 5：发布（Code 模式，devops）
 | designer | 设计新接口时必须显式标注：是否在明文白名单、是否有路径参数、归属校验逻辑、加密信封策略 |
 | backend | 新增 controller 必须用 `decrypt_request_body` + `encrypt_response`；新增文件流接口必须用 `StreamingResponse + encrypt_stream_chunk` |
 | cross-platform-desktop | 所有 HTTP 调用走 `http_client`；流式响应通过 `parse_stream_frame` 解密；不引入任何加密相关的硬编码常量 |
+| cross-platform-mobile | 所有 HTTP 调用走 `http_service.dart`；流式响应通过 `stream_frame.dart` 帧解析器解密；不引入任何加密相关的硬编码常量；session_key 与 JWT 严禁出现在调试日志 |
 | code-review | 把本节当成硬规则逐条核查，发现违反一律标记**严重**；重点核查"路径参数路由是否能用伪造 ID 绕过权限" |
 | testing | 必测三类用例：① 加密信封往返；② 路径参数权限绕过（伪造他人 user_id / upload_id 应得 403）；③ 文件下载流可被客户端正确解密、篡改后认证失败 |
 | devops | 打包前确认 `_PLAIN_PATHS` 白名单未被扩大；版本发布记录中记录加密协议版本（当前 `X-Encrypted-Stream: v1`） |
