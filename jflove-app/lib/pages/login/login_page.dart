@@ -17,12 +17,10 @@ class LoginPage extends ConsumerStatefulWidget {
 }
 
 class _LoginPageState extends ConsumerState<LoginPage> {
-  final _serverController = TextEditingController(
-    text: 'http://localhost:8989',
-  );
+  final _serverController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  int _selectedTtl = 86400; // 1 天
+  int _selectedTtl = 2592000; // 默认 30 天（与桌面端一致）
   bool _isLoading = false;
   String? _errorMsg;
   List<String> _serverHistory = [];
@@ -32,12 +30,32 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   void initState() {
     super.initState();
-    _loadServerHistory();
+    _restoreUserPreferences();
   }
 
-  Future<void> _loadServerHistory() async {
+  /// 恢复用户偏好：服务器地址、登录有效期
+  Future<void> _restoreUserPreferences() async {
     final session = ref.read(sessionManagerProvider);
     final historyService = ServerHistoryService(session);
+
+    // 1. 预填充上次成功连接的服务器地址（对标桌面端 get_default）
+    if (session.serverUrl.isNotEmpty) {
+      _serverController.text = session.serverUrl;
+    } else {
+      _serverController.text = 'http://localhost:8989';
+    }
+
+    // 2. 恢复登录有效期偏好（对标桌面端 load_local_session_max_seconds）
+    if (session.localSessionMaxSeconds > 0) {
+      _selectedTtl = session.localSessionMaxSeconds;
+    }
+
+    // 3. 预填充用户名（方便用户，安全：密码不预填充）
+    if (session.username.isNotEmpty) {
+      _usernameController.text = session.username;
+    }
+
+    // 4. 加载服务器历史
     if (mounted) {
       setState(() => _serverHistory = historyService.history);
     }

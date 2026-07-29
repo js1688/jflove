@@ -4,6 +4,7 @@ import '../models/sync_config.dart';
 import '../services/sync_engine_service.dart';
 import '../services/sync_service.dart';
 import 'session_provider.dart';
+import 'transfer_provider.dart';
 
 final syncServiceProvider = Provider<SyncService>((ref) {
   return SyncService(
@@ -16,6 +17,7 @@ final syncEngineServiceProvider = Provider<SyncEngineService>((ref) {
   return SyncEngineService(
     ref.watch(httpServiceProvider),
     ref.watch(syncServiceProvider),
+    ref.watch(transferServiceProvider),
   );
 });
 

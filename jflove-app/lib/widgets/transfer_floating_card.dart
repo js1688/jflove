@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../models/transfer_task.dart';
 import '../providers/transfer_provider.dart';
@@ -41,7 +42,7 @@ class TransferFloatingCard extends ConsumerWidget {
               color: Theme.of(context).colorScheme.primaryContainer,
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.pushNamed(context, '/transfer'),
+                onTap: () => context.push('/transfer'),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,

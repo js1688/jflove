@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.jflove.jflove_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

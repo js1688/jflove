@@ -46,6 +46,7 @@ logs/
 .flutter-plugins
 .flutter-plugins-dependencies
 jflove-app/*.iml
+jflove-app/android/*.iml
 jflove-app/coverage/
 
 # 首次只做 Android，暂不需要的桌面平台目录

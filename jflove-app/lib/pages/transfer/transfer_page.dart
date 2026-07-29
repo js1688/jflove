@@ -25,7 +25,16 @@ class TransferPage extends ConsumerWidget {
             icon: const Icon(Icons.clear_all),
             tooltip: '清除已完成',
             onPressed: () {
-              ref.read(transferServiceProvider).clearFinished();
+              final removed = ref.read(transferServiceProvider).clearFinished();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    removed > 0 ? '已清除 $removed 个已结束任务' : '没有可清除的任务',
+                  ),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
             },
           ),
         ],
@@ -101,13 +110,13 @@ class TransferPage extends ConsumerWidget {
 /// 传输任务卡片
 ///
 /// 对标桌面端 TransferTaskRow。
-class _TransferTaskCard extends StatelessWidget {
+class _TransferTaskCard extends ConsumerWidget {
   final TransferTask task;
 
   const _TransferTaskCard({required this.task});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isUpload = task.kind == TaskKind.upload;
     final isRunning =
@@ -152,7 +161,7 @@ class _TransferTaskCard extends StatelessWidget {
                     child: IconButton(
                       icon: const Icon(Icons.close, size: 16),
                       onPressed: () {
-                        // TODO: cancel task
+                        ref.read(transferServiceProvider).cancel(task.id);
                       },
                       padding: EdgeInsets.zero,
                       visualDensity: VisualDensity.compact,
@@ -177,6 +186,19 @@ class _TransferTaskCard extends StatelessWidget {
                 child: Text(
                   '错误: ${task.error}',
                   style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                ),
+              ),
+            // 下载完成且非空路径时，显示保存位置
+            if (task.kind == TaskKind.download &&
+                task.status == TaskStatus.completed &&
+                task.localPath.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '保存至: ${task.localPath}',
+                  style: TextStyle(color: Colors.green.shade700, fontSize: 11),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
           ],

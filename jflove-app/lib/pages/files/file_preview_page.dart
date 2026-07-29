@@ -1,22 +1,34 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../providers/file_provider.dart';
+import '../../providers/session_provider.dart';
+import '../../utils/stream_proxy.dart';
 
 /// 文件预览页面
 ///
-/// 支持格式：
-/// - 图片：jpg, jpeg, png, gif, webp, bmp, svg
-/// - 文本：md, txt, json, xml, yaml, yml, log, csv, html, css, js, dart, py, java, ts, go, rs, sh
-/// - 视频：mp4, mov, avi, mkv, webm, 3gp, flv
-/// - 音频：mp3, wav, ogg, flac, aac, m4a, wma
+/// 支持格式（对齐桌面端 preview_dialog.py）：
+/// - 图片：png, jpg, jpeg, gif, bmp, webp, tiff, tif, ico, svg
+/// - 视频：mp4, mkv, avi, mov, webm, flv, wmv, m4v, mpg, mpeg, ts, 3gp
+/// - 音频：mp3, wav, ogg, flac, m4a, aac, wma, opus
+/// - Markdown：md, markdown, mdown, mkd
+/// - 文本：txt, log, csv, tsv, diff, patch, json, xml, yaml, yml, ini, toml,
+///         conf, cfg, env, html, htm, css, less, scss, sass,
+///         py, java, kt, scala, groovy, js, mjs, cjs, ts, jsx, tsx,
+///         go, rs, c, cpp, cc, cxx, h, hpp, hh, hxx,
+///         cs, swift, rb, php, lua, pl, perl, r, m,
+///         sql, sh, bash, zsh, fish, bat, cmd, ps1,
+///         vue, svelte, astro, gradle, properties, lock, gitignore, dockerignore
+///
+/// 视频/音频通过本地 StreamProxy 流式播放（边下边播、支持 seek），
+/// 文本通过 /api/v1/files/stream 流式加载（首屏≤3s，大文件截断旧内容），
+/// 对标桌面端 StreamProxy + StreamTextLoader。
 class FilePreviewPage extends ConsumerWidget {
   final int diskId;
   final String path;
@@ -40,13 +52,37 @@ class FilePreviewPage extends ConsumerWidget {
   }
 
   Widget _buildPreview(BuildContext context, WidgetRef ref, String ext) {
-    // 图片
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].contains(ext)) {
+    // ── 图片 ──
+    if ([
+      'png',
+      'jpg',
+      'jpeg',
+      'gif',
+      'bmp',
+      'webp',
+      'tiff',
+      'tif',
+      'ico',
+      'svg',
+    ].contains(ext)) {
       return _ImagePreview(diskId: diskId, path: path);
     }
 
-    // 视频
-    if (['mp4', 'mov', 'avi', 'mkv', 'webm', '3gp', 'flv'].contains(ext)) {
+    // ── 视频（对齐桌面端 VIDEO_EXTS）──
+    if ([
+      'mp4',
+      'mkv',
+      'avi',
+      'mov',
+      'webm',
+      'flv',
+      'wmv',
+      'm4v',
+      'mpg',
+      'mpeg',
+      'ts',
+      '3gp',
+    ].contains(ext)) {
       return _MediaPreview(
         diskId: diskId,
         path: path,
@@ -55,8 +91,17 @@ class FilePreviewPage extends ConsumerWidget {
       );
     }
 
-    // 音频
-    if (['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma'].contains(ext)) {
+    // ── 音频（对齐桌面端 AUDIO_EXTS）──
+    if ([
+      'mp3',
+      'wav',
+      'ogg',
+      'flac',
+      'm4a',
+      'aac',
+      'wma',
+      'opus',
+    ].contains(ext)) {
       return _MediaPreview(
         diskId: diskId,
         path: path,
@@ -65,28 +110,92 @@ class FilePreviewPage extends ConsumerWidget {
       );
     }
 
-    // 文本/代码
+    // ── Markdown（对齐桌面端 MARKDOWN_EXTS）──
+    if (['md', 'markdown', 'mdown', 'mkd'].contains(ext)) {
+      return _TextPreview(
+        diskId: diskId,
+        path: path,
+        name: name,
+        isMarkdown: true,
+      );
+    }
+
+    // ── 文本/代码（对齐桌面端 TEXT_EXTS）──
     if ([
-      'md',
       'txt',
+      'log',
+      'csv',
+      'tsv',
+      'diff',
+      'patch',
       'json',
       'xml',
       'yaml',
       'yml',
-      'log',
-      'csv',
+      'ini',
+      'toml',
+      'conf',
+      'cfg',
+      'env',
       'html',
+      'htm',
       'css',
-      'js',
-      'dart',
+      'less',
+      'scss',
+      'sass',
       'py',
       'java',
+      'kt',
+      'scala',
+      'groovy',
+      'js',
+      'mjs',
+      'cjs',
       'ts',
+      'jsx',
+      'tsx',
       'go',
       'rs',
+      'c',
+      'cpp',
+      'cc',
+      'cxx',
+      'h',
+      'hpp',
+      'hh',
+      'hxx',
+      'cs',
+      'swift',
+      'rb',
+      'php',
+      'lua',
+      'pl',
+      'perl',
+      'r',
+      'm',
+      'sql',
       'sh',
+      'bash',
+      'zsh',
+      'fish',
+      'bat',
+      'cmd',
+      'ps1',
+      'vue',
+      'svelte',
+      'astro',
+      'gradle',
+      'properties',
+      'lock',
+      'gitignore',
+      'dockerignore',
     ].contains(ext)) {
-      return _TextPreview(diskId: diskId, path: path, name: name);
+      return _TextPreview(
+        diskId: diskId,
+        path: path,
+        name: name,
+        isMarkdown: false,
+      );
     }
 
     // 不支持
@@ -141,7 +250,8 @@ class _ImagePreview extends ConsumerWidget {
   }
 }
 
-/// 视频/音频预览 - 下载到临时文件后使用 VideoPlayer 播放
+/// 视频/音频预览 - 通过本地 StreamProxy 流式播放，边下边播、支持 seek
+/// 对标桌面端 StreamProxy + QMediaPlayer
 class _MediaPreview extends ConsumerStatefulWidget {
   final int diskId;
   final String path;
@@ -161,9 +271,17 @@ class _MediaPreview extends ConsumerStatefulWidget {
 
 class _MediaPreviewState extends ConsumerState<_MediaPreview> {
   VideoPlayerController? _controller;
+  StreamProxy? _proxy;
   bool _isInitialized = false;
   bool _hasError = false;
   String _errorMessage = '';
+
+  /// 文件所在目录（磁盘内相对路径，不含文件名）
+  String get _pathDir {
+    final p = widget.path;
+    if (!p.contains('/')) return '';
+    return p.substring(0, p.lastIndexOf('/'));
+  }
 
   @override
   void initState() {
@@ -173,21 +291,33 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
 
   Future<void> _loadAndPlay() async {
     try {
-      // 1. 下载加密流到临时文件
-      final fs = ref.read(fileServiceProvider);
-      final stream = await fs.download(widget.diskId, widget.path);
-
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/${widget.name}');
-      final sink = tempFile.openWrite();
-
-      await for (final chunk in stream) {
-        sink.add(chunk);
+      // 1. 读取会话信息
+      final session = ref.read(sessionManagerProvider);
+      if (session.sessionKey == null) {
+        throw Exception('会话密钥未就绪，请重新登录');
       }
-      await sink.close();
 
-      // 2. 用 VideoPlayer 播放本地文件
-      final controller = VideoPlayerController.file(tempFile);
+      // 2. 启动本地 StreamProxy（对标桌面端 StreamProxy）
+      final proxy = StreamProxy(
+        diskId: widget.diskId,
+        path: _pathDir,
+        filename: widget.name,
+        sessionKey: session.sessionKey!,
+        sessionId: session.sessionId,
+        serverUrl: session.serverUrl,
+        jwtToken: session.token,
+      );
+      _proxy = proxy;
+      await proxy.start();
+
+      // 3. 用本地代理 URL 创建网络播放器（ExoPlayer 自动发 Range 请求）
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(proxy.url),
+        videoPlayerOptions: VideoPlayerOptions(
+          mixWithOthers: true, // 音频不独占
+          allowBackgroundPlayback: true, // 允许后台播放
+        ),
+      );
       _controller = controller;
 
       await controller.initialize();
@@ -196,6 +326,9 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
       }
       controller.play();
     } catch (e) {
+      // 出错时清理 proxy
+      _proxy?.close();
+      _proxy = null;
       if (mounted) {
         setState(() {
           _hasError = true;
@@ -207,6 +340,7 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
 
   @override
   void dispose() {
+    _proxy?.close();
     _controller?.dispose();
     super.dispose();
   }
@@ -399,57 +533,209 @@ class _MediaControlsState extends State<_MediaControls> {
   }
 }
 
-/// 文本预览 - 下载到内存后显示
-class _TextPreview extends ConsumerWidget {
+/// 文本预览 - 流式加载，对大文件截断旧内容避免内存溢出
+/// 对标桌面端 StreamTextLoader
+class _TextPreview extends ConsumerStatefulWidget {
   final int diskId;
   final String path;
   final String name;
+  final bool isMarkdown;
 
   const _TextPreview({
     required this.diskId,
     required this.path,
     required this.name,
+    required this.isMarkdown,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return FutureBuilder<String>(
-      future: _loadText(ref),
-      builder: (ctx, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snap.hasError || snap.data == null) {
-          return Center(child: Text('加载失败: ${snap.error}'));
-        }
+  ConsumerState<_TextPreview> createState() => _TextPreviewState();
+}
 
-        final content = snap.data!;
-        if (name.endsWith('.md')) {
-          return Markdown(
-            data: content,
-            selectable: true,
-            padding: const EdgeInsets.all(16),
-          );
-        }
+class _TextPreviewState extends ConsumerState<_TextPreview> {
+  String _content = '';
+  bool _loading = true;
+  String? _error;
+  bool _truncated = false;
+  StreamSubscription<Uint8List>? _sub;
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: SelectableText(
-            content,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-          ),
-        );
-      },
-    );
+  /// 大文本截断阈值（对齐桌面端：单次最多保留 8MB）
+  static const int _maxTextBytes = 8 * 1024 * 1024;
+
+  /// 文件所在目录（磁盘内相对路径，不含文件名）
+  String get _pathDir {
+    final p = widget.path;
+    if (!p.contains('/')) return '';
+    return p.substring(0, p.lastIndexOf('/'));
   }
 
-  Future<String> _loadText(WidgetRef ref) async {
-    final fs = ref.read(fileServiceProvider);
-    final stream = await fs.download(diskId, path);
-    final bytes = <int>[];
-    await for (final chunk in stream) {
-      bytes.addAll(chunk);
+  @override
+  void initState() {
+    super.initState();
+    _loadTextStream();
+  }
+
+  Future<void> _loadTextStream() async {
+    try {
+      final fs = ref.read(fileServiceProvider);
+      // 使用 /api/v1/files/stream 流式拉取（对标桌面端 stream_range）
+      final stream = await fs.streamRange(
+        widget.diskId,
+        _pathDir,
+        widget.name,
+        rangeStart: 0,
+        rangeEnd: -1,
+      );
+
+      final bytesBuffer = BytesBuilder();
+      bool firstChunk = true;
+      DateTime? firstChunkTime;
+
+      _sub = stream.listen(
+        (chunk) {
+          if (firstChunk) {
+            // 第一帧可能是元数据 JSON（file_size / content_type）
+            if (chunk.length < 2048) {
+              try {
+                final json =
+                    jsonDecode(utf8.decode(chunk)) as Map<String, dynamic>;
+                if (json.containsKey('file_size') || json['type'] == 'error') {
+                  return; // 元数据帧或错误帧，跳过
+                }
+              } catch (_) {
+                // 非 JSON，正常文本数据
+              }
+            }
+            firstChunk = false;
+            firstChunkTime = DateTime.now();
+          }
+
+          bytesBuffer.add(chunk);
+
+          // 超过 8MB 截断旧内容（对齐桌面端行为）
+          if (bytesBuffer.length > _maxTextBytes) {
+            final all = bytesBuffer.takeBytes();
+            // 保留最后 4MB
+            final keepStart = all.length - (_maxTextBytes ~/ 2);
+            bytesBuffer.add(all.sublist(keepStart));
+            _truncated = true;
+          }
+
+          // 首屏渲染：收到第一批数据后立即显示
+          if (firstChunkTime != null && mounted) {
+            _updateContent(bytesBuffer.toBytes());
+          }
+        },
+        onDone: () {
+          if (mounted) {
+            _content = _bytesToString(bytesBuffer.takeBytes());
+            setState(() => _loading = false);
+          }
+        },
+        onError: (e) {
+          if (mounted) {
+            setState(() {
+              _error = e.toString();
+              _loading = false;
+            });
+          }
+        },
+      );
+
+      // 首屏超时兜底：3s 后如果还没收到任何数据，强制显示已有内容
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted && _loading && bytesBuffer.length > 0) {
+          _content = _bytesToString(bytesBuffer.takeBytes());
+          setState(() => _loading = false);
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
-    return utf8.decode(bytes);
+  }
+
+  String _bytesToString(Uint8List bytes) {
+    try {
+      return utf8.decode(bytes);
+    } catch (_) {
+      try {
+        return latin1.decode(bytes);
+      } catch (_) {
+        return '[二进制文件，无法以文本方式显示]';
+      }
+    }
+  }
+
+  void _updateContent(Uint8List bytes) {
+    _content = _bytesToString(bytes);
+    if (_loading) {
+      setState(() => _loading = false);
+    } else {
+      setState(() {}); // 更新 UI 追加内容
+    }
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading && _content.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _content.isEmpty) {
+      return Center(child: Text('加载失败: $_error'));
+    }
+
+    if (widget.isMarkdown) {
+      return Column(
+        children: [
+          if (_truncated)
+            Container(
+              padding: const EdgeInsets.all(8),
+              color: Colors.orange.shade50,
+              child: const Text(
+                '⚠ 文件过大，已截断旧内容',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          Expanded(
+            child: Markdown(
+              data: _content,
+              selectable: true,
+              padding: const EdgeInsets.all(16),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        if (_truncated)
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Colors.orange.shade50,
+            child: const Text('⚠ 文件过大，已截断旧内容', style: TextStyle(fontSize: 12)),
+          ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: SelectableText(
+              _content,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

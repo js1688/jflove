@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,8 +8,11 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../models/file_item.dart';
 import '../../providers/file_provider.dart';
+import '../../providers/session_provider.dart';
+import '../../providers/transfer_provider.dart';
 import '../../widgets/file_list_tile.dart';
 import '../../widgets/loading_indicator.dart';
+import '../../widgets/move_target_dialog.dart';
 import '../../widgets/path_breadcrumb.dart';
 
 class DiskBrowserPage extends ConsumerStatefulWidget {
@@ -38,6 +42,46 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
     });
   }
 
+  /// 刷新当前目录文件列表（用 ref.invalidate 触发 FutureProvider 重新请求）
+  void _refresh() {
+    ref.invalidate(
+      fileListProvider((diskId: widget.diskId, path: _currentPath)),
+    );
+  }
+
+  /// 计算当前用户对当前磁盘的写权限
+  /// 管理员始终有写权限；普通用户读取磁盘信息中的 can_write
+  bool _computeCanWrite() {
+    final session = ref.read(sessionManagerProvider);
+    if (session.isAdmin) return true;
+    final diskListAsync = ref.read(accessibleDiskListProvider);
+    bool canWrite = false;
+    diskListAsync.whenData((disks) {
+      for (final d in disks) {
+        if (d.id == widget.diskId) {
+          canWrite = d.canWrite;
+          break;
+        }
+      }
+    });
+    return canWrite;
+  }
+
+  /// 从磁盘列表中读取当前磁盘名称（用于 AppBar 标题，替代生硬的「磁盘 #N」）
+  String _diskName() {
+    final diskListAsync = ref.read(accessibleDiskListProvider);
+    String name = '磁盘 #${widget.diskId}'; // 兜底
+    diskListAsync.whenData((disks) {
+      for (final d in disks) {
+        if (d.id == widget.diskId) {
+          name = d.name;
+          break;
+        }
+      }
+    });
+    return name;
+  }
+
   /// 构造文件/目录在当前路径下的完整相对路径
   /// 后端 list_files 返回的每项仅含 name 不含 path，
   /// 需要客户端自行拼接当前目录和文件名
@@ -45,22 +89,25 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
     return _currentPath.isEmpty ? item.name : '$_currentPath/${item.name}';
   }
 
-  void _showFileMenu(FileItem item) {
+  /// 当前所在目录的相对路径
+  String get _currentRelPath => _currentPath.isEmpty ? '' : _currentPath;
+
+  void _showFileMenu(FileItem item, bool canWrite) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('下载'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _downloadFile(item);
-              },
-            ),
             if (!item.isDir) ...[
+              ListTile(
+                leading: const Icon(Icons.download),
+                title: const Text('下载'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _downloadFile(item);
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.preview),
                 title: const Text('预览'),
@@ -69,32 +116,64 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
                   _previewFile(item);
                 },
               ),
+              const Divider(),
             ],
-            const Divider(),
             ListTile(
-              leading: const Icon(Icons.edit),
-              title: const Text('重命名'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _renameItem(item);
-              },
+              leading: Icon(
+                Icons.edit,
+                color: canWrite ? null : Theme.of(context).disabledColor,
+              ),
+              title: Text(
+                '重命名',
+                style: TextStyle(
+                  color: canWrite ? null : Theme.of(context).disabledColor,
+                ),
+              ),
+              onTap: canWrite
+                  ? () {
+                      Navigator.pop(ctx);
+                      _renameItem(item);
+                    }
+                  : null,
             ),
             ListTile(
-              leading: const Icon(Icons.drive_file_move),
-              title: const Text('移动到…'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _moveItem(item);
-              },
+              leading: Icon(
+                Icons.drive_file_move,
+                color: canWrite ? null : Theme.of(context).disabledColor,
+              ),
+              title: Text(
+                '移动到…',
+                style: TextStyle(
+                  color: canWrite ? null : Theme.of(context).disabledColor,
+                ),
+              ),
+              onTap: canWrite
+                  ? () {
+                      Navigator.pop(ctx);
+                      _moveItem(item);
+                    }
+                  : null,
             ),
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.delete, color: Colors.red),
-              title: const Text('删除', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _deleteItem(item);
-              },
+              leading: Icon(
+                Icons.delete,
+                color: canWrite ? Colors.red : Theme.of(context).disabledColor,
+              ),
+              title: Text(
+                '删除',
+                style: TextStyle(
+                  color: canWrite
+                      ? Colors.red
+                      : Theme.of(context).disabledColor,
+                ),
+              ),
+              onTap: canWrite
+                  ? () {
+                      Navigator.pop(ctx);
+                      _deleteItem(item);
+                    }
+                  : null,
             ),
           ],
         ),
@@ -104,8 +183,21 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
 
   Future<void> _downloadFile(FileItem item) async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final savePath = '${dir.path}/${item.name}';
+      // 使用外部存储目录（Android/data/.../files/），文件管理器可访问
+      // Android 上 getExternalStorageDirectory() 无需额外权限
+      Directory? dir;
+      try {
+        dir = await getExternalStorageDirectory();
+      } catch (_) {
+        // 部分设备/模拟器可能不支持外部存储，回退到应用文档目录
+      }
+      dir ??= await getApplicationDocumentsDirectory();
+      // 统一放在 jflove_downloads 子目录，方便用户查找
+      final downloadDir = Directory('${dir.path}/jflove_downloads');
+      if (!await downloadDir.exists()) {
+        await downloadDir.create(recursive: true);
+      }
+      final savePath = '${downloadDir.path}/${item.name}';
 
       // 通过 TransferService 创建下载任务，自动跟踪进度
       final transferService = ref.read(transferServiceProvider);
@@ -120,8 +212,8 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('下载任务已添加: ${item.name}'),
-            duration: const Duration(seconds: 2),
+            content: Text('下载任务已添加: ${item.name}\n保存位置: $savePath'),
+            duration: const Duration(seconds: 4),
           ),
         );
       }
@@ -163,16 +255,14 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
           ),
           FilledButton(
             onPressed: () async {
+              final newName = controller.text.trim();
               Navigator.pop(ctx);
+              if (newName.isEmpty || newName == item.name) return;
               try {
                 await ref
                     .read(fileServiceProvider)
-                    .rename(
-                      widget.diskId,
-                      _itemPath(item),
-                      controller.text.trim(),
-                    );
-                setState(() {});
+                    .rename(widget.diskId, _itemPath(item), newName);
+                _refresh();
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(
@@ -188,10 +278,33 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
     );
   }
 
-  void _moveItem(FileItem item) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('移动到…功能待实现')));
+  Future<void> _moveItem(FileItem item) async {
+    final srcRel = _itemPath(item);
+    final dstDir = await showDialog<String>(
+      context: context,
+      builder: (ctx) =>
+          MoveTargetDialog(diskId: widget.diskId, srcRelPath: srcRel),
+    );
+
+    if (dstDir == null) return;
+    // 目标目录与当前目录相同，静默跳过
+    if (dstDir == _currentRelPath) return;
+
+    try {
+      await ref.read(fileServiceProvider).move(widget.diskId, srcRel, dstDir);
+      _refresh();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('「${item.name}」已移动')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('移动失败: $e')));
+      }
+    }
   }
 
   Future<void> _deleteItem(FileItem item) async {
@@ -221,7 +334,7 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
         await ref
             .read(fileServiceProvider)
             .delete(widget.diskId, _itemPath(item));
-        setState(() {});
+        _refresh();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -233,51 +346,36 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
   }
 
   Future<void> _uploadFile() async {
-    // 简化上传：提示用户输入本地文件路径
-    final controller = TextEditingController();
-    final path = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('上传文件'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            labelText: '文件路径',
-            hintText: '/storage/emulated/0/DCIM/photo.jpg',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('上传'),
-          ),
-        ],
-      ),
-    );
+    final result = await FilePicker.platform.pickFiles(allowMultiple: true);
+    if (result == null || result.files.isEmpty) return;
 
-    if (path != null && path.isNotEmpty) {
+    final transferService = ref.read(transferServiceProvider);
+    int count = 0;
+    for (final picked in result.files) {
+      final path = picked.path;
+      if (path == null) continue;
       final file = File(path);
-      if (await file.exists()) {
-        final transferService = ref.read(transferServiceProvider);
-        await transferService.submitUpload(
-          widget.diskId,
-          _currentPath,
-          path,
-          path.split('/').last,
-          await file.length(),
-        );
-        setState(() {});
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('文件不存在，请检查路径')));
-        }
-      }
+      if (!await file.exists()) continue;
+      final size = await file.length();
+      final filename = path.split('/').last;
+      await transferService.submitUpload(
+        widget.diskId,
+        _currentPath,
+        path,
+        filename,
+        size,
+      );
+      count++;
+    }
+
+    if (count > 0 && mounted) {
+      _refresh();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已加入传输队列: $count 个文件'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -307,9 +405,21 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
 
     if (name != null && name.isNotEmpty) {
       try {
-        final path = _currentPath.isEmpty ? name : '$_currentPath/$name';
-        await ref.read(fileServiceProvider).createDir(widget.diskId, path);
-        setState(() {});
+        await ref
+            .read(fileServiceProvider)
+            .createDir(
+              widget.diskId,
+              _itemPath(
+                FileItem(
+                  name: name,
+                  path: '',
+                  size: 0,
+                  modifiedAt: 0,
+                  isDir: true,
+                ),
+              ),
+            );
+        _refresh();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(
@@ -325,68 +435,70 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
     final fileListAsync = ref.watch(
       fileListProvider((diskId: widget.diskId, path: _currentPath)),
     );
+    final canWrite = _computeCanWrite();
+    final diskName = _diskName();
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('磁盘 #${widget.diskId}'),
+        title: Text(diskName),
+        // 面包屑集成在 AppBar 底部，消除双层 header 感
+        bottom: _currentPath.isNotEmpty
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(28),
+                child: PathBreadcrumb(
+                  currentPath: _currentPath,
+                  onBack: _currentPath.isNotEmpty ? _goBack : null,
+                ),
+              )
+            : null,
         actions: [
           IconButton(
             icon: const Icon(Icons.upload_file),
-            tooltip: '上传文件',
-            onPressed: _uploadFile,
+            tooltip: canWrite ? '上传文件' : '无写权限',
+            onPressed: canWrite ? _uploadFile : null,
           ),
           IconButton(
             icon: const Icon(Icons.create_new_folder),
-            tooltip: '新建目录',
-            onPressed: _createDir,
+            tooltip: canWrite ? '新建目录' : '无写权限',
+            onPressed: canWrite ? _createDir : null,
           ),
         ],
       ),
-      body: Column(
-        children: [
-          PathBreadcrumb(
-            currentPath: _currentPath,
-            onBack: _currentPath.isNotEmpty ? _goBack : null,
-          ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () async {
-                setState(() {});
+      body: RefreshIndicator(
+        onRefresh: () async {
+          _refresh();
+        },
+        child: fileListAsync.when(
+          data: (files) {
+            if (files.isEmpty) {
+              return ListView(
+                children: const [
+                  SizedBox(height: 80),
+                  Center(child: Text('此目录为空')),
+                ],
+              );
+            }
+            return ListView.builder(
+              itemCount: files.length,
+              itemBuilder: (ctx, i) {
+                final item = files[i];
+                return FileListTile(
+                  item: item,
+                  onTap: () {
+                    if (item.isDir) {
+                      _enterDir(item.name);
+                    } else {
+                      _previewFile(item);
+                    }
+                  },
+                  onLongPress: () => _showFileMenu(item, canWrite),
+                );
               },
-              child: fileListAsync.when(
-                data: (files) {
-                  if (files.isEmpty) {
-                    return ListView(
-                      children: const [
-                        SizedBox(height: 80),
-                        Center(child: Text('此目录为空')),
-                      ],
-                    );
-                  }
-                  return ListView.builder(
-                    itemCount: files.length,
-                    itemBuilder: (ctx, i) {
-                      final item = files[i];
-                      return FileListTile(
-                        item: item,
-                        onTap: () {
-                          if (item.isDir) {
-                            _enterDir(item.name);
-                          } else {
-                            _previewFile(item);
-                          }
-                        },
-                        onLongPress: () => _showFileMenu(item),
-                      );
-                    },
-                  );
-                },
-                loading: () => const LoadingIndicator(message: '加载中…'),
-                error: (e, _) => Center(child: Text('加载失败: $e')),
-              ),
-            ),
-          ),
-        ],
+            );
+          },
+          loading: () => const LoadingIndicator(message: '加载中…'),
+          error: (e, _) => Center(child: Text('加载失败: $e')),
+        ),
       ),
     );
   }

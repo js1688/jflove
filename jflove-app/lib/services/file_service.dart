@@ -75,4 +75,28 @@ class FileService {
       'path': path,
     });
   }
+
+  /// 流式范围读取（v1.1.0+，对标桌面端 stream_range）
+  ///
+  /// 调用服务端 GET /api/v1/files/stream，按指定的字节范围拉取文件。
+  /// 返回解密后的明文字节流，首帧为元数据（file_size / content_type 等 JSON）。
+  ///
+  /// [filename] 文件名（用于服务端定位文件）
+  /// [rangeStart] 字节起点（0=开头，负数=从末尾倒数）
+  /// [rangeEnd] 字节终点不含（-1=文件结尾）
+  Future<Stream<Uint8List>> streamRange(
+    int diskId,
+    String path,
+    String filename, {
+    int rangeStart = 0,
+    int rangeEnd = -1,
+  }) async {
+    return _http.encryptedDownloadStream('/api/v1/files/stream', {
+      'disk_id': diskId,
+      'path': path,
+      'filename': filename,
+      'range_start': rangeStart,
+      'range_end': rangeEnd,
+    });
+  }
 }

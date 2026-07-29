@@ -14,9 +14,10 @@ class AppConfig {
   /// 流式分片明文大小（64 KB，与服务端一致）
   static const int streamPlaintextChunkSize = 64 * 1024;
 
-  /// 请求超时（秒）
+  /// 请求超时（秒），对齐桌面端 http_client.py timeout 配置
   static const int connectTimeout = 15;
-  static const int receiveTimeout = 30;
+  static const int sendTimeout = 120; // 大文件上传耗时较长
+  static const int receiveTimeout = 120; // /upload/complete 合并分片耗时较长
 
   /// 最大重试次数
   static const int maxRetries = 3;

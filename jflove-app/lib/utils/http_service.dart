@@ -20,6 +20,7 @@ class HttpService {
     _dio = Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: AppConfig.connectTimeout),
+        sendTimeout: const Duration(seconds: AppConfig.sendTimeout),
         receiveTimeout: const Duration(seconds: AppConfig.receiveTimeout),
         headers: {'Content-Type': 'application/json'},
       ),

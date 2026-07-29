@@ -16,21 +16,21 @@ class SessionManager {
 
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
-  // ---- 内存字段（不持久化） ----
+  // ---- 内存字段（不持久化，安全要求） ----
 
-  /// 服务端 URL
-  String serverUrl = '';
-
-  /// 当前会话 ID（key-exchange 返回）
+  /// 当前会话 ID（key-exchange 返回，仅内存）
   String sessionId = '';
 
-  /// 32 字节会话密钥（仅内存，不落盘）
+  /// 32 字节会话密钥（仅内存，不落盘 — 前向保密）
   Uint8List? sessionKey;
 
-  /// 密钥交换时间戳
+  /// 密钥交换时间戳（仅内存）
   double keyExchangeTime = 0;
 
   // ---- 持久化字段（通过 flutter_secure_storage） ----
+
+  /// 服务端 URL（持久化：供自动登录恢复 + 预填充登录表单）
+  String serverUrl = '';
 
   String token = '';
   int? userId;
@@ -78,8 +78,13 @@ class SessionManager {
     userId = int.tryParse(await _storage.read(key: 'userId') ?? '');
     username = await _storage.read(key: 'username') ?? '';
     role = await _storage.read(key: 'role') ?? '';
-    tokenExpiresAt = double.tryParse(await _storage.read(key: 'tokenExpiresAt') ?? '0') ?? 0;
-    localSessionMaxSeconds = int.tryParse(await _storage.read(key: 'localSessionMaxSeconds') ?? '0') ?? 0;
+    tokenExpiresAt =
+        double.tryParse(await _storage.read(key: 'tokenExpiresAt') ?? '0') ?? 0;
+    localSessionMaxSeconds =
+        int.tryParse(
+          await _storage.read(key: 'localSessionMaxSeconds') ?? '0',
+        ) ??
+        0;
     serverUrl = await _storage.read(key: 'serverUrl') ?? '';
 
     final historyStr = await _storage.read(key: 'serverHistory');
@@ -92,29 +97,42 @@ class SessionManager {
   }
 
   /// 清除所有会话数据（退出登录）
+  ///
+  /// 对标桌面端 _clear_saved_session() + session_manager.clear()：
+  /// 清除认证相关字段，但保留服务器历史与 TTL 偏好。
   Future<void> clear() async {
     token = '';
     userId = null;
     username = '';
     role = '';
     tokenExpiresAt = 0;
+    serverUrl = '';
     sessionId = '';
     sessionKey = null;
     keyExchangeTime = 0;
-    await _storage.deleteAll();
+
+    // 清除安全存储中的认证字段，保留服务器历史与 TTL 偏好
+    await _storage.delete(key: 'token');
+    await _storage.delete(key: 'userId');
+    await _storage.delete(key: 'username');
+    await _storage.delete(key: 'role');
+    await _storage.delete(key: 'tokenExpiresAt');
+    await _storage.delete(key: 'serverUrl');
   }
 
   /// 转字典（用于调试，不包含 session_key）
   Map<String, dynamic> toDict() => {
-        'serverUrl': serverUrl,
-        'sessionId': sessionId,
-        'hasSessionKey': sessionKey != null,
-        'token': token.isNotEmpty ? '***${token.substring(max(0, token.length - 8))}' : '',
-        'userId': userId,
-        'username': username,
-        'role': role,
-        'tokenExpiresAt': tokenExpiresAt,
-        'localSessionMaxSeconds': localSessionMaxSeconds,
-        'serverHistory': serverHistory,
-      };
+    'serverUrl': serverUrl,
+    'sessionId': sessionId,
+    'hasSessionKey': sessionKey != null,
+    'token': token.isNotEmpty
+        ? '***${token.substring(max(0, token.length - 8))}'
+        : '',
+    'userId': userId,
+    'username': username,
+    'role': role,
+    'tokenExpiresAt': tokenExpiresAt,
+    'localSessionMaxSeconds': localSessionMaxSeconds,
+    'serverHistory': serverHistory,
+  };
 }

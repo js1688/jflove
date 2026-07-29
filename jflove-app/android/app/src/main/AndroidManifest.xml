@@ -2,7 +2,7 @@
     <!-- 网络权限（明文流量需要） -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="jflove_app"
+        android:label="JFLove"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

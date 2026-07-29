@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
+
+import 'package:pointycastle/export.dart';
 
 import '../models/transfer_task.dart';
 import '../utils/http_service.dart';
@@ -65,6 +68,9 @@ class TransferService {
     _scheduleNext();
   }
 
+  /// 上传分片大小（1 MB，与服务端 CHUNK_SIZE 对齐）
+  static const int uploadChunkSize = 1024 * 1024;
+
   Future<void> _doUpload(
     String taskId,
     int diskId,
@@ -73,47 +79,104 @@ class TransferService {
     String filename,
     int fileSize,
   ) async {
+    String? uploadId;
     try {
       _updateTask(taskId, status: TaskStatus.hashing);
-      File file = File(localPath);
+      final file = File(localPath);
       if (!await file.exists()) {
         _updateTask(taskId, status: TaskStatus.failed, error: '本地文件不存在');
         return;
       }
 
-      _updateTask(taskId, status: TaskStatus.running);
-
-      // 分片读取并上传
       final totalBytes = fileSize > 0 ? fileSize : await file.length();
-      final int chunkSize = 256 * 1024; // 256KB 分片
-      int sent = 0;
-      final raf = await file.open(mode: FileMode.read);
+      final totalChunks = totalBytes > 0
+          ? ((totalBytes + uploadChunkSize - 1) ~/ uploadChunkSize)
+          : 1;
 
+      // ── 阶段 1：流式计算 SHA256 并回调哈希进度 ──
+      final sha256 = SHA256Digest();
+      int hashed = 0;
+      final raf = await file.open(mode: FileMode.read);
       try {
-        while (sent < totalBytes) {
-          // 检查取消
+        while (hashed < totalBytes) {
           if (_cancelledTasks.contains(taskId)) {
-            _cancelledTasks.remove(taskId);
+            _updateTask(taskId, status: TaskStatus.cancelled);
+            return;
+          }
+          final remaining = totalBytes - hashed;
+          final readLen = remaining < uploadChunkSize
+              ? remaining
+              : uploadChunkSize;
+          final chunk = await raf.read(readLen);
+          if (chunk.isEmpty) break;
+          sha256.update(Uint8List.fromList(chunk), 0, chunk.length);
+          hashed += chunk.length;
+          final pct = totalBytes > 0
+              ? ((hashed / totalBytes) * 100).round()
+              : 0;
+          _updateTask(taskId, transferred: hashed, percent: pct);
+        }
+      } finally {
+        await raf.close();
+      }
+      // 从 Digest 中提取最终的 32 字节 SHA256 哈希并转十六进制
+      final hashOut = Uint8List(sha256.digestSize);
+      sha256.doFinal(hashOut, 0);
+      final fileHash = hashOut
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+
+      // ── 阶段 2：初始化上传会话 ──
+      _updateTask(
+        taskId,
+        status: TaskStatus.running,
+        percent: 0,
+        transferred: 0,
+      );
+      final initResp = await _http.encryptedPost('/api/v1/files/upload/init', {
+        'disk_id': diskId,
+        'path': remoteDir,
+        'filename': filename,
+        'file_size': totalBytes,
+        'total_chunks': totalChunks,
+        'file_hash': fileHash,
+      });
+      uploadId = initResp['upload_id'] as String?;
+      if (uploadId == null || uploadId.isEmpty) {
+        _updateTask(
+          taskId,
+          status: TaskStatus.failed,
+          error: '服务端未返回 upload_id',
+        );
+        return;
+      }
+
+      // ── 阶段 3：分片上传 ──
+      final raf2 = await file.open(mode: FileMode.read);
+      try {
+        int sent = 0;
+        for (int i = 0; i < totalChunks; i++) {
+          if (_cancelledTasks.contains(taskId)) {
+            // 取消时清理服务端临时分片
+            try {
+              await _http.encryptedDelete('/api/v1/files/upload/$uploadId', {});
+            } catch (_) {}
             _updateTask(taskId, status: TaskStatus.cancelled);
             return;
           }
 
-          final end = (sent + chunkSize) < totalBytes
-              ? sent + chunkSize
-              : totalBytes;
-          final chunkLen = end - sent;
-          final chunk = await raf.read(chunkLen);
+          final remaining = totalBytes - sent;
+          final readLen = remaining < uploadChunkSize
+              ? remaining
+              : uploadChunkSize;
+          final chunk = await raf2.read(readLen);
           if (chunk.isEmpty) break;
 
-          // Base64 编码分片数据
           final chunkB64 = base64Encode(chunk);
-
-          await _http.encryptedPost('/api/v1/files/upload', {
-            'disk_id': diskId,
-            'path': '${remoteDir.isEmpty ? "" : "$remoteDir/"}$filename',
-            'chunk_index': (sent ~/ chunkSize).toString(),
+          await _http.encryptedPost('/api/v1/files/upload/chunk', {
+            'upload_id': uploadId,
+            'chunk_index': i,
             'chunk_data': chunkB64,
-            'total_size': totalBytes,
           });
 
           sent += chunk.length;
@@ -121,8 +184,13 @@ class TransferService {
           _updateTask(taskId, transferred: sent, percent: pct);
         }
       } finally {
-        await raf.close();
+        await raf2.close();
       }
+
+      // ── 阶段 4：合并分片完成上传 ──
+      await _http.encryptedPost('/api/v1/files/upload/complete', {
+        'upload_id': uploadId,
+      });
 
       _updateTask(
         taskId,
@@ -131,11 +199,17 @@ class TransferService {
         transferred: totalBytes,
       );
     } catch (e) {
-      if (!_cancelledTasks.contains(taskId)) {
-        _updateTask(taskId, status: TaskStatus.failed, error: e.toString());
-      } else {
+      if (_cancelledTasks.contains(taskId)) {
         _cancelledTasks.remove(taskId);
         _updateTask(taskId, status: TaskStatus.cancelled);
+      } else {
+        // 失败时尝试清理服务端临时分片
+        if (uploadId != null) {
+          try {
+            await _http.encryptedDelete('/api/v1/files/upload/$uploadId', {});
+          } catch (_) {}
+        }
+        _updateTask(taskId, status: TaskStatus.failed, error: e.toString());
       }
     }
   }
@@ -284,15 +358,20 @@ class TransferService {
 
   // ── 清除已结束任务 ──
 
-  /// 清除已结束任务
-  void clearFinished() {
+  /// 清除已结束任务，返回清除的任务数量
+  int clearFinished() {
+    final before = _tasks.length;
     _tasks.removeWhere(
       (_, t) =>
           t.status == TaskStatus.completed ||
           t.status == TaskStatus.failed ||
           t.status == TaskStatus.cancelled,
     );
-    _notify();
+    final removed = before - _tasks.length;
+    if (removed > 0) {
+      _notify();
+    }
+    return removed;
   }
 
   // ── 任务统计 ──

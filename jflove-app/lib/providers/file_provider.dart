@@ -1,11 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/file_item.dart';
-import '../models/transfer_task.dart';
 import '../models/virtual_disk.dart';
 import '../services/disk_service.dart';
 import '../services/file_service.dart';
-import '../services/transfer_service.dart';
 import 'session_provider.dart';
 
 /// 文件服务
@@ -18,10 +16,9 @@ final diskServiceProvider = Provider<DiskService>((ref) {
   return DiskService(ref.watch(httpServiceProvider));
 });
 
-/// 传输服务
-final transferServiceProvider = Provider<TransferService>((ref) {
-  return TransferService(ref.watch(httpServiceProvider));
-});
+// 注意：transferServiceProvider / transferTaskStreamProvider / transferStatsProvider
+// 统一定义在 transfer_provider.dart 中，此处不再重复定义，
+// 避免文件管理页与传输任务页使用不同的 TransferService 实例导致任务不互通。
 
 /// 可访问磁盘列表（用户视角，非管理员也适用）
 /// 调用 GET /api/v1/files/disks，非 admin-only 的 GET /api/v1/virtual-disks
@@ -41,9 +38,3 @@ final fileListProvider =
           .watch(fileServiceProvider)
           .listFiles(params.diskId, path: params.path);
     });
-
-/// 传输任务流
-final transferTaskStreamProvider = StreamProvider<List<TransferTask>>((ref) {
-  final service = ref.watch(transferServiceProvider);
-  return service.taskStream;
-});

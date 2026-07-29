@@ -4,6 +4,14 @@ import 'dart:io';
 import '../models/sync_config.dart';
 import '../utils/http_service.dart';
 import 'sync_service.dart';
+import 'transfer_service.dart';
+
+/// 本地文件信息（同步扫描用）
+class _LocalFileInfo {
+  final String relPath; // 相对于 sync localPath 的相对路径
+  final int size;
+  const _LocalFileInfo({required this.relPath, required this.size});
+}
 
 /// 同步引擎事件
 sealed class SyncEvent {}
@@ -36,10 +44,14 @@ class SyncError extends SyncEvent {
 }
 
 /// 同步引擎
+///
+/// 负责对比本地与远端文件差异，并通过 TransferService 执行实际的上传/下载。
+/// 传输进度自动反映在传输任务页面中。
 class SyncEngineService {
   // ignore: unused_field - reserved for future HTTP-based sync
   final HttpService _http;
   final SyncService _syncService;
+  final TransferService _transferService;
 
   final StreamController<SyncEvent> _eventController =
       StreamController<SyncEvent>.broadcast();
@@ -48,7 +60,7 @@ class SyncEngineService {
   List<SyncConfig> _configs = [];
   final Set<String> _runningConfigs = {};
 
-  SyncEngineService(this._http, this._syncService);
+  SyncEngineService(this._http, this._syncService, this._transferService);
 
   Stream<SyncEvent> get eventStream => _eventController.stream;
 
@@ -70,26 +82,65 @@ class SyncEngineService {
     _eventController.add(SyncStarted(configId));
 
     try {
+      // 确保本地目录存在
+      final localDir = Directory(config.localPath);
+      if (!await localDir.exists()) {
+        await localDir.create(recursive: true);
+      }
+
       final remoteFiles = await _syncService.fetchSnapshot(
         config.diskId,
         config.remotePath,
       );
       final localFiles = await _scanLocalFiles(config.localPath);
 
+      // 构建远端文件集合（文件名 → 大小）
+      final remoteMap = <String, int>{};
+      for (final rf in remoteFiles) {
+        final name = (rf['path'] as String?) ?? '';
+        final size = (rf['size'] as int?) ?? 0;
+        if (name.isNotEmpty) remoteMap[name] = size;
+      }
+
+      // 构建本地文件集合（文件名 → _LocalFileInfo）
+      final localMap = <String, _LocalFileInfo>{};
+      for (final lf in localFiles) {
+        localMap[lf.relPath] = lf;
+      }
+
       int uploaded = 0, downloaded = 0, skipped = 0;
 
-      for (final local in localFiles) {
-        final remote = remoteFiles.where((r) => r['path'] == local);
-        if (remote.isEmpty) {
+      // 本地有、远端没有 → 上传
+      for (final entry in localMap.entries) {
+        if (!remoteMap.containsKey(entry.key)) {
+          final localFullPath = '${config.localPath}/${entry.key}';
+          await _transferService.submitUpload(
+            config.diskId,
+            config.remotePath,
+            localFullPath,
+            entry.key,
+            entry.value.size,
+          );
           uploaded++;
         } else {
           skipped++;
         }
       }
 
-      for (final remote in remoteFiles) {
-        final path = remote['path'] as String? ?? '';
-        if (path.isNotEmpty && !localFiles.contains(path)) {
+      // 远端有、本地没有 → 下载
+      for (final entry in remoteMap.entries) {
+        if (!localMap.containsKey(entry.key)) {
+          final localFullPath = '${config.localPath}/${entry.key}';
+          final remoteFilePath = config.remotePath.isEmpty
+              ? entry.key
+              : '${config.remotePath}/${entry.key}';
+          await _transferService.submitDownload(
+            config.diskId,
+            remoteFilePath,
+            localFullPath,
+            entry.key,
+            entry.value,
+          );
           downloaded++;
         }
       }
@@ -142,13 +193,15 @@ class SyncEngineService {
     });
   }
 
-  Future<List<String>> _scanLocalFiles(String localPath) async {
+  Future<List<_LocalFileInfo>> _scanLocalFiles(String localPath) async {
     final dir = Directory(localPath);
     if (!await dir.exists()) return [];
-    final files = <String>[];
+    final files = <_LocalFileInfo>[];
     await for (final entity in dir.list()) {
       if (entity is File) {
-        files.add(entity.uri.pathSegments.last);
+        final name = entity.uri.pathSegments.last;
+        final size = await entity.length();
+        files.add(_LocalFileInfo(relPath: name, size: size));
       }
     }
     return files;

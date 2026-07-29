@@ -1,7 +1,7 @@
 name: jflove_app
 description: "JFLove 移动端 App - 私有文档与笔记协同管理"
 publish_to: 'none'
-version: 1.2.3+1
+version: 1.2.3+3
 
 environment:
   sdk: ^3.12.2
@@ -20,6 +20,7 @@ dependencies:
   flutter_markdown: ^0.7.6
   video_player: ^2.13.0
   logging: ^1.2.0
+  file_picker: ^10.0.0
 
 dev_dependencies:
   flutter_test:
