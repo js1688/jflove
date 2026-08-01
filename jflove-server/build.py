@@ -26,7 +26,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-VERSION = "1.1.6"
+VERSION = "1.3.0"
 IMAGE_NAME = "jflove-server"
 
 ROOT = Path(__file__).resolve().parent
