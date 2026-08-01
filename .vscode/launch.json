@@ -27,6 +27,17 @@
       "python": "${workspaceFolder}/jflove-desktop/venv-win/Scripts/python.exe",
       "console": "integratedTerminal",
       "justMyCode": true
+    },
+    {
+      "name": "jflove-web (Edge)",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}/jflove-web",
+      "sourceMapPathOverrides": {
+        "webpack:///./src/*": "${webRoot}/src/*"
+      },
+      "preLaunchTask": "jflove-web: dev server"
     }
   ]
 }

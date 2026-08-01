@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | jflove-server | `jflove-server/` | 后端服务（FastAPI） | 在研 |
 | jflove-desktop | `jflove-desktop/` | 跨平台桌面应用（PySide6） | 在研 |
-| jflove-web | `jflove-web/` | 浏览器 Web 端 | 暂不开发 |
+| jflove-web | `jflove-web/` | 浏览器 Web 端（React + TypeScript），支持 PC 端与移动端浏览器双布局 | 在研 |
 | jflove-app | `jflove-app/` | 移动端（Flutter + Dart）首版 Android-only，iOS/鸿蒙预留 | 在研 |
 
 **模块边界（强制）**：
@@ -111,6 +111,33 @@
 └── README.md
 ```
 
+### jflove-web
+
+```jflove-web/
+├── src/
+│   ├── main.tsx                    # 入口，ReactDOM.createRoot + 全局 Provider
+│   ├── App.tsx                     # 根组件，RouterProvider + 全局布局
+│   ├── config/                     # 配置项
+│   ├── layouts/                    # 布局组件（DesktopLayout / MobileLayout / AuthLayout）
+│   ├── pages/                      # 页面组件（按路由组织）
+│   ├── components/                 # 可复用 UI 组件
+│   ├── hooks/                      # 自定义 Hooks
+│   ├── services/                   # 业务服务层（8 个 service）
+│   ├── stores/                     # Zustand 状态管理
+│   ├── utils/                      # 工具模块（crypto / http-client / session / stream-frame / responsive）
+│   └── types/                      # TypeScript 类型定义
+├── tests/                          # 单元测试 + 组件测试
+├── index.html                      # Vite HTML 入口
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── tailwind.config.ts
+├── eslint.config.ts
+├── Dockerfile                      # 多阶段 Docker 构建
+├── nginx.conf                      # Nginx SPA 配置
+└── README.md
+```
+
 ## 3.1 开发环境变量约定
 
 以下为系统级环境变量，**所有角色统一使用**，不在 SKILL.md 中硬编码路径。
@@ -143,6 +170,7 @@
 ├── 后端开发记录/           # backend 输出
 ├── 桌面端开发记录/         # cross-platform-desktop 输出
 ├── 移动端开发记录/         # cross-platform-mobile 输出
+├── Web端开发记录/          # web-frontend 输出
 ├── 代码审查报告/           # code-review 输出
 ├── 测试报告/              # testing 输出
 ├── 项目管理记录/           # pmo 输出
@@ -199,7 +227,7 @@
 | designer | `.claude/skills/designer/SKILL.md` | 架构设计 | `文档记录/设计文档/` |
 | backend | `.claude/skills/backend/SKILL.md` | jflove-server | `文档记录/后端开发记录/` + `jflove-server/README.md` |
 | cross-platform-desktop | `.claude/skills/cross-platform-desktop/SKILL.md` | jflove-desktop | `文档记录/桌面端开发记录/` + `jflove-desktop/README.md` |
-| web-frontend | `.claude/skills/web-frontend/SKILL.md` | jflove-web（暂不开发） | 启用后建立 |
+| web-frontend | `.claude/skills/web-frontend/SKILL.md` | jflove-web | `文档记录/Web端开发记录/` + `jflove-web/README.md` |
 | cross-platform-mobile | `.claude/skills/cross-platform-mobile/SKILL.md` | jflove-app | `文档记录/移动端开发记录/` + `jflove-app/README.md` |
 | code-review | `.claude/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
 | testing | `.claude/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
@@ -229,7 +257,8 @@ Phase 1              Phase 2              Phase 3
                                     ├──────────────────┤
                                     │ Phase 4a: 🖥️ 桌面端 │
                                     │ Phase 4b: 📱 移动端 │
-                                    │ （可并行或二选一）   │
+                                    │ Phase 4c: 🌐 Web端  │
+                                    │ （可并行或多选）     │
                                     └────────┬─────────┘
                                              │
                                              ▼
@@ -248,6 +277,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
 | **Phase 3** 后端开发 | "后端开发" | backend | 设计文档（Phase 2） | 后端代码 + `文档记录/后端开发记录/<版本号>.md` |
 | **Phase 4a** 桌面端开发 | "桌面端开发" | cross-platform-desktop | 设计文档 + 后端记录 | 桌面端代码 + `文档记录/桌面端开发记录/<版本号>.md` |
 | **Phase 4b** 移动端开发 | "移动端开发" | cross-platform-mobile | 设计文档 + 后端记录 | 移动端代码 + `文档记录/移动端开发记录/<版本号>.md` |
+| **Phase 4c** Web 端开发 | "Web端开发" / "前端开发" | web-frontend | 设计文档 + 后端记录 | Web 端代码 + `文档记录/Web端开发记录/<版本号>.md` |
 | **Phase 5** 代码审查 | "代码审查" | code-review | 所有代码变更 + 需求/设计文档 | `文档记录/代码审查报告/<版本号>.md` |
 | **Phase 6** 测试 | "测试" | testing | 需求/设计文档 + 代码 | 补全测试用例 + `文档记录/测试报告/<版本号>.md` |
 | **Phase 7** 项目管理 | "项目管理" | pmo | 版本范围与任务列表 | `文档记录/项目管理记录/<版本号>.md` |
@@ -292,6 +322,13 @@ Phase 8              Phase 7              Phase 6              Phase 5
 3. 自测：`dart analyze lib/` 零错误 + `flutter test` 全通过
 4. 更新 `文档记录/移动端开发记录/<版本号>.md` 与 `jflove-app/README.md`
 
+#### Phase 4c：Web 端开发
+
+1. 阅读最新设计文档 + 最新后端开发记录
+2. 在 `jflove-web/` 内开发，不越界
+3. 自测：`npm run lint` 零警告 + `npm run test` 全通过
+4. 更新 `文档记录/Web端开发记录/<版本号>.md` 与 `jflove-web/README.md`
+
 #### Phase 5：代码审查
 
 1. 对照最新需求/设计文档逐文件审查
@@ -322,6 +359,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
    - 服务端：`cd jflove-server && python build.py` → Docker 镜像
    - 桌面端：`cd jflove-desktop && python build.py` → PyInstaller 单文件
    - 移动端：`cd jflove-app && flutter build apk --debug` → APK
+   - Web 端：`cd jflove-web && docker build -t jflove-web:<版本号> .` → Docker 镜像
 5. 执行冒烟测试
 6. 输出 `文档记录/版本发布记录/<版本号>.md`
 
@@ -505,9 +543,10 @@ Step 5：发布（devops）
 | backend | 新增 controller 必须用 `decrypt_request_body` + `encrypt_response`；新增文件流接口必须用 `StreamingResponse + encrypt_stream_chunk` |
 | cross-platform-desktop | 所有 HTTP 调用走 `http_client`；流式响应通过 `parse_stream_frame` 解密；不引入任何加密相关的硬编码常量 |
 | cross-platform-mobile | 所有 HTTP 调用走 `http_service.dart`；流式响应通过 `stream_frame.dart` 帧解析器解密；不引入任何加密相关的硬编码常量；session_key 与 JWT 严禁出现在调试日志 |
+| web-frontend | 所有 HTTP 调用走 `http-client.ts`；流式响应通过 `stream-frame.ts` 帧解析器解密；加密使用 `@noble/ciphers`（ChaCha20） + Web Crypto API（X25519 ECDH + HKDF），禁止引入其他加密库；session_key 与 JWT 严禁出现在 console.log / DOM 属性 |
 | code-review | 把本节当成硬规则逐条核查，发现违反一律标记**严重**；重点核查"路径参数路由是否能用伪造 ID 绕过权限" |
 | testing | 必测三类用例：① 加密信封往返；② 路径参数权限绕过（伪造他人 user_id / upload_id 应得 403）；③ 文件下载流可被客户端正确解密、篡改后认证失败 |
-| devops | 打包前确认 `_PLAIN_PATHS` 白名单未被扩大；版本发布记录中记录加密协议版本（当前 `X-Encrypted-Stream: v1`） |
+| devops | 打包前确认 `_PLAIN_PATHS` 白名单未被扩大；版本发布记录中记录加密协议版本（当前 `X-Encrypted-Stream: v1`）；Web 端 Docker 镜像构建时确保 nginx.conf 中 SPA fallback 配置正确 |
 
 ### 9.7 引入新 API / 新功能时的安全清单（自查）
 

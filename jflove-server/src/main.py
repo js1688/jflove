@@ -2,6 +2,7 @@ import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -42,6 +43,15 @@ app = FastAPI(
     title="JFLove Server",
     version="1.1.6",
     lifespan=lifespan,
+)
+
+# CORS 中间件：允许浏览器端 Web 应用跨域请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(auth_controller.router)
