@@ -62,6 +62,8 @@ export function DiskBrowserPage() {
   const [moveTarget, setMoveTarget] = useState<FileItem | null>(null);
   const [newDirName, setNewDirName] = useState('');
   const [showNewDir, setShowNewDir] = useState(false);
+  // 拖拽上传状态（PC 端）
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const numDiskId = Number(diskId);
   const disk = store.disks.find(d => d.id === numDiskId);
@@ -70,7 +72,8 @@ export function DiskBrowserPage() {
   // 加载文件列表
   useEffect(() => {
     if (!diskId) return;
-    store.loadFiles(numDiskId, path).catch(() => {});
+    // 使用 getState 避免把 store 整体引用加入依赖（zustand 状态变化会导致重复请求）
+    useFileStore.getState().loadFiles(Number(diskId), path).catch(() => {});
   }, [diskId, path]);
 
   // 排序
@@ -151,6 +154,31 @@ export function DiskBrowserPage() {
   const handleContextMenu = (e: React.MouseEvent, item: FileItem) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, item });
+  };
+
+  // 拖拽上传处理（PC 端）
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (store.canWrite) setIsDragOver(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (store.canWrite) setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (!store.canWrite) return;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files);
+    }
   };
 
   useEffect(() => {
@@ -254,8 +282,21 @@ export function DiskBrowserPage() {
         </div>
       )}
 
-      {/* 文件列表 */}
-      <div className="p-2">
+      {/* 文件列表（支持拖拽上传，PC 端） */}
+      <div
+        className={`p-2 transition-colors ${isDragOver ? 'bg-indigo-50 ring-2 ring-indigo-300 rounded-lg' : ''}`}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragOver && (
+          <div className="flex flex-col items-center justify-center py-12 text-indigo-500">
+            <span className="text-3xl mb-2">📤</span>
+            <span className="text-sm font-medium">松开以上传到当前目录</span>
+          </div>
+        )}
+
         {store.filesLoading && <LoadingSpinner />}
 
         {!store.filesLoading && sortedFiles.length === 0 && (

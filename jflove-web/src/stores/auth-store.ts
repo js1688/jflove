@@ -12,6 +12,7 @@ import {
   getServerUrl, setServerUrl,
   isEncrypted,
   effectiveExpireAt,
+  clearSession,
 } from '../utils/session';
 import { authService } from '../services/auth-service';
 import { serverHistoryService } from '../services/server-history-service';
@@ -43,7 +44,7 @@ interface AuthState {
   isTokenExpired: () => boolean;
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   isLoggedIn: false,
   token: null,
   userId: null,
@@ -114,7 +115,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const tokenExpiresAt = getTokenExpiresAt();
     const effective = effectiveExpireAt(tokenExpiresAt);
     if (effective && Date.now() / 1000 >= effective) {
-      get().logout();
+      // 同步清除本地会话状态（服务端登出由调用方另行触发，避免阻塞路由守卫）
+      clearSession();
+      set({
+        isLoggedIn: false,
+        token: null,
+        userId: null,
+        username: null,
+        role: null,
+        isAdmin: false,
+        isEncrypted: false,
+      });
       return true;
     }
     return false;

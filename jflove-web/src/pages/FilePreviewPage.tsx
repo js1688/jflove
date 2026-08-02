@@ -75,40 +75,13 @@ export function FilePreviewPage() {
       );
     }
 
-    // PDF
-    if (isPdf) {
+    // PDF / 视频 / 音频：浏览器端暂不支持流式加密播放，提示下载
+    if (isPdf || isVideo || isAudio) {
       return (
-        <iframe
-          src={`/api/v1/files/stream`}
-          className="w-full h-[80vh] border-0"
-          title={filename}
-        />
-      );
-    }
-
-    // 视频
-    if (isVideo) {
-      return (
-        <div className="flex items-center justify-center p-4">
-          <video controls className="max-w-full max-h-[80vh] rounded-lg shadow-lg">
-            <source src="#" />
-            您的浏览器不支持视频播放
-          </video>
-        </div>
-      );
-    }
-
-    // 音频
-    if (isAudio) {
-      return (
-        <div className="flex items-center justify-center p-8">
-          <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
-            <span className="text-5xl mb-4 block">🎵</span>
-            <h3 className="font-medium text-gray-800 mb-4">{filename}</h3>
-            <audio controls className="w-full">
-              <source src="#" />
-            </audio>
-          </div>
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <span className="text-5xl mb-3">{isPdf ? '📄' : isVideo ? '🎬' : '🎵'}</span>
+          <p className="text-sm">{isPdf ? 'PDF 文件' : isVideo ? '视频文件' : '音频文件'}</p>
+          <p className="text-xs mt-1">浏览器端暂不支持流式加密播放，请下载后使用本地程序打开</p>
         </div>
       );
     }

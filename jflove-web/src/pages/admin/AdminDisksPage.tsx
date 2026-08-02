@@ -22,7 +22,7 @@ export function AdminDisksPage() {
 
   const loadDisks = async () => {
     setLoading(true);
-    try { setDisks(await diskService.listAllDisks()); } catch {}
+    try { setDisks(await diskService.listAllDisks()); } catch { /* 加载失败静默，界面显示空列表 */ }
     setLoading(false);
   };
 

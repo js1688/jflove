@@ -88,6 +88,7 @@ export function AdminUsersPage() {
               </tr>
             </thead>
             <tbody>
+              {/* 设计意图：隐藏管理员行，防止管理员在 UI 上修改/删除其他管理员 */}
               {users.filter(u => u.role !== 'admin').map(user => (
                 <tr key={user.id} className="border-b border-gray-50 hover:bg-gray-50">
                   <td className="px-4 py-3 text-gray-500">{user.id}</td>

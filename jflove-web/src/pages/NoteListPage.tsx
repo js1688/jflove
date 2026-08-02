@@ -18,7 +18,8 @@ export function NoteListPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   useEffect(() => {
-    store.loadNotes().catch(() => {});
+    // 使用 getState 避免把 store 整体引用加入依赖
+    useNoteStore.getState().loadNotes().catch(() => {});
   }, []);
 
   const filtered = store.getFilteredNotes();

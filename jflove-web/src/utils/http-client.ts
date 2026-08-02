@@ -68,7 +68,8 @@ async function encryptedRequest<T>(
         'Content-Type': 'application/json',
         'X-Session-ID': sessionId,
       },
-      body: method !== 'GET' ? envelope : undefined,
+      // 所有方法（含 GET）都发送加密 body：后端通过 await request.body() 读取
+      body: envelope,
       signal: controller.signal,
     });
 

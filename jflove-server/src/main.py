@@ -41,15 +41,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.1.6",
+    version="1.3.0",
     lifespan=lifespan,
 )
 
 # CORS 中间件：允许浏览器端 Web 应用跨域请求
+# 注：JWT 走加密 body 的 token 字段，不依赖 Cookie，因此 allow_credentials=False
+# （allow_credentials=True 与 allow_origins=["*"] 在 CORS 规范中互相冲突，浏览器会拒绝）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -25,6 +25,7 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { label: '无序列表', icon: '•', insert: '\n- |\n' },
   { label: '有序列表', icon: '1.', insert: '\n1. |\n' },
   { label: '链接', icon: '🔗', insert: '[|](url)' },
+  { label: '图片', icon: '🖼️', insert: '![|](图片地址)' },
   { label: '代码块', icon: '⟨⟩', insert: '\n```\n|\n```\n' },
   { label: '引用', icon: '❝', insert: '\n> |\n' },
   { label: '分割线', icon: '—', insert: '\n---\n' },
@@ -48,10 +49,10 @@ export function NoteEditPage() {
   // 加载笔记
   useEffect(() => {
     if (!filename) return;
-    store.loadNote(filename).catch(() => {
+    useNoteStore.getState().loadNote(filename).catch(() => {
       navigate('/notes', { replace: true });
     });
-  }, [filename]);
+  }, [filename, navigate]);
 
   // 自动保存
   useEffect(() => {
@@ -59,7 +60,8 @@ export function NoteEditPage() {
 
     if (store.isModified) {
       autoSaveTimerRef.current = setTimeout(() => {
-        store.saveNote();
+        // 自动保存失败不阻塞用户，静默记录；用户可手动保存覆盖
+        useNoteStore.getState().saveNote().catch(() => {});
       }, AUTO_SAVE_INTERVAL_MS);
     }
 

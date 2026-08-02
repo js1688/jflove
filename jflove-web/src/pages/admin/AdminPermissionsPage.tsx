@@ -25,7 +25,7 @@ export function AdminPermissionsPage() {
       setUsers(u.filter(x => x.role !== 'admin'));
       setDisks(d);
       setPermissions(p);
-    } catch {}
+    } catch { /* 加载失败静默，界面显示空列表 */ }
     setLoading(false);
   };
 

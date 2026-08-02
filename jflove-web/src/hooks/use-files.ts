@@ -6,6 +6,8 @@ import { useCallback } from 'react';
 import { useFileStore } from '../stores/file-store';
 import { fileService } from '../services/file-service';
 import { useTransferStore } from '../stores/transfer-store';
+import { decryptStream } from '../utils/stream-frame';
+import { getSessionKey } from '../utils/session';
 import type { TaskKind } from '../types/models';
 
 export function useFiles() {
@@ -88,8 +90,6 @@ export function useFiles() {
       const stream = await fileService.downloadStream(diskId, path, filename);
 
       // 使用流式帧解析下载
-      const { decryptStream } = await import('../utils/stream-frame');
-      const { getSessionKey } = await import('../utils/session');
       const sessionKey = getSessionKey();
       if (!sessionKey) throw new Error('未建立加密会话');
 

@@ -6,6 +6,7 @@
  */
 
 import { httpClient } from '../utils/http-client';
+import { arrayBufferToBase64 } from '../utils/crypto';
 import type { VirtualDisk, FileItem, PreviewResult } from '../types/models';
 
 export const fileService = {
@@ -141,13 +142,3 @@ export const fileService = {
     await httpClient.post('/api/v1/files/upload/complete', { upload_id });
   },
 };
-
-/** ArrayBuffer → Base64 */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}

@@ -1,4 +1,5 @@
 import { createBrowserRouter, Navigate } from 'react-router';
+import { useAuthStore } from '../stores/auth-store';
 import { AppLayout } from '../layouts/AppLayout';
 import { AuthLayout } from '../layouts/AuthLayout';
 import { LoginPage } from '../pages/LoginPage';
@@ -18,19 +19,21 @@ import { AdminPermissionsPage } from '../pages/admin/AdminPermissionsPage';
 
 /**
  * 路由守卫包装器。
- * 在路由层做鉴权检查，未登录重定向到 /login。
+ * 在路由层做鉴权检查：未登录或 token 已过期时重定向到 /login。
  */
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('jflove_token');
-  if (!token) {
+  const isLoggedIn = useAuthStore(s => s.isLoggedIn);
+  const isTokenExpired = useAuthStore(s => s.isTokenExpired);
+
+  if (!isLoggedIn || isTokenExpired()) {
     return <Navigate to="/login" replace />;
   }
   return <>{children}</>;
 }
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const role = localStorage.getItem('jflove_role');
-  if (role !== 'admin') {
+  const isAdmin = useAuthStore(s => s.isAdmin);
+  if (!isAdmin) {
     return <Navigate to="/" replace />;
   }
   return <>{children}</>;

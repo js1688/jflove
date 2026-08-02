@@ -67,7 +67,13 @@ npm run preview
 ### Docker 部署
 
 ```bash
-# 构建镜像
+# 方式一：一键构建脚本（推荐，对标服务端 build.py）
+python build.py                      # 构建 jflove-web:1.3.0 本地镜像
+python build.py --save               # 构建后导出 build/jflove-web-1.3.0.tar 离线包
+python build.py --tag 1.3.0-rc1      # 自定义 tag
+python build.py --no-cache           # 不使用 Docker 缓存
+
+# 方式二：直接 docker 构建
 docker build -t jflove-web:1.3.0 .
 
 # 运行容器
@@ -75,6 +81,8 @@ docker run -p 8080:80 jflove-web:1.3.0
 
 # 访问 http://localhost:8080
 ```
+
+> 镜像仅构建到本地，推送到镜像仓库由人工执行（如 `docker push registry/jflove-web:1.3.0`）。
 
 ---
 

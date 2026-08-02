@@ -5,7 +5,7 @@
 FROM python:3.14-slim
 
 LABEL maintainer="jflove devops"
-LABEL version="1.1.6"
+LABEL version="1.3.0"
 LABEL description="JFLove 后端服务（FastAPI + SQLite + 端到端加密）"
 
 WORKDIR /app
