@@ -42,6 +42,8 @@ export interface AdminExistsResponse {
 export interface VirtualDisk {
   id: number;
   name: string;
+  /** 服务端真实路径（后端字段为 real_path，管理端展示用） */
+  real_path?: string;
   path: string;
   can_write: boolean;
   created_at: string;
@@ -118,6 +120,7 @@ export interface DiskPermission {
   disk_name: string;
   can_read: boolean;
   can_write: boolean;
+  can_delete: boolean;
 }
 
 // ── 服务端配置 ──

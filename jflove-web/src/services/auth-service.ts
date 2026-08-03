@@ -92,11 +92,8 @@ export const authService = {
 
   /** 登出 */
   async logout(): Promise<void> {
-    try {
-      await httpClient.post('/api/v1/auth/logout', {});
-    } catch {
-      // 登出失败不阻塞本地清除
-    }
+    // 后端未提供 logout 接口（桌面端/移动端登出均为仅清除本地会话），
+    // 此处只清除本地会话状态，不发起网络请求。
     clearSession();
   },
 

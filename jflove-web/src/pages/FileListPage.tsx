@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useFileStore } from '../stores/file-store';
 import { PageHeader } from '../components/PageHeader';
@@ -9,9 +9,12 @@ import { EmptyState } from '../components/EmptyState';
 export function FileListPage() {
   const navigate = useNavigate();
   const { disks, disksLoading, loadDisks } = useFileStore();
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadDisks().catch(() => {});
+    loadDisks()
+      .then(() => setLoadError(null))
+      .catch(e => setLoadError(e instanceof Error ? e.message : '加载磁盘列表失败'));
   }, [loadDisks]);
 
   return (
@@ -20,7 +23,13 @@ export function FileListPage() {
       <div className="p-4">
         {disksLoading && <LoadingSpinner text="加载磁盘列表…" />}
 
-        {!disksLoading && disks.length === 0 && (
+        {!disksLoading && loadError && (
+          <div className="px-4 py-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg mb-2">
+            加载磁盘列表失败：{loadError}
+          </div>
+        )}
+
+        {!disksLoading && !loadError && disks.length === 0 && (
           <EmptyState
             icon="💾"
             title="暂无可用磁盘"
@@ -28,7 +37,7 @@ export function FileListPage() {
           />
         )}
 
-        {!disksLoading && disks.length > 0 && (
+        {!disksLoading && !loadError && disks.length > 0 && (
           <div className="space-y-2">
             {disks.map(disk => (
               <button

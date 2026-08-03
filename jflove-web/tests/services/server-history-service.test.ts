@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { serverHistoryService } from '../../src/services/server-history-service';
+import { serverHistoryService, normalizeServerUrl } from '../../src/services/server-history-service';
 
 describe('server-history-service 服务端地址历史', () => {
   beforeEach(() => {
@@ -55,5 +55,29 @@ describe('server-history-service 服务端地址历史', () => {
 
     const history = serverHistoryService.listHistory();
     expect(history).toEqual(['http://b.com:8989']);
+  });
+});
+
+describe('normalizeServerUrl 服务端地址规范化', () => {
+  it('无协议地址自动补全 http://', () => {
+    expect(normalizeServerUrl('127.0.0.1:8989')).toBe('http://127.0.0.1:8989');
+    expect(normalizeServerUrl('localhost:8989')).toBe('http://localhost:8989');
+  });
+
+  it('已带协议地址保持不变（保留 https）', () => {
+    expect(normalizeServerUrl('https://jflove.example.com:8989'))
+      .toBe('https://jflove.example.com:8989');
+    expect(normalizeServerUrl('http://127.0.0.1:8989')).toBe('http://127.0.0.1:8989');
+  });
+
+  it('去除首尾空白与尾部斜杠', () => {
+    expect(normalizeServerUrl('  http://127.0.0.1:8989/  '))
+      .toBe('http://127.0.0.1:8989');
+    expect(normalizeServerUrl('127.0.0.1:8989///')).toBe('http://127.0.0.1:8989');
+  });
+
+  it('空输入原样返回', () => {
+    expect(normalizeServerUrl('')).toBe('');
+    expect(normalizeServerUrl('   ')).toBe('');
   });
 });

@@ -25,7 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 IMAGE_NAME = "jflove-web"
 
 ROOT = Path(__file__).resolve().parent

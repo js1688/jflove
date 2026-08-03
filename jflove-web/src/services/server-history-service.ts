@@ -8,6 +8,21 @@ import { MAX_SERVER_HISTORY, DEFAULT_SERVER_URL } from '../config/constants';
 
 const STORAGE_KEY = 'jflove_server_history';
 
+/**
+ * 规范化服务端地址：
+ *  - 去除首尾空白与尾部斜杠
+ *  - 未带协议（如 `127.0.0.1:8989`）时自动补全 `http://`，
+ *    避免 baseUrl 拼成相对路径导致请求发往当前站点
+ */
+export function normalizeServerUrl(input: string): string {
+  let url = input.trim();
+  if (!url) return url;
+  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url)) {
+    url = `http://${url}`;
+  }
+  return url.replace(/\/+$/, '');
+}
+
 export const serverHistoryService = {
   /** 获取历史地址列表（最近使用的在前） */
   listHistory(): string[] {

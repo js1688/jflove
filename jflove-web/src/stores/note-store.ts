@@ -48,9 +48,9 @@ export const useNoteStore = create<NoteState>((set, get) => ({
     try {
       const notes = await noteService.listNotes();
       set({ notes, notesLoading: false });
-    } catch {
+    } catch (e) {
       set({ notesLoading: false });
-      throw new Error('加载笔记列表失败');
+      throw e instanceof Error ? e : new Error('加载笔记列表失败');
     }
   },
 
@@ -73,9 +73,9 @@ export const useNoteStore = create<NoteState>((set, get) => ({
         isModified: false,
         isLoading: false,
       });
-    } catch {
+    } catch (e) {
       set({ isLoading: false });
-      throw new Error('加载笔记失败');
+      throw e instanceof Error ? e : new Error('加载笔记失败');
     }
   },
 

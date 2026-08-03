@@ -15,7 +15,7 @@ import {
   clearSession,
 } from '../utils/session';
 import { authService } from '../services/auth-service';
-import { serverHistoryService } from '../services/server-history-service';
+import { serverHistoryService, normalizeServerUrl } from '../services/server-history-service';
 
 interface AuthState {
   // 状态
@@ -75,11 +75,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   keyExchange: async (serverUrl: string) => {
-    setServerUrl(serverUrl);
-    await authService.keyExchange(serverUrl);
-    serverHistoryService.record(serverUrl);
+    // 规范化地址（补全 http://、去尾部斜杠），避免相对路径请求
+    const normalized = normalizeServerUrl(serverUrl);
+    setServerUrl(normalized);
+    await authService.keyExchange(normalized);
+    serverHistoryService.record(normalized);
     set({
-      serverUrl,
+      serverUrl: normalized,
       isEncrypted: true,
     });
   },

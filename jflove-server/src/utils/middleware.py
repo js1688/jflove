@@ -31,11 +31,23 @@ async def decrypt_request_body(request: Request) -> dict:
     if not session_key:
         raise HTTPException(status_code=401, detail="会话不存在或已过期，请重新交换密钥")
 
+    # 加密信封来源：优先请求体；请求体为空时从 URL query 读取（Web 端浏览器 GET 无法携带 body）
+    envelope = None
     raw = await request.body()
-    if not raw:
+    if raw:
+        try:
+            envelope = json.loads(raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="请求解密失败")
+    else:
+        nonce = request.query_params.get("nonce")
+        ciphertext = request.query_params.get("ciphertext")
+        if nonce and ciphertext:
+            envelope = {"nonce": nonce, "ciphertext": ciphertext}
+
+    if not envelope:
         return {}
     try:
-        envelope = json.loads(raw)
         plaintext = decrypt(session_key, envelope["nonce"], envelope["ciphertext"])
         return json.loads(plaintext)
     except Exception:

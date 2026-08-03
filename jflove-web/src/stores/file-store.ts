@@ -18,6 +18,9 @@ interface FileState {
   filesLoading: boolean;
   canWrite: boolean;
 
+  // 预览上下文（不走 URL，避免业务数据明文暴露）
+  previewTarget: { path: string; name: string; size?: number } | null;
+
   // 排序
   sortBy: 'name' | 'size' | 'modified_at';
   sortAsc: boolean;
@@ -27,6 +30,7 @@ interface FileState {
   loadFiles: (diskId: number, path: string) => Promise<void>;
   setSortBy: (field: 'name' | 'size' | 'modified_at') => void;
   toggleSortOrder: () => void;
+  setPreviewTarget: (target: { path: string; name: string; size?: number } | null) => void;
 
   // 文件操作
   createDir: (diskId: number, path: string, dirName: string) => Promise<void>;
@@ -43,6 +47,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   currentFiles: [],
   filesLoading: false,
   canWrite: false,
+  previewTarget: null,
   sortBy: 'name',
   sortAsc: true,
 
@@ -51,9 +56,10 @@ export const useFileStore = create<FileState>((set, get) => ({
     try {
       const disks = await fileService.listDisks();
       set({ disks, disksLoading: false });
-    } catch {
+    } catch (e) {
       set({ disksLoading: false });
-      throw new Error('加载磁盘列表失败');
+      // 保留原始错误信息（如 405 后端版本提示），便于页面明确展示
+      throw e instanceof Error ? e : new Error('加载磁盘列表失败');
     }
   },
 
@@ -61,22 +67,29 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({ filesLoading: true, currentDiskId: diskId, currentPath: path });
     try {
       const files = await fileService.listFiles(diskId, path);
+      // 后端不返回 path 字段，前端按"当前目录 + 名称"拼接相对路径（与桌面端一致）
+      const items: FileItem[] = files.map(f => ({
+        ...f,
+        path: path ? `${path}/${f.name}` : f.name,
+      }));
       // 判断写权限
       const disks = get().disks;
       const disk = disks.find(d => d.id === diskId);
       set({
-        currentFiles: files,
+        currentFiles: items,
         canWrite: disk?.can_write ?? false,
         filesLoading: false,
       });
-    } catch {
+    } catch (e) {
       set({ filesLoading: false });
-      throw new Error('加载文件列表失败');
+      throw e instanceof Error ? e : new Error('加载文件列表失败');
     }
   },
 
   setSortBy: (field) => set({ sortBy: field }),
   toggleSortOrder: () => set(s => ({ sortAsc: !s.sortAsc })),
+
+  setPreviewTarget: (target) => set({ previewTarget: target }),
 
   createDir: async (diskId, path, dirName) => {
     await fileService.createDir(diskId, path, dirName);

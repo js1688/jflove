@@ -15,7 +15,12 @@ export function DesktopLayout() {
     { path: '/notes', label: '笔记管理', icon: '📝' },
     { path: '/sync', label: '同步管理', icon: '🔄' },
     { path: '/transfer', label: '传输任务', icon: '📊' },
+  ];
+
+  // 底部固定项（对标桌面端 NavigationItemPosition.BOTTOM）：安全状态 + 设置
+  const bottomItems = [
     { path: '/security', label: '安全状态', icon: '🔒' },
+    { path: '/settings', label: '设置', icon: '⚙️' },
   ];
 
   const adminItems = [
@@ -92,19 +97,22 @@ export function DesktopLayout() {
           )}
         </nav>
 
-        {/* 底部：设置 + 用户信息 */}
+        {/* 底部：安全状态 + 设置（固定项，对标桌面端） */}
         <div className="border-t border-gray-100">
-          <button
-            onClick={() => navigate('/settings')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors
-              ${isActive('/settings')
-                ? 'bg-indigo-50 text-indigo-700 font-medium'
-                : 'text-gray-600 hover:bg-gray-50'
-              }`}
-          >
-            <span className="text-lg w-6 text-center">⚙️</span>
-            {!collapsed && <span>设置</span>}
-          </button>
+          {bottomItems.map(item => (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors
+                ${isActive(item.path)
+                  ? 'bg-indigo-50 text-indigo-700 font-medium'
+                  : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              <span className="text-lg w-6 text-center">{item.icon}</span>
+              {!collapsed && <span>{item.label}</span>}
+            </button>
+          ))}
           {!collapsed && username && (
             <div className="px-3 py-2 text-xs text-gray-400">
               {username}

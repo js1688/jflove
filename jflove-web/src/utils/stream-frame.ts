@@ -16,12 +16,16 @@ import { decryptStreamChunk } from './crypto';
  *   for await (const chunk of parseStreamFrames(reader, sessionKey)) {
  *     // chunk 是解密后的明文 Uint8Array
  *   }
+ *
+ * initialBuffer：可选，已读但未解析的缓冲（Service Worker 先读首帧 meta 后
+ * 把剩余字节传入，继续解析数据帧）。
  */
 export async function* parseStreamFrames(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   sessionKey: Uint8Array,
+  initialBuffer: Uint8Array = new Uint8Array(0),
 ): AsyncGenerator<Uint8Array> {
-  let buffer = new Uint8Array(0);
+  let buffer = initialBuffer;
 
   while (true) {
     const { done, value } = await reader.read();

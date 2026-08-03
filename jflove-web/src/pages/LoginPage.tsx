@@ -251,21 +251,13 @@ export function LoginPage() {
               ))}
             </select>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setStep('connect')}
-              className="w-24 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
-            >
-              返回
-            </button>
-            <button
-              onClick={handleLogin}
-              disabled={loading}
-              className="flex-1 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {loading ? '登录中…' : '登录'}
-            </button>
-          </div>
+          <button
+            onClick={handleLogin}
+            disabled={loading}
+            className="w-full py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? '登录中…' : '登录'}
+          </button>
         </div>
       )}
 

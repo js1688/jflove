@@ -28,6 +28,17 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false, // 生产构建不泄露源代码路径
+    rollupOptions: {
+      // 单入口：应用（index.html）
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+      },
+      output: {
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
+      },
+    },
   },
   test: {
     globals: true,

@@ -5,6 +5,8 @@ import { PageHeader } from '../components/PageHeader';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { AUTO_SAVE_INTERVAL_MS } from '../config/constants';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
@@ -138,6 +140,18 @@ export function NoteEditPage() {
       return { level, text };
     });
 
+  /** 大纲点击跳转到预览区对应标题（对标桌面端 _on_outline_clicked） */
+  const handleOutlineClick = (text: string) => {
+    const preview = document.querySelector('.markdown-body');
+    const headings = preview?.querySelectorAll('h1, h2, h3');
+    for (const h of headings ?? []) {
+      if ((h.textContent || '').trim() === text) {
+        h.scrollIntoView({ behavior: 'smooth' });
+        break;
+      }
+    }
+  };
+
   if (!filename) return null;
 
   return (
@@ -207,6 +221,12 @@ export function NoteEditPage() {
                   ref={textareaRef}
                   value={store.currentContent}
                   onChange={e => store.setContent(e.target.value)}
+                  onKeyDown={e => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                      e.preventDefault();
+                      handleSave();
+                    }
+                  }}
                   className="w-full h-full p-4 text-sm font-mono resize-none focus:outline-none bg-white"
                   placeholder="开始编写 Markdown…"
                   spellCheck={false}
@@ -235,6 +255,7 @@ export function NoteEditPage() {
                 {headings.map((h, i) => (
                   <div
                     key={i}
+                    onClick={() => handleOutlineClick(h.text)}
                     className="text-sm text-gray-600 hover:text-indigo-600 cursor-pointer"
                     style={{ paddingLeft: `${(h.level - 1) * 16}px` }}
                   >
@@ -262,24 +283,16 @@ export function NoteEditPage() {
   );
 }
 
-/** 简单 Markdown 渲染 */
+/** Markdown 渲染：marked + DOMPurify 清洗，防止 XSS 注入 */
 function simpleMarkdownRender(content: string): string {
-  return content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/^### (.+)$/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mt-5 mb-3">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mt-6 mb-4">$1</h1>')
-    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/~~(.+?)~~/g, '<del>$1</del>')
-    .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 rounded text-sm">$1</code>')
-    .replace(/^> (.+)$/gm, '<blockquote class="border-l-4 border-gray-300 pl-4 italic text-gray-600">$1</blockquote>')
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-    .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
-    .replace(/^---$/gm, '<hr class="my-4 border-gray-200" />')
-    .replace(/\n{2,}/g, '<br/><br/>')
-    .replace(/\n/g, '<br/>');
+  try {
+    const rawHtml = marked.parse(content, { async: false }) as string;
+    return DOMPurify.sanitize(rawHtml);
+  } catch {
+    // 渲染失败时转义后按纯文本展示
+    return content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
 }

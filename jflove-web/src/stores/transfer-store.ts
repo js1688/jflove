@@ -9,7 +9,11 @@ import type { TransferTask, TaskStatus } from '../types/models';
 
 interface TransferState {
   tasks: TransferTask[];
-  stats: { total: number; running: number; completed: number };
+  // 统计：total 总数 / running 进行中（含 pending/hashing/running）/ pending 等待中 / completed 已完成 / failed 失败 / cancelled 已取消
+  stats: {
+    total: number; running: number; pending: number;
+    completed: number; failed: number; cancelled: number;
+  };
 
   addTask: (task: TransferTask) => void;
   updateTask: (id: string, updates: Partial<TransferTask>) => void;
@@ -25,7 +29,7 @@ let taskCounter = 0;
 
 export const useTransferStore = create<TransferState>((set) => ({
   tasks: [],
-  stats: { total: 0, running: 0, completed: 0 },
+  stats: { total: 0, running: 0, pending: 0, completed: 0, failed: 0, cancelled: 0 },
 
   addTask: (task) => {
     set(s => {
@@ -80,8 +84,10 @@ function computeStats(tasks: TransferTask[]) {
     running: tasks.filter(t =>
       t.status === 'pending' || t.status === 'hashing' || t.status === 'running',
     ).length,
-    completed: tasks.filter(t =>
-      t.status === 'completed' || t.status === 'failed' || t.status === 'cancelled',
-    ).length,
+    pending: tasks.filter(t => t.status === 'pending').length,
+    // 已完成：仅 completed 态
+    completed: tasks.filter(t => t.status === 'completed').length,
+    failed: tasks.filter(t => t.status === 'failed').length,
+    cancelled: tasks.filter(t => t.status === 'cancelled').length,
   };
 }

@@ -69,11 +69,18 @@ export function DiskBrowserPage() {
   const disk = store.disks.find(d => d.id === numDiskId);
   const diskName = disk?.name || `磁盘 ${diskId}`;
 
-  // 加载文件列表
+  // 加载文件列表（若磁盘列表尚未加载则先加载，用于磁盘名与写权限判断）
   useEffect(() => {
     if (!diskId) return;
-    // 使用 getState 避免把 store 整体引用加入依赖（zustand 状态变化会导致重复请求）
-    useFileStore.getState().loadFiles(Number(diskId), path).catch(() => {});
+    const s = useFileStore.getState();
+    if (s.disks.length === 0) {
+      s.loadDisks()
+        .then(() => useFileStore.getState().loadFiles(Number(diskId), path))
+        .catch(() => {});
+    } else {
+      // 使用 getState 避免把 store 整体引用加入依赖（zustand 状态变化会导致重复请求）
+      useFileStore.getState().loadFiles(Number(diskId), path).catch(() => {});
+    }
   }, [diskId, path]);
 
   // 排序
@@ -100,7 +107,9 @@ export function DiskBrowserPage() {
     if (item.is_dir) setPath(item.path);
   };
   const handlePreview = (item: FileItem) => {
-    navigate(`/files/${diskId}/preview?path=${encodeURIComponent(item.path)}&name=${encodeURIComponent(item.name)}`);
+    // 预览上下文走 store（不放入 URL，避免业务数据明文暴露，见 §9.1.4）
+    useFileStore.getState().setPreviewTarget({ path: item.path, name: item.name, size: item.size });
+    navigate(`/files/${diskId}/preview`);
   };
 
   // 文件操作

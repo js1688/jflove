@@ -19,9 +19,12 @@ export function MobileLayout() {
     return location.pathname === path || (path === '/settings' && location.pathname.startsWith('/settings'));
   };
 
-  // 管理子页面不显示底部 TabBar
-  const hideTabBar = location.pathname.startsWith('/admin') ||
-    location.pathname.includes('/preview');
+  // 管理子页面 / 磁盘浏览 / 预览 / 笔记编辑（push 子页面）不显示底部 TabBar，
+  // 对齐移动端 Flutter：push 进入的子页面无 TabBar，仅靠顶部返回按钮
+  const hideTabBar =
+    location.pathname.startsWith('/admin') ||
+    location.pathname.startsWith('/files/') ||
+    location.pathname.startsWith('/notes/');
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">

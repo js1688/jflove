@@ -6,18 +6,24 @@
  */
 
 import { httpClient } from '../utils/http-client';
-import { arrayBufferToBase64 } from '../utils/crypto';
-import type { VirtualDisk, FileItem, PreviewResult } from '../types/models';
+import { arrayBufferToBase64, isWebCryptoAvailable } from '../utils/crypto';
+import { getSessionKey } from '../utils/session';
+import { decryptStream } from '../utils/stream-frame';
+import { sha256 } from '@noble/hashes/sha2.js';
+import type { VirtualDisk, FileItem } from '../types/models';
 
 export const fileService = {
   /** 获取用户可访问的虚拟磁盘列表 */
   async listDisks(): Promise<VirtualDisk[]> {
-    return httpClient.get<VirtualDisk[]>('/api/v1/files/disks');
+    const resp = await httpClient.get<{ disks: VirtualDisk[] }>(
+      '/api/v1/files/disks',
+    );
+    return resp.disks;
   },
 
-  /** 列出磁盘内文件/目录 */
+  /** 列出磁盘内文件/目录（服务端为 GET 只读接口，走加密 GET + URL query 信封） */
   async listFiles(diskId: number, path: string): Promise<FileItem[]> {
-    const resp = await httpClient.post<{ files: FileItem[] }>(
+    const resp = await httpClient.get<{ files: FileItem[] }>(
       '/api/v1/files/list',
       { disk_id: diskId, path },
     );
@@ -53,36 +59,57 @@ export const fileService = {
 
   /** 删除文件/目录 */
   async delete(diskId: number, path: string): Promise<void> {
-    await httpClient.post('/api/v1/files/delete', {
+    await httpClient.delete('/api/v1/files/delete', {
       disk_id: diskId,
       path,
     });
   },
 
-  /** 获取文件预览内容（文本/图片/Markdown） */
-  async getPreview(
-    diskId: number,
-    path: string,
-    filename: string,
-  ): Promise<PreviewResult> {
-    return httpClient.post<PreviewResult>('/api/v1/files/preview', {
-      disk_id: diskId,
-      path,
-      filename,
-    });
-  },
-
-  /** 流式下载/预览（返回 ReadableStream，调用方负责逐帧解密） */
+  /**
+   * 流式下载文件（v1 纯加密数据帧，POST /files/download）。
+   * 返回 ReadableStream，调用方通过 stream-frame 逐帧解密。
+   * 注：不使用 /files/stream（v2）——其首帧为 meta 元数据帧，
+   * 会导致下载文件头部混入 JSON 明文。
+   */
   async downloadStream(
     diskId: number,
     path: string,
     filename: string,
   ): Promise<ReadableStream<Uint8Array>> {
-    return httpClient.downloadStream('/api/v1/files/stream', {
+    return httpClient.downloadStream('/api/v1/files/download', {
       disk_id: diskId,
       path,
       filename,
     });
+  },
+
+  /**
+   * 下载文件并解密为完整字节（用于预览 / 保存）。
+   * 复用 /files/download（v1 加密流），逐帧解密合并。
+   */
+  async downloadRaw(
+    diskId: number,
+    path: string,
+    filename: string,
+  ): Promise<Uint8Array> {
+    const stream = await this.downloadStream(diskId, path, filename);
+    const sessionKey = getSessionKey();
+    if (!sessionKey) throw new Error('未建立加密会话');
+
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for await (const chunk of decryptStream(stream, sessionKey)) {
+      chunks.push(chunk);
+      total += chunk.length;
+    }
+
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return result;
   },
 
   /**
@@ -104,6 +131,10 @@ export const fileService = {
     onProgress?: (uploaded: number, total: number) => void,
   ): Promise<void> {
     const CHUNK_SIZE = 1024 * 1024; // 1 MB
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    // 计算文件 SHA256（后端 upload/init 强制要求，用于完整性校验）
+    const fileHash = await computeFileSha256(file);
 
     // Step 1: 初始化上传
     const { upload_id } = await httpClient.post<{ upload_id: string }>(
@@ -113,11 +144,12 @@ export const fileService = {
         path: remotePath,
         filename: file.name,
         file_size: file.size,
+        total_chunks: totalChunks,
+        file_hash: fileHash,
       },
     );
 
-    // Step 2: 分片上传
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    // Step 2: 分片上传（totalChunks 已在上面计算）
     let uploaded = 0;
 
     for (let i = 0; i < totalChunks; i++) {
@@ -142,3 +174,16 @@ export const fileService = {
     await httpClient.post('/api/v1/files/upload/complete', { upload_id });
   },
 };
+
+/** 计算文件 SHA256 哈希（返回 64 位十六进制小写，与后端 hexdigest 一致；crypto.subtle 不可用时纯 JS 回退） */
+async function computeFileSha256(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  if (isWebCryptoAvailable()) {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const bytes = new Uint8Array(hashBuffer);
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  }
+  // 非安全上下文（HTTP 域名）回退：@noble/hashes 纯 JS SHA-256
+  const hash = sha256(new Uint8Array(buffer));
+  return Array.from(hash, b => b.toString(16).padStart(2, '0')).join('');
+}

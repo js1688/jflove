@@ -101,19 +101,28 @@ describe('http-client 加密请求', () => {
     expect(parsed.new_name).toBe('b.txt');
   });
 
-  it('GET 请求也发送加密 body（含 token）', async () => {
+  it('GET 请求用真 GET + URL query 携带加密信封（含 token）', async () => {
     const mockResponse = await makeEncryptedResponse(sessionKey, { disks: [] });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse);
 
     await httpClient.get('/api/v1/files/disks');
 
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toBe('http://test.local:8989/api/v1/files/disks');
+    // 必须是真 GET 方法（兼容服务端 GET-only 路由）
+    expect(options.method).toBe('GET');
+    expect(String(url)).toContain('http://test.local:8989/api/v1/files/disks?');
+    expect(options.headers['X-Session-ID']).toBe('test-session-id');
 
-    // GET 也必须携带加密 body
-    expect(options.body).toBeTruthy();
-    const bodyObj = JSON.parse(options.body);
-    const decrypted = decryptEnvelope(sessionKey, bodyObj.nonce, bodyObj.ciphertext);
+    // 加密信封在 URL query 中（nonce/ciphertext），token 在解密后的 JSON 内
+    const queryStr = String(url).split('?')[1];
+    const params = new URLSearchParams(queryStr);
+    const nonce = params.get('nonce')!;
+    const ciphertext = params.get('ciphertext')!;
+    expect(nonce).toBeTruthy();
+    expect(ciphertext).toBeTruthy();
+
+    const decrypted = decryptEnvelope(sessionKey, nonce, ciphertext);
     const parsed = JSON.parse(new TextDecoder().decode(decrypted));
     expect(parsed.token).toBe('test-jwt-token');
   });
@@ -173,5 +182,74 @@ describe('http-client 加密请求', () => {
     const bodyObj = JSON.parse(options.body);
     expect(bodyObj.nonce).toBeUndefined();
     expect(bodyObj.client_public_key).toBe('dGVzdA==');
+  });
+
+  it('GET 超长 path 的 query 信封完整无截断，且 URL 不含明文路径', async () => {
+    const mockResponse = await makeEncryptedResponse(sessionKey, { files: [] });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse);
+
+    // 构造超长相对路径（>4KB，验证 URL 长度边界风险 B1）
+    const longPath = `dir/${'sub/'.repeat(1200)}target.txt`;
+    expect(longPath.length).toBeGreaterThan(4000);
+
+    await httpClient.get('/api/v1/files/list', { disk_id: 1, path: longPath });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(options.method).toBe('GET');
+
+    const queryStr = String(url).split('?')[1];
+    const params = new URLSearchParams(queryStr);
+    // URL 中不含明文路径内容
+    expect(String(url)).not.toContain('target.txt');
+    expect(String(url)).not.toContain('/sub/');
+
+    // 解密后 path 完整保留（无截断）
+    const decrypted = decryptEnvelope(
+      sessionKey, params.get('nonce')!, params.get('ciphertext')!,
+    );
+    const parsed = JSON.parse(new TextDecoder().decode(decrypted));
+    expect(parsed.path).toBe(longPath);
+    expect(parsed.disk_id).toBe(1);
+  });
+
+  it('downloadStream 走真 GET + URL query 信封并返回流式 body', async () => {
+    // 构造带 body 的流式响应（stream-frame 帧内容此处不展开，仅验证请求形态）
+    const streamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.close();
+      },
+    });
+    const mockResponse = new Response(streamBody, {
+      status: 200,
+      headers: { 'Content-Type': 'application/octet-stream' },
+    });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse);
+
+    const stream = await httpClient.downloadStream('/api/v1/files/download', {
+      disk_id: 1,
+      path: 'a.txt',
+      filename: 'a.txt',
+    });
+
+    // 返回流式响应体
+    expect(stream).toBeInstanceOf(ReadableStream);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(options.method).toBe('GET');
+    expect(options.headers['X-Session-ID']).toBe('test-session-id');
+    // 信封在 query，不在 body
+    expect(options.body).toBeUndefined();
+    const queryStr = String(url).split('?')[1];
+    const params = new URLSearchParams(queryStr);
+    expect(params.get('nonce')).toBeTruthy();
+    expect(params.get('ciphertext')).toBeTruthy();
+
+    // 解密后参数完整（token + 下载参数）
+    const decrypted = decryptEnvelope(
+      sessionKey, params.get('nonce')!, params.get('ciphertext')!,
+    );
+    const parsed = JSON.parse(new TextDecoder().decode(decrypted));
+    expect(parsed.token).toBe('test-jwt-token');
+    expect(parsed.path).toBe('a.txt');
   });
 });

@@ -13,15 +13,59 @@
  */
 
 import { chacha20poly1305 } from '@noble/ciphers/chacha';
+// 纯 JS 回退实现（非安全上下文 / HTTP 域名下 crypto.subtle 不可用）：
+// 协议不变（标准 X25519 + HKDF-SHA256），与后端/桌面/移动端互操作一致
+import { x25519 } from '@noble/curves/ed25519.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { SESSION_KEY_SALT, SESSION_KEY_LENGTH, NONCE_LENGTH } from '../config/constants';
+
+// ── 安全上下文检测 ───────────────────────────
+
+/**
+ * Web Crypto API（crypto.subtle）是否可用。
+ * crypto.subtle 仅存在于「安全上下文」：HTTPS，或 http://localhost / http://127.0.0.1；
+ * 其他 HTTP 域名（如 http://local.jflove.cn）下为 undefined。
+ */
+export function isWebCryptoAvailable(): boolean {
+  return typeof crypto !== 'undefined' && !!crypto.subtle;
+}
+
+/** 私钥表示：安全上下文为 Web Crypto CryptoKey；非安全上下文为纯 JS 32B Uint8Array */
+export type PrivateKey = CryptoKey | Uint8Array;
+
+// ── X25519 纯 JS 实现（非安全上下文回退） ──────
+
+/** 纯 JS X25519 密钥生成（协议与 Web Crypto 路径一致，32B 私钥/公钥） */
+export function generateKeyPairJS(): {
+  publicKeyB64: string;
+  privateKey: Uint8Array;
+} {
+  const privateKey = x25519.utils.randomSecretKey();
+  const publicKey = x25519.getPublicKey(privateKey);
+  return { publicKeyB64: arrayBufferToBase64(publicKey), privateKey };
+}
+
+/** 纯 JS ECDH + HKDF-SHA256 派生 32 字节会话密钥（协议与 Web Crypto 路径一致） */
+export function deriveSessionKeyJS(
+  privateKey: Uint8Array,
+  peerPublicKeyB64: string,
+): Uint8Array {
+  const peerPublicKeyRaw = base64ToUint8Array(peerPublicKeyB64);
+  const sharedSecret = x25519.getSharedSecret(privateKey, peerPublicKeyRaw);
+  return hkdf(sha256, sharedSecret, SESSION_KEY_SALT, new Uint8Array(0), SESSION_KEY_LENGTH);
+}
 
 // ── X25519 密钥生成 ───────────────────────────
 
-/** 生成 X25519 临时密钥对 */
+/** 生成 X25519 临时密钥对（crypto.subtle 不可用时自动回退纯 JS 实现） */
 export async function generateKeyPair(): Promise<{
   publicKeyB64: string;
-  privateKey: CryptoKey;
+  privateKey: PrivateKey;
 }> {
+  if (!isWebCryptoAvailable()) {
+    return generateKeyPairJS();
+  }
   const keyPair = await crypto.subtle.generateKey(
     { name: 'X25519' },
     true,
@@ -34,11 +78,16 @@ export async function generateKeyPair(): Promise<{
 
 // ── ECDH + HKDF 派生 session_key ──────────────
 
-/** ECDH + HKDF-SHA256 派生 32 字节会话密钥 */
+/** ECDH + HKDF-SHA256 派生 32 字节会话密钥（crypto.subtle 不可用时自动回退纯 JS） */
 export async function deriveSessionKey(
-  privateKey: CryptoKey,
+  privateKey: PrivateKey,
   peerPublicKeyB64: string,
 ): Promise<Uint8Array> {
+  // 纯 JS 私钥（Uint8Array）或非安全上下文 → 走纯 JS 回退
+  if (privateKey instanceof Uint8Array) {
+    return deriveSessionKeyJS(privateKey, peerPublicKeyB64);
+  }
+
   const peerPublicKeyRaw = base64ToUint8Array(peerPublicKeyB64);
 
   const peerPublicKey = await crypto.subtle.importKey(

@@ -6,10 +6,10 @@ interface PageHeaderProps {
   onBack?: () => void;
 }
 
-/** 页面标题栏 */
+/** 页面标题栏（sticky 固定顶部，滚动时不被滚走；PC / 移动视图通用） */
 export function PageHeader({ title, actions, onBack }: PageHeaderProps) {
   return (
-    <div className="flex items-center h-14 px-4 border-b border-gray-100 bg-white">
+    <div className="sticky top-0 z-20 flex items-center h-14 px-4 border-b border-gray-100 bg-white">
       {onBack && (
         <button
           onClick={onBack}

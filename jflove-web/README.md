@@ -29,6 +29,16 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 | 加密信封 | `{"nonce":"<Base64>","ciphertext":"<Base64>"}` |
 | 流式帧 | `[4B 大端长度][12B nonce][密文+16B tag]` |
 
+> **只读（GET）接口传参方式**：浏览器禁止 GET 携带 body，Web 端只读接口将加密信封
+> 放入 URL query（`?nonce=...&ciphertext=...`）发送；服务端 middleware 在请求体为空时
+> 从 query 读取信封（全局通用，桌面/移动端仍走 body，互不影响）。query 中仅含密文，
+> 不含任何明文业务参数。
+
+> **非安全上下文兼容（HTTP 域名）**：Web Crypto API（`crypto.subtle`）仅存在于安全上下文
+> （HTTPS / localhost）。当通过 `http://` 局域网域名访问时，Web 端自动回退到纯 JS 实现
+> （`@noble/curves` X25519 + `@noble/hashes` HKDF-SHA256），**加密协议与互操作不变**；
+> HTTPS / localhost 环境仍走 Web Crypto 主路径。
+
 ---
 
 ## 环境要求
@@ -77,7 +87,7 @@ python build.py --no-cache           # 不使用 Docker 缓存
 docker build -t jflove-web:1.3.0 .
 
 # 运行容器
-docker run -p 8080:80 jflove-web:1.3.0
+docker run -d --name jflove-web -p 8080:80 --restart=always jflove-web:1.3.1
 
 # 访问 http://localhost:8080
 ```
@@ -195,5 +205,6 @@ jflove-web/
 ## 已知限制
 
 - **同步管理**：浏览器沙箱限制，不支持本地文件系统双向同步（降级为展示+引导）
-- **视频/音频流式播放**：当前版本使用简单的 `<video>`/`<audio>` 标签，流式加密播放需配合 Service Worker 实现（后续版本优化）
-- **Markdown 预览**：当前使用简化渲染，完整渲染需接入 marked.js + highlight.js + Mermaid.js（依赖已声明在 package.json）
+- **视频/音频预览**：Service Worker 流式代理**边下边播 + 拖动 seek**（等价桌面/移动端 StreamProxy，需 HTTPS/localhost 部署）；非安全上下文（HTTP 域名）自动回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
+- **PDF 预览**：暂不支持（与桌面端/移动端一致），提示下载后使用本地程序打开
+- **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗），支持标题/加粗/斜体/列表/引用/代码块等；代码高亮与 Mermaid 图表渲染为后续增强项

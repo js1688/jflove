@@ -55,6 +55,7 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
   - `jflove-desktop/build.py` `VERSION`
   - `jflove-app/pubspec.yaml` `version`
   - `jflove-web/package.json` `version`
+  - `jflove-web/build.py` `VERSION`（Web 端共 2 处版本号，均需核查）
 - 生产库 DDL 变更必须有回滚脚本；Docker 镜像内置空表结构 DB，支持 `-v /data` 挂载持久化
 
 ## 发布步骤
