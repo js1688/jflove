@@ -1,8 +1,8 @@
 # JFLove — 私有文档与笔记协同管理系统
 
-![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.8.0.2-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.27%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.6%2B-blue) ![License](https://img.shields.io/badge/License-Proprietary-red)
+![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.8.0.2-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.27%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.6%2B-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Vite](https://img.shields.io/badge/Vite-6-purple) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
-JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统，提供服务端 + 桌面客户端 + 移动端三端架构。所有通信经过端到端加密（X25519 ECDH + ChaCha20-Poly1305），保障用户数据隐私。
+JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统，提供服务端 + 桌面客户端 + 移动端 + Web 端四端架构。所有通信经过端到端加密（X25519 ECDH + ChaCha20-Poly1305），保障用户数据隐私。
 
 ---
 
@@ -16,10 +16,11 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 |------|------|
 | **操作系统** | Linux 7.0（开发主力）/ Windows / macOS（桌面端/iOS 构建） |
 | **IDE** | Visual Studio Code |
-| **AI 插件** | GitHub Copilot + DeepSeek V4 for Copilot Chat（集成 deepseek-v4-pro 模型，驱动多角色 AI 代理工作流） |
-| **AI 模型** | deepseek-v4-pro（通过 GitHub Copilot Chat 接入） |
+| **AI 插件** | GitHub Copilot + DeepSeek V4 for Copilot Chat（集成 deepseek-v4-pro / deepseek-v4-flash 双模型，驱动多角色 AI 代理工作流） |
+| **AI 模型** | deepseek-v4-pro（复杂任务主用）+ deepseek-v4-flash（轻量/高频任务）（均通过 GitHub Copilot Chat 接入） |
+| **Node.js** | 22+ / npm 10+（Web 端构建与运行，Vite 6） |
 | **代码风格** | EditorConfig 统一缩进（2 空格，UTF-8，LF 换行） |
-| **调试配置** | VS Code launch.json 预设服务端/桌面端/移动端启动配置 |
+| **调试配置** | VS Code launch.json 预设服务端/桌面端/Web 端（Edge）启动配置 |
 
 ### AI 代理角色
 
@@ -32,6 +33,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | **Backend** | 后端业务代码实现（FastAPI） |
 | **Desktop** | 桌面端 UI 与交互实现（PySide6） |
 | **Mobile** | 移动端 UI 与交互实现（Flutter + Dart） |
+| **Web** | Web 端 UI 与交互实现（React + TypeScript） |
 | **Code Review** | 代码规范、质量、安全审查 |
 | **Testing** | 自动化测试用例编写与执行 |
 | **PMO** | 项目管理、任务跟踪、版本控制 |
@@ -48,7 +50,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | **jflove-server** | [`jflove-server/`](jflove-server/) | 后端服务（FastAPI + SQLite） | ✅ 在研 |
 | **jflove-desktop** | [`jflove-desktop/`](jflove-desktop/) | 跨平台桌面客户端（PySide6） | ✅ 在研 |
 | **jflove-app** | [`jflove-app/`](jflove-app/) | 跨平台移动端 App（Flutter + Dart），首版 Android-only，iOS/鸿蒙预留 | ✅ 在研 |
-| jflove-web | `jflove-web/` | 浏览器 Web 端 | ⏸️ 暂不开发 |
+| **jflove-web** | [`jflove-web/`](jflove-web/) | 浏览器 Web 端（React + TypeScript），支持 PC 端与移动端浏览器双布局 | ✅ 在研 |
 
 > **模块边界**：各模块独立开发，互不越界。详细代码规范与工作手册见 [`AGENTS.md`](AGENTS.md)。
 
@@ -71,7 +73,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
   - 音频：mp3 / wav / ogg / flac / m4a / aac / wma / opus（流式零缓存播放）
   - 文本：txt / log / json / xml / yaml / ini / csv / Markdown / 代码文件（流式逐帧加载，首屏 ≤3s）
   - Markdown：渲染为 HTML，支持代码块高亮、表格、Mermaid 图表
-- **流式预览（v1.1.0+）**：视频/音频通过本地 HTTP 代理零缓存播放；文本通过 StreamTextLoader 逐帧流式加载，不写本地临时文件
+- **流式预览（v1.1.0+）**：桌面端/移动端视频/音频通过本地 HTTP 代理零缓存播放；Web 端（v1.3.1+）通过 Service Worker 流式代理（`/jflove-stream/<token>`，解析 Range → 后端加密流逐帧解密 → 206 返回）真边下边播 + 拖动 seek，非安全上下文自动回退 MSE；文本通过 StreamTextLoader 逐帧流式加载，不写本地临时文件
 
 ### 📝 笔记本管理
 
@@ -97,6 +99,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 - **永不自动删除文件**（删除安全约束）：同步过程不会触发任何删除操作
 - 同步配置客户端本地存储（v1.1.6+），不同客户端各自独立
 - 多客户端隔离：每台机器独立管理自己的同步配置
+- **两端支持**：桌面端/移动端，均可配置与管理同步任务
 
 ### 🔐 安全通信
 
@@ -105,7 +108,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 - **JWT 鉴权**：ES256 签名，通过加密 Body 传递，不走明文 `Authorization` 头
 - **文件流加密**：下载/预览按 64 KB 分片独立加密，每帧 `[4B 长度][12B nonce][密文+16B tag]`
 - **错误响应加密**：全局异常处理器（HTTPException / StarletteHTTPException / RequestValidationError / Exception 兜底）统一加密错误 detail
-- **URL 不携带业务参数**：所有业务参数在加密 body 中传递，防止 URL 泄漏
+- **URL 不携带业务参数**：桌面端/移动端所有业务参数在加密 body 中传递；Web 端（v1.3.0+）因浏览器禁止 GET 携带 body，只读接口将加密信封放入 URL query（`?nonce=...&ciphertext=...`），**query 中仅含密文，不含任何明文业务参数**，防止 URL 泄漏
 
 ---
 
@@ -155,6 +158,15 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | 🐛 修复 | `/stream` 404「文件不存在」：后端约定 `path=目录+filename`，Web 端曾传完整路径导致双重拼接，已在 `openEncryptedStream` 归一化 |
 | 🔧 修复 | `parseStreamFrames` 单分片丢帧：meta 帧与数据帧同分片到达时先解析缓冲再读取 |
 | ✅ 测试 | Web 端 vitest 51 通过；真实服务器 500GB/叶方 IMG_0443.MP4 验证边下边播 + 拖动 seek |
+
+### v1.3.0 — Web 端首个版本 + 后端 CORS
+
+| 类型 | 变更 |
+|------|------|
+| 📅 | 2026-08-02 |
+| 🌐 Web 端 | **全新模块**（React + TypeScript + Vite + Tailwind CSS）：登录/文件浏览/预览/笔记/设置/管理/同步/传输全功能，PC 端侧边栏 + 移动端底部 TabBar 双布局；只读 GET 接口走 URL query 加密信封；HTTP 非安全上下文自动回退纯 JS 加密（`@noble/curves` X25519 + HKDF-SHA256） |
+| 🔧 服务端 | 新增 CORS 中间件；版本号 1.1.6 → 1.3.0 |
+| ✅ 测试 | Web 端 vitest 35 用例通过；容器冒烟登录页 + SPA fallback |
 
 ### v1.2.3 — 移动端传输任务 Tab + 同步修复 + BUG 修复累积（hotfix1~5）
 
@@ -212,6 +224,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | 后端开发记录 | [`文档记录/后端开发记录/`](文档记录/后端开发记录/) |
 | 桌面端开发记录 | [`文档记录/桌面端开发记录/`](文档记录/桌面端开发记录/) |
 | 移动端开发记录 | [`文档记录/移动端开发记录/`](文档记录/移动端开发记录/) |
+| Web 端开发记录 | [`文档记录/Web端开发记录/`](文档记录/Web端开发记录/) |
 | 代码审查报告 | [`文档记录/代码审查报告/`](文档记录/代码审查报告/) |
 | 测试报告 | [`文档记录/测试报告/`](文档记录/测试报告/) |
 | 项目管理记录 | [`文档记录/项目管理记录/`](文档记录/项目管理记录/) |
@@ -224,5 +237,6 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 - 服务端技术文档 → [`jflove-server/README.md`](jflove-server/README.md)
 - 桌面端技术文档 → [`jflove-desktop/README.md`](jflove-desktop/README.md)
 - 移动端技术文档 → [`jflove-app/README.md`](jflove-app/README.md)
+- Web 端技术文档 → [`jflove-web/README.md`](jflove-web/README.md)
 - 项目工作手册 → [`AGENTS.md`](AGENTS.md)
 - 数据库文件 → [`jflove-db/`](jflove-db/)
