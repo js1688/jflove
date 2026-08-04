@@ -24,7 +24,7 @@ description: 移动端工程师，负责 jflove-app 跨平台移动应用开发�
 - 安全存储：**flutter_secure_storage**（token 等敏感字段存 Keychain / Keystore）
 - 本地文件：**path_provider**（同步配置 JSON、文件下载缓存）
 - 加密：`pointycastle` 纯 Dart（X25519 + ChaCha20-Poly1305 + HKDF-SHA256），**禁止 `dart:ffi` / libSodium / 任何原生加密库**
-- 测试：`flutter_test` + `integration_test`；静态分析：`dart analyze lib/` 必须零错误
+- 测试：`flutter_test`（当前仅 `test/` 目录，22 个用例；无 `integration_test` 目录）；静态分析：`dart analyze lib/` 必须零错误
 - 构建：`flutter build apk --debug`（Android）；预留 iOS/鸿蒙构建入口
 - 日志/异常/性能：Dart `logging`，release 模式全静默；大文件 Isolate 解密
 - **首版 Android-only**：保留 `android/`，删除 ios/macos/windows/linux/web
@@ -34,13 +34,13 @@ description: 移动端工程师，负责 jflove-app 跨平台移动应用开发�
 
 参见 `AGENTS.md §3` jflove-app 目录结构。关键分层：
 
-- `lib/utils/` — 加密（crypto）、HTTP（http_service）、会话（session）、流式帧解析（stream_frame）
-- `lib/services/` — 9 个业务 service，对标桌面端 `services/`，构造注入 HttpService
-- `lib/providers/` — Riverpod 状态管理，按功能域拆分
-- `lib/pages/` — 按路由组织页面（login / home / files / notes / sync / settings / admin）
-- `lib/models/` — 不可变数据模型（freezed 或手写）
-- `lib/widgets/` — 可复用 UI 组件
-- `test/` + `integration_test/` — 单元/widget 测试 + 端到端测试
+- `lib/utils/` — 加密（crypto）、HTTP（http_service）、会话（session）、流式帧解析（stream_frame）、流式代理（stream_proxy）
+- `lib/services/` — **11 个业务 service**（auth / config / disk / file / note / permission / server_history / sync / sync_engine / transfer / user），对标桌面端 `services/`，构造注入 HttpService
+- `lib/providers/` — Riverpod 状态管理（6 个文件），按功能域拆分
+- `lib/pages/` — 按路由组织页面（login / files / notes / sync / transfer / settings / admin；首页已移除，`/` 重定向 `/files`）
+- `lib/models/` — 不可变数据模型（7 个文件）
+- `lib/widgets/` — 可复用 UI 组件（6 个，含 transfer_floating_card）
+- `test/` — 单元/widget 测试（当前 22 个用例，无 integration_test 目录）
 
 ## 行为规范（启用后）
 
@@ -61,6 +61,7 @@ description: 移动端工程师，负责 jflove-app 跨平台移动应用开发�
 - **HKDF 正确用法**：pointycastle 的 `HKDFKeyDerivator.process()` 会将参数**追加到 info 字段**，导致派生密钥与服务端不一致。必须使用 `deriveKey(null, 0, out, 0)` 替代 `process()`。
 - **登录响应字段名**：服务器返回 `expires_in`（有效期秒数），不是 `expires_at`。需要从当前时间 + `expires_in` 计算过期时间戳。
 - **错误响应需解密**：加密错误响应的 body 是密文信封，需 `_decryptEnvelope` 解密后才能看到真实 detail，不能直接显示原始 `DioException.message`。
+- **版本号**：仅 `pubspec.yaml` 的 `version: x.y.z+n` 一处（`+n` 为 build number），发布时手动修改；无 build.py 同步脚本。
 
 ## 边界约束（禁止越界）
 

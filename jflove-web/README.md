@@ -4,6 +4,8 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 
 支持 PC 端（侧边栏导航）和移动端（底部 TabBar 导航）双布局自适应。
 
+> **当前版本：v1.3.1**（版本号 3 处必须一致：`package.json`、`src/config/constants.ts` 的 `APP_VERSION`、`build.py`；推荐用 `python build.py --version x.y.z` 一键同步）
+
 ---
 
 ## 技术架构
@@ -16,8 +18,9 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 | **Tailwind CSS 4** | 原子化 CSS，响应式布局 |
 | **Zustand 5** | 轻量状态管理 |
 | **React Router v7** | SPA 路由，布局路由 + 路由守卫 |
-| **Web Crypto API** | X25519 ECDH + HKDF-SHA256 密钥交换 |
+| **Web Crypto API** | X25519 ECDH + HKDF-SHA256 密钥交换（安全上下文主路径） |
 | **@noble/ciphers** | ChaCha20-Poly1305 对称加密 |
+| **@noble/curves + @noble/hashes** | 非安全上下文（HTTP 域名）纯 JS 回退：X25519 + HKDF-SHA256，协议不变 |
 
 ### 加密协议（三端统一）
 
@@ -97,13 +100,14 @@ npm run preview
 
 ```bash
 # 方式一：一键构建脚本（推荐，对标服务端 build.py）
-python build.py                      # 构建 jflove-web:1.3.0 本地镜像
-python build.py --save               # 构建后导出 build/jflove-web-1.3.0.tar 离线包
-python build.py --tag 1.3.0-rc1      # 自定义 tag
+python build.py                      # 构建 jflove-web:1.3.1 本地镜像（构建前校验三处版本号一致）
+python build.py --version 1.3.2      # 指定新版本号：自动同步 package.json / constants.ts / build.py 后构建
+python build.py --save               # 构建后导出 build/jflove-web-1.3.1.tar 离线包
+python build.py --tag 1.3.1-rc1      # 自定义 tag
 python build.py --no-cache           # 不使用 Docker 缓存
 
 # 方式二：直接 docker 构建
-docker build -t jflove-web:1.3.0 .
+docker build -t jflove-web:1.3.1 .
 
 # 运行容器
 docker run -d --name jflove-web -p 8080:80 --restart=always jflove-web:1.3.1
@@ -111,7 +115,7 @@ docker run -d --name jflove-web -p 8080:80 --restart=always jflove-web:1.3.1
 # 访问 http://localhost:8080
 ```
 
-> 镜像仅构建到本地，推送到镜像仓库由人工执行（如 `docker push registry/jflove-web:1.3.0`）。
+> 镜像仅构建到本地，推送到镜像仓库由人工执行（如 `docker push registry/jflove-web:1.3.1`）。
 
 ---
 
@@ -141,7 +145,6 @@ jflove-web/
 │   │   └── AuthLayout.tsx          # 登录页布局
 │   ├── pages/
 │   │   ├── LoginPage.tsx           # 登录/管理员初始化
-│   │   ├── HomePage.tsx            # 首页仪表盘
 │   │   ├── FileListPage.tsx        # 虚拟磁盘列表
 │   │   ├── DiskBrowserPage.tsx     # 磁盘文件浏览
 │   │   ├── FilePreviewPage.tsx     # 文件预览
@@ -156,8 +159,8 @@ jflove-web/
 │   │       ├── AdminDisksPage.tsx   # 磁盘管理
 │   │       └── AdminPermissionsPage.tsx # 权限配置
 │   ├── components/
-│   │   ├── PageHeader.tsx          # 页面标题栏
-│   │   ├── PathBreadcrumb.tsx      # 路径面包屑
+│   │   ├── PageHeader.tsx          # 页面标题栏（sticky 固定）
+│   │   ├── PathBreadcrumb.tsx      # 路径面包屑（含返回上级箭头）
 │   │   ├── DirTreeModal.tsx        # 目录树选择弹窗
 │   │   ├── ConfirmDialog.tsx       # 确认对话框
 │   │   ├── LoadingSpinner.tsx      # 加载指示器
@@ -167,7 +170,7 @@ jflove-web/
 │   │   ├── use-auth.ts             # 认证 Hook
 │   │   ├── use-files.ts            # 文件操作 Hook
 │   │   ├── use-notes.ts            # 笔记操作 Hook
-│   │   └── use-responsive.ts       # 响应式断点
+│   │   └── use-responsive.ts       # 响应式断点（useIsPC / useBreakpoint）
 │   ├── services/
 │   │   ├── auth-service.ts         # 认证
 │   │   ├── file-service.ts         # 文件管理
@@ -185,17 +188,23 @@ jflove-web/
 │   │   ├── transfer-store.ts       # 传输任务状态
 │   │   └── settings-store.ts       # 设置状态
 │   ├── utils/
-│   │   ├── crypto.ts               # 加密工具
+│   │   ├── crypto.ts               # 加密工具（Web Crypto + 纯 JS 回退）
 │   │   ├── http-client.ts          # 加密 HTTP 客户端
 │   │   ├── session.ts              # 会话管理
-│   │   └── stream-frame.ts         # 流式帧解析
+│   │   ├── stream-frame.ts         # 流式帧解析
+│   │   ├── stream-proxy.ts         # SW 流式代理（v1.3.1+）
+│   │   └── media-source-player.ts  # MSE 回退播放器（v1.3.1+）
+│   ├── sw/
+│   │   └── index.ts                # Service Worker 流式代理入口（构建输出 dist/sw.js）
 │   └── types/
 │       ├── models.ts               # 数据模型
 │       └── api.ts                  # API 类型
 └── tests/
     ├── setup.ts
-    ├── utils/crypto.test.ts
-    └── components/PageHeader.test.tsx
+    ├── utils/                      # crypto / http-client / stream-frame 测试
+    ├── services/                   # server-history-service 测试
+    ├── stores/                     # auth-store / transfer-store 测试
+    └── components/                 # PageHeader 组件测试
 ```
 
 ---
@@ -205,7 +214,7 @@ jflove-web/
 | 路径 | 页面 | 鉴权 | 布局 |
 |------|------|------|------|
 | `/login` | LoginPage | 无 | AuthLayout |
-| `/` | HomePage | JWT | AppLayout |
+| `/` | 重定向 `/files`（首页已移除） | JWT | AppLayout |
 | `/files` | FileListPage | JWT | AppLayout |
 | `/files/:diskId` | DiskBrowserPage | JWT | AppLayout |
 | `/files/:diskId/preview` | FilePreviewPage | JWT | AppLayout |
@@ -224,6 +233,6 @@ jflove-web/
 ## 已知限制
 
 - **同步管理**：浏览器沙箱限制，不支持本地文件系统双向同步（降级为展示+引导）
-- **视频/音频预览**：Service Worker 流式代理**边下边播 + 拖动 seek**（等价桌面/移动端 StreamProxy，需 HTTPS/localhost 部署）；非安全上下文（HTTP 域名）自动回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
+- **视频/音频预览**：Service Worker 流式代理**边下边播 + 拖动 seek**（等价桌面/移动端 StreamProxy，需 HTTPS/localhost 部署）；非安全上下文（HTTP 域名）自动回退 **MSE**（fMP4/WebM/MP3/FLAC/OGG 仍可边下边播）；MSE 不可行时才回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
 - **PDF 预览**：暂不支持（与桌面端/移动端一致），提示下载后使用本地程序打开
-- **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗），支持标题/加粗/斜体/列表/引用/代码块等；代码高亮与 Mermaid 图表渲染为后续增强项
+- **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗）+ `highlight.js`（代码高亮）+ `mermaid`（图表渲染），支持标题/加粗/斜体/列表/引用/代码块等

@@ -81,13 +81,15 @@ venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload
 
 | 表名 | 说明 |
 |------|------|
-| `users` | 用户信息（含角色、启用状态） |
+| `users` | 用户信息（含角色、启用状态、笔记目录 `notes_disk_id` / `notes_path` 字段） |
 | `virtual_disks` | 虚拟磁盘配置 |
-| `permissions` | 用户对虚拟磁盘的访问权限 |
-| `sessions` | 审核日志/会话记录 |
-| `configs` | 服务端配置 |
+| `user_permissions` | 用户对虚拟磁盘的访问权限（读/写/删） |
+| `sessions` | 会话记录（session_id、JWT hash、过期时间） |
+| `config` | 服务端配置（key-value） |
 
 > 所有表均包含 `id`、`created_at`、`updated_at`、`deleted_at` 字段（软删除）。
+> 索引命名：`{field}_idx`；外键字段命名 `{related_table}_id`（不建外键约束）。
+> v1.1.6：`sync_configs` 表已移除（同步配置改为客户端本地存储）。
 
 ---
 
@@ -109,7 +111,7 @@ docker run -d \
     -v /opt/jflove/data:/data \
     -v /mnt/big-disk:/storage \
     --restart=always \
-    jflove-server:1.1.6
+    jflove-server:1.3.1
 ```
 
 ### 多盘挂载
@@ -122,7 +124,7 @@ docker run -d \
     -v /mnt/disk-a:/storage/disk-a \
     -v /mnt/disk-b:/storage/disk-b \
     --restart=always \
-    jflove-server:1.1.6
+    jflove-server:1.3.1
 ```
 
 ### SELinux / Podman
@@ -144,15 +146,18 @@ Fedora / RHEL 系系统需加 `:Z` 后缀：
 ### 镜像构建
 
 ```bash
-# 构建并打 tag
+# 构建并打 tag（版本号与 build.py VERSION 一致；构建前自动校验三处版本号一致性）
 cd jflove-server
 venv/bin/python build.py
+
+# 指定新版本号：自动同步 main.py / build.py / Dockerfile 三处后构建
+venv/bin/python build.py --version 1.3.2
 
 # 构建后导出离线包
 venv/bin/python build.py --save
 ```
 
-构建脚本会自检：`jflove-prod.db` 必须 0 行业务数据（防止数据泄漏到镜像）。
+构建脚本会自检：`jflove-prod.db` 必须 0 行业务数据（防止数据泄漏到镜像）；版本号三处（`main.py` / `build.py` / `Dockerfile`）不一致时中止构建。
 
 ---
 
@@ -175,20 +180,19 @@ venv/bin/python build.py --save
 
 ## 依赖清单
 
-核心依赖（详见 [`requirements.txt`](jflove-server/requirements.txt)）：
+核心依赖（详见 [`requirements.txt`](jflove-server/requirements.txt)，仅运行时依赖；`pytest`/`flake8` 为开发依赖，不在 requirements.txt 中）：
 
 | 依赖 | 用途 |
 |------|------|
-| `fastapi>=0.115.0` | Web 框架 |
-| `uvicorn[standard]` | ASGI 服务器 |
-| `aiosqlite` | 异步 SQLite 驱动 |
-| `cryptography` | X25519 / ChaCha20-Poly1305 加密 |
-| `PyJWT` | JWT 签发与验证（ES256） |
-| `bcrypt` | 密码哈希 |
-| `python-multipart` | 文件上传支持 |
-| `pydantic` | 请求体验证 |
-| `pytest` | 测试框架 |
-| `flake8` | 代码风格检查 |
+| `fastapi==0.115.12` | Web 框架 |
+| `uvicorn[standard]==0.34.2` | ASGI 服务器 |
+| `aiosqlite==0.21.0` | 异步 SQLite 驱动 |
+| `aiofiles==24.1.0` | 异步文件 IO |
+| `cryptography==44.0.3` | X25519 / ChaCha20-Poly1305 加密 |
+| `PyJWT[crypto]==2.10.1` | JWT 签发与验证（ES256） |
+| `bcrypt==4.3.0` | 密码哈希 |
+| `python-multipart==0.0.20` | 文件上传支持 |
+| `pydantic>=2.0` | 请求体验证 |
 
 ---
 

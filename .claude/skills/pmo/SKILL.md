@@ -37,10 +37,11 @@ PMO 阶段负责校验各 README 文件是否与当前版本一致。当某版�
 每个版本迭代的 PMO 阶段（Phase 7），在输出项目管理记录前，必须执行以下核验流程：
 
 1. **根 README.md**：检查版本变化日志是否包含当前版本号，功能清单是否需要新增/调整
-2. **jflove-server/README.md**：检查技术描述（架构、启动方式、依赖）是否与当前代码一致
-3. **jflove-desktop/README.md**：检查技术描述（架构、安装方式、构建方式）是否与当前代码一致
-4. **jflove-app/README.md**：检查技术描述（架构、构建方式、启动方案）是否与当前代码一致
-5. 如需要更新，在任务清单中标记为待办任务（由相应角色执行）
+2. **jflove-server/README.md**：检查技术描述（架构、启动方式、依赖、表结构）是否与当前代码一致
+3. **jflove-desktop/README.md**：检查技术描述（架构、安装方式、构建方式、依赖版本）是否与当前代码一致
+4. **jflove-app/README.md**：检查技术描述（架构、构建方式、启动方案、路由表）是否与当前代码一致
+5. **jflove-web/README.md**：检查技术描述（架构、路由表、项目结构、已知限制）是否与当前代码一致
+6. 如需要更新，在任务清单中标记为待办任务（由相应角色执行）
 
 ### 交付物核验清单
 
@@ -53,6 +54,7 @@ PMO 阶段负责校验各 README 文件是否与当前版本一致。当某版�
 | Phase 3 | backend | `文档记录/后端开发记录/<版本号>.md` + `jflove-server/README.md` | 包含变更记录、接口/类说明 |
 | Phase 4a | cross-platform-desktop | `文档记录/桌面端开发记录/<版本号>.md` + `jflove-desktop/README.md` | 包含页面/组件说明 |
 | Phase 4b | cross-platform-mobile | `文档记录/移动端开发记录/<版本号>.md` + `jflove-app/README.md` | 包含页面/组件说明、调用的后端接口 |
+| Phase 4c | web-frontend | `文档记录/Web端开发记录/<版本号>.md` + `jflove-web/README.md` | 包含页面/组件说明、调用的后端接口、路由表 |
 | Phase 5 | code-review | `文档记录/代码审查报告/<版本号>.md` | 包含安全宪法逐条审核结果，无未解决严重项 |
 | Phase 6 | testing | `文档记录/测试报告/<版本号>.md` | 包含安全用例运行结果 |
 | Phase 7 | pmo | `文档记录/项目管理记录/<版本号>.md` | 本文件 |
@@ -72,6 +74,7 @@ PMO 阶段负责校验各 README 文件是否与当前版本一致。当某版�
 | jflove-server/README.md 技术描述准确 | ✅ / ❌ |
 | jflove-desktop/README.md 技术描述准确 | ✅ / ❌ |
 | jflove-app/README.md 技术描述准确 | ✅ / ❌ |
+| jflove-web/README.md 技术描述准确 | ✅ / ❌ |
 ```
 
 ### 更新分工
@@ -82,6 +85,7 @@ PMO 阶段负责校验各 README 文件是否与当前版本一致。当某版�
 | `jflove-server/README.md` | backend | 技术细节由后端开发者更新 |
 | `jflove-desktop/README.md` | cross-platform-desktop | 技术细节由桌面端开发者更新 |
 | `jflove-app/README.md` | cross-platform-mobile | 技术细节由移动端开发者更新 |
+| `jflove-web/README.md` | web-frontend | 技术细节由 Web 端开发者更新 |
 
 ## 安全宪法
 

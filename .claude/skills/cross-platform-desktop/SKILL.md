@@ -13,12 +13,22 @@ description: 桌面端工程师，负责 jflove-desktop 跨平台桌面应用开
 ## 技术栈（模块特有）
 
 - 语言：Python 3.14+
-- 框架：PySide6 6.8.0.2；UI 规范：Material Design；组件库：PySide6-Fluent-Widgets
+- 框架：PySide6 6.11.0（以 `requirements.txt` 为准，勿用旧文档的 6.8.0.2）；UI 规范：Material Design；组件库：PySide6-Fluent-Widgets 1.11.2
 - 状态管理：Redux 模式（基于信号槽）；HTTP：全部走 `src/utils/http_client.py`
 - 加密：cryptography（与后端一致：ChaCha20-Poly1305 / ECDH X25519）
 - 测试：pytest；风格检查：flake8
-- 构建：pyinstaller；依赖：pip + `requirements.txt`
+- 构建：pyinstaller（`build.py` → `build/dist/JFLove`）；依赖：pip + `requirements.txt`
 - 日志/异常/性能：与后端一致
+
+## 核心组件（实际存在）
+
+- `src/components/stream_proxy.py` — 本地流式 HTTP 代理（视频/音频边下边播 + Range）
+- `src/components/stream_text_loader.py` — 文本流式加载线程
+- `src/components/preview_dialog.py` — 通用文件预览对话框
+- `src/components/markdown_view.py` — Markdown 渲染视图
+- `src/utils/sync_engine.py` — 同步引擎（定时器 + 工作线程）
+- `src/utils/transfer_manager.py` — 传输任务管理器
+- `src/utils/worker.py` — QThread 异步工作线程
 
 ## 行为规范
 
@@ -26,7 +36,7 @@ description: 桌面端工程师，负责 jflove-desktop 跨平台桌面应用开
 - `services/` 封装所有后端调用，UI 层禁止直接发起 HTTP。
 - 跨平台特定逻辑（路径、字体、托盘）必须做平台判断。
 - 耗时操作用多线程，避免阻塞 UI 线程；全局异常 + 友好提示。
-- 版本迭代时必须同步更新 `src/config/settings.py` 的 `APP_VERSION`，UI 页禁止硬编码版本号。
+- 版本迭代时必须同步更新**桌面端 2 处版本号**：`src/config/settings.py` 的 `APP_VERSION`（窗口/关于显示）与 `build.py` 的 `VERSION`。推荐发布时用 `python build.py --version x.y.z` 一键同步（构建前自动校验一致性，不一致中止构建——防止「构建了新版本但应用内还是旧版本号」）。UI 页禁止硬编码版本号。
 
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
 

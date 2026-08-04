@@ -11,10 +11,10 @@ description: 测试工程师，负责编写并维护自动化测试，输出测�
 
 ## 技术约束
 
-- 测试框架：pytest（后端/桌面端）；`flutter_test` + `mockito`（移动端）
+- 测试框架：pytest（后端/桌面端）；`flutter_test`（移动端，**无 mockito**——pubspec 仅 flutter_test + flutter_lints）；Vitest + React Testing Library（Web 端）
 - 桌面端 UI 测试可用 PySide6 `QtTest`；移动端 widget 测试用 `flutter_test`
-- 风格检查：flake8（后端/桌面端）；`dart analyze lib/`（移动端，必须零错误）
-- 模块目录：`jflove-server/tests/`、`jflove-desktop/tests/`、`jflove-app/test/`、`jflove-app/integration_test/`
+- 风格检查：flake8（后端/桌面端）；`dart analyze lib/`（移动端，必须零错误）；ESLint（Web 端，零警告）
+- 模块目录：`jflove-server/tests/`、`jflove-desktop/tests/`、`jflove-app/test/`（当前无 integration_test 目录）、`jflove-web/tests/`
 - 覆盖率目标：核心业务逻辑 ≥ 90%
 - 命名与编码规范：见 `AGENTS.md §4`；禁止越界规则：见 `AGENTS.md §1`
 

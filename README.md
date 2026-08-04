@@ -1,6 +1,6 @@
 # JFLove — 私有文档与笔记协同管理系统
 
-![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.8.0.2-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.27%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.6%2B-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Vite](https://img.shields.io/badge/Vite-6-purple) ![License](https://img.shields.io/badge/License-Proprietary-red)
+![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.11.0-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.27%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.6%2B-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Vite](https://img.shields.io/badge/Vite-6-purple) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
 JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统，提供服务端 + 桌面客户端 + 移动端 + Web 端四端架构。所有通信经过端到端加密（X25519 ECDH + ChaCha20-Poly1305），保障用户数据隐私。
 
@@ -140,6 +140,23 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 - 敏感数据不记录日志（token / 密码 / session_key 严禁记录；filename / path 可截断或哈希化）
 - 响应头不暴露文件名 / 路径 / 用户标识
 - 受保护接口必须使用 JWT 鉴权，路径参数路由必须做权限校验
+
+---
+
+## 版本号管理（发布一致性）
+
+> 各模块版本号存在多个定义位置，**发布时必须全部一致**，否则会出现「构建了新版但应用内显示旧版本号」的问题。
+
+| 模块 | 版本号位置 | 一键同步命令 |
+|------|-----------|-------------|
+| jflove-server | `src/main.py`（/docs 显示）+ `build.py` + `Dockerfile LABEL`（共 3 处） | `cd jflove-server && python build.py --version x.y.z` |
+| jflove-desktop | `src/config/settings.py` `APP_VERSION`（窗口/关于显示）+ `build.py`（共 2 处） | `cd jflove-desktop && python build.py --version x.y.z` |
+| jflove-app | `pubspec.yaml` `version: x.y.z+n`（1 处，`+n` 为 build number） | 手动修改（无同步脚本） |
+| jflove-web | `package.json` + `src/config/constants.ts` `APP_VERSION`（设置页「关于」显示）+ `build.py`（共 3 处） | `cd jflove-web && python build.py --version x.y.z` |
+
+> 三个 build.py 在**未指定 `--version` 时自动校验全部版本号位置一致，不一致则中止构建**；
+> 指定 `--version` 时自动同步该模块全部位置后再构建。移动端仅 1 处，需手动修改。
+> 共 9 处版本号字段（服务端 3 + 桌面端 2 + 移动端 1 + Web 端 3），发布前由 devops 逐处核查。
 
 ---
 
