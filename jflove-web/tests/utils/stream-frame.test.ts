@@ -4,12 +4,15 @@
  * 对应安全宪法 §9.6 testing 第③类：文件下载流可被客户端正确解密、篡改后认证失败。
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   generateKeyPair, deriveSessionKey,
-  encryptStreamChunk, decryptStreamChunk,
+  encryptStreamChunk, decryptStreamChunk, decryptEnvelope,
 } from '../../src/utils/crypto';
-import { decryptStream, parseStreamFrames } from '../../src/utils/stream-frame';
+import {
+  decryptStream, parseStreamFrames,
+  parseRangeHeader, openEncryptedStream,
+} from '../../src/utils/stream-frame';
 
 /** 生成测试用 session_key */
 async function makeSessionKey(): Promise<Uint8Array> {
@@ -141,5 +144,172 @@ describe('stream-frame 流式帧端到端', () => {
     const frameBody = frame.slice(4);
     const decrypted = decryptStreamChunk(sessionKey, frameBody);
     expect(decrypted.length).toBe(0);
+  });
+});
+
+describe('parseRangeHeader', () => {
+  it('bytes=X-Y 绝对范围', () => {
+    expect(parseRangeHeader('bytes=10-99', 100)).toEqual({ start: 10, end: 100 });
+  });
+
+  it('bytes=X- 到文件结尾', () => {
+    expect(parseRangeHeader('bytes=50-', 100)).toEqual({ start: 50, end: 100 });
+  });
+
+  it('bytes=-N suffix 范围（最后 N 字节）', () => {
+    expect(parseRangeHeader('bytes=-10', 100)).toEqual({ start: 90, end: 100 });
+    // suffix 超过文件大小时钳制到 0
+    expect(parseRangeHeader('bytes=-200', 100)).toEqual({ start: 0, end: 100 });
+  });
+
+  it('无 Range / 非法 Range 返回整个文件', () => {
+    expect(parseRangeHeader(null, 100)).toEqual({ start: 0, end: 100 });
+    expect(parseRangeHeader('', 100)).toEqual({ start: 0, end: 100 });
+    expect(parseRangeHeader('garbage', 100)).toEqual({ start: 0, end: 100 });
+  });
+
+  it('终点/起点超界时钳制到文件大小（保证 Content-Length 一致）', () => {
+    expect(parseRangeHeader('bytes=0-199', 100)).toEqual({ start: 0, end: 100 });
+    // 起点超出文件大小 → 空范围（触发 SW 侧 416）
+    expect(parseRangeHeader('bytes=200-', 100)).toEqual({ start: 100, end: 100 });
+  });
+});
+
+describe('openEncryptedStream', () => {
+  it('读取 meta 帧并逐帧解密数据帧', async () => {
+    const sessionKey = await makeSessionKey();
+    const metaPlain = new TextEncoder().encode(JSON.stringify({
+      type: 'meta',
+      file_size: 100,
+      range_start: 0,
+      range_end: 100,
+      content_type: 'video/mp4',
+    }));
+    const data1 = new TextEncoder().encode('hello ');
+    const data2 = new TextEncoder().encode('world');
+    const stream = makeEncryptedStream(sessionKey, [metaPlain, data1, data2], 7);
+
+    const originalFetch = globalThis.fetch;
+    // 测试桩：返回简化 Response 对象（含 ReadableStream body）
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: stream,
+    })) as unknown as typeof fetch;
+
+    try {
+      const session = {
+        sessionKey,
+        sessionId: 'test-sid',
+        token: 'test-token',
+        serverUrl: 'http://localhost:8989',
+      };
+      const { meta, frames } = await openEncryptedStream(
+        session, 1, '/', 'sample.mp4', 0, -1,
+      );
+
+      // meta 帧解析正确
+      expect(meta.file_size).toBe(100);
+      expect(meta.content_type).toBe('video/mp4');
+      expect(meta.range_start).toBe(0);
+      expect(meta.range_end).toBe(100);
+
+      // 数据帧（不含 meta 帧）逐帧解密拼接
+      const chunks: Uint8Array[] = [];
+      for await (const c of frames) chunks.push(c);
+      const all = concat(chunks);
+      expect(new TextDecoder().decode(all)).toBe('hello world');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe('openEncryptedStream 路径归一化（回归：修复 /stream 404「文件不存在」）', () => {
+  it('传入「完整路径（含文件名）」时，后端收到 path=目录 + filename=文件名', async () => {
+    const sessionKey = await makeSessionKey();
+    const metaPlain = new TextEncoder().encode(JSON.stringify({
+      type: 'meta',
+      file_size: 100,
+      range_start: 0,
+      range_end: 100,
+      content_type: 'video/mp4',
+    }));
+    const data = new TextEncoder().encode('payload');
+    const stream = makeEncryptedStream(sessionKey, [metaPlain, data]);
+
+    let capturedUrl = '';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      capturedUrl = String(url);
+      return { ok: true, status: 200, body: stream };
+    }) as unknown as typeof fetch;
+
+    try {
+      const session = {
+        sessionKey,
+        sessionId: 'test-sid',
+        token: 'test-token',
+        serverUrl: 'http://localhost:8989',
+      };
+      // Web 端 FileItem.path 是完整路径（如 /叶方/IMG_0443.MP4），filename 是文件名
+      const { frames } = await openEncryptedStream(
+        session, 2, '/叶方/IMG_0443.MP4', 'IMG_0443.MP4', 0, -1,
+      );
+      // 消费帧，确保请求已发出
+      for await (const _ of frames) { void _; }
+
+      // 从请求 URL 解密 query 信封，验证 path 已归一化为目录
+      const url = new URL(capturedUrl);
+      const nonce = url.searchParams.get('nonce') || '';
+      const ciphertext = url.searchParams.get('ciphertext') || '';
+      const decrypted = decryptEnvelope(sessionKey, nonce, ciphertext);
+      const body = JSON.parse(new TextDecoder().decode(decrypted)) as Record<string, unknown>;
+
+      expect(body.path).toBe('/叶方');
+      expect(body.filename).toBe('IMG_0443.MP4');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('传入「目录 + 文件名」时保持不变（兼容桌面/移动端传法）', async () => {
+    const sessionKey = await makeSessionKey();
+    const metaPlain = new TextEncoder().encode(JSON.stringify({
+      type: 'meta', file_size: 100, range_start: 0, range_end: 100, content_type: 'video/mp4',
+    }));
+    const stream = makeEncryptedStream(sessionKey, [metaPlain]);
+
+    let capturedUrl = '';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: unknown) => {
+      capturedUrl = String(url);
+      return { ok: true, status: 200, body: stream };
+    }) as unknown as typeof fetch;
+
+    try {
+      const session = {
+        sessionKey,
+        sessionId: 'test-sid',
+        token: 'test-token',
+        serverUrl: 'http://localhost:8989',
+      };
+      const { frames } = await openEncryptedStream(
+        session, 2, '/叶方', 'IMG_0443.MP4', 0, -1,
+      );
+      for await (const _ of frames) { void _; }
+
+      const url = new URL(capturedUrl);
+      const decrypted = decryptEnvelope(
+        sessionKey,
+        url.searchParams.get('nonce') || '',
+        url.searchParams.get('ciphertext') || '',
+      );
+      const body = JSON.parse(new TextDecoder().decode(decrypted)) as Record<string, unknown>;
+      expect(body.path).toBe('/叶方');
+      expect(body.filename).toBe('IMG_0443.MP4');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

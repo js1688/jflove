@@ -4,6 +4,8 @@ import { fileService } from '../services/file-service';
 import { useFileStore } from '../stores/file-store';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingSpinner } from '../components/LoadingSpinner';
+import { openStreamUrl, closeStreamUrl } from '../utils/stream-proxy';
+import { isMSEAvailable, playWithMSE } from '../utils/media-source-player';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -11,7 +13,6 @@ const TEXT_EXTS = ['md', 'txt', 'json', 'xml', 'yaml', 'yml', 'csv', 'ini', 'log
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
 const VIDEO_EXTS = ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 'mpg', 'mpeg', 'ts', '3gp'];
 const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'opus'];
-const MAX_PREVIEW_BYTES = 500 * 1024 * 1024;
 
 function mediaMime(ext: string): string {
   const map: Record<string, string> = {
@@ -55,6 +56,10 @@ export function FilePreviewPage() {
       return;
     }
     let cancelled = false;
+    let streamUrl: string | null = null;
+    let mseCleanup: (() => void) | null = null;
+    let blobUrl: string | null = null;
+
     setLoading(true);
     setError(null);
     setContent(null);
@@ -63,28 +68,47 @@ export function FilePreviewPage() {
 
     (async () => {
       try {
-        if ((isVideo || isAudio) && (previewTarget.size ?? 0) > MAX_PREVIEW_BYTES) {
-          setError('文件过大（超过 500 MB），请下载后使用本地播放器查看');
-          setLoading(false);
-          return;
-        }
         if (isImage) {
           const bytes = await fileService.downloadRaw(Number(diskId), path, filename);
           if (cancelled) return;
-          const blob = new Blob([bytes.buffer as ArrayBuffer]);
-          setImageUrl(URL.createObjectURL(blob));
+          blobUrl = URL.createObjectURL(new Blob([bytes.buffer as ArrayBuffer]));
+          setImageUrl(blobUrl);
         } else if (isText) {
           const bytes = await fileService.downloadRaw(Number(diskId), path, filename);
           if (cancelled) return;
           setContent(new TextDecoder('utf-8').decode(bytes));
         } else if (isVideo || isAudio) {
+          // ① 首选 Service Worker 流式代理：真「边下边播 + 拖动 seek」（安全上下文）
+          const swUrl = await openStreamUrl(Number(diskId), path, filename);
+          if (cancelled) {
+            if (swUrl) closeStreamUrl(swUrl);
+            return;
+          }
+          if (swUrl) {
+            streamUrl = swUrl;
+            setMediaSrc(swUrl);
+            return;
+          }
+          // ② MSE 回退：SW 不可用（非安全上下文）时，对 fMP4 / WebM / 简单音频边下边播
+          const mediaEl = isVideo ? videoRef.current : audioRef.current;
+          if (mediaEl && isMSEAvailable(filename)) {
+            const cleanup = await playWithMSE(mediaEl, Number(diskId), path, filename);
+            if (cancelled) {
+              cleanup?.();
+              return;
+            }
+            if (cleanup) {
+              mseCleanup = cleanup;
+              return;
+            }
+          }
+          // ③ 最后兜底：完整下载 → Blob URL（仅当上述两者均不可行，浏览器能力极限）
           const bytes = await fileService.downloadRaw(Number(diskId), path, filename);
           if (cancelled) return;
-          const blob = new Blob([bytes.buffer as ArrayBuffer], { type: mediaMime(ext) });
-          const url = URL.createObjectURL(blob);
-          if (isVideo && videoRef.current) videoRef.current.src = url;
-          if (isAudio && audioRef.current) audioRef.current.src = url;
-          setMediaSrc(url);
+          blobUrl = URL.createObjectURL(
+            new Blob([bytes.buffer as ArrayBuffer], { type: mediaMime(ext) }),
+          );
+          setMediaSrc(blobUrl);
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '预览加载失败');
@@ -93,20 +117,18 @@ export function FilePreviewPage() {
       }
     })();
 
-    return () => { cancelled = true; };
-  }, [diskId, previewTarget, path, filename, isImage, isText, isVideo, isAudio, ext]);
-
-  useEffect(() => {
     return () => {
-      if (mediaSrc && mediaSrc.startsWith('blob:')) URL.revokeObjectURL(mediaSrc);
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      cancelled = true;
+      if (streamUrl) closeStreamUrl(streamUrl);
+      if (mseCleanup) mseCleanup();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [mediaSrc, imageUrl]);
+  }, [diskId, previewTarget, path, filename, isImage, isText, isVideo, isAudio, ext]);
 
   return (
     <div>
       <PageHeader title={filename || '文件预览'} onBack={() => navigate(-1)} />
-      {loading && <LoadingSpinner text="加载预览…" />}
+      {loading && !isVideo && !isAudio && <LoadingSpinner text="加载预览…" />}
       {!loading && error && (<div className="text-center py-12 text-red-500">{error}</div>)}
       {!loading && !error && (
         <div className="p-6">
@@ -121,15 +143,6 @@ export function FilePreviewPage() {
           {isText && ext !== 'md' && content !== null && (
             <pre className="p-6 text-sm font-mono whitespace-pre-wrap overflow-x-auto max-w-3xl mx-auto bg-gray-50 rounded-lg">{content}</pre>
           )}
-          {isVideo && mediaSrc && (
-            <video ref={videoRef} src={mediaSrc} controls className="max-w-full max-h-[80vh] mx-auto rounded-lg shadow-lg bg-black" />
-          )}
-          {isAudio && mediaSrc && (
-            <div className="flex flex-col items-center py-8">
-              <span className="text-6xl mb-4">🎵</span>
-              <audio ref={audioRef} src={mediaSrc} controls className="w-full max-w-xl" />
-            </div>
-          )}
           {!isImage && !isText && !isVideo && !isAudio && (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <span className="text-5xl mb-3">{isPdf ? '📄' : '📎'}</span>
@@ -137,6 +150,29 @@ export function FilePreviewPage() {
               <p className="text-xs mt-1">请下载后使用本地程序打开</p>
             </div>
           )}
+        </div>
+      )}
+      {/* 视频/音频：元素始终渲染（供 ref 即时可用），src 由媒体状态驱动；加载时叠加提示 */}
+      {isVideo && !error && (
+        <div className="relative">
+          {loading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
+              <LoadingSpinner text="边下边播准备中…" />
+            </div>
+          )}
+          <video
+            ref={videoRef}
+            src={mediaSrc || undefined}
+            controls
+            className="max-w-full max-h-[80vh] mx-auto rounded-lg shadow-lg bg-black"
+          />
+        </div>
+      )}
+      {isAudio && !error && (
+        <div className="flex flex-col items-center py-8">
+          <span className="text-6xl mb-4">🎵</span>
+          {loading && <LoadingSpinner text="边下边播准备中…" />}
+          <audio ref={audioRef} src={mediaSrc || undefined} controls className="w-full max-w-xl" />
         </div>
       )}
     </div>

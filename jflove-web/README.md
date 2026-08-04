@@ -39,6 +39,25 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 > （`@noble/curves` X25519 + `@noble/hashes` HKDF-SHA256），**加密协议与互操作不变**；
 > HTTPS / localhost 环境仍走 Web Crypto 主路径。
 
+### 视频/音频预览：边下边播（三档回退）
+
+预览不落盘、边下边播，回退链（关键路径可靠）：
+
+1. **Service Worker 流式代理（主路径）**：`<video src="/jflove-stream/<token>">` → SW 拦截 →
+   解析 HTTP `Range` → 向后端 `/api/v1/files/stream`（v2，支持 range_start/range_end）拉加密帧 →
+   逐帧解密 → `206 Partial Content` 返回，浏览器原生解码器接管。支持所有浏览器原生格式
+   （mp4/webm/mp3/wav/flac/ogg/m4a/aac/opus），真边下边播 + 拖动 seek。
+   **仅安全上下文可用（HTTPS / localhost / 127.0.0.1）**；生产部署建议 HTTPS。
+2. **MSE 回退**：SW 不可用（HTTP 局域网）时，对 fMP4 / WebM / MP3 / FLAC / OGG 仍可边下边播
+   （`media-source-player.ts`，按格式正确探测 codec，首帧 append 失败快速回退）。
+3. **完整下载 → Blob**：仅当两者都不可行时（浏览器能力极限），非主路径。
+
+安全要点：流式 URL 仅含不透明一次性 token（不暴露业务数据）；会话（session_key/JWT）经
+postMessage 同步到 SW 内存、不落盘不进日志；登出时清空 SW 内存密钥。
+
+构建注意：`vite build` 输出 `dist/sw.js`（SW 独立入口）；nginx SPA fallback 已兼容 `/sw.js`。
+dev 下由 `vite.config.ts` 的 `jflove-sw-dev` 插件托管 `/sw.js` 并附 `Service-Worker-Allowed: /`。
+
 ---
 
 ## 环境要求
