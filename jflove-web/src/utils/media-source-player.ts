@@ -122,25 +122,55 @@ export async function playWithMSE(
   const abortController = new AbortController();
   let mediaSource: MediaSource | null = null;
   let objectUrl = '';
+  // 当前流模式（v1.4.0）：byte=健康文件原文件字节 range；time=修复流时间 range
+  let streamMode: 'byte' | 'time' = 'byte';
+  // 当前活动流（seek 重拉时释放旧流）
+  let currentFrames: AsyncGenerator<Uint8Array> | null = null;
+  // 当前数据帧生成器（consume 引用；seek 重建后更新）
+  let frames: AsyncGenerator<Uint8Array>;
+  // 是否处于 seek 重建中（避免并发触发多次重拉）
+  let seeking = false;
+  // 当前是否已结束
+  let ended = false;
+  let failed = false;
 
-  try {
-    // 打开加密 Range 流（0..结尾），读取 meta 与逐帧解密的数据帧
-    const { frames } = await openEncryptedStream(
+  /**
+   * 打开加密流（初始与 seek 共用）。
+   * 初始请求同时携带字节 range 与时间 range（range_start_seconds），
+   * 服务端根据文件状态返回 byte（健康）或 time（需修复）meta。
+   *
+   * @param rangeStartSeconds 修复流时间起点（秒）；健康文件忽略
+   */
+  const openStream = async (rangeStartSeconds: number) => {
+    if (currentFrames) {
+      try { void currentFrames.return?.(undefined); } catch { /* ignore */ }
+    }
+    const opened = await openEncryptedStream(
       { sessionKey, sessionId, token, serverUrl },
       diskId,
       path,
       filename,
       0,
       -1,
+      rangeStartSeconds,
       abortController.signal,
     );
+    currentFrames = opened.frames;
+    frames = opened.frames;
+    streamMode = opened.meta.stream_mode === 'time' ? 'time' : 'byte';
+    return opened;
+  };
+
+  try {
+    // 初始打开（从 0 开始）
+    await openStream(0);
 
     mediaSource = new MediaSource();
     objectUrl = URL.createObjectURL(mediaSource);
     video.src = objectUrl;
 
-    // 等待 sourceopen
-    await new Promise<void>((resolve, reject) => {
+    // 等待 sourceopen（初始与 seek 重建共用；读取当前 mediaSource 实例）
+    const waitSourceOpen = (): Promise<void> => new Promise<void>((resolve, reject) => {
       const onOpen = () => {
         mediaSource?.removeEventListener('sourceopen', onOpen);
         clearTimeout(timer);
@@ -152,6 +182,7 @@ export async function playWithMSE(
       }, 10000);
       mediaSource?.addEventListener('sourceopen', onOpen);
     });
+    await waitSourceOpen();
 
     let sourceBuffer: SourceBuffer;
     try {
@@ -166,8 +197,6 @@ export async function playWithMSE(
     // 这里在首个 append 周期内捕获，尽快回退完整下载，避免白屏。
     const queue: Uint8Array[] = [];
     let pending = false;
-    let ended = false;
-    let failed = false;
 
     let resolveFirst!: (r: 'ok' | 'fail') => void;
     const firstPromise = new Promise<'ok' | 'fail'>((res) => { resolveFirst = res; });
@@ -215,8 +244,8 @@ export async function playWithMSE(
       fail();
     });
 
-    // 消费解密帧 → append 队列
-    (async () => {
+    // 消费解密帧 → append 队列（seek 重建后以新 frames 再次调用）
+    const consume = async () => {
       try {
         for await (const chunk of frames) {
           if (failed) return;
@@ -230,7 +259,8 @@ export async function playWithMSE(
       } catch {
         fail();
       }
-    })();
+    };
+    void consume();
 
     // 等待首个 append 结果：fail 说明容器不被 MSE 支持，回退完整下载
     const first = await firstPromise;
@@ -238,9 +268,60 @@ export async function playWithMSE(
       return null;
     }
 
+    // ── seek 处理（仅 time 修复流支持按时间重拉；byte 流走 MSE 原生已缓冲 seek）──
+    // 整体重建 MediaSource（M2 修复）：彻底清空旧 SourceBuffer，避免 remove 失败
+    // 残留旧 buffer 与新 buffer 数据重叠导致播放异常。
+    const rebuildSource = async (): Promise<void> => {
+      try {
+        if (sourceBuffer && mediaSource && mediaSource.sourceBuffers.length > 0) {
+          if (sourceBuffer.updating) {
+            try { sourceBuffer.abort(); } catch { /* ignore */ }
+          }
+          mediaSource.removeSourceBuffer(sourceBuffer);
+        }
+      } catch { /* ignore */ }
+      try {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      } catch { /* ignore */ }
+      // 全新 MediaSource + URL
+      mediaSource = new MediaSource();
+      objectUrl = URL.createObjectURL(mediaSource);
+      video.src = objectUrl;
+      await waitSourceOpen();
+      sourceBuffer = mediaSource.addSourceBuffer(codec);
+      sourceBuffer.addEventListener('updateend', onUpdateEnd);
+      sourceBuffer.addEventListener('error', () => {
+        settleFirst('ok');
+        fail();
+      });
+      queue.length = 0;
+      pending = false;
+      ended = false;
+    };
+
+    const onSeeked = () => {
+      if (streamMode !== 'time' || failed || seeking) return;
+      const target = typeof video.currentTime === 'number' ? video.currentTime : 0;
+      if (target <= 0) return;
+      seeking = true;
+      // 重建 MediaSource 并按目标时间重新拉取修复流（每次 seek 服务端重新 -ss）
+      rebuildSource()
+        .then(() => openStream(target))
+        .then(() => {
+          void consume();
+        })
+        .catch(() => { /* seek 重建/重拉失败：保持现状，不打断播放 */ })
+        .finally(() => { seeking = false; });
+    };
+    video.addEventListener('seeked', onSeeked);
+
     function cleanup(): void {
       abortController.abort();
       try { void frames.return?.(undefined); } catch { /* ignore */ }
+      if (currentFrames && currentFrames !== frames) {
+        try { void currentFrames.return?.(undefined); } catch { /* ignore */ }
+      }
+      video.removeEventListener('seeked', onSeeked);
       if (objectUrl) {
         try { URL.revokeObjectURL(objectUrl); } catch { /* ignore */ }
       }

@@ -27,6 +27,7 @@ export function DesktopLayout() {
     { path: '/admin/users', label: '用户管理', icon: '👤' },
     { path: '/admin/disks', label: '磁盘管理', icon: '💾' },
     { path: '/admin/permissions', label: '权限配置', icon: '🔑' },
+    { path: '/admin/system', label: '系统设置', icon: '⚙️' },
   ];
 
   const isActive = (path: string) => {

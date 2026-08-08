@@ -123,12 +123,11 @@ export interface DiskPermission {
   can_delete: boolean;
 }
 
-// ── 服务端配置 ──
+// ── 服务端配置（GET /api/v1/config 响应，管理员）──
 
 export interface ServerConfig {
-  notes_disk_id: number | null;
-  notes_path: string;
-  max_upload_size: number;
+  /** 服务端 config 表键值对（含 media_repair_enabled 等，v1.4.0） */
+  config: Record<string, string>;
 }
 
 // ── API 错误 ──

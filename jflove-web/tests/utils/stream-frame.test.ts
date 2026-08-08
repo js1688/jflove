@@ -223,6 +223,46 @@ describe('openEncryptedStream', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it('传递 rangeStartSeconds（修复流时间 range）且支持 time 模式 meta（v1.4.0）', async () => {
+    const sessionKey = await makeSessionKey();
+    const metaPlain = new TextEncoder().encode(JSON.stringify({
+      type: 'meta',
+      stream_mode: 'time',
+      content_type: 'video/mp4',
+      range_start_seconds: 0,
+    }));
+    const stream = makeEncryptedStream(sessionKey, [metaPlain]);
+
+    let capturedUrl = '';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      capturedUrl = String(input);
+      return { ok: true, status: 200, body: stream };
+    }) as unknown as typeof fetch;
+
+    try {
+      const session = {
+        sessionKey, sessionId: 'test-sid', token: 'test-token',
+        serverUrl: 'http://localhost:8989',
+      };
+      const { meta } = await openEncryptedStream(session, 1, '/', 'sample.mp4', 0, -1, 30);
+
+      // 请求 URL 携带加密信封，解密后应包含 range_start_seconds=30
+      const url = new URL(capturedUrl);
+      const nonce = url.searchParams.get('nonce') || '';
+      const ciphertext = url.searchParams.get('ciphertext') || '';
+      const plain = decryptEnvelope(sessionKey, nonce, ciphertext);
+      const payload = JSON.parse(new TextDecoder().decode(plain)) as Record<string, unknown>;
+      expect(payload.range_start_seconds).toBe(30);
+
+      // meta 支持 time 模式字段
+      expect(meta.stream_mode).toBe('time');
+      expect(meta.range_start_seconds).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe('openEncryptedStream 路径归一化（回归：修复 /stream 404「文件不存在」）', () => {

@@ -8,3 +8,5 @@ aiosqlite==0.21.0
 aiofiles==24.1.0
 pydantic>=2.0
 pydantic-settings>=2.0
+# v1.4.0：内置静态 FFmpeg/ffprobe 二进制（无需在系统安装 FFmpeg），用于媒体修复
+imageio-ffmpeg>=0.5.1

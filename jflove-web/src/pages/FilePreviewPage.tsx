@@ -4,7 +4,6 @@ import { fileService } from '../services/file-service';
 import { useFileStore } from '../stores/file-store';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { openStreamUrl, closeStreamUrl } from '../utils/stream-proxy';
 import { isMSEAvailable, playWithMSE } from '../utils/media-source-player';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -56,7 +55,6 @@ export function FilePreviewPage() {
       return;
     }
     let cancelled = false;
-    let streamUrl: string | null = null;
     let mseCleanup: (() => void) | null = null;
     let blobUrl: string | null = null;
 
@@ -78,18 +76,9 @@ export function FilePreviewPage() {
           if (cancelled) return;
           setContent(new TextDecoder('utf-8').decode(bytes));
         } else if (isVideo || isAudio) {
-          // ① 首选 Service Worker 流式代理：真「边下边播 + 拖动 seek」（安全上下文）
-          const swUrl = await openStreamUrl(Number(diskId), path, filename);
-          if (cancelled) {
-            if (swUrl) closeStreamUrl(swUrl);
-            return;
-          }
-          if (swUrl) {
-            streamUrl = swUrl;
-            setMediaSrc(swUrl);
-            return;
-          }
-          // ② MSE 回退：SW 不可用（非安全上下文）时，对 fMP4 / WebM / 简单音频边下边播
+          // ① MSE 主路径（v1.4.0）：HTTP/HTTPS 均可边下边播，不依赖 Service Worker。
+          //    修复流（time 模式）由服务端 ffmpeg 重封装为 fMP4 后解密喂给 SourceBuffer；
+          //    健康文件（byte 模式）按字节 range 流式。两者均支持拖动 seek。
           const mediaEl = isVideo ? videoRef.current : audioRef.current;
           if (mediaEl && isMSEAvailable(filename)) {
             const cleanup = await playWithMSE(mediaEl, Number(diskId), path, filename);
@@ -102,7 +91,7 @@ export function FilePreviewPage() {
               return;
             }
           }
-          // ③ 最后兜底：完整下载 → Blob URL（仅当上述两者均不可行，浏览器能力极限）
+          // ② 兜底：完整下载 → Blob URL（MSE 不可用 / 容器不被支持时）
           const bytes = await fileService.downloadRaw(Number(diskId), path, filename);
           if (cancelled) return;
           blobUrl = URL.createObjectURL(
@@ -119,7 +108,6 @@ export function FilePreviewPage() {
 
     return () => {
       cancelled = true;
-      if (streamUrl) closeStreamUrl(streamUrl);
       if (mseCleanup) mseCleanup();
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };

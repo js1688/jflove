@@ -48,6 +48,7 @@ Client ← Encrypted Response
 - **认证**：PyJWT（ES256 签名）
 - **加密**：cryptography（X25519 ECDH + HKDF-SHA256 + ChaCha20-Poly1305）
 - **密码哈希**：bcrypt
+- **媒体修复（v1.4.0）**：imageio-ffmpeg（内置静态 FFmpeg 二进制，无需系统安装）
 
 ---
 
@@ -88,6 +89,20 @@ venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload
 | `configs` | 服务端配置 |
 
 > 所有表均包含 `id`、`created_at`、`updated_at`、`deleted_at` 字段（软删除）。
+
+---
+
+## 媒体修复（v1.4.0）
+
+对损坏/非流式媒体文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）做无损修复，使浏览器 MSE 可正常边下边播：
+
+- **服务端配置（config 表，三端共享）**：
+  - `media_repair_enabled`：总开关，默认 `"0"`（关闭）
+  - `media_repair_allow_transcode`：重编码子开关，默认 `"0"`（关闭，仅 `-c copy`）
+  - `media_repair_max_concurrent`：并发数上限，未设置时按 CPU 核数自动推导，硬上限 8
+- **行为**：开关关闭时零开销（不探测、不修复）；开启时健康文件直接原文件流（`stream_mode=byte`），需修复文件走 ffmpeg `-c copy` 重封装为 fMP4 的 **stdout 管道直出（不落盘）**（`stream_mode=time`，时间 range）
+- **安全**：只读源文件、永不写回；ffmpeg 走 asyncio 子进程，客户端中断 kill+wait 回收；并发动态限流
+- **接口**：`/api/v1/files/stream` 保持加密帧协议（`X-Encrypted-Stream: v2`），meta 帧新增 `stream_mode`，请求体新增可选 `range_start_seconds`
 
 ---
 

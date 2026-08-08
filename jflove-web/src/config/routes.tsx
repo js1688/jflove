@@ -15,6 +15,7 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { AdminUsersPage } from '../pages/admin/AdminUsersPage';
 import { AdminDisksPage } from '../pages/admin/AdminDisksPage';
 import { AdminPermissionsPage } from '../pages/admin/AdminPermissionsPage';
+import { AdminSystemPage } from '../pages/admin/AdminSystemPage';
 
 /**
  * 路由守卫包装器。
@@ -78,6 +79,7 @@ export const router = createBrowserRouter([
           { path: 'users', element: <AdminUsersPage /> },
           { path: 'disks', element: <AdminDisksPage /> },
           { path: 'permissions', element: <AdminPermissionsPage /> },
+          { path: 'system', element: <AdminSystemPage /> },
         ],
       },
     ],

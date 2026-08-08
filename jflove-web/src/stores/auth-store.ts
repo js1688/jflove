@@ -16,7 +16,6 @@ import {
 } from '../utils/session';
 import { authService } from '../services/auth-service';
 import { serverHistoryService, normalizeServerUrl } from '../services/server-history-service';
-import { syncStreamSession, clearStreamProxySession } from '../utils/stream-proxy';
 
 interface AuthState {
   // 状态
@@ -99,15 +98,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       isAdmin: result.role === 'admin',
       isEncrypted: isEncrypted(),
     });
-
-    // 加密会话已建立，同步给 SW 流式代理（视频/音频边下边播需要）
-    void syncStreamSession();
   },
 
   logout: async () => {
     await authService.logout();
-    // 清空 SW 内存中的会话与密钥，避免残留
-    clearStreamProxySession();
     set({
       isLoggedIn: false,
       token: null,

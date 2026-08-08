@@ -20,13 +20,29 @@ from fastapi.responses import StreamingResponse
 import aiosqlite
 
 from src.models.database import get_db
-from src.services import file_service, auth_service
+from src.services import file_service, auth_service, media_repair_service
 from src.utils.middleware import decrypt_request_body, encrypt_response
 from src.utils.crypto import encrypt_stream_chunk, STREAM_PLAINTEXT_CHUNK_SIZE
 from src.utils.logger import get_logger
 
 router = APIRouter(prefix="/api/v1/files", tags=["文件管理"])
 logger = get_logger(__name__)
+
+
+def _to_int(value, default: int) -> int:
+    """数值容错：非法/缺失输入返回默认值，防止异常输入触发 500（M1 修复）。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value, default: float) -> float:
+    """数值容错：非法/缺失输入返回默认值，防止异常输入触发 500（M1 修复）。"""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 async def _get_user(request: Request, db: aiosqlite.Connection, body: dict) -> dict:
@@ -526,20 +542,24 @@ def _build_range_stream_generator(
         "- `path`：文件所在目录（磁盘内相对路径）\n"
         "- `filename`：文件名\n"
         "- `range_start`：字节起点（0=开头；负数=从末尾倒数）\n"
-        "- `range_end`：字节终点，不含（-1=文件结尾）"
+        "- `range_end`：字节终点，不含（-1=文件结尾）\n"
+        "- `range_start_seconds`：（v1.4.0，修复流专用）时间 range 起点，单位秒，\n"
+        "  仅当响应 meta 帧 stream_mode=time 时生效，健康文件（stream_mode=byte）忽略"
     ),
 )
 async def stream_file(
     request: Request, db: aiosqlite.Connection = Depends(get_db)
 ):
-    """流式 Range 预览，响应为 v2 加密帧序列"""
+    """流式 Range 预览，响应为 v2 加密帧序列（byte / 修复 time 双模式）"""
     body = await decrypt_request_body(request)
     user = await _get_user(request, db, body)
     disk_id = int(body.get("disk_id", 0))
     path = body.get("path", "")
     filename = body.get("filename", "").strip()
-    range_start = int(body.get("range_start", 0))
-    range_end = int(body.get("range_end", -1))
+    range_start = _to_int(body.get("range_start", 0), 0)
+    range_end = _to_int(body.get("range_end", -1), -1)
+    # v1.4.0：修复流专用时间 range（秒，仅 stream_mode="time" 时生效）
+    range_start_seconds = _to_float(body.get("range_start_seconds", 0), 0.0)
 
     if not filename:
         raise HTTPException(status_code=400, detail="filename 不能为空")
@@ -560,6 +580,27 @@ async def stream_file(
     session_key = auth_service.get_session_key(session_id)
     if not session_key:
         raise HTTPException(status_code=401, detail="会话已失效")
+
+    # v1.4.0：媒体修复决策（开关默认关闭时直接返回 byte 模式，零额外开销）
+    repair = await media_repair_service.ensure_playable(
+        db, file_path, filename,
+    )
+    mode = repair.get("mode", "byte")
+    if mode == "time":
+        allow_transcode = await media_repair_service.is_transcode_enabled(db)
+        logger.info("流式预览(修复): disk_id=%s mode=time", disk_id)
+        return StreamingResponse(
+            media_repair_service.stream_repaired_frames(
+                db, file_path, session_key, range_start_seconds, allow_transcode,
+            ),
+            media_type="application/octet-stream",
+            headers={"X-Encrypted-Stream": "v2"},
+        )
+    if mode == "error":
+        raise HTTPException(
+            status_code=415,
+            detail=repair.get("message", "该文件无法在线预览，请下载后查看"),
+        )
 
     # 日志仅记录 ID / 大小，不记录路径和文件名，防 MITM 日志泄露
     logger.info(

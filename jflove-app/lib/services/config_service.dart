@@ -12,4 +12,10 @@ class ConfigService {
   Future<Map<String, dynamic>> getConfig() async {
     return _http.encryptedGet('/api/v1/config', {});
   }
+
+  /// 更新服务端配置项
+  /// 对应服务端：PUT /api/v1/config（需 admin 权限，写后立即生效、无需重启）
+  Future<Map<String, dynamic>> updateConfig(String key, String value) async {
+    return _http.encryptedPut('/api/v1/config', {'key': key, 'value': value});
+  }
 }

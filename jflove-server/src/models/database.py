@@ -1,5 +1,11 @@
 import aiosqlite
-from src.config.settings import DB_PATH
+from datetime import datetime, timezone
+
+from src.config.settings import (
+    DB_PATH,
+    MEDIA_REPAIR_ENABLED_KEY,
+    MEDIA_REPAIR_TRANSCODE_KEY,
+)
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -105,6 +111,23 @@ async def init_db() -> None:
             await db.execute("DROP TABLE IF EXISTS sync_configs")
             await db.execute("DROP INDEX IF EXISTS sync_configs_user_id_idx")
             logger.info("运行时迁移：已删除 sync_configs 表（v1.1.6）")
+        # v1.4.0：幂等初始化媒体修复配置默认键（已存在则跳过，不覆盖管理员设置）
+        now = datetime.now(timezone.utc).isoformat()
+        default_configs = [
+            (MEDIA_REPAIR_ENABLED_KEY, "0"),
+            (MEDIA_REPAIR_TRANSCODE_KEY, "0"),
+        ]
+        for key, value in default_configs:
+            async with db.execute(
+                "SELECT 1 FROM config WHERE key = ? AND deleted_at IS NULL", (key,)
+            ) as cur:
+                if await cur.fetchone() is None:
+                    await db.execute(
+                        "INSERT INTO config (key, value, created_at, updated_at)"
+                        " VALUES (?, ?, ?, ?)",
+                        (key, value, now, now),
+                    )
+                    logger.info("运行时迁移：初始化配置键 %s=%s（v1.4.0）", key, value)
         await db.commit()
 
 

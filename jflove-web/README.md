@@ -39,24 +39,23 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 > （`@noble/curves` X25519 + `@noble/hashes` HKDF-SHA256），**加密协议与互操作不变**；
 > HTTPS / localhost 环境仍走 Web Crypto 主路径。
 
-### 视频/音频预览：边下边播（三档回退）
+### 视频/音频预览：边下边播（v1.4.0 MSE 主路径）
 
-预览不落盘、边下边播，回退链（关键路径可靠）：
+预览不落盘、边下边播，**不依赖 Service Worker，HTTP/HTTPS、内网/公网均可用**：
 
-1. **Service Worker 流式代理（主路径）**：`<video src="/jflove-stream/<token>">` → SW 拦截 →
-   解析 HTTP `Range` → 向后端 `/api/v1/files/stream`（v2，支持 range_start/range_end）拉加密帧 →
-   逐帧解密 → `206 Partial Content` 返回，浏览器原生解码器接管。支持所有浏览器原生格式
-   （mp4/webm/mp3/wav/flac/ogg/m4a/aac/opus），真边下边播 + 拖动 seek。
-   **仅安全上下文可用（HTTPS / localhost / 127.0.0.1）**；生产部署建议 HTTPS。
-2. **MSE 回退**：SW 不可用（HTTP 局域网）时，对 fMP4 / WebM / MP3 / FLAC / OGG 仍可边下边播
-   （`media-source-player.ts`，按格式正确探测 codec，首帧 append 失败快速回退）。
-3. **完整下载 → Blob**：仅当两者都不可行时（浏览器能力极限），非主路径。
+1. **MSE 主路径**（`media-source-player.ts`）：向后端 `/api/v1/files/stream`（v2 加密帧）拉流，
+   逐帧解密后 append 到 MediaSource SourceBuffer，由浏览器解码播放。支持两档：
+   - **健康文件（byte 模式）**：fMP4 / WebM / MP3 / FLAC / OGG 等按字节 range 直接流式；
+   - **修复流（time 模式）**：损坏/非流式文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）
+     由服务端媒体修复服务（管理员在「系统设置」开启，默认关闭）实时 ffmpeg 重封装为 fMP4，
+     按时间 range（`range_start_seconds`）拉取；拖动 seek 时按目标时间重新拉取。
+2. **完整下载 → Blob**：仅当 MSE 不可用 / 容器不被支持时兜底（非主路径）。
 
-安全要点：流式 URL 仅含不透明一次性 token（不暴露业务数据）；会话（session_key/JWT）经
-postMessage 同步到 SW 内存、不落盘不进日志；登出时清空 SW 内存密钥。
+安全要点：流式 URL 仅含加密信封（`?nonce=...&ciphertext=...`），不暴露业务数据；
+会话（session_key/JWT）仅存内存（sessionStorage），不进日志、不进 DOM。
 
-构建注意：`vite build` 输出 `dist/sw.js`（SW 独立入口）；nginx SPA fallback 已兼容 `/sw.js`。
-dev 下由 `vite.config.ts` 的 `jflove-sw-dev` 插件托管 `/sw.js` 并附 `Service-Worker-Allowed: /`。
+构建注意：v1.4.0 起移除 Service Worker 流式代理（`src/sw/`、`src/utils/stream-proxy.ts` 已删除），
+`vite build` 单入口输出，无 `sw.js`。
 
 ---
 
@@ -97,21 +96,21 @@ npm run preview
 
 ```bash
 # 方式一：一键构建脚本（推荐，对标服务端 build.py）
-python build.py                      # 构建 jflove-web:1.3.0 本地镜像
-python build.py --save               # 构建后导出 build/jflove-web-1.3.0.tar 离线包
-python build.py --tag 1.3.0-rc1      # 自定义 tag
+python build.py                      # 构建 jflove-web:1.4.0 本地镜像
+python build.py --save               # 构建后导出 build/jflove-web-1.4.0.tar 离线包
+python build.py --tag 1.4.0-rc1      # 自定义 tag
 python build.py --no-cache           # 不使用 Docker 缓存
 
 # 方式二：直接 docker 构建
-docker build -t jflove-web:1.3.0 .
+docker build -t jflove-web:1.4.0 .
 
 # 运行容器
-docker run -d --name jflove-web -p 8080:80 --restart=always jflove-web:1.3.1
+docker run -d --name jflove-web -p 8080:80 --restart=always jflove-web:1.4.0
 
 # 访问 http://localhost:8080
 ```
 
-> 镜像仅构建到本地，推送到镜像仓库由人工执行（如 `docker push registry/jflove-web:1.3.0`）。
+> 镜像仅构建到本地，推送到镜像仓库由人工执行（如 `docker push registry/jflove-web:1.4.0`）。
 
 ---
 
@@ -154,7 +153,8 @@ jflove-web/
 │   │   └── admin/
 │   │       ├── AdminUsersPage.tsx   # 用户管理
 │   │       ├── AdminDisksPage.tsx   # 磁盘管理
-│   │       └── AdminPermissionsPage.tsx # 权限配置
+│   │       ├── AdminPermissionsPage.tsx # 权限配置
+│   │       └── AdminSystemPage.tsx  # 系统设置（媒体修复开关）
 │   ├── components/
 │   │   ├── PageHeader.tsx          # 页面标题栏
 │   │   ├── PathBreadcrumb.tsx      # 路径面包屑

@@ -23,11 +23,13 @@ from qfluentwidgets import (
     PrimaryPushButton, PushButton, SubtitleLabel, BodyLabel,
     CardWidget, InfoBar, InfoBarPosition, ComboBox, EditableComboBox,
     FluentIcon as FIF, ToolButton, StrongBodyLabel, CaptionLabel,
+    SwitchButton, LineEdit,
 )
 
 from src.config.settings import APP_VERSION
 from src.services import (
     auth_service, note_service, disk_service, server_history_service,
+    config_service,
 )
 from src.utils.session import session_manager
 from src.utils.worker import Worker
@@ -51,6 +53,8 @@ class SettingsPage(QWidget):
         self.setObjectName("settingsPage")
         self._worker = None
         self._disks: list[dict] = []
+        # v1.4.0：媒体修复开关仅管理员可见（服务端配置，三端共享）
+        self._is_admin = session_manager.is_admin()
         self._setup_ui()
 
     # ── UI 构建 ────────────────────────────────────────
@@ -82,6 +86,9 @@ class SettingsPage(QWidget):
         layout.addWidget(self._build_server_card())
         layout.addWidget(self._build_notes_card())
         layout.addWidget(self._build_logout_card())
+        # v1.4.0：媒体修复开关（仅管理员可见）
+        if self._is_admin:
+            layout.addWidget(self._build_media_repair_card())
         layout.addWidget(self._build_about_card())
         layout.addStretch()
 
@@ -156,6 +163,65 @@ class SettingsPage(QWidget):
 
         return card
 
+    def _build_media_repair_card(self) -> CardWidget:
+        """构建「媒体修复」卡片（v1.4.0，仅管理员可见）
+
+        配置存服务端 config 表，三端共享；修改后立即生效、无需重启任何端。
+        总开关默认关闭（弱 CPU 设备无额外负担）；重编码子开关默认关闭；
+        并发数 1~8 或留空按服务器 CPU 核数自动推导。
+        """
+        card = CardWidget()
+        ml = QVBoxLayout(card)
+        ml.setContentsMargins(20, 16, 20, 16)
+        ml.setSpacing(10)
+
+        ml.addWidget(StrongBodyLabel("媒体修复"))
+        hint = CaptionLabel(
+            "开启后，损坏/非流式媒体文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）"
+            "由服务端实时无损修复后在线播放；修复仅用于播放，不修改原始文件。"
+            "弱 CPU 设备（如 N2850）建议保持关闭。配置为服务端配置，三端共享，修改后立即生效。"
+        )
+        hint.setWordWrap(True)
+        ml.addWidget(hint)
+
+        # 总开关
+        enabled_row = QHBoxLayout()
+        enabled_row.addWidget(BodyLabel("启用媒体修复"))
+        enabled_row.addStretch()
+        self._media_repair_switch = SwitchButton()
+        self._media_repair_switch.setChecked(False)
+        self._media_repair_switch.checkedChanged.connect(self._on_media_repair_toggled)
+        enabled_row.addWidget(self._media_repair_switch)
+        ml.addLayout(enabled_row)
+
+        # 重编码子开关（依赖总开关）
+        transcode_row = QHBoxLayout()
+        transcode_row.addWidget(BodyLabel("允许重编码降级"))
+        transcode_row.addStretch()
+        self._transcode_switch = SwitchButton()
+        self._transcode_switch.setChecked(False)
+        self._transcode_switch.setEnabled(False)
+        self._transcode_switch.checkedChanged.connect(self._on_transcode_toggled)
+        transcode_row.addWidget(self._transcode_switch)
+        ml.addLayout(transcode_row)
+
+        # 并发数
+        concurrent_row = QHBoxLayout()
+        concurrent_row.addWidget(BodyLabel("修复并发数（1~8，留空自动）"))
+        concurrent_row.addStretch()
+        self._concurrent_input = LineEdit()
+        self._concurrent_input.setPlaceholderText("自动")
+        self._concurrent_input.setFixedWidth(80)
+        self._concurrent_input.setEnabled(False)
+        concurrent_row.addWidget(self._concurrent_input)
+        save_btn = PushButton("保存")
+        save_btn.setMinimumWidth(80)
+        save_btn.clicked.connect(self._on_save_concurrent)
+        concurrent_row.addWidget(save_btn)
+        ml.addLayout(concurrent_row)
+
+        return card
+
     def _build_logout_card(self) -> CardWidget:
         """构建「账号」卡片：显示当前用户并提供退出登录按钮"""
         card = CardWidget()
@@ -196,11 +262,13 @@ class SettingsPage(QWidget):
     # ── 数据加载 ───────────────────────────────────────
 
     def load_system_config(self) -> None:
-        """加载笔记目录配置并更新展示"""
+        """加载系统配置：笔记目录 +（管理员）媒体修复开关"""
         self._worker = Worker(note_service.get_notes_disk)
         self._worker.finished.connect(self._on_disk_config_loaded)
         self._worker.error.connect(lambda e: self._show_error(f"加载笔记目录配置失败：{e}"))
         self._worker.start()
+        if self._is_admin:
+            self._load_media_repair_config()
 
     def _on_disk_config_loaded(self, result: dict) -> None:
         """更新当前配置展示文字"""
@@ -216,6 +284,77 @@ class SettingsPage(QWidget):
             self._notes_current_label.setText(f"{disk_name} / {sub}")
         else:
             self._notes_current_label.setText("未配置")
+
+    # ── 媒体修复配置（v1.4.0，仅管理员） ──────────────
+
+    def _load_media_repair_config(self) -> None:
+        """异步加载媒体修复配置并更新开关状态（仅管理员）"""
+        if not self._is_admin:
+            return
+
+        def load():
+            return config_service.get_all_config()
+
+        worker = Worker(load)
+        worker.finished.connect(self._on_media_repair_config_loaded)
+        worker.error.connect(lambda e: logger.warning("加载媒体修复配置失败: %s", e))
+        worker.start()
+        self._worker = worker
+
+    def _on_media_repair_config_loaded(self, config) -> None:
+        """媒体修复配置加载回调：更新开关/输入状态（避免触发保存信号）"""
+        cfg = config if isinstance(config, dict) else {
+            c.get("key"): c.get("value", "")
+            for c in config if isinstance(c, dict)
+        }
+        enabled = cfg.get("media_repair_enabled", "0") == "1"
+        self._media_repair_switch.blockSignals(True)
+        self._media_repair_switch.setChecked(enabled)
+        self._media_repair_switch.blockSignals(False)
+        self._transcode_switch.setEnabled(enabled)
+        self._concurrent_input.setEnabled(enabled)
+        self._transcode_switch.blockSignals(True)
+        self._transcode_switch.setChecked(cfg.get("media_repair_allow_transcode", "0") == "1")
+        self._transcode_switch.blockSignals(False)
+        self._concurrent_input.setText(cfg.get("media_repair_max_concurrent", ""))
+
+    def _on_media_repair_toggled(self, checked: bool) -> None:
+        """总开关变化：写服务端配置，联动重编码/并发数可用性"""
+        self._transcode_switch.setEnabled(checked)
+        self._concurrent_input.setEnabled(checked)
+        self._save_media_repair("media_repair_enabled", "1" if checked else "0")
+
+    def _on_transcode_toggled(self, checked: bool) -> None:
+        """重编码子开关变化：写服务端配置"""
+        self._save_media_repair("media_repair_allow_transcode", "1" if checked else "0")
+
+    def _on_save_concurrent(self) -> None:
+        """保存并发数（1~8 或留空自动）"""
+        raw = self._concurrent_input.text().strip()
+        if raw == "":
+            self._save_media_repair("media_repair_max_concurrent", "")
+            return
+        if raw.isdigit() and 1 <= int(raw) <= 8:
+            self._save_media_repair("media_repair_max_concurrent", str(int(raw)))
+        else:
+            InfoBar.warning("提示", "并发数需为 1~8 的整数，或留空使用自动基线",
+                            parent=self, duration=3000, position=InfoBarPosition.TOP_RIGHT)
+
+    def _save_media_repair(self, key: str, value: str) -> None:
+        """异步保存媒体修复配置（Worker 线程，避免阻塞 UI）"""
+        def save():
+            config_service.update_config(key, value)
+
+        worker = Worker(save)
+        worker.finished.connect(
+            lambda _: InfoBar.success(
+                "已保存", "配置已更新，立即生效",
+                parent=self, duration=3000, position=InfoBarPosition.TOP_RIGHT,
+            )
+        )
+        worker.error.connect(lambda e: self._show_error(f"保存失败：{e}"))
+        worker.start()
+        self._worker = worker
 
     # ── 弹出对话框配置笔记目录 ─────────────────────────
 

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../providers/session_provider.dart';
 import '../../services/auth_service.dart';
+import '../../services/config_service.dart';
 import '../../services/note_service.dart';
 import '../../services/disk_service.dart';
 import '../../utils/http_service.dart';
@@ -179,6 +180,9 @@ class SettingsPage extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: 12),
+            // v1.4.0：媒体修复开关（仅管理员，服务端配置三端共享）
+            const _MediaRepairConfigCard(),
+            const SizedBox(height: 12),
           ],
           // ---- 关于 ----
           _SectionCard(
@@ -187,7 +191,7 @@ class SettingsPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoRow(label: '版本', value: 'v1.2.0'),
+                _InfoRow(label: '版本', value: 'v1.4.0'),
                 const SizedBox(height: 6),
                 Text(
                   '私有文档 & 笔记管理系统',
@@ -430,6 +434,195 @@ class _AdminListTile extends StatelessWidget {
       trailing: const Icon(Icons.chevron_right, size: 20),
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+    );
+  }
+}
+
+// ============ 媒体修复配置卡片（v1.4.0，仅管理员） ============
+
+/// 媒体修复配置卡片（独立 ConsumerStatefulWidget）
+/// 配置存服务端 config 表，三端共享；修改后立即生效、无需重启任何端。
+class _MediaRepairConfigCard extends ConsumerStatefulWidget {
+  const _MediaRepairConfigCard();
+
+  @override
+  ConsumerState<_MediaRepairConfigCard> createState() =>
+      _MediaRepairConfigCardState();
+}
+
+class _MediaRepairConfigCardState
+    extends ConsumerState<_MediaRepairConfigCard> {
+  bool _loading = true;
+  bool _saving = false;
+  bool _enabled = false;
+  bool _allowTranscode = false;
+  final TextEditingController _concurrentCtrl = TextEditingController();
+  String? _errorMsg;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  @override
+  void dispose() {
+    _concurrentCtrl.dispose();
+    super.dispose();
+  }
+
+  ConfigService _configService() {
+    final session = ref.read(sessionManagerProvider);
+    return ConfigService(HttpService(session));
+  }
+
+  Future<void> _loadConfig() async {
+    setState(() {
+      _loading = true;
+      _errorMsg = null;
+    });
+    try {
+      final resp = await _configService().getConfig();
+      final cfg = (resp['config'] as Map<String, dynamic>?) ?? {};
+      if (!mounted) return;
+      setState(() {
+        _enabled = cfg['media_repair_enabled'] == '1';
+        _allowTranscode = cfg['media_repair_allow_transcode'] == '1';
+        _concurrentCtrl.text =
+            (cfg['media_repair_max_concurrent'] as String?) ?? '';
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorMsg = '$e';
+      });
+    }
+  }
+
+  Future<void> _save(String key, String value) async {
+    setState(() => _saving = true);
+    try {
+      await _configService().updateConfig(key, value);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('配置已保存，立即生效')));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存失败: $e')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _toggleEnabled(bool next) {
+    setState(() => _enabled = next);
+    _save('media_repair_enabled', next ? '1' : '0');
+  }
+
+  void _toggleTranscode(bool next) {
+    setState(() => _allowTranscode = next);
+    _save('media_repair_allow_transcode', next ? '1' : '0');
+  }
+
+  void _saveConcurrent() {
+    final raw = _concurrentCtrl.text.trim();
+    if (raw.isEmpty) {
+      _save('media_repair_max_concurrent', '');
+      return;
+    }
+    final n = int.tryParse(raw);
+    if (n != null && n >= 1 && n <= 8) {
+      _save('media_repair_max_concurrent', '$n');
+    } else {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('并发数需为 1~8 的整数，或留空使用自动基线')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (_loading) {
+      return const _SectionCard(
+        title: '媒体修复',
+        icon: Icons.healing_outlined,
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+    return _SectionCard(
+      title: '媒体修复',
+      icon: Icons.healing_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_errorMsg != null) ...[
+            Text(
+              '加载失败: $_errorMsg',
+              style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Text(
+            '开启后，损坏/非流式媒体文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）'
+            '由服务端实时无损修复后在线播放；修复仅用于播放，不修改原始文件。'
+            '弱 CPU 设备建议保持关闭。配置为服务端配置，三端共享，修改后立即生效。',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: Colors.grey.shade600,
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('启用媒体修复'),
+            value: _enabled,
+            onChanged: _saving ? null : _toggleEnabled,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('允许重编码降级'),
+            subtitle: const Text('默认关闭；-c copy 失败时的极端兜底'),
+            value: _allowTranscode,
+            onChanged: (_enabled && !_saving) ? _toggleTranscode : null,
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '修复并发数（1~8，留空自动）',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              SizedBox(
+                width: 90,
+                child: TextField(
+                  controller: _concurrentCtrl,
+                  enabled: _enabled && !_saving,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: '自动',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.tonal(
+                onPressed: (_enabled && !_saving) ? _saveConcurrent : null,
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

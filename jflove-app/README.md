@@ -2,7 +2,7 @@
 
 JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的私有文档与笔记协同管理应用。
 
-> **当前版本：v1.2.3** — 文件管理 BUG 修复，对齐桌面端功能（上传多选/移动到/写权限控制/传输任务互通/取消任务）。
+> **当前版本：v1.4.0** — 设置页新增「媒体修复」开关（仅管理员，服务端配置三端共享，默认关闭）；播放管线不变。
 
 ---
 
@@ -40,7 +40,7 @@ JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构�
 | `/notes` | 笔记列表 | 搜索 + CRUD |
 | `/notes/:noteId` | 笔记编辑 | 编辑/预览切换 + Markdown 工具栏 + 未保存提示 |
 | `/sync` | 同步 | 配置 CRUD + 本地 JSON 存储 |
-| `/settings` | 设置 | 安全状态 + 账号 + 退出 + 管理入口 + 关于 |
+| `/settings` | 设置 | 安全状态 + 账号 + 退出 + 管理入口 + 媒体修复开关（admin） + 关于 |
 | `/transfer` | 传输任务 | 进度条 + 统计 + 状态 |
 | `/admin/users` | 用户管理 | 添加/删除/密码/启用禁用（admin） |
 | `/admin/disks` | 磁盘管理 | 添加/编辑/删除（admin） |

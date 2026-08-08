@@ -23,13 +23,20 @@ export interface StreamSessionParams {
   serverUrl: string;
 }
 
-/** /api/v1/files/stream 首帧元数据 */
+/** /api/v1/files/stream 首帧元数据（byte / 修复 time 双模式，v1.4.0） */
 export interface StreamMeta {
   type: string;
-  file_size: number;
-  range_start: number;
-  range_end: number;
+  /** byte 模式字段：文件总大小 */
+  file_size?: number;
+  /** byte 模式字段：有效字节起点（含） */
+  range_start?: number;
+  /** byte 模式字段：有效字节终点（不含） */
+  range_end?: number;
   content_type: string;
+  /** 流模式：byte=原文件字节 range；time=修复流时间 range */
+  stream_mode?: 'byte' | 'time';
+  /** time 模式字段：本次修复流的时间起点（秒） */
+  range_start_seconds?: number;
 }
 
 /**
@@ -138,6 +145,8 @@ function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
  * @param filename 文件名
  * @param rangeStart 字节起点（0 = 开头；负数 = 从末尾倒数）
  * @param rangeEnd   字节终点，不含（-1 = 文件结尾）
+ * @param rangeStartSeconds 修复流专用时间起点（秒，仅服务端判定为需修复时生效；
+ *                          健康文件走字节 range，忽略此字段）
  * @param signal   可选 AbortSignal（页面侧可在卸载时中止）
  */
 export async function openEncryptedStream(
@@ -147,6 +156,7 @@ export async function openEncryptedStream(
   filename: string,
   rangeStart: number,
   rangeEnd: number,
+  rangeStartSeconds?: number,
   signal?: AbortSignal,
 ): Promise<{ meta: StreamMeta; frames: AsyncGenerator<Uint8Array> }> {
   // /stream 接口约定：path=文件所在目录、filename=文件名（桌面/移动端一致）。
@@ -165,6 +175,7 @@ export async function openEncryptedStream(
     filename,
     range_start: rangeStart,
     range_end: rangeEnd,
+    range_start_seconds: rangeStartSeconds ?? 0,
   });
   const { nonce, ciphertext } = encryptEnvelope(
     session.sessionKey,
