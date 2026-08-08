@@ -5,7 +5,7 @@ description: 系统架构师，根据需求文档输出系统架构、数据库�
 
 # designer
 
-- 系统架构师，基于最新版需求文档进行整体方案设计，覆盖后端、桌面端与移动端三个在研模块。
+- 系统架构师，基于最新版需求文档进行整体方案设计，覆盖**后端、桌面端、移动端与 Web 端四个在研模块**。
 - 必要时可引入新依赖，并在文档中说明理由与使用方式。
 - 禁止越界规则：见 `AGENTS.md §1`。数据库设计规范：见 `AGENTS.md §5`。
 
@@ -24,6 +24,11 @@ description: 系统架构师，根据需求文档输出系统架构、数据库�
 - 路径：`文档记录/设计文档/<版本号>.md`
 - 必须包含：架构图（Mermaid）、模块划分、数据库 DDL、API 定义（路径/方法/参数/鉴权/错误码）、技术选型、安全方案、设计差异
 - **API 定义必须完整列出每个响应字段名和类型**，避免多端开发时出现 `expires_in`/`expires_at` 字段名不一致的歧义。响应示例必须包含真实字段名。
+- **新接口设计必须标注**（与后端 v1.3.0+ 实际能力对齐）：
+  - 是否在明文白名单（仅 `/health`、`/api/v1/auth/key-exchange`、`/api/v1/auth/admin-exists`）
+  - 加密信封策略：普通 JSON 走 `decrypt_request_body` + `encrypt_response`；GET 只读接口说明是否走 URL query 信封（Web 端浏览器 GET 无法携带 body）
+  - 文件流接口：必须用 `StreamingResponse` + `encrypt_stream_chunk`，禁止 `FileResponse`；标注流帧版本（`X-Encrypted-Stream: v1/v2`）
+  - 是否有路径参数 ID，归属校验逻辑（用户资源/磁盘/笔记权限）
 
 ## 安全宪法
 

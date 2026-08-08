@@ -18,23 +18,25 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
 
 ## 发布前环境检查
 
-在执行构建前，先检查各模块的构建环境是否就绪：
+在执行构建前，先检查各模块的构建环境是否就绪（命令同时给出 Linux 与 Windows 写法）：
 
-| 模块 | 检查命令 | 通过条件 |
+| 模块 | 检查命令（Linux / Windows） | 通过条件 |
 |------|---------|---------|
 | jflove-server | `python --version` | Python 3.14+ |
-| jflove-desktop | `python --version` + `pip list 2>&1 findstr PySide6` | Python 3.14+ + PySide6 |
-| jflove-app | `flutter doctor --verbose 2>&1 findstr "Android SDK"` | Android SDK 已配置 |
-| jflove-web | `node --version` + `docker version 2>&1 findstr "Server"` | Node 22+ + Docker 已启动 |
-| jflove-app R8 检查 | `findstr "isMinifyEnabled\s*=\s*true\|isShrinkResources\s*=\s*true" jflove-app\android\app\build.gradle.kts` | **无输出**（R8 必须关闭，见下方 ⚠️） |
+| jflove-desktop | `python --version` + `pip list 2>&1 \| grep -i PySide6` / `pip list 2>&1 findstr PySide6` | Python 3.14+ + PySide6 |
+| jflove-app | `flutter --version` + `flutter doctor` | Flutter SDK + Android SDK 已配置 |
+| jflove-web | `node --version` + `docker version` | Node 22+ + Docker 已启动 |
+| jflove-app R8 检查 | `grep -nE "isMinifyEnabled\s*=\s*true\|isShrinkResources\s*=\s*true" jflove-app/android/app/build.gradle.kts` / `findstr ...` | **无输出**（R8 必须关闭，见下方 ⚠️） |
 
 > ⚠️ **移动端 R8 禁令（强制）**：`android/app/build.gradle.kts` 的 release buildType 中 `isMinifyEnabled` 和 `isShrinkResources` 必须为 `false`。Flutter 的 Dart 编译器已做 tree-shaking，再叠加 R8 的 `proguard-android-optimize.txt` 激进优化会破坏 Flutter 引擎和插件的反射/FFI 调用链，导致 release APK 闪退或白屏。**此项检查为发布阻塞项，不通过则阻断发布。**
 
 **如果环境不满足，在版本发布记录中标记为"❌ 环境未就绪"并列出需安装的组件，不得跳过构建步骤直接输出"无变更"**。
 
 > ⚠️ **Android licenses 自动接受**：`flutter doctor` 若提示 `licenses not accepted`，用以下命令自动回复 y（不要等用户手动输入）：
-> ```powershell
-> "y`ny`ny`ny`ny`ny`ny`ny`ny`ny" | flutter doctor --android-licenses 2>&1
+> ```bash
+> yes | flutter doctor --android-licenses
+> # Windows PowerShell:
+> # "y`ny`ny`ny`ny`ny`ny`ny`ny`ny" | flutter doctor --android-licenses 2>&1
 > ```
 
 ## 构建规则（强制）
@@ -47,7 +49,7 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
     2. `cd jflove-app && flutter build apk` → APK `build/app/outputs/flutter-apk/app-release.apk`
     3. **两个 APK 都必须能在真机安装并正常启动**（发布前冒烟测试必须覆盖 release APK）
   - **jflove-web**：`cd jflove-web && python build.py` → Docker 镜像 `jflove-web:<version>`（可选 `--save` 导出 tar）
-- 版本号核查（发布阻塞项）：
+- **版本号核查（发布阻塞项，共 9 处）**：
   - `jflove-server/src/main.py` `FastAPI(version=)`
   - `jflove-server/build.py` `VERSION`
   - `jflove-server/Dockerfile` `LABEL version=`
@@ -55,31 +57,40 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
   - `jflove-desktop/build.py` `VERSION`
   - `jflove-app/pubspec.yaml` `version`
   - `jflove-web/package.json` `version`
-  - `jflove-web/build.py` `VERSION`（Web 端共 2 处版本号，均需核查）
+  - `jflove-web/src/config/constants.ts` `APP_VERSION`
+  - `jflove-web/build.py` `VERSION`（Web 端共 3 处版本号，均需核查）
+- **版本号一键同步（推荐）**：三个 build.py 均支持 `python build.py --version x.y.z`，执行后**自动同步**该模块全部版本号位置：
+  - 服务端：`main.py` + `build.py` + `Dockerfile LABEL` 三处
+  - 桌面端：`settings.py APP_VERSION` + `build.py` 两处
+  - Web 端：`package.json` + `constants.ts` + `build.py` 三处
+  - 未传 `--version` 时，构建前自动校验全部位置一致，**不一致直接中止构建**（防「应用内版本号未更新」）
+  - 移动端仅 `pubspec.yaml` 一处，需手动改 `version: x.y.z+n`
 - 生产库 DDL 变更必须有回滚脚本；Docker 镜像内置空表结构 DB，支持 `-v /data` 挂载持久化
 
 ## 发布步骤
 
 1. 核查全部交付物归档
-2. 7 处版本号字段一致性检查（服务端 3 + 桌面端 2 + 移动端 1 + Web 端 1）
+2. 9 处版本号字段一致性检查（服务端 3 + 桌面端 2 + 移动端 1 + Web 端 3）；推荐用 `python build.py --version <新版本>` 一键同步
 3. §9 安全发布清单逐条通过
 4. 生产库表结构同步（升级 DDL + 回滚脚本）
 5. **环境检查**：执行「发布前环境检查」表格中的命令，确认各模块构建环境就绪
-6. 构建服务端：`cd jflove-server && python build.py`
-7. 构建桌面端：`cd jflove-desktop && python build.py`
+6. 构建服务端：`cd jflove-server && python build.py --version <新版本>`
+7. 构建桌面端：`cd jflove-desktop && python build.py --version <新版本>`
 8. 构建移动端（如启用）：
    - `cd jflove-app && flutter build apk --debug`（日常调试用）
    - `cd jflove-app && flutter build apk`（release APK，必须真机验证）
    - **如果构建失败，先 `flutter clean` 再重试**
-   - **如果报 Gradle 锁冲突**：`taskkill /F /IM java.exe` → 删除 `android\.gradle` → 重试
+   - **如果报 Gradle 锁冲突**：`pkill -f java` 或 Windows `taskkill /F /IM java.exe` → 删除 `android/.gradle` → 重试
 9. 构建 Web 端 Docker 镜像（本地构建，**人工推送到镜像仓库**）：
-   - `cd jflove-web && python build.py`（对标服务端 build.py，构建前自检 lock 文件）
+   - `cd jflove-web && python build.py --version <新版本>`
    - 可选：`python build.py --save` 导出 `build/jflove-web-<version>.tar` 离线包
    - 构建失败排查：`package-lock.json` 是否缺失（先 `npm install`）、Node 版本、Docker daemon 状态
 10. 冒烟测试：
-   - 启动容器 → 客户端连接 → 密钥交换 → 登录 → 功能抽样
-   - **Web 端**：`docker run -p 8080:80 jflove-web:<version>` → 浏览器访问 → 登录页渲染 → SPA 路由 fallback 正常
-   - **移动端**：debug 和 release 两个 APK 都必须在真机安装并完成：启动 → 登录 → 文件浏览 → 笔记编辑
+    - 启动容器 → 客户端连接 → 密钥交换 → 登录 → 功能抽样
+    - **Web 端**：`docker run -p 8080:80 jflove-web:<version>` → 浏览器访问 → 登录页渲染 → SPA 路由 fallback 正常 → **设置页「关于」显示版本号 = <version>**
+    - **桌面端**：运行 `build/dist/JFLove` → 窗口标题/关于对话框显示版本号 = <version>
+    - **服务端**：访问 `/docs` 或 `/health` 确认版本号 = <version>
+    - **移动端**：debug 和 release 两个 APK 都必须在真机安装并完成：启动 → 登录 → 文件浏览 → 笔记编辑 → 「关于」显示版本号 = <version>
 11. 输出 `文档记录/版本发布记录/<版本号>.md`
 
 ## 文档更新范围

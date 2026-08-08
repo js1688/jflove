@@ -28,8 +28,10 @@ description: 前端工程师，负责 jflove-web 浏览器端应用开发（Reac
 | 状态管理 | Zustand | 5+ | 对标桌面端 Redux 模式（信号槽）、移动端 Riverpod |
 | 路由 | React Router | v7（latest） | 支持布局路由、路由守卫、懒加载 |
 | HTTP 客户端 | 自研 `src/utils/http-client.ts`（fetch 封装） | — | 对标桌面端 `http_client.py`、移动端 `http_service.dart`，UI 层和 services 层禁止直接 `fetch()` |
-| 加密—ECDH | Web Crypto API（`SubtleCrypto`） | — | X25519 密钥交换 + HKDF-SHA256 派生 session_key |
+| 加密—ECDH | Web Crypto API（`SubtleCrypto`）主路径 + `@noble/curves` 纯 JS 回退 | — | X25519 密钥交换 + HKDF-SHA256 派生 session_key；**非安全上下文（HTTP 域名）时 `crypto.subtle` 不可用，自动回退纯 JS 实现（协议不变）** |
 | 加密—对称 | `@noble/ciphers`（chaCha20Poly1305） | 1.x | 纯 JS、audited、零原生依赖，**不得使用 `@noble/ciphers` 以外的 ChaCha20 实现** |
+| 加密—KDF | `@noble/hashes`（HKDF-SHA256） | 2.x | 与 `@noble/ciphers` 同族；供纯 JS 回退路径使用 |
+| 流式预览 | Service Worker（`src/sw/index.ts`）+ MSE 回退 | — | v1.3.1+：SW 流式代理 `/jflove-stream/<token>` 边下边播 + seek（仅安全上下文）；非安全上下文回退 MSE（`media-source-player.ts`）；完整下载 Blob 仅作最后兜底 |
 | 安全存储 | `sessionStorage`（session_key / token） | — | 页面关闭自动清除，对标桌面端/移动端内存存储；token 可持久化到 `localStorage`（用户选择"记住我"时） |
 | 测试 | Vitest + React Testing Library | latest | 对标 pytest（后端/桌面端）、flutter_test（移动端） |
 | 静态分析 | ESLint + Prettier | — | CI 中 ESLint 零警告；Prettier 自动格式化 |
@@ -39,25 +41,28 @@ description: 前端工程师，负责 jflove-web 浏览器端应用开发（Reac
 ### 加密实现要点（与桌面端/移动端对齐）
 
 - **Web Crypto API 不支持 ChaCha20-Poly1305**，因此对称加密使用 `@noble/ciphers` 的 `xchacha20poly1305` 变体（与 Python `cryptography`、Dart `pointycastle` 的 ChaCha20-Poly1305 实现**必须互操作**）。
-- **X25519 ECDH** 使用 `SubtleCrypto.generateKey({name: 'X25519'}, ...)` + `SubtleCrypto.deriveBits()`。
-- **HKDF-SHA256** 使用 `SubtleCrypto.deriveBits({name: 'HKDF', hash: 'SHA-256', salt: ..., info: ...}, ...)`，盐固定 `b"jflove-v1"`，产出 32 字节 session_key。
+- **X25519 ECDH** 使用 `SubtleCrypto.generateKey({name: 'X25519'}, ...)` + `SubtleCrypto.deriveBits()`；非安全上下文回退 `@noble/curves` 的 `x25519.keygen()` / `x25519.getSharedSecret()`（`crypto.ts` 的 `generateKeyPairJS` / `deriveSessionKeyJS`）。
+- **HKDF-SHA256** 使用 `SubtleCrypto.deriveBits({name: 'HKDF', hash: 'SHA-256', salt: ..., info: ...}, ...)`，盐固定 `b"jflove-v1"`，产出 32 字节 session_key；纯 JS 回退用 `@noble/hashes` 的 `hkdf(sha256)`。
 - **加密信封格式**（与后端/桌面端/移动端完全一致）：`{"nonce": "<Base64 12B>", "ciphertext": "<Base64>"}`
-- **流式帧格式**（文件下载）：`[4B 大端长度][12B nonce][密文+16B Poly1305 tag]`，通过 `ReadableStream` 逐帧解析。
+- **GET 只读接口**：浏览器禁止 GET 携带 body，将加密信封放入 URL query（`?nonce=...&ciphertext=...`），query 中仅含密文、**不含任何明文业务参数**。
+- **流式帧格式**（文件下载）：`[4B 大端长度][12B nonce][密文+16B Poly1305 tag]`，通过 `ReadableStream` 逐帧解析（`stream-frame.ts`）。
+- **Service Worker 流式代理**（v1.3.1+）：`<video src="/jflove-stream/<一次性 token>">` → SW 拦截 → 解析 Range → 后端 `/api/v1/files/stream` 加密帧逐帧解密 → `206` 返回。session_key 经 `postMessage` 同步到 SW 内存、不落盘；登出时 `clearStreamProxySession()` 清空。仅安全上下文（HTTPS / localhost）可用。
 - **session_key 与 JWT 严禁出现在 `console.log` / 调试输出 / DOM 属性中**。开发模式下如需调试，只输出 `nonce` 前 4 字节的 Base64 片段。
 
 ## 项目结构约定
 
-参见 `AGENTS.md §3` jflove-web 目录结构。关键分层：
+参见 `AGENTS.md §3` jflove-web 目录结构。关键分层（v1.3.1 实际结构）：
 
-- `src/utils/` — 加密（crypto）、HTTP（http-client）、会话（session）、流式帧解析（stream-frame）、响应式（responsive）
-- `src/services/` — 8 个业务 service，对标桌面端 `services/`，统一通过 http-client 通信
-- `src/stores/` — Zustand 状态管理，按功能域拆分
-- `src/pages/` — 按路由组织页面（login / home / files / notes / sync / settings / admin / transfer）
-- `src/layouts/` — 布局组件（DesktopLayout / MobileLayout / AuthLayout）
+- `src/utils/` — 加密（crypto）、HTTP（http-client）、会话（session）、流式帧解析（stream-frame）、SW 流式代理（stream-proxy）、MSE 播放（media-source-player）
+- `src/sw/index.ts` — Service Worker 流式代理入口（v1.3.1+，双入口构建输出 `dist/sw.js`）
+- `src/services/` — **9 个业务 service**（auth / config / disk / file / note / permission / server_history / sync / user），对标桌面端 `services/`，统一通过 http-client 通信
+- `src/stores/` — Zustand 状态管理（5 个 store：auth / file / note / settings / transfer），按功能域拆分
+- `src/pages/` — 按路由组织页面（login / files / notes / sync / transfer / security / settings / admin；首页已移除，`/` 重定向 `/files`）
+- `src/layouts/` — 布局组件（AppLayout / DesktopLayout / MobileLayout / AuthLayout）
+- `src/hooks/` — 自定义 Hooks（含 `use-responsive.ts` 的 `useIsPC` / `useBreakpoint`）
 - `src/types/` — TypeScript 类型定义，对标后端 Pydantic models
 - `src/components/` — 可复用 UI 组件
-- `src/hooks/` — 自定义 Hooks
-- `tests/` — 单元测试 + 组件测试
+- `tests/` — 单元测试 + 组件测试（Vitest，当前 54 用例）
 
 ## 行为规范
 
@@ -110,6 +115,12 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 - 必须包含：功能与改动点、页面/组件/服务方法、调用的后端接口、与上一版本的逻辑差异、设计取舍
 - README.md 必须包含：启动方式、构建方式、Docker 部署方式、路由表
 
+## 版本号管理（发布阻塞项）
+
+- Web 端共 **3 处版本号**，必须一致：`package.json` `version`、`src/config/constants.ts` `APP_VERSION`（设置页「关于」显示）、`build.py` `VERSION`。
+- 推荐发布时用 `python build.py --version x.y.z` 一键同步（构建前自动校验一致性，不一致中止构建——防止「构建了新版本但设置页还是旧版本号」）。
+- 日常开发手动改版本号时，3 处必须同步修改。
+
 ## 构建与验收
 
 ### 阶段 1（日常开发）
@@ -146,9 +157,11 @@ docker run -p 8080:80 jflove-web:<版本号>
 - [ ] `npm run test` 全通过
 - [ ] PC 端（1920×1080 / 1366×768）布局正常
 - [ ] 移动端（375×667 iPhone SE / 414×896 iPhone 11）布局正常
-- [ ] 加密信封往返：密钥交换 → 登录 → 业务请求加解密正确
+- [ ] 加密信封往返：密钥交换 → 登录 → 业务请求加解密正确（含 HTTP 非安全上下文纯 JS 回退路径）
 - [ ] 流式帧解析：文件下载可逐帧解密
-- [ ] Docker 镜像可正常启动并访问
+- [ ] 视频/音频边下边播：HTTPS/localhost 下 SW 流式代理 + seek 正常；HTTP 下 MSE 回退正常
+- [ ] 设置页「关于」显示版本号与 package.json 一致
+- [ ] Docker 镜像可正常启动并访问，`dist/sw.js` 随镜像发布
 
 ## 安全宪法
 

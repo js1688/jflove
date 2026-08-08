@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,58 @@ BUILD_DIR = ROOT / "build"
 DIST_DIR = BUILD_DIR / "dist"
 WORK_DIR = BUILD_DIR / "pyinstaller_work"
 SPEC_DIR = BUILD_DIR / "spec"
+
+# 版本号定义位置（发布时必须全部一致）：
+#   - src/config/settings.py   APP_VERSION = "..."   —— 运行时窗口标题/关于对话框显示
+#   - build.py                 VERSION = "..."       —— 本脚本
+VERSION_FILES = [
+    (ROOT / "src" / "config" / "settings.py", r'APP_VERSION = "([^"]+)"'),
+    (ROOT / "build.py", r'^VERSION = "([^"]+)"', re.MULTILINE),
+]
+
+
+def _read_version(path: Path, pattern: str, flags: int = 0) -> str | None:
+    """读取指定文件中当前版本号，未匹配返回 None"""
+    text = path.read_text(encoding="utf-8")
+    m = re.search(pattern, text, flags)
+    return m.group(1) if m else None
+
+
+def assert_version_consistent() -> None:
+    """发布阻塞项：校验全部版本号位置与 build.py VERSION 一致，不一致直接失败"""
+    for path, pattern, *flags in VERSION_FILES:
+        flags = flags[0] if flags else 0
+        found = _read_version(path, pattern, flags)
+        rel = path.relative_to(ROOT)
+        if found is None:
+            fail(f"{rel} 中未找到版本号定义，无法校验")
+        if found != VERSION:
+            fail(
+                f"版本不一致：{rel} = {found}，build.py VERSION = {VERSION}\n"
+                f"请用 `python build.py --version {VERSION}` 一键同步，或手动统一后再构建。"
+            )
+    log(f"版本一致性校验通过：全部版本号 = v{VERSION}")
+
+
+def sync_version(new_version: str) -> None:
+    """把新版本号同步写入全部版本号位置（含 build.py 自身）"""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", new_version):
+        fail(f"非法版本号：{new_version}（要求形如 x.y.z）")
+    # src/config/settings.py 的 APP_VERSION
+    settings_path = ROOT / "src" / "config" / "settings.py"
+    settings_text = settings_path.read_text(encoding="utf-8")
+    settings_text = re.sub(
+        r'APP_VERSION = "[^"]+"', f'APP_VERSION = "{new_version}"', settings_text, count=1
+    )
+    settings_path.write_text(settings_text, encoding="utf-8")
+    # build.py 自身
+    self_path = ROOT / "build.py"
+    self_text = self_path.read_text(encoding="utf-8")
+    self_text = re.sub(
+        r'^VERSION = "[^"]+"', f'VERSION = "{new_version}"', self_text, count=1, flags=re.MULTILINE
+    )
+    self_path.write_text(self_text, encoding="utf-8")
+    log(f"版本号已同步：v{new_version}（settings.py APP_VERSION / build.py VERSION）")
 
 
 def log(msg: str) -> None:
@@ -114,10 +167,17 @@ def report_artifacts() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--version", default=VERSION, help="版本号（默认 build.py VERSION；指定新值会自动同步 settings.py APP_VERSION）")
     parser.add_argument("--clean", action="store_true", help="构建前清空 build/")
     args = parser.parse_args()
 
-    log(f"=== jflove-desktop v{VERSION} 构建开始（平台={platform.system()} {platform.machine()}）===")
+    if args.version != VERSION:
+        sync_version(args.version)      # 显式指定新版本号 → 自动同步全部位置
+    else:
+        assert_version_consistent()     # 未指定 → 校验全部位置一致（不一致中止）
+    version = args.version
+
+    log(f"=== jflove-desktop v{version} 构建开始（平台={platform.system()} {platform.machine()}）===")
     assert_no_secrets()
     run_pyinstaller(args.clean)
     report_artifacts()

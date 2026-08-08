@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -31,8 +33,69 @@ IMAGE_NAME = "jflove-web"
 ROOT = Path(__file__).resolve().parent
 BUILD_DIR = ROOT / "build"
 PACKAGE_LOCK = ROOT / "package-lock.json"
+PACKAGE_JSON = ROOT / "package.json"
+CONSTANTS_TS = ROOT / "src" / "config" / "constants.ts"
 DOCKERFILE = ROOT / "Dockerfile"
 NGINX_CONF = ROOT / "nginx.conf"
+
+# 版本号定义位置（发布时必须全部一致）：
+#   - package.json                "version": "..."      —— npm 元数据
+#   - src/config/constants.ts     APP_VERSION = '...'    —— 运行时设置页「关于」显示
+#   - build.py                    VERSION = "..."        —— 本脚本（镜像 tag 默认值）
+VERSION_FILES = [
+    (PACKAGE_JSON, r'"version"\s*:\s*"([^"]+)"'),
+    (CONSTANTS_TS, r"APP_VERSION\s*=\s*'([^']+)'"),
+    (ROOT / "build.py", r'^VERSION = "([^"]+)"', re.MULTILINE),
+]
+
+
+def _read_version(path: Path, pattern: str, flags: int = 0) -> str | None:
+    """读取指定文件中当前版本号，未匹配返回 None"""
+    text = path.read_text(encoding="utf-8")
+    m = re.search(pattern, text, flags)
+    return m.group(1) if m else None
+
+
+def assert_version_consistent() -> None:
+    """发布阻塞项：校验全部版本号位置与 build.py VERSION 一致，不一致直接失败"""
+    for path, pattern, *flags in VERSION_FILES:
+        flags = flags[0] if flags else 0
+        found = _read_version(path, pattern, flags)
+        rel = path.relative_to(ROOT)
+        if found is None:
+            fail(f"{rel} 中未找到版本号定义，无法校验")
+        if found != VERSION:
+            fail(
+                f"版本不一致：{rel} = {found}，build.py VERSION = {VERSION}\n"
+                f"请用 `python build.py --version {VERSION}` 一键同步，或手动统一后再构建。"
+            )
+    log(f"版本一致性校验通过：全部版本号 = v{VERSION}")
+
+
+def sync_version(new_version: str) -> None:
+    """把新版本号同步写入全部版本号位置（含 build.py 自身）"""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", new_version):
+        fail(f"非法版本号：{new_version}（要求形如 x.y.z）")
+    # package.json
+    pkg = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
+    pkg["version"] = new_version
+    PACKAGE_JSON.write_text(
+        json.dumps(pkg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    # src/config/constants.ts 的 APP_VERSION
+    constants_text = CONSTANTS_TS.read_text(encoding="utf-8")
+    constants_text = re.sub(
+        r"APP_VERSION\s*=\s*'[^']+'", f"APP_VERSION = '{new_version}'", constants_text, count=1
+    )
+    CONSTANTS_TS.write_text(constants_text, encoding="utf-8")
+    # build.py 自身
+    self_path = ROOT / "build.py"
+    self_text = self_path.read_text(encoding="utf-8")
+    self_text = re.sub(
+        r'^VERSION = "[^"]+"', f'VERSION = "{new_version}"', self_text, count=1, flags=re.MULTILINE
+    )
+    self_path.write_text(self_text, encoding="utf-8")
+    log(f"版本号已同步：v{new_version}（package.json / constants.ts / build.py）")
 
 
 def log(msg: str) -> None:
@@ -91,18 +154,25 @@ def file_sha256(p: Path) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tag", default=VERSION, help="镜像 tag（默认与 VERSION 一致）")
+    parser.add_argument("--version", default=VERSION, help="版本号（默认 build.py VERSION；指定新值会自动同步 package.json / constants.ts）")
+    parser.add_argument("--tag", default=None, help="镜像 tag（默认与版本号一致）")
     parser.add_argument("--no-cache", action="store_true", help="docker build 不使用缓存")
     parser.add_argument("--save", action="store_true", help="构建后 docker save 成 tar 文件")
     args = parser.parse_args()
 
-    log(f"=== jflove-web v{args.tag} 构建开始 ===")
+    if args.version != VERSION:
+        sync_version(args.version)      # 显式指定新版本号 → 自动同步全部位置
+    else:
+        assert_version_consistent()     # 未指定 → 校验全部位置一致（不一致中止）
+    tag = args.tag or args.version
+
+    log(f"=== jflove-web v{tag} 构建开始 ===")
     assert_build_prereqs()
-    docker_build(args.tag, args.no_cache)
+    docker_build(tag, args.no_cache)
     if args.save:
-        tar = docker_save(args.tag)
+        tar = docker_save(tag)
         log(f"SHA256: {file_sha256(tar)}")
-    log(f"=== 构建完成。运行示例：docker run -p 8080:80 {IMAGE_NAME}:{args.tag} ===")
+    log(f"=== 构建完成。运行示例：docker run -p 8080:80 {IMAGE_NAME}:{tag} ===")
 
 
 if __name__ == "__main__":

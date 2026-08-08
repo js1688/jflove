@@ -2,6 +2,8 @@
 
 JFLove 桌面客户端，基于 PySide6 + PySide6-Fluent-Widgets 构建的私有文档与笔记协同管理桌面应用。
 
+> **当前版本：v1.1.6**（桌面端版本号定义位置：`src/config/settings.py` 的 `APP_VERSION` 与 `build.py` 的 `VERSION`，两处必须一致；推荐用 `python build.py --version x.y.z` 一键同步）
+
 > **v1.4.0**：设置页新增「媒体修复」开关（仅管理员，服务端配置三端共享，默认关闭）；播放管线不变。
 
 ---
@@ -12,7 +14,7 @@ JFLove 桌面客户端，基于 PySide6 + PySide6-Fluent-Widgets 构建的私有
 
 | 组件 | 用途 |
 |------|------|
-| **PySide6 6.8.0.2** | Qt 绑定，UI 框架 |
+| **PySide6 6.11.0** | Qt 绑定，UI 框架 |
 | **PySide6-Fluent-Widgets** | Material Design 风格组件库 |
 | **QWebEngineView** | Markdown 预览渲染（GitHub 风格 CSS + highlight.js + Mermaid） |
 
@@ -49,7 +51,7 @@ Service Layer → http_client.py → 加密请求 → 后端 API
 ### 运行环境
 
 - **语言**：Python 3.14+
-- **UI 框架**：PySide6 6.8.0.2
+- **UI 框架**：PySide6 6.11.0
 - **组件库**：PySide6-Fluent-Widgets
 - **HTTP**：requests
 - **加密**：cryptography（X25519 / HKDF-SHA256 / ChaCha20-Poly1305）
@@ -119,7 +121,8 @@ python src/main.py
 
 ```bash
 cd jflove-desktop
-python build.py             # 默认 onefile + windowed
+python build.py             # 默认 onefile + windowed（构建前校验两处版本号一致）
+python build.py --version 1.1.7   # 指定新版本号：自动同步 settings.py / build.py 后构建
 python build.py --clean     # 构建前先 rm -rf build/
 ```
 
@@ -231,20 +234,14 @@ JFLove/
 
 ## 依赖清单
 
-核心依赖（详见 [`requirements.txt`](jflove-desktop/requirements.txt)）：
+核心依赖（详见 [`requirements.txt`](jflove-desktop/requirements.txt)，仅运行时 + 打包依赖；`pytest`/`flake8` 为开发依赖，不入 requirements.txt）：
 
 | 依赖 | 用途 |
 |------|------|
-| `PySide6==6.8.0.2` | Qt 绑定，UI 框架 |
-| `PySide6-Fluent-Widgets` | Material Design 风格组件库 |
-| `cryptography` | X25519 / ChaCha20-Poly1305 加密 |
-| `requests` | HTTP 客户端 |
-| `PyJWT` | JWT 验证（ES256） |
-| `bcrypt` | 密码哈希 |
-| `pytest` | 测试框架 |
-| `flake8` | 代码风格检查 |
-| `pyinstaller` | 应用打包 |
-| `markdown` | Markdown→HTML 渲染 |
-| `pygments` | 代码语法高亮 |
-| `pdfminer.six` | PDF 文本提取 |
-| `python-docx` | DOCX 文本提取 |
+| `PySide6==6.11.0` | Qt 绑定，UI 框架 |
+| `PySide6-Fluent-Widgets==1.11.2` | Material Design 风格组件库 |
+| `cryptography==47.0.0` | X25519 / ChaCha20-Poly1305 加密 |
+| `requests==2.33.1` | HTTP 客户端 |
+| `markdown==3.10.2` | Markdown→HTML 渲染 |
+| `pygments==2.20.0` | 代码语法高亮 |
+| `pyinstaller==6.20.0` | 应用打包 |

@@ -13,10 +13,11 @@ JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构�
 | 框架 | Flutter 3.27+ |
 | 语言 | Dart 3.6+ |
 | 状态管理 | Riverpod（flutter_riverpod，6 个 Provider 文件） |
-| 路由 | go_router（14 条路由 + ShellRoute 底部导航 + 路由守卫） |
+| 路由 | go_router（12 条路由 + ShellRoute 底部导航 + 路由守卫） |
 | HTTP | dio + 自研 HttpService（加密信封 + ECDH 重同步） |
 | 加密 | pointycastle + x25519（ChaCha20-Poly1305 + X25519 ECDH + HKDF-SHA256） |
 | 安全存储 | flutter_secure_storage（Android Keystore） |
+| 流式代理 | `lib/utils/stream_proxy.dart`（本地 HTTP 代理，ExoPlayer 边下边播 + Range） |
 | 测试 | flutter_test（22 个用例） |
 
 ### 通信架构
@@ -28,12 +29,12 @@ JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构�
                                     └── session.dart (session_key 仅存内存)
 ```
 
-### 支持的页面（14 个路由）
+### 支持的页面（12 个路由；首页已移除，`/` 重定向 `/files`，底部导航：文件/笔记/同步/传输任务/设置）
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
 | `/login` | 登录页 | 密钥交换 + 管理员初始化 + TTL 选择 + 历史记录 |
-| `/` | 首页 | 用户信息 + 4 快捷入口 + 传输浮窗 |
+| `/` | 重定向 `/files` | 首页已移除 |
 | `/files` | 磁盘列表 | 可写/只读标记 |
 | `/files/:diskId` | 文件浏览 | 列表/上传/下载/重命名/删除/预览 |
 | `/files/preview` | 文件预览 | 图片/文本/Markdown 全屏预览 |
@@ -83,15 +84,15 @@ flutter build apk --debug
 jflove-app/
 ├── lib/
 │   ├── main.dart              # 入口（ProviderScope + 竖屏锁定）
-│   ├── app.dart               # MaterialApp.router + 14 条路由 + 底部导航
+│   ├── app.dart               # MaterialApp.router + 12 条路由 + 底部导航
 │   ├── config/                # 应用配置 + 主题
-│   ├── models/                # 数据模型（7 个）
+│   ├── models/                # 数据模型（7 个文件）
 │   ├── providers/             # Riverpod 状态管理（6 个文件）
 │   ├── services/              # 业务逻辑层（11 个 service）
-│   ├── pages/                 # 14 个页面
-│   ├── widgets/               # 公共 UI 组件（5 个）
-│   └── utils/                 # crypto/http_service/session/stream_frame/logger
-├── test/                      # 22 个测试用例
+│   ├── pages/                 # 12 个页面
+│   ├── widgets/               # 公共 UI 组件（6 个，含 transfer_floating_card）
+│   └── utils/                 # crypto/http_service/session/stream_frame/stream_proxy/exception/logger
+├── test/                      # 22 个测试用例（models/services/utils/widget）
 ├── android/                   # Android 原生壳
 ├── pubspec.yaml
 └── README.md
