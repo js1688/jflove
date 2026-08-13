@@ -17,6 +17,7 @@
 
 import asyncio
 import os
+import re
 import struct
 import time
 
@@ -114,6 +115,7 @@ async def probe_media(file_path: str) -> dict:
         - has_stream: 是否解析到至少一个音/视频流
         - duration_ok: 是否能读取到有效 Duration（非 N/A）
         - fatal: 是否存在致命错误（Invalid data / moov atom not found 等）
+        - duration: 媒体时长（秒 float，解析失败为 0.0）
     """
     # 短 TTL 缓存命中：文件未变化且未过期
     cached = _probe_cache.get(file_path)
@@ -137,6 +139,7 @@ async def probe_media(file_path: str) -> dict:
             "has_stream": False,
             "duration_ok": False,
             "fatal": False,
+            "duration": 0.0,
         }
 
     cmd = [exe, "-hide_banner", "-i", file_path]
@@ -156,6 +159,7 @@ async def probe_media(file_path: str) -> dict:
             "has_stream": False,
             "duration_ok": False,
             "fatal": True,
+            "duration": 0.0,
         }
 
     text = (err or b"").decode(errors="replace")
@@ -172,11 +176,25 @@ async def probe_media(file_path: str) -> dict:
             "error while",
         )
     )
+    # 解析媒体时长（秒，如 "Duration: 00:00:03.13"）；供 time 修复流 meta 帧
+    # 的 duration 字段使用（桌面/移动端线性 seek 映射需要）
+    duration = 0.0
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    if match:
+        try:
+            duration = (
+                float(match.group(1)) * 3600
+                + float(match.group(2)) * 60
+                + float(match.group(3))
+            )
+        except ValueError:
+            duration = 0.0
     result = {
         "available": bool(exe),
         "has_stream": has_stream,
         "duration_ok": duration_ok,
         "fatal": fatal,
+        "duration": duration,
     }
     # 写入短 TTL 缓存（mtime+size 作为失效依据）；容量超限时整体清空防增长
     try:
@@ -249,3 +267,125 @@ def ffmpeg_version() -> str:
         return out.splitlines()[0] if out else "N/A"
     except Exception:
         return "N/A"
+
+
+# ── fMP4 codec 解析（v1.4.0 测试发现）──────────────────────────────
+# 浏览器 MSE 的 SourceBuffer 需要精确的 codec 字符串（如 "avc1.64001f, mp4a.40.2"），
+# 声明与实际流 track 不匹配会导致 append 报错。修复流由 ffmpeg 实时生成，Web 端
+# 无法预知 codec，故由服务端解析 fMP4 init segment 的 stsd（avcC/esds）构造 codec，
+# 放入 meta 帧供客户端创建 SourceBuffer。
+
+def _desc_len(data: bytes, pos: int) -> tuple[int, int]:
+    """解析 MPEG-4 descriptor 的变长 length 字段，返回 (length, 新 pos)。"""
+    length = 0
+    while pos < len(data):
+        b = data[pos]
+        pos += 1
+        length = (length << 7) | (b & 0x7F)
+        if not (b & 0x80):
+            break
+    return length, pos
+
+
+def _box_ranges(data: bytes, start: int, end: int, target: bytes) -> list[tuple[int, int]]:
+    """在 [start, end) 范围内遍历同层 box，返回匹配 target 类型的 (start, end) 列表。"""
+    found = []
+    pos = start
+    while pos + 8 <= end:
+        size = struct.unpack(">I", data[pos:pos + 4])[0]
+        btype = data[pos + 4:pos + 8]
+        if btype == target:
+            found.append((pos, pos + size))
+        if size < 8:
+            break
+        pos += size
+    return found
+
+
+def _avc1_codec(box: bytes) -> str | None:
+    """从 avc1/avc3 box 提取 H.264 codec 字符串（avc1.<profile><compat><level>）。
+
+    box 结构：size(4)+type(4)+...；avcC 的 'avcC' 在 box 内偏移 4，
+    payload: version(1)+profile_idc(1)+compat(1)+level_idc(1)，故
+    profile 在 'avcC' 后第 5 字节（idx+5）。
+    """
+    idx = box.find(b"avcC")
+    if idx == -1 or idx + 9 > len(box):
+        return None
+    profile = box[idx + 5]
+    compat = box[idx + 6]
+    level = box[idx + 7]
+    return f"avc1.{profile:02x}{compat:02x}{level:02x}"
+
+
+def _mp4a_codec(box: bytes) -> str | None:
+    """从 mp4a box 提取 AAC codec 字符串（mp4a.40.<AOT>）。
+
+    esds box 内：'esds' 在 box 内偏移 4，version/flags(4) 后为
+    ES_Descriptor(0x03) → DecoderConfigDescriptor(0x04) → DecoderSpecificInfo(0x05)
+    → AudioSpecificConfig（首字节高 5 bit = audioObjectType）。
+    """
+    idx = box.find(b"esds")
+    if idx == -1:
+        return None
+    p = idx + 8  # esds payload（version/flags 之后）起始
+    if p < len(box) and box[p] == 0x03:
+        _, p = _desc_len(box, p + 1)
+        p += 3  # ES_ID(2) + streamPriority(1)
+    if p < len(box) and box[p] == 0x04:
+        _, p = _desc_len(box, p + 1)
+        # objectType(1)+streamType(1)+bufferSizeDB(3)+maxBitrate(4)+avgBitrate(4)
+        p += 13
+    if p < len(box) and box[p] == 0x05:
+        _, p = _desc_len(box, p + 1)
+        if p < len(box):
+            aot = (box[p] >> 3) & 0x1F  # AudioSpecificConfig 高 5 bit = audioObjectType
+            return f"mp4a.40.{aot}"
+    return None
+
+
+def parse_fmp4_codec(init: bytes) -> str:
+    """
+    从 fMP4 init segment（ftyp + moov）解析 codec 字符串。
+
+    例：仅视频 → "avc1.64001f"；视频+音频 → "avc1.64001f, mp4a.40.2"。
+
+    :param init: fMP4 开头字节（需含完整 moov）
+    :returns: codec 字符串；无法解析时返回空串
+    """
+    video = None
+    audio = None
+    pos = 0
+    n = len(init)
+    while pos + 8 <= n:
+        size = struct.unpack(">I", init[pos:pos + 4])[0]
+        btype = init[pos + 4:pos + 8]
+        if btype == b"moov":
+            for trak_s, trak_e in _box_ranges(init, pos + 8, pos + size, b"trak"):
+                for mdia_s, mdia_e in _box_ranges(init, trak_s + 8, trak_e, b"mdia"):
+                    for minf_s, minf_e in _box_ranges(init, mdia_s + 8, mdia_e, b"minf"):
+                        for stbl_s, stbl_e in _box_ranges(init, minf_s + 8, minf_e, b"stbl"):
+                            for stsd_s, stsd_e in _box_ranges(init, stbl_s + 8, stbl_e, b"stsd"):
+                                ep = stsd_s + 8 + 8  # stsd: version/flags(4)+entry_count(4)
+                                while ep + 8 <= stsd_e:
+                                    esz = struct.unpack(">I", init[ep:ep + 4])[0]
+                                    etype = init[ep + 4:ep + 8]
+                                    entry = init[ep:min(ep + esz, n)]
+                                    if etype in (b"avc1", b"avc3"):
+                                        video = _avc1_codec(entry)
+                                    elif etype == b"mp4a":
+                                        audio = _mp4a_codec(entry)
+                                    if esz < 8:
+                                        break
+                                    ep += esz
+            # 所有 trak 遍历完成后汇总 codec（视频, 音频）
+            return _join_codec(video, audio)
+        if size < 8:
+            break
+        pos += size
+    return _join_codec(video, audio)
+
+
+def _join_codec(video: str | None, audio: str | None) -> str:
+    """拼接 codec 字符串（按 视频, 音频 顺序）。"""
+    return ", ".join(c for c in (video, audio) if c)

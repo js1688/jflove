@@ -98,9 +98,25 @@ export function isMSEAvailable(filename: string): boolean {
 }
 
 /**
- * 使用 MSE 播放视频/音频（边下边播回退路径）。
+ * 默认 fMP4 codec：probeMseCodec 不支持的扩展名（mkv/avi/flv/wmv/mpg/ts/aac/wma 等）
+ * 在服务端修复开启时会被重封装为 fMP4，这里用 fMP4 默认 codec 尝试，
+ * 首帧 append 失败再由调用方回退 Blob 下载（v1.4.0）。
+ */
+function defaultMp4Codec(filename: string): string {
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  const AUDIO_EXTS = ['mp3', 'wav', 'flac', 'ogg', 'opus', 'm4a', 'aac', 'wma'];
+  // 修复流统一 fMP4（H.264 + AAC，或仅视频）。必须带 codecs 串——
+  // 裸 'video/mp4' 不被 MediaSource.isTypeSupported 支持（测试确认）。
+  // 声明的 codec 为"允许出现的流"，实际流可只有其中部分，MSE 接受。
+  return AUDIO_EXTS.includes(ext)
+    ? 'audio/mp4; codecs="mp4a.40.2"'
+    : 'video/mp4; codecs="avc1.64001f, mp4a.40.2"';
+}
+
+/**
+ * 使用 MSE 播放视频/音频（v1.4.0 主路径）。
  *
- * @returns 清理函数；文件类型 MSE 不可用 / 打开流失败 / 首帧 append 失败（如普通 MP4）
+ * @returns 清理函数；打开流失败 / 首帧 append 失败（容器不被 MSE 支持且服务端未修复）
  *          时返回 null，由调用方回退到完整下载。
  */
 export async function playWithMSE(
@@ -110,8 +126,10 @@ export async function playWithMSE(
   filename: string,
 ): Promise<(() => void) | null> {
   if (!isMSESupported()) return null;
-  const codec = probeMseCodec(filename);
-  if (!codec) return null;
+  // 初始 codec：健康文件用 MSE 探测/默认；修复流（time）在读取 meta 后
+  // 用服务端解析的真实 codec（meta.codec）覆盖（v1.4.0 测试发现：codec 声明
+  // 必须与实际流的全部 track 匹配，否则 append 报错）。
+  let codec = probeMseCodec(filename) ?? defaultMp4Codec(filename);
 
   const sessionKey = getSessionKey();
   const sessionId = getSessionId();
@@ -133,6 +151,9 @@ export async function playWithMSE(
   // 当前是否已结束
   let ended = false;
   let failed = false;
+  // seek 监听器的移除闭包（cleanup 可能在 onSeeked 初始化前被调用，
+  // 用闭包标志避免直接引用后声明的 onSeeked 触发 TDZ 崩溃）
+  let seekCleanup: (() => void) | null = null;
 
   /**
    * 打开加密流（初始与 seek 共用）。
@@ -162,8 +183,18 @@ export async function playWithMSE(
   };
 
   try {
-    // 初始打开（从 0 开始）
-    await openStream(0);
+    // 初始打开（从 0 开始）；修复流 meta 携带真实 codec，覆盖默认探测值
+    const initial = await openStream(0);
+    if (initial.meta.stream_mode === 'time' && initial.meta.codec) {
+      // 服务端 codec 为裸 codec 串（如 "avc1.64000c" / "avc1.64000c, mp4a.40.2"），
+      // addSourceBuffer 需要完整 MIME（如 'video/mp4; codecs="avc1.64000c"'），
+      // 这里按是否含视频轨包装成 video/mp4 或 audio/mp4（v1.4.0 修复：裸 codec 会
+      // 抛 NotSupportedError 导致 MSE 回退 Blob 下载）。
+      const raw = initial.meta.codec.trim();
+      codec = raw.includes('avc1')
+        ? `video/mp4; codecs="${raw}"`
+        : `audio/mp4; codecs="${raw}"`;
+    }
 
     mediaSource = new MediaSource();
     objectUrl = URL.createObjectURL(mediaSource);
@@ -314,6 +345,9 @@ export async function playWithMSE(
         .finally(() => { seeking = false; });
     };
     video.addEventListener('seeked', onSeeked);
+    seekCleanup = () => {
+      try { video.removeEventListener('seeked', onSeeked); } catch { /* ignore */ }
+    };
 
     function cleanup(): void {
       abortController.abort();
@@ -321,7 +355,7 @@ export async function playWithMSE(
       if (currentFrames && currentFrames !== frames) {
         try { void currentFrames.return?.(undefined); } catch { /* ignore */ }
       }
-      video.removeEventListener('seeked', onSeeked);
+      try { seekCleanup?.(); } catch { /* ignore */ }
       if (objectUrl) {
         try { URL.revokeObjectURL(objectUrl); } catch { /* ignore */ }
       }
@@ -333,7 +367,12 @@ export async function playWithMSE(
           }
         } catch { /* ignore */ }
       }
-      try { video.src = ''; } catch { /* ignore */ }
+      // 仅当 video 仍指向本实例的 objectUrl 时才清空 src：
+      // React StrictMode 双跑 effect 时，旧实例的 cleanup 不应破坏
+      // 新实例已设置的 MSE URL（v1.4.0 修复）。
+      if (objectUrl && video.src === objectUrl) {
+        try { video.src = ''; } catch { /* ignore */ }
+      }
     }
 
     return cleanup;

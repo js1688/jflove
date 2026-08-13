@@ -73,7 +73,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
   - 音频：mp3 / wav / ogg / flac / m4a / aac / wma / opus（流式零缓存播放）
   - 文本：txt / log / json / xml / yaml / ini / csv / Markdown / 代码文件（流式逐帧加载，首屏 ≤3s）
   - Markdown：渲染为 HTML，支持代码块高亮、表格、Mermaid 图表
-- **流式预览（v1.1.0+）**：桌面端/移动端视频/音频通过本地 HTTP 代理零缓存播放；Web 端（v1.3.1+）通过 Service Worker 流式代理（`/jflove-stream/<token>`，解析 Range → 后端加密流逐帧解密 → 206 返回）真边下边播 + 拖动 seek，非安全上下文自动回退 MSE；文本通过 StreamTextLoader 逐帧流式加载，不写本地临时文件
+- **流式预览（v1.1.0+）**：桌面端/移动端视频/音频通过本地 HTTP 代理零缓存播放；Web 端（v1.4.0+）统一 MSE 主路径（HTTP/HTTPS 均可用）真边下边播；损坏/非流式媒体经服务端媒体修复（开关可配）在线播放；文本通过 StreamTextLoader 逐帧流式加载，不写本地临时文件
 
 ### 📝 笔记本管理
 
@@ -166,7 +166,19 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 
 > 以下记录从 v1.1.6 开始的版本变化。更早版本参见 `文档记录/需求文档/`。
 
-### v1.3.1（当前版本）— Web 端视频/音频边下边播 + 流式 404 修复
+### v1.4.0（当前版本）— 媒体修复与行业标准边下边播（四端）
+
+| 类型 | 变更 |
+|------|------|
+| 📅 | 2026-08-13 |
+| 🔧 服务端 | 媒体修复服务：损坏/非流式媒体经 ffmpeg `-c copy` 重封装为 fMP4、stdout 管道直出（不落盘、不改原文件）；开关为服务端 config 三键（`media_repair_enabled`/`allow_transcode`/`max_concurrent`，默认关闭，C 端配置立即生效）；声明机制（仅带 `range_start_seconds` 的客户端走 time 修复，旧客户端零回归）；time meta 携带 `file_size`/`duration`/`codec` |
+| 🌐 Web 端 | 边下边播统一 MSE 主路径（HTTP/HTTPS 均可用，删除 Service Worker）；修复流 codec 由服务端 meta 下发并组装完整 MIME；修复 loading 切换重建 video 元素与 StrictMode 双跑互扰 |
+| 🖥️ 桌面端 | 设置页媒体修复开关（admin）；StreamProxy 适配 time 修复流（200+chunked 顺序流、字节 Range 线性映射时间 seek） |
+| 📱 移动端 | 设置页媒体修复开关（admin）；StreamProxy 同样适配 time 修复流 |
+| ✅ 测试 | 后端 120 / 桌面 102 / 移动 27 / Web 52 全通过；真实服务 E2E（mkv、损坏 mp4 边下边播）；桌面端打包冒烟通过 |
+| 📦 发布 | 本次仅桌面（JFLove.exe）+ 移动（app-debug.apk）；后端与 Web 因本机无 Docker 留待下次发布 |
+
+### v1.3.1 — Web 端视频/音频边下边播 + 流式 404 修复
 
 | 类型 | 变更 |
 |------|------|

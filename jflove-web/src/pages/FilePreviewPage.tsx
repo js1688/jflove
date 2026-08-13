@@ -4,7 +4,7 @@ import { fileService } from '../services/file-service';
 import { useFileStore } from '../stores/file-store';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { isMSEAvailable, playWithMSE } from '../utils/media-source-player';
+import { playWithMSE } from '../utils/media-source-player';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -78,9 +78,10 @@ export function FilePreviewPage() {
         } else if (isVideo || isAudio) {
           // ① MSE 主路径（v1.4.0）：HTTP/HTTPS 均可边下边播，不依赖 Service Worker。
           //    修复流（time 模式）由服务端 ffmpeg 重封装为 fMP4 后解密喂给 SourceBuffer；
-          //    健康文件（byte 模式）按字节 range 流式。两者均支持拖动 seek。
+          //    健康文件（byte 模式）按字节 range 流式。mkv/avi 等在服务端修复开启时
+          //    同样走 MSE（playWithMSE 用 fMP4 默认 codec 尝试，失败再回退 Blob）。
           const mediaEl = isVideo ? videoRef.current : audioRef.current;
-          if (mediaEl && isMSEAvailable(filename)) {
+          if (mediaEl) {
             const cleanup = await playWithMSE(mediaEl, Number(diskId), path, filename);
             if (cancelled) {
               cleanup?.();
@@ -140,14 +141,15 @@ export function FilePreviewPage() {
           )}
         </div>
       )}
-      {/* 视频/音频：元素始终渲染（供 ref 即时可用），src 由媒体状态驱动；加载时叠加提示 */}
+      {/* 视频/音频：元素始终渲染（供 ref 即时可用），src 由媒体状态驱动；加载时叠加提示。
+          注意：spinner 必须始终渲染（用 class 控制可见性），否则 loading 切换会导致
+          无 key 兄弟列表 [spinner, video] → [video]，React 卸载重建 video 元素，
+          playWithMSE 持有的元素引用失效，MSE 播放必然失败（v1.4.0 修复）。 */}
       {isVideo && !error && (
         <div className="relative">
-          {loading && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
-              <LoadingSpinner text="边下边播准备中…" />
-            </div>
-          )}
+          <div className={`absolute inset-0 z-10 flex items-center justify-center bg-black/40 ${loading ? '' : 'hidden'}`}>
+            <LoadingSpinner text="边下边播准备中…" />
+          </div>
           <video
             ref={videoRef}
             src={mediaSrc || undefined}
@@ -159,7 +161,9 @@ export function FilePreviewPage() {
       {isAudio && !error && (
         <div className="flex flex-col items-center py-8">
           <span className="text-6xl mb-4">🎵</span>
-          {loading && <LoadingSpinner text="边下边播准备中…" />}
+          <div className={loading ? '' : 'hidden'}>
+            <LoadingSpinner text="边下边播准备中…" />
+          </div>
           <audio ref={audioRef} src={mediaSrc || undefined} controls className="w-full max-w-xl" />
         </div>
       )}

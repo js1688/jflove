@@ -558,8 +558,11 @@ async def stream_file(
     filename = body.get("filename", "").strip()
     range_start = _to_int(body.get("range_start", 0), 0)
     range_end = _to_int(body.get("range_end", -1), -1)
-    # v1.4.0：修复流专用时间 range（秒，仅 stream_mode="time" 时生效）
+    # v1.4.0：修复流专用时间 range（秒，仅 stream_mode="time" 时生效）。
+    # 请求「携带该字段」即声明客户端支持时间 range 修复流（Web MSE / 新版
+    # 桌面移动）；未携带的旧客户端一律 byte 原文件流，零回归。
     range_start_seconds = _to_float(body.get("range_start_seconds", 0), 0.0)
+    client_supports_time = "range_start_seconds" in body
 
     if not filename:
         raise HTTPException(status_code=400, detail="filename 不能为空")
@@ -581,9 +584,10 @@ async def stream_file(
     if not session_key:
         raise HTTPException(status_code=401, detail="会话已失效")
 
-    # v1.4.0：媒体修复决策（开关默认关闭时直接返回 byte 模式，零额外开销）
+    # v1.4.0：媒体修复决策（开关默认关闭时直接返回 byte 模式，零额外开销；
+    # 仅声明支持时间 range 的客户端才可能进入 time 修复流）
     repair = await media_repair_service.ensure_playable(
-        db, file_path, filename,
+        db, file_path, filename, client_supports_time,
     )
     mode = repair.get("mode", "byte")
     if mode == "time":
@@ -592,6 +596,7 @@ async def stream_file(
         return StreamingResponse(
             media_repair_service.stream_repaired_frames(
                 db, file_path, session_key, range_start_seconds, allow_transcode,
+                file_size,
             ),
             media_type="application/octet-stream",
             headers={"X-Encrypted-Stream": "v2"},

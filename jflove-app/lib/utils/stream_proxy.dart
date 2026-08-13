@@ -53,6 +53,9 @@ class StreamProxy {
   // 元数据缓存（首次请求后填充）
   int _fileSize = 0;
   String _contentType = 'application/octet-stream';
+  // v1.4.0：time 修复流模式与媒体时长（秒），供 GET 线性时间 seek 映射
+  String _streamMode = 'byte';
+  double _duration = 0.0;
   bool _metaFetched = false;
 
   StreamProxy({
@@ -127,7 +130,11 @@ class StreamProxy {
       resp.statusCode = 200;
       resp.headers.set('Content-Type', _contentType);
       resp.headers.set('Content-Length', _fileSize.toString());
-      resp.headers.set('Accept-Ranges', 'bytes');
+      // v1.4.0：time 修复流为实时生成、总字节不可预知，不支持字节 seek，
+      // 不声明 Accept-Ranges，让播放器按顺序流式播放
+      if (_streamMode != 'time') {
+        resp.headers.set('Accept-Ranges', 'bytes');
+      }
       resp.headers.set('Connection', 'close');
       await resp.close();
     } catch (e) {
@@ -151,8 +158,29 @@ class StreamProxy {
     );
 
     try {
-      final stream = await _fetchStreamRange(rangeStart, rangeEnd);
       final resp = request.response;
+      // ── v1.4.0：time 修复流分支 ──
+      // 修复流总字节不可预知 → 200 + chunked（无 Content-Length）；
+      // 播放器字节 Range 用平均码率线性近似映射为时间起点，服务端 -ss 重拉。
+      if (_streamMode == 'time') {
+        final seconds = mapRangeToSeconds(rangeStart, _fileSize, _duration);
+        final stream = await _fetchStreamRange(
+          0,
+          0,
+          rangeStartSeconds: seconds,
+        );
+        resp.statusCode = 200;
+        resp.headers.set('Content-Type', _contentType);
+        resp.headers.set('Connection', 'close');
+        await for (final chunk in stream) {
+          if (_closed) break;
+          resp.add(chunk);
+        }
+        await resp.close();
+        return;
+      }
+
+      final stream = await _fetchStreamRange(rangeStart, rangeEnd);
       final contentLength = rangeEnd - rangeStart;
       resp.statusCode = 206;
       resp.headers.set('Content-Type', _contentType);
@@ -183,11 +211,13 @@ class StreamProxy {
   Future<void> _ensureMeta() async {
     if (_metaFetched) return;
 
-    // 发 range(0,0) 请求拿元数据帧
-    final stream = await _fetchStreamRange(0, 0);
-    // 消耗掉空数据帧（range 0-0 无数据帧）
+    // 发 range(0,0) 请求拿元数据帧；v1.4.0：探测请求也声明支持时间 range，
+    // 服务端对损坏文件返回 time meta（file_size / duration）
+    final stream = await _fetchStreamRange(0, 0, rangeStartSeconds: 0);
+    // 只消费到首个数据帧：meta 帧解析在数据帧前完成（time 模式下服务端会
+    // 继续输出完整修复流，首帧到达后立即停止避免浪费转码）
     await for (final _ in stream) {
-      // 不应有数据，但以防万一
+      break;
     }
   }
 
@@ -218,10 +248,14 @@ class StreamProxy {
   ///
   /// 每次请求的第一帧均为元数据帧（JSON: file_size / content_type 等），
   /// 自动过滤不传给调用方；后续帧为实际文件数据。
+  ///
+  /// [rangeStartSeconds]：v1.4.0 修复流专用时间起点（秒）。非 null 即向服务端
+  /// 声明支持时间 range 修复流（time 模式）；null 表示旧字节 range 语义。
   Future<Stream<Uint8List>> _fetchStreamRange(
     int rangeStart,
-    int rangeEnd,
-  ) async {
+    int rangeEnd, {
+    double? rangeStartSeconds,
+  }) async {
     // 构建请求体
     final payload = {
       'token': jwtToken,
@@ -231,6 +265,9 @@ class StreamProxy {
       'range_start': rangeStart,
       'range_end': rangeEnd,
     };
+    if (rangeStartSeconds != null) {
+      payload['range_start_seconds'] = rangeStartSeconds;
+    }
     final plainBytes = utf8.encode(jsonEncode(payload));
     final envelope = CryptoUtils.encryptEnvelope(sessionKey, plainBytes);
 
@@ -281,6 +318,9 @@ class StreamProxy {
                   _contentType =
                       (json['content_type'] as String?) ??
                       'application/octet-stream';
+                  // v1.4.0：time 修复流模式与时长（GET 线性时间 seek 映射）
+                  _streamMode = (json['stream_mode'] as String?) ?? 'byte';
+                  _duration = ((json['duration'] as num?) ?? 0).toDouble();
                   _metaFetched = true;
                   return; // 元数据帧不传给播放器
                 }
@@ -300,6 +340,19 @@ class StreamProxy {
   }
 
   // ── 辅助 ──────────────────────────────────────────
+
+  /// 把播放器字节偏移线性映射为时间（秒，平均码率近似）。
+  ///
+  /// 供 time 修复流 seek 使用：seconds = offset / file_size * duration；
+  /// 任一参数非正（含零保护）时返回 0（从头开始）。
+  static double mapRangeToSeconds(
+    int rangeStart,
+    int fileSize,
+    double duration,
+  ) {
+    if (rangeStart <= 0 || fileSize <= 0 || duration <= 0) return 0.0;
+    return rangeStart / fileSize * duration;
+  }
 
   void _sendError(HttpResponse resp, int code, String msg) {
     resp.statusCode = code;

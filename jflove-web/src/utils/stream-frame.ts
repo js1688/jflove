@@ -37,6 +37,9 @@ export interface StreamMeta {
   stream_mode?: 'byte' | 'time';
   /** time 模式字段：本次修复流的时间起点（秒） */
   range_start_seconds?: number;
+  /** time 模式字段：修复流真实 codec 串（如 "avc1.64000c" / "avc1.64000c, mp4a.40.2"），
+   *  供 MSE 组装完整 MIME（v1.4.0） */
+  codec?: string;
 }
 
 /**
@@ -161,11 +164,15 @@ export async function openEncryptedStream(
 ): Promise<{ meta: StreamMeta; frames: AsyncGenerator<Uint8Array> }> {
   // /stream 接口约定：path=文件所在目录、filename=文件名（桌面/移动端一致）。
   // Web 端 FileItem.path 是「完整路径（含文件名）」，这里归一化为目录：
-  // 若 path 以 /filename 结尾则截掉文件名，避免后端 os.path.join(path, filename)
-  // 双重拼接导致「文件不存在」404。两种传法（目录 / 完整路径）均兼容。
-  const dirPath = filename && path.endsWith(`/${filename}`)
-    ? path.slice(0, path.length - filename.length - 1)
-    : path;
+  //  - path 本身 == filename（根目录文件，无 / 前缀）→ 目录为空串
+  //  - path 以 /filename 结尾 → 截掉文件名
+  //  - 否则视为目录原样传递
+  // 避免后端 os.path.join(path, filename) 双重拼接导致「文件不存在」404。
+  const dirPath = filename && (path === filename || path === `/${filename}`)
+    ? ''
+    : (filename && path.endsWith(`/${filename}`)
+        ? path.slice(0, path.length - filename.length - 1)
+        : path);
 
   // 加密 query 信封（与 http-client 的 getQueryEncrypted 同款：URL 不泄露业务明文）
   const payload = JSON.stringify({

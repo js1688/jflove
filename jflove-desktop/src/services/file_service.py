@@ -253,6 +253,7 @@ def stream_range(
     filename: str,
     range_start: int = 0,
     range_end: int = -1,
+    range_start_seconds: float | None = None,
 ) -> tuple[dict, Generator[bytes, None, None]]:
     """
     流式拉取服务端文件的指定字节范围，逐帧解密后返回。
@@ -262,6 +263,9 @@ def stream_range(
     :param filename: 文件名
     :param range_start: 字节起点（0=开头，负数=从末尾倒数）
     :param range_end: 字节终点不含（-1=文件结尾）
+    :param range_start_seconds: v1.4.0 修复流专用时间起点（秒）。传入即向服务端
+        声明支持时间 range 修复流（time 模式）；None 表示按旧字节 range 语义
+        （服务端对损坏文件返回原文件流，零回归）
     :returns: (meta_dict, frame_iterator) 元数据字典 + 明文字节生成器
     :raises ValueError: 服务端返回错误帧，或流格式非法
     :raises ApiError: HTTP 层错误
@@ -273,6 +277,8 @@ def stream_range(
         "range_start": range_start,
         "range_end": range_end,
     }
+    if range_start_seconds is not None:
+        payload["range_start_seconds"] = range_start_seconds
     resp = http_client.stream_request("GET", "/api/v1/files/stream", payload)
 
     # 读取第一帧（元数据帧）

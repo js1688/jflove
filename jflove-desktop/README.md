@@ -2,7 +2,7 @@
 
 JFLove 桌面客户端，基于 PySide6 + PySide6-Fluent-Widgets 构建的私有文档与笔记协同管理桌面应用。
 
-> **当前版本：v1.1.6**（桌面端版本号定义位置：`src/config/settings.py` 的 `APP_VERSION` 与 `build.py` 的 `VERSION`，两处必须一致；推荐用 `python build.py --version x.y.z` 一键同步）
+> **当前版本：v1.4.0**（桌面端版本号定义位置：`src/config/settings.py` 的 `APP_VERSION` 与 `build.py` 的 `VERSION`，两处必须一致；推荐用 `python build.py --version x.y.z` 一键同步）
 
 > **v1.4.0**：设置页新增「媒体修复」开关（仅管理员，服务端配置三端共享，默认关闭）；播放管线不变。
 

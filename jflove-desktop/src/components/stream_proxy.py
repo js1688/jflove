@@ -66,13 +66,20 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
                 self.proxy.filename,
                 range_start=0,
                 range_end=0,
+                # v1.4.0：探测请求也声明支持时间 range，服务端对损坏文件
+                # 返回 time meta（file_size / duration），代理据此进入 time 模式
+                range_start_seconds=0,
             )
-            for _ in frame_iter:
-                pass  # range 0-0 无数据帧
+            # meta 已在 stream_range 内读取；不消费数据帧，直接关闭生成器
+            # （time 模式下服务端会继续输出修复流，及时中断避免浪费转码）
+            frame_iter.close()
             self.proxy._file_size = meta.get("file_size", 0)
             self.proxy._content_type = meta.get(
                 "content_type", "application/octet-stream"
             )
+            # v1.4.0：time 修复流模式与时长（供 GET 线性时间 seek 映射）
+            self.proxy._stream_mode = meta.get("stream_mode", "byte")
+            self.proxy._duration = float(meta.get("duration", 0.0) or 0.0)
             self.proxy._meta_fetched = True
         return self.proxy._file_size, self.proxy._content_type
 
@@ -124,12 +131,15 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(file_size))
-        self.send_header("Accept-Ranges", "bytes")
+        # v1.4.0：time 修复流为实时生成、总字节不可预知，不支持字节 seek，
+        # 不声明 Accept-Ranges，让播放器按顺序流式播放
+        if self.proxy._stream_mode != "time":
+            self.send_header("Accept-Ranges", "bytes")
         self.send_header("Connection", "close")
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        """处理媒体流请求（含 Range seek）"""
+        """处理媒体流请求（含 Range seek；v1.4.0 兼容 time 修复流）"""
         if self.proxy._closed:
             self._send_error_response(503, "proxy closed")
             return
@@ -145,6 +155,35 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
 
         range_start, range_end = self._parse_range(file_size)
         range_end = min(range_end, file_size)
+
+        # ── v1.4.0：time 修复流分支 ──
+        # 修复流由服务端 ffmpeg 实时生成（总字节不可预知），响应走 200 + chunked；
+        # 播放器若发出字节 Range，用平均码率线性近似映射为时间起点
+        # （range_start / file_size * duration），服务端 -ss 重拉。
+        if self.proxy._stream_mode == "time":
+            seconds = 0.0
+            if range_start > 0 and self.proxy._duration > 0 and file_size > 0:
+                seconds = range_start / file_size * self.proxy._duration
+            try:
+                _, frame_iter = file_service.stream_range(
+                    self.proxy.disk_id,
+                    self.proxy.path,
+                    self.proxy.filename,
+                    range_start=0,
+                    range_end=-1,
+                    range_start_seconds=seconds,
+                )
+            except Exception as e:
+                logger.error("StreamProxy 修复流请求失败: %s", e)
+                self._send_error_response(500, str(e))
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self._pump_frames(frame_iter)
+            return
 
         try:
             _, frame_iter = file_service.stream_range(
@@ -171,6 +210,10 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
+        self._pump_frames(frame_iter)
+
+    def _pump_frames(self, frame_iter) -> None:
+        """把解密后的帧逐块写给 QMediaPlayer（断开视为正常流程）"""
         try:
             for chunk in frame_iter:
                 if self.proxy._closed:
@@ -237,6 +280,9 @@ class StreamProxy:
         # 元数据缓存（首次请求后填充，避免每次 GET 多一次元数据往返）
         self._file_size: int = 0
         self._content_type: str = "application/octet-stream"
+        # v1.4.0：time 修复流模式与媒体时长（秒），供 GET 线性时间 seek 映射
+        self._stream_mode: str = "byte"
+        self._duration: float = 0.0
         self._meta_fetched: bool = False
         self._meta_lock = threading.Lock()
 

@@ -92,8 +92,12 @@ def _enable_repair(client, admin) -> None:
     assert decrypt_response(admin, resp)["message"] == "配置已更新"
 
 
-def _stream_req(client, session, disk_id, filename, extra=None):
-    """向 /api/v1/files/stream 发加密 GET 请求（v1.4.0 扩展）。"""
+def _stream_req(client, session, disk_id, filename, extra=None, with_time=True):
+    """向 /api/v1/files/stream 发加密 GET 请求（v1.4.0 扩展）。
+
+    with_time=True 时携带 range_start_seconds 字段（声明支持时间 range 修复流，
+    与 Web MSE / 新版桌面移动端一致）；False 模拟旧客户端（零回归验证）。
+    """
     body = {
         "disk_id": disk_id,
         "path": "",
@@ -101,6 +105,8 @@ def _stream_req(client, session, disk_id, filename, extra=None):
         "range_start": 0,
         "range_end": -1,
     }
+    if with_time:
+        body["range_start_seconds"] = 0
     if extra:
         body.update(extra)
     return encrypted_request(client, session, "GET", "/api/v1/files/stream", body)
@@ -244,10 +250,13 @@ class Test修复决策:
         assert asyncio.run(self._decide(normal_fp))["mode"] == "time"
 
     async def _decide(self, fp: str):
-        """用临时 DB 连接执行 ensure_playable（开关状态来自 config 表）"""
+        """用临时 DB 连接执行 ensure_playable（开关状态来自 config 表）。
+
+        决策测试以「声明支持时间 range 的客户端」为前提（与 Web MSE 一致）。
+        """
         async with _open_db() as db:
             return await media_repair_service.ensure_playable(
-                db, fp, Path(fp).name
+                db, fp, Path(fp).name, client_supports_time=True
             )
 
 
@@ -273,12 +282,32 @@ class Test修复流端到端:
         assert meta["type"] == "meta"
         assert meta["stream_mode"] == "time"
         assert meta["content_type"] == "video/mp4"
+        # 方案 B：time meta 携带 file_size / duration，供桌面/移动 StreamProxy
+        # 构造 Content-Length 与线性时间 seek 映射
+        assert meta.get("file_size", 0) > 0
+        assert meta.get("duration", 0.0) > 0
 
         data = b"".join(frames[1:])
         # fMP4 特征：ftyp box + moov（empty_moov）/ moof
         assert len(data) >= 64
         assert b"ftyp" in data[:64]
         assert (b"moov" in data[:256]) or (b"moof" in data[:256])
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_未声明时间range_开关开启仍byte原文件(self, client, env):
+        """旧客户端（不带 range_start_seconds）：开关开启时也走 byte 原文件（零回归）"""
+        raw = _gen_media(env["disk_root"], "e2e_legacy.mp4")
+        _enable_repair(client, env["admin"])
+
+        resp = _stream_req(
+            client, env["alice"], env["disk_id"], "e2e_legacy.mp4", with_time=False,
+        )
+        assert resp.status_code == 200, resp.text
+        frames = _parse_frames(resp.content, env["alice"].session_key)
+        meta = json.loads(frames[0])
+        assert meta.get("stream_mode", "byte") == "byte"
+        data = b"".join(frames[1:])
+        assert data == raw, "未声明时间 range 的客户端应拿到原文件字节"
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_修复开启_健康文件仍走byte原文件(self, client, env):

@@ -111,6 +111,7 @@ async def ensure_playable(
     db: aiosqlite.Connection,
     file_path: str,
     filename: str,
+    client_supports_time: bool = False,
 ) -> dict:
     """
     判定文件的播放模式（修复开关开启时执行）。
@@ -118,12 +119,19 @@ async def ensure_playable(
     :param db: 数据库连接
     :param file_path: 已由 file_service 权限/路径校验的文件绝对路径
     :param filename: 文件名（用于扩展名推断）
+    :param client_supports_time: 客户端是否声明支持时间 range 修复流
+        （请求携带 range_start_seconds 字段）。未声明的客户端（旧版桌面/移动
+        等字节 range 模型）一律 byte 原文件流，保证零回归（v1.4.0 方案 B）。
     :returns: 决策字典：
         - {"mode": "byte"}：健康文件，原文件字节 range 直接流式（零处理）
         - {"mode": "time"}：需修复文件，走 ffmpeg 管道时间 range 流
         - {"mode": "error", "message": str}：无法修复/无法解析，提示下载查看
     """
     if not await is_repair_enabled(db):
+        return {"mode": "byte"}
+
+    # 客户端未声明支持时间 range → 不启用修复流（旧客户端零回归）
+    if not client_supports_time:
         return {"mode": "byte"}
 
     if not media_probe.get_ffmpeg_exe():
@@ -252,6 +260,7 @@ async def stream_repaired_frames(
     session_key: bytes,
     range_start_seconds: float,
     allow_transcode: bool,
+    file_size: int,
 ) -> None:
     """
     修复模式流式生成器：ffmpeg stdout 管道 → 逐块 ChaCha20 加密帧。
@@ -264,18 +273,9 @@ async def stream_repaired_frames(
     :param session_key: 会话密钥
     :param range_start_seconds: 时间 range 起点（秒）
     :param allow_transcode: 是否允许 `-c copy` 失败时降级重编码
+    :param file_size: 原文件字节大小（meta 帧携带，供桌面/移动 StreamProxy
+        构造 Content-Length 与线性时间 seek 映射）
     """
-    # 帧 0：元数据（stream_mode="time"，客户端据此走时间 range）
-    meta = {
-        "type": "meta",
-        "stream_mode": "time",
-        "content_type": "video/mp4",
-        "range_start_seconds": range_start_seconds,
-    }
-    yield encrypt_stream_chunk(
-        session_key, json.dumps(meta, ensure_ascii=False).encode()
-    )
-
     proc: asyncio.subprocess.Process | None = None
     try:
         await _acquire_slot(db)
@@ -303,6 +303,22 @@ async def stream_repaired_frames(
                 logger.warning("媒体修复失败：无法生成可播放流")
                 return
 
+            # 帧 0：元数据（stream_mode="time"，含修复流真实 codec，供 MSE 建 SourceBuffer；
+            # file_size/duration 供桌面/移动 StreamProxy 构造响应头与线性 seek 映射）
+            codec = media_probe.parse_fmp4_codec(first)
+            probe = await media_probe.probe_media(file_path)
+            meta = {
+                "type": "meta",
+                "stream_mode": "time",
+                "content_type": "video/mp4",
+                "range_start_seconds": range_start_seconds,
+                "file_size": file_size,
+                "duration": probe.get("duration", 0.0),
+                "codec": codec,
+            }
+            yield encrypt_stream_chunk(
+                session_key, json.dumps(meta, ensure_ascii=False).encode()
+            )
             yield encrypt_stream_chunk(session_key, first)
 
             # 后续数据块
