@@ -27,7 +27,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 APP_NAME = "JFLove"
 
 ROOT = Path(__file__).resolve().parent

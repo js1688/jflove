@@ -8,7 +8,7 @@
 export const APP_NAME = 'JFLove';
 
 /** 版本号 */
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.4.1';
 
 /** 默认服务端地址 */
 export const DEFAULT_SERVER_URL = 'http://localhost:8989';

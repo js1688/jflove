@@ -36,7 +36,8 @@ export function FilePreviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [mediaSrc, setMediaSrc] = useState<string | null>(null);
+  // 回退完整下载时的进度百分比（null = 未在下载模式）；大文件下载时避免“卡死”误解
+  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -57,14 +58,23 @@ export function FilePreviewPage() {
     let cancelled = false;
     let mseCleanup: (() => void) | null = null;
     let blobUrl: string | null = null;
+    // 中止在途流的控制器（组件卸载 / 依赖变更时取消）
+    const streamAbort = new AbortController();
 
     setLoading(true);
     setError(null);
     setContent(null);
     setImageUrl(null);
-    setMediaSrc(null);
+    setDownloadProgress(null);
 
-    (async () => {
+    // React StrictMode 会同步「mount→cleanup→mount」双跑 effect：若在 effect 内
+    // 直接启动 playWithMSE，会产生两个并发实例争用同一个 <video>，后实例把先实例
+    // 的 MediaSource 从 video 上顶掉，导致先实例 appendBuffer 抛 InvalidStateError
+    // （表现为「边下边播准备中…」卡死 / Empty src，v1.4.1 修复）。
+    // 用 setTimeout(0) 把异步播放逻辑延迟到双跑 effect 完成之后：第一次 cleanup 会
+    // clearTimeout 取消第一次调度，只剩第二次调度真正执行，保证只有一个实例。
+    const timer = setTimeout(() => {
+      (async () => {
       try {
         if (isImage) {
           const bytes = await fileService.downloadRaw(Number(diskId), path, filename);
@@ -82,7 +92,7 @@ export function FilePreviewPage() {
           //    同样走 MSE（playWithMSE 用 fMP4 默认 codec 尝试，失败再回退 Blob）。
           const mediaEl = isVideo ? videoRef.current : audioRef.current;
           if (mediaEl) {
-            const cleanup = await playWithMSE(mediaEl, Number(diskId), path, filename);
+            const cleanup = await playWithMSE(mediaEl, Number(diskId), path, filename, streamAbort.signal);
             if (cancelled) {
               cleanup?.();
               return;
@@ -93,22 +103,42 @@ export function FilePreviewPage() {
             }
           }
           // ② 兜底：完整下载 → Blob URL（MSE 不可用 / 容器不被支持时）
-          const bytes = await fileService.downloadRaw(Number(diskId), path, filename);
+          const totalSize = previewTarget?.size || 0;
+          let lastPct = -1;
+          const bytes = await fileService.downloadRaw(
+            Number(diskId), path, filename,
+            (downloaded) => {
+              if (cancelled) return;
+              // 仅整数百分比变化时才更新 state（大文件每片 64KB，避免上千次无效渲染）
+              const pct = totalSize > 0 ? Math.floor((downloaded / totalSize) * 100) : 0;
+              if (pct !== lastPct) {
+                lastPct = pct;
+                setDownloadProgress(pct);
+              }
+            },
+          );
           if (cancelled) return;
           blobUrl = URL.createObjectURL(
             new Blob([bytes.buffer as ArrayBuffer], { type: mediaMime(ext) }),
           );
-          setMediaSrc(blobUrl);
+          // video/audio 的 src 完全由播放逻辑命令式管理（非受控），避免 React
+          // 受控 src 与 MSE 命令式 video.src 冲突导致 MediaSource 被 detach（v1.4.1）
+          if (mediaEl) {
+            mediaEl.src = blobUrl;
+          }
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : '预览加载失败');
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
+      })();
+    }, 0);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      streamAbort.abort();
       if (mseCleanup) mseCleanup();
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
@@ -148,11 +178,12 @@ export function FilePreviewPage() {
       {isVideo && !error && (
         <div className="relative">
           <div className={`absolute inset-0 z-10 flex items-center justify-center bg-black/40 ${loading ? '' : 'hidden'}`}>
-            <LoadingSpinner text="边下边播准备中…" />
+            <LoadingSpinner
+              text={downloadProgress !== null ? `下载中 ${Math.round(downloadProgress)}%` : '边下边播准备中…'}
+            />
           </div>
           <video
             ref={videoRef}
-            src={mediaSrc || undefined}
             controls
             className="max-w-full max-h-[80vh] mx-auto rounded-lg shadow-lg bg-black"
           />
@@ -162,9 +193,11 @@ export function FilePreviewPage() {
         <div className="flex flex-col items-center py-8">
           <span className="text-6xl mb-4">🎵</span>
           <div className={loading ? '' : 'hidden'}>
-            <LoadingSpinner text="边下边播准备中…" />
+            <LoadingSpinner
+              text={downloadProgress !== null ? `下载中 ${Math.round(downloadProgress)}%` : '边下边播准备中…'}
+            />
           </div>
-          <audio ref={audioRef} src={mediaSrc || undefined} controls className="w-full max-w-xl" />
+          <audio ref={audioRef} controls className="w-full max-w-xl" />
         </div>
       )}
     </div>

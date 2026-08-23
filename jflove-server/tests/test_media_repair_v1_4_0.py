@@ -65,17 +65,27 @@ def _ffmpeg_available() -> bool:
     return media_probe.get_ffmpeg_exe() is not None
 
 
-def _gen_media(disk_root: Path, name: str, faststart: bool = False) -> bytes:
-    """用内置 ffmpeg 生成 1 秒 testsrc 小视频，返回文件字节。"""
+def _gen_media(
+    disk_root: Path, name: str, faststart: bool = False, fragmented: bool = False
+) -> bytes:
+    """用内置 ffmpeg 生成 1 秒 testsrc 小视频，返回文件字节。
+
+    编码器用 mpeg4（所有 ffmpeg 构建均自带，含不含 libx264 的发行版），
+    测试断言只关注容器结构（moov 位置 / fMP4 特征），与具体 codec 无关。
+    fragmented=True 生成 fMP4（moov 前置 + mvex/moof）；faststart=True 生成
+    faststart MP4（moov 前置但非分片，无 mvex）。
+    """
     exe = media_probe.get_ffmpeg_exe()
-    assert exe, "imageio-ffmpeg 不可用"
+    assert exe, "ffmpeg 不可用"
     out = disk_root / name
     cmd = [
         exe, "-hide_banner", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=10",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:v", "mpeg4", "-pix_fmt", "yuv420p",
     ]
-    if faststart:
+    if fragmented:
+        cmd += ["-movflags", "frag_keyframe+empty_moov+default_base_moof"]
+    elif faststart:
         cmd += ["-movflags", "+faststart"]
     cmd.append(str(out))
     subprocess.run(cmd, check=True)
@@ -130,12 +140,21 @@ class Test媒体健康判定:
         ) is True
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
-    def test_faststartMP4_可流式_不需修复(self, disk_root):
-        """faststart MP4（moov 在前）→ 健康，不需修复"""
+    def test_faststartMP4_非分片_需修复(self, disk_root):
+        """faststart MP4（moov 在前但无 mvex）→ 非 fMP4，需修复（v1.4.1）"""
         _gen_media(disk_root, "probe_fast.mp4", faststart=True)
         probe = asyncio.run(media_probe.probe_media(str(disk_root / "probe_fast.mp4")))
         assert media_probe.needs_repair(
             "probe_fast.mp4", probe, str(disk_root / "probe_fast.mp4")
+        ) is True
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_fmp4_分片_不需修复(self, disk_root):
+        """fMP4（moov 前置 + mvex/moof）→ 健康，不需修复"""
+        _gen_media(disk_root, "probe_frag.mp4", fragmented=True)
+        probe = asyncio.run(media_probe.probe_media(str(disk_root / "probe_frag.mp4")))
+        assert media_probe.needs_repair(
+            "probe_frag.mp4", probe, str(disk_root / "probe_frag.mp4")
         ) is False
 
     def test_webm_健康(self, disk_root, tmp_path):
@@ -239,15 +258,39 @@ class Test修复决策:
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_开关开启_健康文件走byte_需修复走time(self, client, env):
-        """开关开启：faststart→byte；普通 MP4（moov 尾部）→time"""
+        """开关开启：fMP4（分片）→byte；faststart 与普通 MP4（moov 尾部）→time"""
+        _gen_media(env["disk_root"], "dec_frag.mp4", fragmented=True)
         _gen_media(env["disk_root"], "dec_fast.mp4", faststart=True)
         _gen_media(env["disk_root"], "dec_normal.mp4")
         _enable_repair(client, env["admin"])
 
+        frag_fp = str(env["disk_root"] / "dec_frag.mp4")
         fast_fp = str(env["disk_root"] / "dec_fast.mp4")
         normal_fp = str(env["disk_root"] / "dec_normal.mp4")
-        assert asyncio.run(self._decide(fast_fp))["mode"] == "byte"
+        assert asyncio.run(self._decide(frag_fp))["mode"] == "byte"
+        assert asyncio.run(self._decide(fast_fp))["mode"] == "time"
         assert asyncio.run(self._decide(normal_fp))["mode"] == "time"
+
+    def test_探测执行失败_回退byte而非415(self, client, env, monkeypatch):
+        """v1.4.1：ffmpeg 探测执行失败（available=False）→ 回退 byte 模式，
+        而不是误判为「文件无流」返回 error（415）。"""
+        _enable_repair(client, env["admin"])
+
+        async def _fake_probe(file_path):
+            # 模拟 ffmpeg 二进制不可执行/超时：探测未成功运行
+            return {
+                "available": False,
+                "has_stream": False,
+                "duration_ok": False,
+                "fatal": True,
+                "duration": 0.0,
+            }
+
+        monkeypatch.setattr(media_probe, "probe_media", _fake_probe)
+        # 探测失败即返回 byte，不读取文件，故文件无需真实存在
+        fp = str(env["disk_root"] / "probe_failed.mp4")
+        decision = asyncio.run(self._decide(fp))
+        assert decision["mode"] == "byte"
 
     async def _decide(self, fp: str):
         """用临时 DB 连接执行 ensure_playable（开关状态来自 config 表）。
@@ -311,11 +354,11 @@ class Test修复流端到端:
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_修复开启_健康文件仍走byte原文件(self, client, env):
-        """faststart MP4（健康）→ 仍为 byte 模式，数据帧等于原文件字节"""
-        raw = _gen_media(env["disk_root"], "e2e_fast.mp4", faststart=True)
+        """fMP4（分片，健康）→ 仍为 byte 模式，数据帧等于原文件字节"""
+        raw = _gen_media(env["disk_root"], "e2e_frag.mp4", fragmented=True)
         _enable_repair(client, env["admin"])
 
-        resp = _stream_req(client, env["alice"], env["disk_id"], "e2e_fast.mp4")
+        resp = _stream_req(client, env["alice"], env["disk_id"], "e2e_frag.mp4")
         assert resp.status_code == 200, resp.text
 
         frames = _parse_frames(resp.content, env["alice"].session_key)
@@ -357,3 +400,69 @@ class Test修复流端到端:
         _stream_req(client, env["alice"], env["disk_id"], "e2e_normal.mp4")
         after = fp.read_bytes()
         assert after == before, "原始文件不得被修复过程修改"
+
+
+# ════════════════════════════════════════════════════════════════════ #
+#   测试组 8：mvhd duration 改写（v1.4.1）
+# ════════════════════════════════════════════════════════════════════ #
+
+class TestMvhdDurationPatch:
+    """patch_mvhd_duration 改写 fMP4 moov/mvhd.duration 的行为"""
+
+    def test_改写mvhd_时长字段正确(self, env):
+        """ver=0 的 mvhd：duration 从 0 改写为 秒×timescale"""
+        if not _ffmpeg_available():
+            pytest.skip("imageio-ffmpeg 不可用")
+        data = _gen_media(env["disk_root"], "mvhd_frag.mp4", fragmented=True)
+        # empty_moov 流式的 mvhd duration 应为 0
+        assert media_probe.patch_mvhd_duration(data, 0) == data
+
+        patched = media_probe.patch_mvhd_duration(data, 5.0)
+        assert patched != data
+        ts, dur = _read_mvhd(patched)
+        assert ts > 0
+        assert dur == int(round(5.0 * ts))
+
+    def test_无moov_原样返回(self):
+        """无 moov 的数据不改动"""
+        data = b"not-an-mp4\x00\x00\x00\x00"
+        assert media_probe.patch_mvhd_duration(data, 5.0) == data
+
+    def test_非法时长_原样返回(self):
+        """duration<=0 不改动"""
+        data = b"\x00\x00\x00\x18ftypmp42"
+        assert media_probe.patch_mvhd_duration(data, -1) == data
+        assert media_probe.patch_mvhd_duration(data, 0) == data
+
+
+def _read_mvhd(data: bytes) -> tuple[int, int]:
+    """从 fMP4 字节中读取 mvhd 的 (timescale, duration)。"""
+    import struct
+    pos = 0
+    n = len(data)
+    while pos + 8 <= n:
+        size = struct.unpack(">I", data[pos:pos + 4])[0]
+        btype = data[pos + 4:pos + 8]
+        if btype == b"moov":
+            mpos = pos + 8
+            mend = min(pos + size, n)
+            while mpos + 8 <= mend:
+                msize = struct.unpack(">I", data[mpos:mpos + 4])[0]
+                mtype = data[mpos + 4:mpos + 8]
+                if mtype == b"mvhd":
+                    ver = data[mpos + 8]
+                    if ver == 0:
+                        ts = struct.unpack(">I", data[mpos + 20:mpos + 24])[0]
+                        dur = struct.unpack(">I", data[mpos + 24:mpos + 28])[0]
+                    else:
+                        ts = struct.unpack(">I", data[mpos + 28:mpos + 32])[0]
+                        dur = struct.unpack(">Q", data[mpos + 32:mpos + 40])[0]
+                    return ts, dur
+                if msize < 8:
+                    break
+                mpos += msize
+            return 0, 0
+        if size < 8:
+            break
+        pos += size
+    return 0, 0

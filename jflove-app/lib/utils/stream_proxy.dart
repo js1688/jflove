@@ -57,6 +57,10 @@ class StreamProxy {
   String _streamMode = 'byte';
   double _duration = 0.0;
   bool _metaFetched = false;
+  // v1.4.1：UI 主动 seek 的目标秒（一次性，GET time 分支消费后归零）
+  double _seekSeconds = 0.0;
+  // v1.4.1：seek 版本号，拼进 URL query 强制 ExoPlayer 重新拉流
+  int _seekVersion = 0;
 
   StreamProxy({
     required this.diskId,
@@ -70,8 +74,26 @@ class StreamProxy {
     _token = _generateToken();
   }
 
-  /// 本地代理 URL（含一次性 token）
-  String get url => 'http://127.0.0.1:$_port/$_token';
+  /// 本地代理 URL（含一次性 token 与 seek 版本号）
+  String get url => 'http://127.0.0.1:$_port/$_token?v=$_seekVersion';
+
+  /// 媒体时长（秒），供 UI 显示总时长与 seek 映射。
+  ///
+  /// v1.4.1：ExoPlayer 对空 moov 的流式 fMP4 无法从 moof 提前推算出总时长
+  /// （边下边播时 duration 一直为 0 或只有已下载时长），故 UI 层改用 meta 的
+  /// duration 直接设置进度条，不再依赖 controller.value.duration。
+  double get duration => _duration;
+
+  /// UI 主动 seek：设置下次 GET 的时间起点（仅 time 修复流生效）。
+  ///
+  /// 调用后播放器需重新 initialize（重新 GET），本方法把目标秒缓存为一次性值，
+  /// GET 的 time 分支消费后归零；之后播放器内部的字节 Range 仍走线性映射。
+  void seek(double seconds) {
+    _seekSeconds = max(0, seconds);
+    // 递增版本号：ExoPlayer 对相同 URL 会复用缓存不再发 GET，版本号变化
+    // 强制其重新请求，从而消费 _seekSeconds 触发服务端 -ss 重拉
+    _seekVersion++;
+  }
 
   /// 启动代理服务器
   Future<void> start() async {
@@ -131,7 +153,11 @@ class StreamProxy {
       resp.headers.set('Content-Type', _contentType);
       resp.headers.set('Content-Length', _fileSize.toString());
       // v1.4.0：time 修复流为实时生成、总字节不可预知，不支持字节 seek，
-      // 不声明 Accept-Ranges，让播放器按顺序流式播放
+      // 不声明 Accept-Ranges，让播放器按顺序流式播放。
+      // v1.4.1：不要对 time 流声明 Accept-Ranges——ExoPlayer 一旦认为可 seek，
+      // 会进入随机访问模式并发字节 Range 探测，对 chunked empty_moov fMP4
+      // 解包失败（桌面端 QMediaPlayer 已实测复现）；UI 主动 seek 改由
+      // proxy.seek() + 新 URL 重新拉流实现，不依赖字节 Range。
       if (_streamMode != 'time') {
         resp.headers.set('Accept-Ranges', 'bytes');
       }
@@ -162,8 +188,13 @@ class StreamProxy {
       // ── v1.4.0：time 修复流分支 ──
       // 修复流总字节不可预知 → 200 + chunked（无 Content-Length）；
       // 播放器字节 Range 用平均码率线性近似映射为时间起点，服务端 -ss 重拉。
+      // v1.4.1：UI 主动 seek 的 _seekSeconds 优先，一次性消费。
       if (_streamMode == 'time') {
-        final seconds = mapRangeToSeconds(rangeStart, _fileSize, _duration);
+        double seconds = _seekSeconds;
+        _seekSeconds = 0.0;
+        if (seconds <= 0) {
+          seconds = mapRangeToSeconds(rangeStart, _fileSize, _duration);
+        }
         final stream = await _fetchStreamRange(
           0,
           0,

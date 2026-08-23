@@ -18,6 +18,7 @@
 import asyncio
 import os
 import re
+import shutil
 import struct
 import time
 
@@ -54,26 +55,32 @@ def get_ffmpeg_exe() -> str | None:
     """
     global _ffmpeg_exe
     if _ffmpeg_exe is _UNSET:
-        try:
-            import imageio_ffmpeg
-            _ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        except Exception as e:  # pragma: no cover - 依赖缺失场景
-            logger.warning("imageio-ffmpeg 不可用，媒体修复自动关闭：%s", e)
-            _ffmpeg_exe = None
+        # v1.4.1：优先使用系统 ffmpeg（Docker 镜像内 apt 安装，最可靠）；
+        # 退回 imageio-ffmpeg 内置二进制（无系统 ffmpeg 的环境 / 本机开发）。
+        system_ffmpeg = shutil.which("ffmpeg")
+        if system_ffmpeg:
+            _ffmpeg_exe = system_ffmpeg
+        else:
+            try:
+                import imageio_ffmpeg
+                _ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            except Exception as e:  # pragma: no cover - 依赖缺失场景
+                logger.warning("imageio-ffmpeg 不可用，媒体修复自动关闭：%s", e)
+                _ffmpeg_exe = None
     return _ffmpeg_exe if isinstance(_ffmpeg_exe, str) and _ffmpeg_exe else None
 
 
 def _moov_at_front(file_path: str, head_bytes: int = 64 * 1024) -> bool:
     """
-    检查 MP4 文件 moov box 是否位于文件前部（可流式播放）。
+    检查 MP4 是否为 fMP4（fragmented MP4：moov 前置**且含 mvex**）。
 
-    通过解析头部 box 结构判断：首个非 ftyp box 为 moov（fMP4 / faststart）
-    → 可流式；首个非 ftyp box 为 mdat → moov 在文件尾部，MSE 无法边下边播，
-    需要修复。避免"文件小于读取窗口时 b'moov' 必然命中"的误判。
+    MSE 边下边播要求**分片** fMP4，而非仅 moov 前置的 faststart MP4：
+    faststart MP4（moov 前置但无 mvex）MSE 无法流式播放，需修复转 fMP4。
+    避免「文件小于读取窗口时 b'moov' 必然命中」的误判（v1.4.1）。
 
     :param file_path: 文件绝对路径
     :param head_bytes: 读取的头部字节数
-    :returns: moov 位于前部返回 True；无法解析/读取出错返回 False
+    :returns: fMP4 返回 True；faststart / moov 尾部 / 无法解析返回 False
     """
     try:
         with open(file_path, "rb") as f:
@@ -88,12 +95,14 @@ def _moov_at_front(file_path: str, head_bytes: int = 64 * 1024) -> bool:
         ftyp_size = struct.unpack(">I", head[0:4])[0]
         pos = ftyp_size if ftyp_size >= 8 else 0
 
-    # 扫描头部 box，判断首个业务 box 是否为 moov
+    # 扫描头部 box，判断首个业务 box 是否为「含 mvex 的 moov」（fMP4）
     while pos + 8 <= size:
         box_size = struct.unpack(">I", head[pos:pos + 4])[0]
         box_type = head[pos + 4:pos + 8]
         if box_type == b"moov":
-            return True
+            moov_end = pos + box_size if box_size >= 8 else size
+            moov_data = head[pos:min(moov_end, size)]
+            return b"mvex" in moov_data
         if box_type == b"mdat":
             # mdat 在前 → moov 在文件尾部（非流式），需要修复
             return False
@@ -153,9 +162,12 @@ async def probe_media(file_path: str) -> dict:
             proc.communicate(), timeout=MEDIA_REPAIR_NO_OUTPUT_TIMEOUT
         )
     except (asyncio.TimeoutError, OSError) as e:
-        logger.warning("媒体探测超时/失败：%s", e)
+        # v1.4.1：探测「执行失败」（二进制不可执行/超时）≠ 文件无媒体流。
+        # available=False 表示“探测未成功运行”，供 ensure_playable 回退 byte 模式。
+        # 日志只记录异常类型，不记录完整 message（OSError 可能含文件路径，§9.4）。
+        logger.warning("媒体探测执行失败：%s", type(e).__name__)
         return {
-            "available": bool(exe),
+            "available": False,
             "has_stream": False,
             "duration_ok": False,
             "fatal": True,
@@ -324,10 +336,14 @@ def _mp4a_codec(box: bytes) -> str | None:
     esds box 内：'esds' 在 box 内偏移 4，version/flags(4) 后为
     ES_Descriptor(0x03) → DecoderConfigDescriptor(0x04) → DecoderSpecificInfo(0x05)
     → AudioSpecificConfig（首字节高 5 bit = audioObjectType）。
+
+    v1.4.1：TS 等来源 -c copy 重封装出的 mp4a box 可能**缺失 DecoderSpecificInfo**，
+    此时无法解析精确 AOT，回退 AAC-LC（mp4a.40.2）——否则 meta.codec 只含视频，
+    浏览器 MSE 会因「实际含音频轨但 codecs 未声明」而拒绝 addSourceBuffer。
     """
     idx = box.find(b"esds")
     if idx == -1:
-        return None
+        return "mp4a.40.2"  # mp4a 但无 esds：按 AAC-LC 兜底
     p = idx + 8  # esds payload（version/flags 之后）起始
     if p < len(box) and box[p] == 0x03:
         _, p = _desc_len(box, p + 1)
@@ -341,7 +357,7 @@ def _mp4a_codec(box: bytes) -> str | None:
         if p < len(box):
             aot = (box[p] >> 3) & 0x1F  # AudioSpecificConfig 高 5 bit = audioObjectType
             return f"mp4a.40.{aot}"
-    return None
+    return "mp4a.40.2"  # 缺 DecoderSpecificInfo：按 AAC-LC 兜底
 
 
 def parse_fmp4_codec(init: bytes) -> str:
@@ -389,3 +405,65 @@ def parse_fmp4_codec(init: bytes) -> str:
 def _join_codec(video: str | None, audio: str | None) -> str:
     """拼接 codec 字符串（按 视频, 音频 顺序）。"""
     return ", ".join(c for c in (video, audio) if c)
+
+
+def patch_mvhd_duration(init: bytes, duration_seconds: float) -> bytes:
+    """
+    改写 fMP4 init 段 moov/mvhd 的 duration 字段，返回新字节（原字节不变）。
+
+    empty_moov 流式输出的 mvhd duration 为 0，QMediaPlayer / ExoPlayer 等播放器
+    无法从容器得知媒体时长 → 进度条不可拖。此处按「秒 × timescale」改写
+    mvhd.duration，使播放器能正确显示总时长（v1.4.1 修复桌面/移动端「无总时长」）。
+
+    mvhd box 布局（ISO BMFF）：
+      ver=0：duration 为 4 字节大端，位于 box 起始 +24；timescale 在 +20
+      ver=1：duration 为 8 字节大端，位于 box 起始 +32；timescale 在 +28
+
+    :param init: fMP4 开头字节（需含 moov）
+    :param duration_seconds: 目标媒体时长（秒，>0 才改写）
+    :returns: 改写后的 init 字节；找不到 mvhd / timescale 非法时原样返回
+    """
+    if duration_seconds <= 0 or b"moov" not in init:
+        return init
+    pos = 0
+    n = len(init)
+    while pos + 8 <= n:
+        size = struct.unpack(">I", init[pos:pos + 4])[0]
+        btype = init[pos + 4:pos + 8]
+        if btype == b"moov":
+            # 在 moov 内定位 mvhd（通常为第一个子 box）
+            mpos = pos + 8
+            mend = min(pos + size, n)
+            while mpos + 8 <= mend:
+                msize = struct.unpack(">I", init[mpos:mpos + 4])[0]
+                mtype = init[mpos + 4:mpos + 8]
+                if mtype == b"mvhd":
+                    ver = init[mpos + 8]
+                    if ver == 0:
+                        ts_off, dur_off, fmt = 20, 24, ">I"
+                    else:
+                        ts_off, dur_off, fmt = 28, 32, ">Q"
+                    if mpos + dur_off + struct.calcsize(fmt) > n:
+                        return init
+                    timescale = struct.unpack(
+                        ">I", init[mpos + ts_off:mpos + ts_off + 4]
+                    )[0]
+                    if timescale <= 0:
+                        return init
+                    duration = int(round(duration_seconds * timescale))
+                    # 只写入非负值，避免损坏 box
+                    if duration < 0:
+                        return init
+                    return (
+                        init[:mpos + dur_off]
+                        + struct.pack(fmt, duration)
+                        + init[mpos + dur_off + struct.calcsize(fmt):]
+                    )
+                if msize < 8:
+                    break
+                mpos += msize
+            return init
+        if size < 8:
+            break
+        pos += size
+    return init

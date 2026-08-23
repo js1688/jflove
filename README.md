@@ -176,7 +176,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | 🖥️ 桌面端 | 设置页媒体修复开关（admin）；StreamProxy 适配 time 修复流（200+chunked 顺序流、字节 Range 线性映射时间 seek） |
 | 📱 移动端 | 设置页媒体修复开关（admin）；StreamProxy 同样适配 time 修复流 |
 | ✅ 测试 | 后端 120 / 桌面 102 / 移动 27 / Web 52 全通过；真实服务 E2E（mkv、损坏 mp4 边下边播）；桌面端打包冒烟通过 |
-| 📦 发布 | 本次仅桌面（JFLove.exe）+ 移动（app-debug.apk）；后端与 Web 因本机无 Docker 留待下次发布 |
+| 📦 发布 | 四端完整发布：桌面（JFLove.exe）+ 移动（app-debug.apk）2026-08-13；后端镜像 `jflove-server:1.4.0` + Web 镜像 `jflove-web:1.4.0` 2026-08-16 补发布 |
 
 ### v1.3.1 — Web 端视频/音频边下边播 + 流式 404 修复
 

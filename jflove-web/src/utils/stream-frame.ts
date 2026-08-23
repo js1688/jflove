@@ -37,6 +37,9 @@ export interface StreamMeta {
   stream_mode?: 'byte' | 'time';
   /** time 模式字段：本次修复流的时间起点（秒） */
   range_start_seconds?: number;
+  /** time 模式字段：媒体完整时长（秒），供 MSE 设置 MediaSource.duration
+   *  （empty_moov 的 fMP4 moov 无时长信息，浏览器无法知道总时长/进度条） */
+  duration?: number;
   /** time 模式字段：修复流真实 codec 串（如 "avc1.64000c" / "avc1.64000c, mp4a.40.2"），
    *  供 MSE 组装完整 MIME（v1.4.0） */
   codec?: string;

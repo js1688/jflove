@@ -275,6 +275,9 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
   bool _isInitialized = false;
   bool _hasError = false;
   String _errorMessage = '';
+  // v1.4.1：完整时长（秒，来自 meta.duration）与当前流起始偏移（seek 后 position 归零补偿）
+  double _fullDurationSeconds = 0.0;
+  double _seekOffsetSeconds = 0.0;
 
   /// 文件所在目录（磁盘内相对路径，不含文件名）
   String get _pathDir {
@@ -321,6 +324,8 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
       _controller = controller;
 
       await controller.initialize();
+      // v1.4.1：ExoPlayer 对空 moov 流式 fMP4 拿不到完整时长，用 meta.duration 兑底
+      _fullDurationSeconds = proxy.duration;
       if (mounted) {
         setState(() => _isInitialized = true);
       }
@@ -343,6 +348,33 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
     _proxy?.close();
     _controller?.dispose();
     super.dispose();
+  }
+
+  /// v1.4.1：time 修复流 seek 依赖重新拉流（服务端 -ss），而非 ExoPlayer 内部 seek。
+  /// 目标为绝对时间轴位置：记录偏移 → proxy.seek → 重建 controller 重新 initialize。
+  Future<void> _seekTo(double targetSeconds) async {
+    final proxy = _proxy;
+    if (proxy == null) return;
+    _seekOffsetSeconds = targetSeconds;
+    proxy.seek(targetSeconds);
+    final old = _controller;
+    _controller = null;
+    old?.dispose();
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(proxy.url),
+      videoPlayerOptions: VideoPlayerOptions(
+        mixWithOthers: true,
+        allowBackgroundPlayback: true,
+      ),
+    );
+    _controller = controller;
+    try {
+      await controller.initialize();
+      controller.play();
+    } catch (_) {
+      // seek 失败：保持现状，不打断播放
+    }
+    if (mounted) setState(() {});
   }
 
   @override
@@ -439,7 +471,12 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
             ),
           ),
         // 底部控制栏
-        _MediaControls(controller: controller),
+        _MediaControls(
+          controller: controller,
+          fullDurationSeconds: _fullDurationSeconds,
+          seekOffsetSeconds: _seekOffsetSeconds,
+          onSeek: _seekTo,
+        ),
       ],
     );
   }
@@ -448,8 +485,17 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
 /// 媒体播放控制栏
 class _MediaControls extends StatefulWidget {
   final VideoPlayerController controller;
+  // v1.4.1：完整时长（秒，meta.duration 兑底）与当前流起始偏移
+  final double fullDurationSeconds;
+  final double seekOffsetSeconds;
+  final Future<void> Function(double seconds) onSeek;
 
-  const _MediaControls({required this.controller});
+  const _MediaControls({
+    required this.controller,
+    required this.fullDurationSeconds,
+    required this.seekOffsetSeconds,
+    required this.onSeek,
+  });
 
   @override
   State<_MediaControls> createState() => _MediaControlsState();
@@ -483,8 +529,14 @@ class _MediaControlsState extends State<_MediaControls> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final isPlaying = controller.value.isPlaying;
-    final duration = controller.value.duration;
-    final position = controller.value.position;
+    // v1.4.1：总时长用 meta.duration 兑底（ExoPlayer 对空 moov 流式拿不到）；
+    // position 加偏移映射回绝对时间轴（time seek 后 position 归零的补偿）。
+    final duration = Duration(
+      milliseconds: (widget.fullDurationSeconds * 1000).round(),
+    );
+    final position = controller.value.position + Duration(
+      milliseconds: (widget.seekOffsetSeconds * 1000).round(),
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -511,10 +563,8 @@ class _MediaControlsState extends State<_MediaControls> {
                     )
                   : 0,
               onChanged: (v) {
-                final pos = Duration(
-                  milliseconds: (v * duration.inMilliseconds).round(),
-                );
-                controller.seekTo(pos);
+                final seconds = v * widget.fullDurationSeconds;
+                widget.onSeek(seconds);
               },
             ),
           ),

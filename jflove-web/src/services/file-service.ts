@@ -86,11 +86,14 @@ export const fileService = {
   /**
    * 下载文件并解密为完整字节（用于预览 / 保存）。
    * 复用 /files/download（v1 加密流），逐帧解密合并。
+   *
+   * @param onProgress 下载进度回调（已解密字节数累计值，供 UI 展示大文件下载进度）
    */
   async downloadRaw(
     diskId: number,
     path: string,
     filename: string,
+    onProgress?: (downloaded: number) => void,
   ): Promise<Uint8Array> {
     const stream = await this.downloadStream(diskId, path, filename);
     const sessionKey = getSessionKey();
@@ -101,6 +104,7 @@ export const fileService = {
     for await (const chunk of decryptStream(stream, sessionKey)) {
       chunks.push(chunk);
       total += chunk.length;
+      onProgress?.(total);
     }
 
     const result = new Uint8Array(total);

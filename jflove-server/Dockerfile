@@ -5,20 +5,31 @@
 FROM python:3.14-slim
 
 LABEL maintainer="jflove devops"
-LABEL version="1.3.1"
+LABEL version="1.4.1"
 LABEL description="JFLove 后端服务（FastAPI + SQLite + 端到端加密）"
 
 WORKDIR /app
 
-# 系统依赖：bcrypt 编译需要 build-essential（构建后再清理）
+# 系统依赖：bcrypt 编译需要 build-essential；ffmpeg 供媒体修复（v1.4.1 起优先使用系统 ffmpeg）
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc libffi-dev && \
+    apt-get install -y --no-install-recommends gcc libffi-dev ffmpeg && \
     rm -rf /var/lib/apt/lists/*
+
+# v1.4.1：构建时强制验证 ffmpeg 可用（媒体修复依赖）。不可用直接构建失败，
+# 防止「静默上线一个坏 ffmpeg」导致边下边播失效。
+RUN ffmpeg -version >/dev/null 2>&1 || (echo '[FATAL] 系统 ffmpeg 不可用，媒体修复将失效' && exit 1)
 
 # 优先复制 requirements，便于利用 docker layer 缓存
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt
+
+# pip 国内镜像源（默认清华 TUNA，加速依赖下载；可用 --build-arg PIP_INDEX_URL=https://pypi.org/simple 覆盖为官方源）
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} --upgrade pip && \
+    pip install --no-cache-dir -i ${PIP_INDEX_URL} -r /app/requirements.txt
+
+# v1.4.1：imageio-ffmpeg 二进制做可执行兜底（无系统 ffmpeg 的开发机仍可用；
+# 主路径已在 media_probe.get_ffmpeg_exe 优先用系统 ffmpeg）。失败不阻断构建。
+RUN python -c "import imageio_ffmpeg, os; os.chmod(imageio_ffmpeg.get_ffmpeg_exe(), 0o755)" 2>/dev/null || true
 
 # 业务源代码
 COPY src /app/src

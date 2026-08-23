@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from PySide6.QtCore import Qt, QUrl, QByteArray
+from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer
 from PySide6.QtGui import QPixmap, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QStackedWidget, QWidget, QLabel,
@@ -215,11 +215,16 @@ class _MediaView(QWidget):
     """
 
     def __init__(self, media_url: str, kind: str,
-                 display_name: str = "", parent=None):
+                 display_name: str = "", proxy: Optional[StreamProxy] = None, parent=None):
         super().__init__(parent)
         self._kind = kind  # "video" or "audio"
         self._media_url = media_url
         self._display_name = display_name
+        # v1.4.1：StreamProxy 引用，供时长兑底与主动 seek
+        self._proxy = proxy
+        # 当前流起始偏移（ms）：time 修复流 seek 后服务端 -ss 重拉、时间戳归零，
+        # QMediaPlayer 的 position 从 0 开始，用偏移把显示/滑块映射回绝对时间轴
+        self._seek_offset_ms = 0
         self._setup_ui()
         self._setup_player()
 
@@ -307,6 +312,13 @@ class _MediaView(QWidget):
         # 自动播放
         self._player.play()
 
+        # v1.4.1：QMediaPlayer 的 FFmpeg 后端对空 moov 流式 fMP4 拿不到总时长，
+        # 用 QTimer 轮询 StreamProxy 的 meta.duration 兑底设置进度条范围。
+        self._hint_timer = QTimer(self)
+        self._hint_timer.setInterval(500)
+        self._hint_timer.timeout.connect(self._update_duration_hint)
+        self._hint_timer.start()
+
     # ── 控制回调 ───────────────────────────────────
 
     def _toggle_play(self) -> None:
@@ -325,17 +337,43 @@ class _MediaView(QWidget):
         self._position_label.setText(_format_ms(value))
 
     def _on_slider_released(self) -> None:
-        self._player.setPosition(self._slider.value())
+        # v1.4.1：time 修复流 seek 依赖重新拉流（服务端 -ss），而非 QMediaPlayer
+        # 内部字节 seek。目标为绝对时间轴位置：记录偏移 → proxy.seek → 重新 setSource。
+        target_ms = self._slider.value()
+        self._seek_offset_ms = target_ms
+        new_url = self._media_url
+        if self._proxy is not None:
+            self._proxy.seek(target_ms / 1000.0)
+            # seek 后 URL 带新版本号，强制 QMediaPlayer 重新 GET（同 URL 会复用缓存）
+            new_url = self._proxy.url
+        self._player.stop()
+        self._player.setSource(QUrl(new_url))
+        self._player.play()
 
     def _on_position_changed(self, ms: int) -> None:
-        # 拖动进度条时不要被自动更新覆盖
+        # 拖动进度条时不要被自动更新覆盖；position 加偏移映射回绝对时间轴
+        absolute = ms + self._seek_offset_ms
         if not self._slider.isSliderDown():
-            self._slider.setValue(ms)
-        self._position_label.setText(_format_ms(ms))
+            self._slider.setValue(absolute)
+        self._position_label.setText(_format_ms(absolute))
 
     def _on_duration_changed(self, ms: int) -> None:
-        self._slider.setRange(0, ms)
-        self._duration_label.setText(_format_ms(ms))
+        # QMediaPlayer 报告的 duration 可能为 0（流式拿不到），统一走兑底逻辑
+        self._update_duration_hint()
+
+    def _update_duration_hint(self) -> None:
+        """
+        用 StreamProxy 的 meta.duration 兑底设置进度条范围与总时长标签。
+
+        v1.4.1：QMediaPlayer 的 duration 只读且对空 moov 流式 fMP4 不可靠，故
+        优先用 meta 的完整时长（恒定），QMediaPlayer 的 duration 仅作兑底。
+        """
+        hint_ms = int(self._proxy.duration * 1000) if self._proxy else 0
+        player_ms = self._player.duration()
+        full_ms = hint_ms if hint_ms > 0 else player_ms
+        if full_ms > 0 and self._slider.maximum() != full_ms:
+            self._slider.setRange(0, full_ms)
+            self._duration_label.setText(_format_ms(full_ms))
 
     def _on_state_changed(self, state) -> None:
         # 切换播放/暂停图标
@@ -503,7 +541,7 @@ class PreviewDialog(QDialog):
                 return
             self._media_view = _MediaView(
                 self._proxy.url, self._kind,
-                display_name=self._filename, parent=self,
+                display_name=self._filename, proxy=self._proxy, parent=self,
             )
             self._content_layout.addWidget(self._media_view)
             self._stack.setCurrentIndex(1)

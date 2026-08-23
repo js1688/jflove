@@ -39,6 +39,9 @@ MEDIA_REPAIR_NO_OUTPUT_TIMEOUT = 30
 MEDIA_REPAIR_WAIT_TIMEOUT = 30
 # ffmpeg stdout 管道读取块大小（与流式分帧对齐）
 MEDIA_REPAIR_PIPE_CHUNK_SIZE = 64 * 1024
+# fMP4 init 段补读上限（字节）：首块可能只有 ftyp 无 moov，累加读取直到出现
+# moov 或达到该上限，防止无限累加（v1.4.1）
+MEDIA_REPAIR_INIT_MAX = 4 * 1024 * 1024
 
 Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
 Path(UPLOAD_TEMP_DIR).mkdir(parents=True, exist_ok=True)

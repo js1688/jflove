@@ -2,6 +2,10 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 
+# npm 国内镜像源（默认 npmmirror，加速依赖下载；可用 --build-arg NPM_REGISTRY=https://registry.npmjs.org 覆盖为官方源）
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry ${NPM_REGISTRY}
+
 COPY package.json package-lock.json ./
 RUN npm ci
 

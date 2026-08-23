@@ -25,6 +25,7 @@ from src.config.settings import (
     MEDIA_REPAIR_CONCURRENT_HARD_MAX,
     MEDIA_REPAIR_CONCURRENT_KEY,
     MEDIA_REPAIR_ENABLED_KEY,
+    MEDIA_REPAIR_INIT_MAX,
     MEDIA_REPAIR_NO_OUTPUT_TIMEOUT,
     MEDIA_REPAIR_PIPE_CHUNK_SIZE,
     MEDIA_REPAIR_AUTO_CONCURRENT_BASE,
@@ -138,6 +139,11 @@ async def ensure_playable(
         return {"mode": "byte"}
 
     probe = await media_probe.probe_media(file_path)
+    # v1.4.1：探测未成功运行（ffmpeg 缺失/不可执行/超时）→ 回退 byte 原文件流，
+    # 而不是误判为「文件无流」返回 415。否则探测失败会把本可播放的文件变成
+    # 无法在线预览（415），使修复开关开启时播放体验反而更差。
+    if not probe.get("available"):
+        return {"mode": "byte"}
     if media_probe.is_mse_friendly(filename, probe, file_path):
         return {"mode": "byte"}
 
@@ -182,9 +188,12 @@ def _build_ffmpeg_cmd(
     # 可选流映射：仅取首路视频 + 首路音频（若无则不报错），容错损坏文件
     cmd += ["-map", "0:v:0?", "-map", "0:a:0?"]
     if copy:
-        cmd += ["-c", "copy"]
+        # v1.4.1：视频 -c:v copy 无损；音频统一转 AAC。TS/MKV 等来源 -c copy
+        # 重封装出的 mp4a esds 常缺 DecoderSpecificInfo，浏览器 MSE 无法解码，
+        # 转 AAC 后 esds 完整、codec 可正确解析，MSE 才能稳定边下边播。
+        cmd += ["-c:v", "copy", "-c:a", "aac", "-b:a", "128k"]
     else:
-        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-c:a", "copy"]
+        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-b:a", "128k"]
     # fMP4（fragmented MP4）：MSE 兼容性最佳，且支持 stdout 管道输出（不落盘）
     cmd += [
         "-movflags", "frag_keyframe+empty_moov+default_base_moof",
@@ -212,6 +221,30 @@ async def _read_pipe_chunk(
     except asyncio.TimeoutError:
         raise TimeoutError("ffmpeg 长时间无输出，已终止")
     return chunk or None
+
+
+async def _read_fmp4_init(
+    proc: asyncio.subprocess.Process, first: bytes
+) -> bytes:
+    """
+    补读 fMP4 init 段直到包含完整 moov。
+
+    ffmpeg 可能把 ftyp 与 moov 分两次写出：首块 read 可能只拿到 28 字节 ftyp，
+    导致 parse_fmp4_codec 解析为空 codec、客户端 addSourceBuffer 失败（间歇性
+    「空 codec / ftyp-only init 段」，v1.4.1 修复）。此处累加读取直到出现 moov
+    或达到 MEDIA_REPAIR_INIT_MAX 上限，确保 meta 帧携带真实 codec、init 段完整。
+
+    :param proc: ffmpeg 子进程
+    :param first: 已读到的首块
+    :returns: 补读后的 init 段字节（若无需补读则原样返回）
+    """
+    data = first
+    while b"moov" not in data and len(data) < MEDIA_REPAIR_INIT_MAX:
+        more = await _read_pipe_chunk(proc, MEDIA_REPAIR_PIPE_CHUNK_SIZE)
+        if more is None:
+            break
+        data += more
+    return data
 
 
 async def _run_ffmpeg_pipe(
@@ -303,17 +336,29 @@ async def stream_repaired_frames(
                 logger.warning("媒体修复失败：无法生成可播放流")
                 return
 
+            # 补读到完整 init 段（含 moov），否则 codec 可能解析为空（v1.4.1）
+            first = await _read_fmp4_init(proc, first)
+
             # 帧 0：元数据（stream_mode="time"，含修复流真实 codec，供 MSE 建 SourceBuffer；
             # file_size/duration 供桌面/移动 StreamProxy 构造响应头与线性 seek 映射）
             codec = media_probe.parse_fmp4_codec(first)
             probe = await media_probe.probe_media(file_path)
+            duration = probe.get("duration", 0.0)
+            # v1.4.1：改写 mvhd duration 让桌面/移动播放器拿到总时长（empty_moov
+            # 流式的 mvhd duration=0，QMediaPlayer/ExoPlayer 拿不到时长 → 进度条
+            # 不可拖）。seek 流（-ss T）时间戳归零，mvhd 写「剩余时长」，播放器
+            # 进度条显示剩余部分（与 Web 端 timestampOffset 语义一致）。
+            if duration > 0:
+                first = media_probe.patch_mvhd_duration(
+                    first, max(0.0, duration - range_start_seconds)
+                )
             meta = {
                 "type": "meta",
                 "stream_mode": "time",
                 "content_type": "video/mp4",
                 "range_start_seconds": range_start_seconds,
                 "file_size": file_size,
-                "duration": probe.get("duration", 0.0),
+                "duration": duration,
                 "codec": codec,
             }
             yield encrypt_stream_chunk(

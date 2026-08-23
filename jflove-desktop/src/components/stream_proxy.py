@@ -132,7 +132,11 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(file_size))
         # v1.4.0：time 修复流为实时生成、总字节不可预知，不支持字节 seek，
-        # 不声明 Accept-Ranges，让播放器按顺序流式播放
+        # 不声明 Accept-Ranges，让播放器按顺序流式播放。
+        # v1.4.1：不要对 time 流声明 Accept-Ranges——QMediaPlayer 的 FFmpeg 后端
+        # 一旦认为可 seek，会进入随机访问模式并发字节 Range 探测，对 chunked
+        # empty_moov fMP4 直接 Demuxing failed（实测）；UI 主动 seek 改由
+        # proxy.seek() + 新 URL 重新拉流实现，不依赖字节 Range。
         if self.proxy._stream_mode != "time":
             self.send_header("Accept-Ranges", "bytes")
         self.send_header("Connection", "close")
@@ -160,9 +164,11 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         # 修复流由服务端 ffmpeg 实时生成（总字节不可预知），响应走 200 + chunked；
         # 播放器若发出字节 Range，用平均码率线性近似映射为时间起点
         # （range_start / file_size * duration），服务端 -ss 重拉。
+        # v1.4.1：UI 主动 seek 的 _seek_seconds 优先，一次性消费。
         if self.proxy._stream_mode == "time":
-            seconds = 0.0
-            if range_start > 0 and self.proxy._duration > 0 and file_size > 0:
+            seconds = self.proxy._seek_seconds
+            self.proxy._seek_seconds = 0.0
+            if seconds <= 0 and range_start > 0 and self.proxy._duration > 0 and file_size > 0:
                 seconds = range_start / file_size * self.proxy._duration
             try:
                 _, frame_iter = file_service.stream_range(
@@ -285,11 +291,39 @@ class StreamProxy:
         self._duration: float = 0.0
         self._meta_fetched: bool = False
         self._meta_lock = threading.Lock()
+        # v1.4.1：UI 主动 seek 的目标秒（一次性，GET time 分支消费后归零）
+        self._seek_seconds: float = 0.0
+        # v1.4.1：seek 版本号，拼进 URL query 强制 QMediaPlayer 重新拉流
+        self._seek_version: int = 0
 
     @property
     def url(self) -> str:
-        """本地代理 URL（含一次性 token）"""
-        return f"http://127.0.0.1:{self._port}/{self._token}"
+        """本地代理 URL（含一次性 token 与 seek 版本号）"""
+        return f"http://127.0.0.1:{self._port}/{self._token}?v={self._seek_version}"
+
+    @property
+    def duration(self) -> float:
+        """
+        媒体时长（秒），供 UI 显示总时长与 seek 映射。
+
+        v1.4.1：QMediaPlayer 的 FFmpeg 后端对空 moov 的流式 fMP4 无法从 moof 提前
+        推算出总时长（边下边播时 duration 一直为 0 或只有已下载时长），故 UI 层
+        改用 meta 的 duration 直接设置进度条，不再依赖 QMediaPlayer 的 duration。
+        首次 HEAD/GET 拉取 meta 后可用；未拉取时为 0。
+        """
+        return self._duration
+
+    def seek(self, seconds: float) -> None:
+        """
+        UI 主动 seek：设置下次 GET 的时间起点（仅 time 修复流生效）。
+
+        调用后播放器需重新 setSource / 重新 GET，本方法把目标秒缓存为一次性值，
+        GET 的 time 分支消费后归零；之后播放器内部的字节 Range 仍走线性映射。
+        """
+        self._seek_seconds = max(0.0, seconds)
+        # 递增版本号：QMediaPlayer 对相同 URL 会复用缓存不再发 GET，版本号变化
+        # 强制其重新请求，从而消费 _seek_seconds 触发服务端 -ss 重拉
+        self._seek_version += 1
 
     def start(self) -> None:
         """启动代理服务器（在独立守护线程中运行）"""
