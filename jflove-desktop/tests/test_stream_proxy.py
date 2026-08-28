@@ -363,7 +363,7 @@ class Test安全与错误:
             pass  # 连接被拒绝是正常的
 
     def test_proxy_url包含token路径(self):
-        """proxy.url 格式应为 http://127.0.0.1:{port}/{uuid_hex}"""
+        """proxy.url 格式应为 http://127.0.0.1:{port}/{uuid_hex}?v={seek_version}"""
         mock_fn, _ = _make_mock()
         with patch("src.services.file_service.stream_range", side_effect=mock_fn):
             proxy = StreamProxy(1, "", "test.mp4")
@@ -371,9 +371,12 @@ class Test安全与错误:
             try:
                 url = proxy.url
                 assert url.startswith("http://127.0.0.1:"), f"URL 应绑定 loopback: {url}"
-                token = url.split("/")[-1]
+                # v1.4.1：URL 末尾带 ?v={seek_version}（QMediaPlayer 对相同 URL 复用缓存，
+                # 版本号变化强制重新拉流），解析 token 时需剥离 query
+                token = url.split("/")[-1].split("?")[0]
                 assert len(token) == 32, f"token 长度应为 32（uuid4.hex），实际 {len(token)}"
                 assert token.isalnum(), f"token 应为十六进制字符，实际 {token}"
+                assert "?v=" in url, f"URL 应携带 seek 版本号 query，实际 {url}"
             finally:
                 proxy.close()
 
