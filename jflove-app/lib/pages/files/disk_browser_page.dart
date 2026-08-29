@@ -67,6 +67,35 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
     return canWrite;
   }
 
+  /// v1.4.2：修复功能权限 = 写+删并存（管理员天然满足）
+  bool _computeCanRepair() {
+    final session = ref.read(sessionManagerProvider);
+    if (session.isAdmin) return true;
+    final diskListAsync = ref.read(accessibleDiskListProvider);
+    bool canRepair = false;
+    diskListAsync.whenData((disks) {
+      for (final d in disks) {
+        if (d.id == widget.diskId) {
+          canRepair = d.canWrite && d.canDelete;
+          break;
+        }
+      }
+    });
+    return canRepair;
+  }
+
+  /// v1.4.2：可发起修复的媒体扩展名
+  bool _isMediaFile(String name) {
+    const exts = {
+      'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv',
+      'm4v', 'mpg', 'mpeg', 'ts', '3gp',
+      'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'opus',
+    };
+    final dot = name.lastIndexOf('.');
+    if (dot < 0) return false;
+    return exts.contains(name.substring(dot + 1).toLowerCase());
+  }
+
   /// 从磁盘列表中读取当前磁盘名称（用于 AppBar 标题，替代生硬的「磁盘 #N」）
   String _diskName() {
     final diskListAsync = ref.read(accessibleDiskListProvider);
@@ -116,6 +145,30 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
                   _previewFile(item);
                 },
               ),
+              // v1.4.2：修复损坏媒体（仅音视频；要求写+删权限并存）
+              if (_isMediaFile(item.name))
+                ListTile(
+                  leading: Icon(
+                    Icons.healing,
+                    color: _computeCanRepair()
+                        ? null
+                        : Theme.of(context).disabledColor,
+                  ),
+                  title: Text(
+                    '修复损坏媒体',
+                    style: TextStyle(
+                      color: _computeCanRepair()
+                          ? null
+                          : Theme.of(context).disabledColor,
+                    ),
+                  ),
+                  onTap: _computeCanRepair()
+                      ? () {
+                          Navigator.pop(ctx);
+                          _repairFile(item);
+                        }
+                      : null,
+                ),
               const Divider(),
             ],
             ListTile(
@@ -235,6 +288,29 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
         'name': item.name,
       },
     );
+  }
+
+  /// v1.4.2：长按菜单「修复损坏媒体」——创建异步修复任务
+  Future<void> _repairFile(FileItem item) async {
+    try {
+      final repair = ref.read(repairServiceProvider);
+      await repair.createTask(
+        widget.diskId,
+        _currentRelPath,
+        item.name,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已加入修复队列，可在「修复中心」查看进度')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发起修复失败：$e')),
+        );
+      }
+    }
   }
 
   void _renameItem(FileItem item) {

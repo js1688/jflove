@@ -43,5 +43,19 @@ MEDIA_REPAIR_PIPE_CHUNK_SIZE = 64 * 1024
 # moov 或达到该上限，防止无限累加（v1.4.1）
 MEDIA_REPAIR_INIT_MAX = 4 * 1024 * 1024
 
+# ── 媒体修复 v1.4.2（手动离线修复）──────────────────────────────
+# 修复产物隐藏目录名（位于原文件同目录，文件列表不展示，路径段访问一律拒绝）
+REPAIR_DIR_NAME = ".jflove-repair"
+# 修复执行中的临时产物后缀（完成前写临时名，成功后 rename 为正式产物）
+REPAIR_TEMP_SUFFIX = ".repairing.mp4"
+# 修复产物统一扩展名（fMP4）
+REPAIR_OUTPUT_EXT = ".mp4"
+# 修复中心轮询建议间隔（秒，文档约定，服务端不强约束）
+REPAIR_POLL_INTERVAL = 2.5
+# 损坏文件播放拒绝错误码前缀（/stream 415 detail 以此开头，三端据此弹修复引导）
+MEDIA_NEEDS_REPAIR_CODE = "[MEDIA_NEEDS_REPAIR]"
+# 修复进度 DB 节流间隔（秒）：执行中按产物大小估算进度，低于该间隔不写库
+REPAIR_PROGRESS_THROTTLE = 1.0
+
 Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
 Path(UPLOAD_TEMP_DIR).mkdir(parents=True, exist_ok=True)

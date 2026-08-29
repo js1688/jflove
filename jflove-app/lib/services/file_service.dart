@@ -84,15 +84,15 @@ class FileService {
   /// [filename] 文件名（用于服务端定位文件）
   /// [rangeStart] 字节起点（0=开头，负数=从末尾倒数）
   /// [rangeEnd] 字节终点不含（-1=文件结尾）
-  /// [rangeStartSeconds] v1.4.0 修复流专用时间起点（秒）。传入即向服务端声明
-  /// 支持时间 range 修复流（time 模式）；null 表示旧字节 range 语义。
+  /// [repairTaskId] v1.4.2 修复产物验证播放（>0 时服务端流式返回该修复任务
+  /// 产物，忽略 diskId/path/filename 的取值语义；仅 success 任务）
   Future<Stream<Uint8List>> streamRange(
     int diskId,
     String path,
     String filename, {
     int rangeStart = 0,
     int rangeEnd = -1,
-    double? rangeStartSeconds,
+    int repairTaskId = 0,
   }) async {
     final payload = {
       'disk_id': diskId,
@@ -101,8 +101,8 @@ class FileService {
       'range_start': rangeStart,
       'range_end': rangeEnd,
     };
-    if (rangeStartSeconds != null) {
-      payload['range_start_seconds'] = rangeStartSeconds;
+    if (repairTaskId > 0) {
+      payload['repair_task_id'] = repairTaskId;
     }
     return _http.encryptedDownloadStream('/api/v1/files/stream', payload);
   }

@@ -224,13 +224,13 @@ describe('openEncryptedStream', () => {
     }
   });
 
-  it('传递 rangeStartSeconds（修复流时间 range）且支持 time 模式 meta（v1.4.0）', async () => {
+  it('传递 repairTaskId（修复产物验证播放，v1.4.2）', async () => {
     const sessionKey = await makeSessionKey();
     const metaPlain = new TextEncoder().encode(JSON.stringify({
       type: 'meta',
-      stream_mode: 'time',
+      stream_mode: 'byte',
+      file_size: 100,
       content_type: 'video/mp4',
-      range_start_seconds: 0,
     }));
     const stream = makeEncryptedStream(sessionKey, [metaPlain]);
 
@@ -246,19 +246,52 @@ describe('openEncryptedStream', () => {
         sessionKey, sessionId: 'test-sid', token: 'test-token',
         serverUrl: 'http://localhost:8989',
       };
-      const { meta } = await openEncryptedStream(session, 1, '/', 'sample.mp4', 0, -1, 30);
+      const { meta } = await openEncryptedStream(session, 1, '/', 'sample.mp4', 0, -1, 42);
 
-      // 请求 URL 携带加密信封，解密后应包含 range_start_seconds=30
+      // 请求 URL 携带加密信封，解密后应包含 repair_task_id=42
       const url = new URL(capturedUrl);
       const nonce = url.searchParams.get('nonce') || '';
       const ciphertext = url.searchParams.get('ciphertext') || '';
       const plain = decryptEnvelope(sessionKey, nonce, ciphertext);
       const payload = JSON.parse(new TextDecoder().decode(plain)) as Record<string, unknown>;
-      expect(payload.range_start_seconds).toBe(30);
+      expect(payload.repair_task_id).toBe(42);
 
-      // meta 支持 time 模式字段
-      expect(meta.stream_mode).toBe('time');
-      expect(meta.range_start_seconds).toBe(0);
+      // meta 恒为 byte 模式（v1.4.2 无 time 流）
+      expect(meta.stream_mode).toBe('byte');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('不传 repairTaskId 时请求不含该字段（v1.4.2）', async () => {
+    const sessionKey = await makeSessionKey();
+    const metaPlain = new TextEncoder().encode(JSON.stringify({
+      type: 'meta',
+      file_size: 100,
+      content_type: 'video/mp4',
+    }));
+    const stream = makeEncryptedStream(sessionKey, [metaPlain]);
+
+    let capturedUrl = '';
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      capturedUrl = String(input);
+      return { ok: true, status: 200, body: stream };
+    }) as unknown as typeof fetch;
+
+    try {
+      const session = {
+        sessionKey, sessionId: 'test-sid', token: 'test-token',
+        serverUrl: 'http://localhost:8989',
+      };
+      await openEncryptedStream(session, 1, '/', 'sample.mp4', 0, -1);
+
+      const url = new URL(capturedUrl);
+      const nonce = url.searchParams.get('nonce') || '';
+      const ciphertext = url.searchParams.get('ciphertext') || '';
+      const plain = decryptEnvelope(sessionKey, nonce, ciphertext);
+      const payload = JSON.parse(new TextDecoder().decode(plain)) as Record<string, unknown>;
+      expect('repair_task_id' in payload).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
     }

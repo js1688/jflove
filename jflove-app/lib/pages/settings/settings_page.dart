@@ -191,7 +191,7 @@ class SettingsPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoRow(label: '版本', value: 'v1.4.0'),
+                _InfoRow(label: '版本', value: 'v1.4.2'),
                 const SizedBox(height: 6),
                 Text(
                   '私有文档 & 笔记管理系统',
@@ -454,7 +454,6 @@ class _MediaRepairConfigCardState
     extends ConsumerState<_MediaRepairConfigCard> {
   bool _loading = true;
   bool _saving = false;
-  bool _enabled = false;
   bool _allowTranscode = false;
   final TextEditingController _concurrentCtrl = TextEditingController();
   String? _errorMsg;
@@ -486,7 +485,6 @@ class _MediaRepairConfigCardState
       final cfg = (resp['config'] as Map<String, dynamic>?) ?? {};
       if (!mounted) return;
       setState(() {
-        _enabled = cfg['media_repair_enabled'] == '1';
         _allowTranscode = cfg['media_repair_allow_transcode'] == '1';
         _concurrentCtrl.text =
             (cfg['media_repair_max_concurrent'] as String?) ?? '';
@@ -517,11 +515,6 @@ class _MediaRepairConfigCardState
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  void _toggleEnabled(bool next) {
-    setState(() => _enabled = next);
-    _save('media_repair_enabled', next ? '1' : '0');
   }
 
   void _toggleTranscode(bool next) {
@@ -559,7 +552,7 @@ class _MediaRepairConfigCardState
       );
     }
     return _SectionCard(
-      title: '媒体修复',
+      title: '离线媒体修复',
       icon: Icons.healing_outlined,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -572,25 +565,19 @@ class _MediaRepairConfigCardState
             const SizedBox(height: 8),
           ],
           Text(
-            '开启后，损坏/非流式媒体文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）'
-            '由服务端实时无损修复后在线播放；修复仅用于播放，不修改原始文件。'
-            '弱 CPU 设备建议保持关闭。配置为服务端配置，三端共享，修改后立即生效。',
+            'v1.4.2 起损坏媒体经「修复中心」手动离线修复（文件列表长按'
+            '「修复损坏媒体」发起）。以下为修复队列配置：并发数 1~8 或留空'
+            '按服务器 CPU 核数自动推导；重编码为无损修复失败时的降级手段。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: Colors.grey.shade600,
             ),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('启用媒体修复'),
-            value: _enabled,
-            onChanged: _saving ? null : _toggleEnabled,
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
             title: const Text('允许重编码降级'),
             subtitle: const Text('默认关闭；-c copy 失败时的极端兜底'),
             value: _allowTranscode,
-            onChanged: (_enabled && !_saving) ? _toggleTranscode : null,
+            onChanged: _saving ? null : _toggleTranscode,
           ),
           const SizedBox(height: 4),
           Row(
@@ -605,7 +592,7 @@ class _MediaRepairConfigCardState
                 width: 90,
                 child: TextField(
                   controller: _concurrentCtrl,
-                  enabled: _enabled && !_saving,
+                  enabled: !_saving,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     isDense: true,
@@ -616,7 +603,7 @@ class _MediaRepairConfigCardState
               ),
               const SizedBox(width: 8),
               FilledButton.tonal(
-                onPressed: (_enabled && !_saving) ? _saveConcurrent : null,
+                onPressed: _saving ? null : _saveConcurrent,
                 child: const Text('保存'),
               ),
             ],

@@ -42,17 +42,24 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 > （`@noble/curves` X25519 + `@noble/hashes` HKDF-SHA256），**加密协议与互操作不变**；
 > HTTPS / localhost 环境仍走 Web Crypto 主路径。
 
-### 视频/音频预览：边下边播（v1.4.0 MSE 主路径）
+### 视频/音频预览：边下边播（v1.4.2 播放纯净化）
 
 预览不落盘、边下边播，**不依赖 Service Worker，HTTP/HTTPS、内网/公网均可用**：
 
 1. **MSE 主路径**（`media-source-player.ts`）：向后端 `/api/v1/files/stream`（v2 加密帧）拉流，
-   逐帧解密后 append 到 MediaSource SourceBuffer，由浏览器解码播放。支持两档：
-   - **健康文件（byte 模式）**：fMP4 / WebM / MP3 / FLAC / OGG 等按字节 range 直接流式；
-   - **修复流（time 模式）**：损坏/非流式文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）
-     由服务端媒体修复服务（管理员在「系统设置」开启，默认关闭）实时 ffmpeg 重封装为 fMP4，
-     按时间 range（`range_start_seconds`）拉取；拖动 seek 时按目标时间重新拉取。
+   逐帧解密后 append 到 MediaSource SourceBuffer，由浏览器解码播放：
+   - **恒为 byte 模式**（v1.4.2 移除实时修复流）：健康文件按字节 range 直接流式；
+   - **前向 seek 按需重拉**：MP4 家族文件拖到未缓冲区域时按字节偏移估算重拉
+     （init 段 + moof 分片边界起的数据），失败时保持顺序下载渐进到达；
+   - **损坏文件拒绝播放**：服务端返回 `[MEDIA_NEEDS_REPAIR]` → 弹「立即修复」引导。
 2. **完整下载 → Blob**：仅当 MSE 不可用 / 容器不被支持时兜底（非主路径）。
+
+### 媒体修复：手动离线修复（v1.4.2）
+
+文件浏览右键「修复损坏媒体」+「修复中心」页面（任务列表/进度/取消/验证播放/
+覆盖原文件）；修复产物落服务端原文件同目录 `.jflove-repair/` 隐藏目录，
+覆盖时直接替换原文件（不留备份、二次确认）。任务列表全平台共享（所有登录
+用户可见），操作要求磁盘写+删权限并存。修复并发数/重编码开关在「系统设置」配置。
 
 安全要点：流式 URL 仅含加密信封（`?nonce=...&ciphertext=...`），不暴露业务数据；
 会话（session_key/JWT）仅存内存（sessionStorage），不进日志、不进 DOM。

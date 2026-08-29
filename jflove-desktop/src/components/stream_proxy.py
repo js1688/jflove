@@ -1,5 +1,5 @@
 """
-本地流式代理模块
+本地流式代理模块（v1.4.2 纯 byte 模式）
 
 StreamProxy 在 127.0.0.1 随机端口启动一个 HTTP 服务器，QMediaPlayer 通过
 http://127.0.0.1:{port}/{token} 拉取媒体流，代理负责：
@@ -7,6 +7,10 @@ http://127.0.0.1:{port}/{token} 拉取媒体流，代理负责：
      file_service.stream_range()
   2. 逐帧接收解密后的明文，直接 write 给 QMediaPlayer
   3. 响应 206 Partial Content，含正确的 Content-Range / Content-Length
+
+v1.4.2 变更：移除 time 修复流分支（seek()/_seek_seconds/_seek_version/
+_duration）——服务端已不再实时修复，本代理只处理健康文件的字节流；
+新增 repair_task_id 支持（修复中心「验证播放」经同一代理拉取修复产物）。
 
 安全保障：
   - 只绑定 loopback 地址，外部无法访问
@@ -66,20 +70,14 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
                 self.proxy.filename,
                 range_start=0,
                 range_end=0,
-                # v1.4.0：探测请求也声明支持时间 range，服务端对损坏文件
-                # 返回 time meta（file_size / duration），代理据此进入 time 模式
-                range_start_seconds=0,
+                repair_task_id=self.proxy.repair_task_id,
             )
             # meta 已在 stream_range 内读取；不消费数据帧，直接关闭生成器
-            # （time 模式下服务端会继续输出修复流，及时中断避免浪费转码）
             frame_iter.close()
             self.proxy._file_size = meta.get("file_size", 0)
             self.proxy._content_type = meta.get(
                 "content_type", "application/octet-stream"
             )
-            # v1.4.0：time 修复流模式与时长（供 GET 线性时间 seek 映射）
-            self.proxy._stream_mode = meta.get("stream_mode", "byte")
-            self.proxy._duration = float(meta.get("duration", 0.0) or 0.0)
             self.proxy._meta_fetched = True
         return self.proxy._file_size, self.proxy._content_type
 
@@ -124,6 +122,7 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         try:
             file_size, content_type = self._ensure_meta()
         except Exception as e:
+            self.proxy.last_error = str(e)
             logger.error("StreamProxy HEAD 元数据失败: %s", e)
             self._send_error_response(500, str(e))
             return
@@ -131,19 +130,12 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(file_size))
-        # v1.4.0：time 修复流为实时生成、总字节不可预知，不支持字节 seek，
-        # 不声明 Accept-Ranges，让播放器按顺序流式播放。
-        # v1.4.1：不要对 time 流声明 Accept-Ranges——QMediaPlayer 的 FFmpeg 后端
-        # 一旦认为可 seek，会进入随机访问模式并发字节 Range 探测，对 chunked
-        # empty_moov fMP4 直接 Demuxing failed（实测）；UI 主动 seek 改由
-        # proxy.seek() + 新 URL 重新拉流实现，不依赖字节 Range。
-        if self.proxy._stream_mode != "time":
-            self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Accept-Ranges", "bytes")
         self.send_header("Connection", "close")
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        """处理媒体流请求（含 Range seek；v1.4.0 兼容 time 修复流）"""
+        """处理媒体流请求（v1.4.2：纯字节 range，健康文件直读）"""
         if self.proxy._closed:
             self._send_error_response(503, "proxy closed")
             return
@@ -153,43 +145,13 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
         try:
             file_size, content_type = self._ensure_meta()
         except Exception as e:
+            self.proxy.last_error = str(e)
             logger.error("StreamProxy GET 元数据失败: %s", e)
             self._send_error_response(500, str(e))
             return
 
         range_start, range_end = self._parse_range(file_size)
         range_end = min(range_end, file_size)
-
-        # ── v1.4.0：time 修复流分支 ──
-        # 修复流由服务端 ffmpeg 实时生成（总字节不可预知），响应走 200 + chunked；
-        # 播放器若发出字节 Range，用平均码率线性近似映射为时间起点
-        # （range_start / file_size * duration），服务端 -ss 重拉。
-        # v1.4.1：UI 主动 seek 的 _seek_seconds 优先，一次性消费。
-        if self.proxy._stream_mode == "time":
-            seconds = self.proxy._seek_seconds
-            self.proxy._seek_seconds = 0.0
-            if seconds <= 0 and range_start > 0 and self.proxy._duration > 0 and file_size > 0:
-                seconds = range_start / file_size * self.proxy._duration
-            try:
-                _, frame_iter = file_service.stream_range(
-                    self.proxy.disk_id,
-                    self.proxy.path,
-                    self.proxy.filename,
-                    range_start=0,
-                    range_end=-1,
-                    range_start_seconds=seconds,
-                )
-            except Exception as e:
-                logger.error("StreamProxy 修复流请求失败: %s", e)
-                self._send_error_response(500, str(e))
-                return
-
-            self.send_response(200)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self._pump_frames(frame_iter)
-            return
 
         try:
             _, frame_iter = file_service.stream_range(
@@ -198,8 +160,10 @@ class _ProxyHandler(http.server.BaseHTTPRequestHandler):
                 self.proxy.filename,
                 range_start=range_start,
                 range_end=range_end,
+                repair_task_id=self.proxy.repair_task_id,
             )
         except Exception as e:
+            self.proxy.last_error = str(e)
             logger.error("StreamProxy stream_range 失败: %s", e)
             self._send_error_response(500, str(e))
             return
@@ -262,7 +226,7 @@ class _TokenTCPServer(socketserver.ThreadingTCPServer):
 
 class StreamProxy:
     """
-    本地流式 HTTP 代理，供 QMediaPlayer 拉取加密媒体文件。
+    本地流式 HTTP 代理，供 QMediaPlayer 拉取加密媒体文件（v1.4.2 纯 byte 模式）。
 
     用法：
         proxy = StreamProxy(disk_id, path, filename)
@@ -270,12 +234,24 @@ class StreamProxy:
         player.setSource(QUrl(proxy.url))
         # 关闭时：
         proxy.close()
+
+    修复产物验证播放（修复中心）：
+        proxy = StreamProxy(disk_id, path, filename, repair_task_id=42)
     """
 
-    def __init__(self, disk_id: int, path: str, filename: str):
+    def __init__(
+        self,
+        disk_id: int,
+        path: str,
+        filename: str,
+        repair_task_id: int = 0,
+    ):
         self.disk_id = disk_id
         self.path = path
         self.filename = filename
+        # v1.4.2：修复产物验证播放（>0 时 stream_range 携带 repair_task_id，
+        # 服务端流式返回修复任务产物；disk_id/path/filename 不再指向原文件）
+        self.repair_task_id = repair_task_id
 
         self._token: str = uuid.uuid4().hex
         self._server: Optional[_TokenTCPServer] = None
@@ -286,44 +262,15 @@ class StreamProxy:
         # 元数据缓存（首次请求后填充，避免每次 GET 多一次元数据往返）
         self._file_size: int = 0
         self._content_type: str = "application/octet-stream"
-        # v1.4.0：time 修复流模式与媒体时长（秒），供 GET 线性时间 seek 映射
-        self._stream_mode: str = "byte"
-        self._duration: float = 0.0
         self._meta_fetched: bool = False
         self._meta_lock = threading.Lock()
-        # v1.4.1：UI 主动 seek 的目标秒（一次性，GET time 分支消费后归零）
-        self._seek_seconds: float = 0.0
-        # v1.4.1：seek 版本号，拼进 URL query 强制 QMediaPlayer 重新拉流
-        self._seek_version: int = 0
+        # v1.4.2：最近一次拉流错误（供播放对话框识别「需修复」错误码弹修复引导）
+        self.last_error: str = ""
 
     @property
     def url(self) -> str:
-        """本地代理 URL（含一次性 token 与 seek 版本号）"""
-        return f"http://127.0.0.1:{self._port}/{self._token}?v={self._seek_version}"
-
-    @property
-    def duration(self) -> float:
-        """
-        媒体时长（秒），供 UI 显示总时长与 seek 映射。
-
-        v1.4.1：QMediaPlayer 的 FFmpeg 后端对空 moov 的流式 fMP4 无法从 moof 提前
-        推算出总时长（边下边播时 duration 一直为 0 或只有已下载时长），故 UI 层
-        改用 meta 的 duration 直接设置进度条，不再依赖 QMediaPlayer 的 duration。
-        首次 HEAD/GET 拉取 meta 后可用；未拉取时为 0。
-        """
-        return self._duration
-
-    def seek(self, seconds: float) -> None:
-        """
-        UI 主动 seek：设置下次 GET 的时间起点（仅 time 修复流生效）。
-
-        调用后播放器需重新 setSource / 重新 GET，本方法把目标秒缓存为一次性值，
-        GET 的 time 分支消费后归零；之后播放器内部的字节 Range 仍走线性映射。
-        """
-        self._seek_seconds = max(0.0, seconds)
-        # 递增版本号：QMediaPlayer 对相同 URL 会复用缓存不再发 GET，版本号变化
-        # 强制其重新请求，从而消费 _seek_seconds 触发服务端 -ss 重拉
-        self._seek_version += 1
+        """本地代理 URL（含一次性 token）"""
+        return f"http://127.0.0.1:{self._port}/{self._token}"
 
     def start(self) -> None:
         """启动代理服务器（在独立守护线程中运行）"""

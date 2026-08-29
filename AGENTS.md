@@ -353,13 +353,10 @@ Phase 8              Phase 7              Phase 6              Phase 5
 #### Phase 8：版本发布
 
 1. 校验审查报告（Phase 5）和测试报告（Phase 6）均已通过
-2. 核查全部版本号字段（服务端 3 处 + 桌面端 2 处 + 移动端 1 处）
+2. 版本号单一来源核查：`version.json` 为唯一真相，`python scripts/sync_version.py` 同步全部位置（含移动端 versionCode 派生）
 3. 同步生产库表结构（带回滚脚本）
-4. **同时构建所有已开发模块**：
-   - 服务端：`cd jflove-server && python build.py` → Docker 镜像
-   - 桌面端：`cd jflove-desktop && python build.py` → PyInstaller 单文件
-   - 移动端：`cd jflove-app && flutter build apk --debug` → APK
-   - Web 端：`cd jflove-web && docker build -t jflove-web:<版本号> .` → Docker 镜像
+4. **统一打包所有已开发模块**：`python build.py -m all`（根目录统一入口，自动同步版本 + 逐模块环境检查 + desktop 切 venv）
+   - 产物：服务端/Web 端 Docker 镜像、桌面端 PyInstaller 单文件、移动端 debug+release 两个 APK
 5. 执行冒烟测试
 6. 输出 `文档记录/版本发布记录/<版本号>.md`
 
@@ -473,6 +470,8 @@ Step 5：发布（devops）
 
 - 每个版本号对应一份独立文件；新版本必须列出与上一版本的差异。
 - 版本号策略：主版本号代表重大变更，次版本号代表小迭代。
+- **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余位置（server `main.py`/`Dockerfile`、desktop `settings.py`、web `package.json`/`constants.ts`、app `pubspec.yaml`/`settings_page.dart`）全部由 `python scripts/sync_version.py` 派生/同步，各角色**禁止手动改版本号字段**。改版本只改 `version.json` + 跑同步脚本；移动端 versionCode 由版本号派生（`major*1e6+minor*1e3+patch`），无需单独维护。
+- **统一打包入口（强制）**：本地打包一律走根 `python build.py`（`-m` 参数或交互多选），禁止直接调用各模块 build.py / flutter build。
 - 文档应同时具备：架构 / 模块 / 接口 / 数据库 / 使用部署 / 变更日志。
 - 定期更新依赖、做性能优化与代码重构，但**不要在不相关的任务里夹带**这些工作。
 

@@ -16,8 +16,9 @@ from src.controllers import (
     note_controller,
     config_controller,
     sync_controller,
+    repair_controller,
 )
-from src.services import auth_service
+from src.services import auth_service, repair_task_service
 from src.utils.crypto import encrypt
 from src.utils.logger import get_logger
 
@@ -35,13 +36,36 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     await init_db()
     logger.info("数据库初始化完成")
+    # v1.4.2：启动离线修复队列 worker（重启恢复：中断任务标记失败 + 清理半成品）
+    await repair_task_service.start_workers(_repair_db_factory)
     yield
+    await repair_task_service.stop_workers()
     logger.info("服务关闭")
+
+
+@asynccontextmanager
+async def _repair_db_factory():
+    """
+    修复 worker 专用数据库连接上下文管理器（v1.4.2）。
+
+    worker 生命周期与请求无关，不能用请求级 get_db 依赖；此处提供同构的
+    异步上下文管理器（row_factory=Row，用完即关）。
+    """
+    import aiosqlite
+
+    from src.config.settings import DB_PATH
+
+    db = await aiosqlite.connect(DB_PATH)
+    db.row_factory = aiosqlite.Row
+    try:
+        yield db
+    finally:
+        await db.close()
 
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.4.1",
+    version="1.4.2",
     lifespan=lifespan,
 )
 
@@ -64,6 +88,7 @@ app.include_router(file_controller.router)
 app.include_router(note_controller.router)
 app.include_router(config_controller.router)
 app.include_router(sync_controller.router)
+app.include_router(repair_controller.router)
 
 
 @app.get("/health")

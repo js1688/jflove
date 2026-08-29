@@ -10,6 +10,7 @@ import { NoteListPage } from '../pages/NoteListPage';
 import { NoteEditPage } from '../pages/NoteEditPage';
 import { SyncPage } from '../pages/SyncPage';
 import { TransferPage } from '../pages/TransferPage';
+import { RepairCenterPage } from '../pages/RepairCenterPage';
 import { SecurityPage } from '../pages/SecurityPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { AdminUsersPage } from '../pages/admin/AdminUsersPage';
@@ -64,6 +65,8 @@ export const router = createBrowserRouter([
       { path: 'notes/:noteId', element: <NoteEditPage /> },
       { path: 'sync', element: <SyncPage /> },
       { path: 'transfer', element: <TransferPage /> },
+      // v1.4.2：修复中心（全平台共享任务列表）
+      { path: 'repair', element: <RepairCenterPage /> },
       { path: 'security', element: <SecurityPage /> },
       { path: 'settings', element: <SettingsPage /> },
       {

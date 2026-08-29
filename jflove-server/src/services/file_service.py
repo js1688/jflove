@@ -21,7 +21,7 @@ import aiofiles
 import aiosqlite
 from pathlib import Path
 
-from src.config.settings import UPLOAD_TEMP_DIR
+from src.config.settings import REPAIR_DIR_NAME, UPLOAD_TEMP_DIR
 from src.repositories import virtual_disk_repository, permission_repository
 from src.services.permission_service import check_disk_permission
 from src.utils.logger import get_logger
@@ -37,15 +37,22 @@ def _safe_join(base: str, rel: str) -> str:
     安全路径拼接，防目录遍历攻击。
 
     将相对路径 rel 限定在 base 目录内，若解析后路径越出 base 则抛出异常。
+    v1.4.2：同时拒绝任何包含修复隐藏目录（.jflove-repair）路径段的访问——
+    客户端无法通过下载/删除/预览等接口直接触达修复产物（产物仅经
+    /stream 的 repair_task_id 验证播放通道输出）。
 
     :param base: 根目录绝对路径
     :param rel: 相对路径（可含前置 /）
     :returns: 限定后的绝对路径字符串
-    :raises PermissionError: 路径越界
+    :raises PermissionError: 路径越界 / 含隐藏目录段
     """
     base_path = Path(base).resolve()
     target = (base_path / rel.lstrip("/")).resolve()
     if not str(target).startswith(str(base_path)):
+        raise PermissionError("非法路径访问")
+    # v1.4.2：隐藏目录段访问一律拒绝（下载/删除/重命名/移动等全部生效）
+    rel_norm = rel.replace("\\", "/").lstrip("/")
+    if any(part == REPAIR_DIR_NAME for part in rel_norm.split("/") if part):
         raise PermissionError("非法路径访问")
     return str(target)
 
@@ -72,16 +79,21 @@ async def list_accessible_disks(
     获取当前用户可访问的虚拟磁盘列表。
 
     - 管理员：返回全部磁盘，且全部磁盘均有写权限
-    - 普通用户：仅返回拥有读权限的磁盘，并标注 can_write
+    - 普通用户：仅返回拥有读权限的磁盘，并标注 can_write / can_delete
+      （v1.4.2 新增 can_delete：修复功能要求写+删权限并存，三端据此
+      禁用/隐藏「修复损坏媒体」入口）
 
     :param db: 数据库连接
     :param user_id: 当前用户 ID
     :param role: 用户角色（admin / user）
-    :returns: 磁盘列表，每项含 id、name、can_write（v1.1.3 新增）
+    :returns: 磁盘列表，每项含 id、name、can_write、can_delete
     """
     all_disks = await virtual_disk_repository.list_all(db)
     if role == "admin":
-        return [{"id": d["id"], "name": d["name"], "can_write": True} for d in all_disks]
+        return [
+            {"id": d["id"], "name": d["name"], "can_write": True, "can_delete": True}
+            for d in all_disks
+        ]
     perms = await permission_repository.get_disk_permissions(db, user_id)
     # sqlite3.Row 不支持 .get()，转为 dict 后再操作
     perm_map = {p["virtual_disk_id"]: dict(p) for p in perms}
@@ -93,6 +105,7 @@ async def list_accessible_disks(
                 "id": d["id"],
                 "name": d["name"],
                 "can_write": bool(p.get("can_write", False)),
+                "can_delete": bool(p.get("can_delete", False)),
             })
     return result
 
@@ -102,6 +115,9 @@ async def list_files(
 ) -> list[dict]:
     """
     列出指定虚拟磁盘目录下的文件和子目录（目录在前，文件在后，均按名称排序）。
+
+    v1.4.2：过滤修复隐藏目录 .jflove-repair（服务端过滤，三端零改动不展示；
+    修复产物经 /stream?repair_task_id 验证播放，不经文件列表）。
 
     :param db: 数据库连接
     :param user_id: 当前用户 ID
@@ -122,6 +138,9 @@ async def list_files(
 
     result = []
     for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name)):
+        # v1.4.2：隐藏修复产物目录，不出现在文件列表
+        if entry.name == REPAIR_DIR_NAME:
+            continue
         result.append({
             "name": entry.name,
             "is_dir": entry.is_dir(),

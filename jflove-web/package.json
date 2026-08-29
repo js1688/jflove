@@ -1,6 +1,6 @@
 {
   "name": "jflove-web",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
   "description": "JFLove 浏览器端 Web 应用，支持 PC 端与移动端双布局",

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useFileStore } from '../stores/file-store';
+import { repairService } from '../services/repair-service';
 import { useFiles } from '../hooks/use-files';
 import { PageHeader } from '../components/PageHeader';
 import { PathBreadcrumb } from '../components/PathBreadcrumb';
@@ -27,6 +28,17 @@ function formatTime(ts: number): string {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit',
   });
+}
+
+/** v1.4.2：可发起修复的媒体扩展名（对齐桌面/移动端） */
+const MEDIA_EXTS = new Set([
+  'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v', 'mpg', 'mpeg', 'ts', '3gp',
+  'mp3', 'wav', 'ogg', 'flac', 'm4a', 'aac', 'wma', 'opus',
+]);
+function isMediaFile(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return false;
+  return MEDIA_EXTS.has(name.slice(dot + 1).toLowerCase());
 }
 
 /** 文件类型图标 */
@@ -64,6 +76,13 @@ export function DiskBrowserPage() {
   const [showNewDir, setShowNewDir] = useState(false);
   // 拖拽上传状态（PC 端）
   const [isDragOver, setIsDragOver] = useState(false);
+  // v1.4.2：操作结果 toast（修复等，3.5s 自动消失）
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const numDiskId = Number(diskId);
   const disk = store.disks.find(d => d.id === numDiskId);
@@ -110,6 +129,17 @@ export function DiskBrowserPage() {
     // 预览上下文走 store（不放入 URL，避免业务数据明文暴露，见 §9.1.4）
     useFileStore.getState().setPreviewTarget({ path: item.path, name: item.name, size: item.size });
     navigate(`/files/${diskId}/preview`);
+  };
+
+  /** v1.4.2：右键「修复损坏媒体」——创建异步修复任务 */
+  const handleRepair = async (item: FileItem) => {
+    try {
+      const dir = item.path.includes('/') ? item.path.slice(0, item.path.lastIndexOf('/')) : '';
+      await repairService.create(numDiskId, dir, item.name);
+      setToast('已加入修复队列，可在「修复中心」查看进度');
+    } catch (e) {
+      setToast(`发起修复失败：${e instanceof Error ? e.message : String(e)}`);
+    }
   };
 
   // 文件操作
@@ -201,6 +231,11 @@ export function DiskBrowserPage() {
   return (
     <div>
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {toast && (
+        <div className="fixed top-20 right-6 z-50 max-w-sm rounded-lg bg-gray-800 px-4 py-3 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
 
       <PageHeader
         title={diskName}
@@ -358,6 +393,17 @@ export function DiskBrowserPage() {
               >
                 👁️ 预览
               </button>
+              {isMediaFile(contextMenu.item.name) && store.canWrite && store.canDelete && (
+                <button
+                  onClick={() => {
+                    void handleRepair(contextMenu.item);
+                    setContextMenu(null);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
+                >
+                  🛠️ 修复损坏媒体
+                </button>
+              )}
               <div className="border-t border-gray-100 my-1" />
             </>
           )}

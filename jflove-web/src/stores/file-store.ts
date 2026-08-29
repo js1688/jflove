@@ -17,9 +17,12 @@ interface FileState {
   currentFiles: FileItem[];
   filesLoading: boolean;
   canWrite: boolean;
+  // v1.4.2：删除权限（修复功能要求写+删并存）
+  canDelete: boolean;
 
   // 预览上下文（不走 URL，避免业务数据明文暴露）
-  previewTarget: { path: string; name: string; size?: number } | null;
+  // v1.4.2：repairTaskId 供修复中心「验证播放」使用（>0 时预览修复产物）
+  previewTarget: { path: string; name: string; size?: number; repairTaskId?: number } | null;
 
   // 排序
   sortBy: 'name' | 'size' | 'modified_at';
@@ -30,7 +33,7 @@ interface FileState {
   loadFiles: (diskId: number, path: string) => Promise<void>;
   setSortBy: (field: 'name' | 'size' | 'modified_at') => void;
   toggleSortOrder: () => void;
-  setPreviewTarget: (target: { path: string; name: string; size?: number } | null) => void;
+  setPreviewTarget: (target: { path: string; name: string; size?: number; repairTaskId?: number } | null) => void;
 
   // 文件操作
   createDir: (diskId: number, path: string, dirName: string) => Promise<void>;
@@ -47,6 +50,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   currentFiles: [],
   filesLoading: false,
   canWrite: false,
+  canDelete: false,
   previewTarget: null,
   sortBy: 'name',
   sortAsc: true,
@@ -78,6 +82,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       set({
         currentFiles: items,
         canWrite: disk?.can_write ?? false,
+        canDelete: disk?.can_delete ?? false,
         filesLoading: false,
       });
     } catch (e) {

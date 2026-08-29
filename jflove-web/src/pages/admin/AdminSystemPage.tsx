@@ -55,8 +55,7 @@ export function AdminSystemPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  // 媒体修复配置状态
-  const [enabled, setEnabled] = useState(false);
+  // 离线媒体修复配置状态（v1.4.2：无实时修复总开关）
   const [allowTranscode, setAllowTranscode] = useState(false);
   const [maxConcurrent, setMaxConcurrent] = useState(''); // 空 = 自动基线
 
@@ -66,7 +65,6 @@ export function AdminSystemPage() {
     try {
       const resp = await configService.getConfig();
       const c = resp.config || {};
-      setEnabled(c[MEDIA_REPAIR_KEYS.enabled] === '1');
       setAllowTranscode(c[MEDIA_REPAIR_KEYS.allowTranscode] === '1');
       setMaxConcurrent(c[MEDIA_REPAIR_KEYS.maxConcurrent] || '');
     } catch (e) {
@@ -87,11 +85,6 @@ export function AdminSystemPage() {
       setNotice(e instanceof Error ? e.message : '保存失败');
     }
     setSaving(false);
-  };
-
-  const toggleEnabled = (next: boolean) => {
-    setEnabled(next);
-    void save(MEDIA_REPAIR_KEYS.enabled, next ? '1' : '0');
   };
 
   const toggleTranscode = (next: boolean) => {
@@ -137,23 +130,15 @@ export function AdminSystemPage() {
           )}
 
           <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-1 text-base font-semibold text-gray-800">媒体修复</h2>
+            <h2 className="mb-1 text-base font-semibold text-gray-800">离线媒体修复</h2>
             <p className="mb-4 text-xs text-gray-500">
-              开启后，损坏 / 非流式媒体文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）
-              由服务端实时无损修复后在线播放；修复仅用于播放，不修改原始文件。
-              弱 CPU 设备（如 N2850）建议保持关闭。配置为服务端配置，三端共享，修改后立即生效。
+              v1.4.2 起损坏媒体经「修复中心」手动离线修复（文件管理右键
+              「修复损坏媒体」发起）。以下为修复队列配置：并发数 1~8 或留空
+              按服务器 CPU 核数自动推导；重编码为无损修复失败时的降级手段。
+              配置为服务端配置，三端共享，修改后立即生效。
             </p>
 
             <div className="divide-y divide-gray-100">
-              {/* 总开关 */}
-              <div className="flex items-center justify-between py-3">
-                <div>
-                  <p className="text-sm font-medium text-gray-700">启用媒体修复</p>
-                  <p className="text-xs text-gray-400">默认关闭；开启后损坏/非流式文件可在线播放</p>
-                </div>
-                <Toggle checked={enabled} disabled={saving} onChange={toggleEnabled} label="启用媒体修复" />
-              </div>
-
               {/* 重编码子开关 */}
               <div className="flex items-center justify-between py-3">
                 <div>
@@ -164,7 +149,7 @@ export function AdminSystemPage() {
                 </div>
                 <Toggle
                   checked={allowTranscode}
-                  disabled={!enabled || saving}
+                  disabled={saving}
                   onChange={toggleTranscode}
                   label="允许重编码降级"
                 />
@@ -182,14 +167,14 @@ export function AdminSystemPage() {
                     min={1}
                     max={8}
                     value={maxConcurrent}
-                    disabled={!enabled}
+                    disabled={saving}
                     onChange={(e) => setMaxConcurrent(e.target.value)}
                     placeholder="自动"
                     className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm"
                   />
                   <button
                     type="button"
-                    disabled={!enabled || saving}
+                    disabled={saving}
                     onClick={saveConcurrent}
                     className="rounded-md bg-indigo-500 px-3 py-1 text-sm text-white
                       hover:bg-indigo-600 disabled:opacity-50"

@@ -143,20 +143,112 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 
 ---
 
-## 版本号管理（发布一致性）
+## 版本号管理（单一来源）
 
-> 各模块版本号存在多个定义位置，**发布时必须全部一致**，否则会出现「构建了新版但应用内显示旧版本号」的问题。
+> 版本号**唯一真相**是仓库根 `version.json`，其余位置全部由脚本派生/同步，杜绝「改一处漏一处」或「应用内显示旧版本号」。
 
-| 模块 | 版本号位置 | 一键同步命令 |
-|------|-----------|-------------|
-| jflove-server | `src/main.py`（/docs 显示）+ `build.py` + `Dockerfile LABEL`（共 3 处） | `cd jflove-server && python build.py --version x.y.z` |
-| jflove-desktop | `src/config/settings.py` `APP_VERSION`（窗口/关于显示）+ `build.py`（共 2 处） | `cd jflove-desktop && python build.py --version x.y.z` |
-| jflove-app | `pubspec.yaml` `version: x.y.z+n`（1 处，`+n` 为 build number） | 手动修改（无同步脚本） |
-| jflove-web | `package.json` + `src/config/constants.ts` `APP_VERSION`（设置页「关于」显示）+ `build.py`（共 3 处） | `cd jflove-web && python build.py --version x.y.z` |
+```json
+// version.json
+{ "version": "1.4.2" }
+```
 
-> 三个 build.py 在**未指定 `--version` 时自动校验全部版本号位置一致，不一致则中止构建**；
-> 指定 `--version` 时自动同步该模块全部位置后再构建。移动端仅 1 处，需手动修改。
-> 共 9 处版本号字段（服务端 3 + 桌面端 2 + 移动端 1 + Web 端 3），发布前由 devops 逐处核查。
+| 模块 | 版本号位置（由脚本自动同步） |
+|------|--------------------------|
+| jflove-server | `src/main.py`（/docs 显示）+ `Dockerfile LABEL` |
+| jflove-desktop | `src/config/settings.py` `APP_VERSION`（窗口/关于显示） |
+| jflove-app | `pubspec.yaml` `version: x.y.z+code`（versionCode 由版本号派生）+ `lib/pages/settings/settings_page.dart`（「关于」页显示） |
+| jflove-web | `package.json` + `src/config/constants.ts` `APP_VERSION`（设置页「关于」显示） |
+
+> 移动端 versionCode 派生规则：`major*1000000 + minor*1000 + patch`（如 `1.4.2 → 1004002`），无需单独维护 build number。
+> 三个 `build.py` 构建前校验模块内版本号与 `version.json` 一致，不一致直接中止。
+
+### 改版本号（一条命令）
+
+```bash
+echo '{"version":"1.4.3"}' > version.json   # 或手动编辑
+python scripts/sync_version.py               # 同步全部位置（含 pubspec 派生 versionCode）
+```
+
+---
+
+## 打包构建指引（本地）
+
+### 统一入口
+
+根目录 `build.py` 是顶层编排器，一条命令完成「同步版本 → 选模块 → 环境检查 → 打包」：
+
+```bash
+python build.py                    # 交互式多选模块（如 1,3 / all / 回车=全部）
+python build.py -m server,desktop  # 参数指定模块
+python build.py -m all             # 全部模块
+python build.py --no-sync          # 跳过版本号自动同步
+python build.py --skip-env-check   # 跳过环境检查强行构建
+```
+
+流程：读 `version.json` → 自动同步版本号 → 选模块 → 逐模块环境检查（不满足则打印原因并跳过）→ 依次打包（desktop 自动切模块 venv）→ 汇总成功/跳过/失败。
+
+### 各模块环境依赖与产物
+
+| 模块 | 依赖（不满足自动跳过） | 产物 |
+|------|----------------------|------|
+| server | Docker | `jflove-server:<version>` 镜像 + `latest` |
+| desktop | 模块 venv（PyInstaller + PySide6） | `jflove-desktop/build/dist/JFLove`（Linux）/ `JFLove.exe`（Windows） |
+| web | Docker + `package-lock.json` | `jflove-web:<version>` 镜像 |
+| app | Flutter + Android SDK | `build/app/outputs/flutter-apk/app-debug.apk` + `app-release.apk` |
+
+### 完整打包流程
+
+```bash
+# 1. 改版本（唯一真相）
+echo '{"version":"1.4.3"}' > version.json
+# 2. 统一打包（自动同步版本 + 环境检查 + 打包）
+python build.py -m all
+# 3. 提交发版（打 tag 触发 CI 线上构建）
+git add -A && git commit -m "chore: bump 1.4.3"
+git tag v1.4.3 && git push origin main --tags
+```
+
+---
+
+## GitHub Actions 线上打包（CI）
+
+> 各端构建已迁移到 GitHub Actions 云端，解决「本地切机器」的强环境依赖（Docker / PySide6 / Flutter+Android SDK / Node）。
+> **本地构建方式完整保留**（`python build.py` / `flutter build apk`），二者互不影响。
+
+### 触发方式
+
+- **手动触发**：仓库页 Actions → 选择对应 workflow → Run workflow
+- **自动触发**：推送 `v*` 开头的 tag（如 `v1.4.2`）
+
+### 各端 workflow 与产物
+
+| Workflow | 构建内容 | 产物落点 |
+|---|---|---|
+| `build-server.yml` | 服务端 Docker 镜像（复用 `build.py` 的版本/DB 校验） | GHCR `ghcr.io/<owner>/jflove-server:<ver>` + `latest` |
+| `build-web.yml` | Web 端 Docker 镜像（复用 `build.py`） | GHCR `ghcr.io/<owner>/jflove-web:<ver>` + `latest` |
+| `build-desktop.yml` | 桌面端 PyInstaller（Linux + Windows） | Artifact：`JFLove` / `JFLove.exe` |
+| `build-app.yml` | 移动端 APK（debug + release，含 R8 禁令检查） | Artifact：`app-debug.apk` / `app-release.apk` |
+
+### 产物如何获取
+
+- **Docker 镜像**：CI 推送到 GitHub Container Registry，本地拉取：
+  ```bash
+  docker pull ghcr.io/<你的用户名>/jflove-server:1.4.2
+  docker pull ghcr.io/<你的用户名>/jflove-web:1.4.2
+  ```
+  也可在仓库的 **Packages** 页查看已发布镜像。
+- **桌面端 / 移动端产物**：进入对应 workflow 本次运行页，底部 **Artifacts** 区下载 zip。
+
+### 版本号校验（CI 防呆）
+
+CI 从 tag 提取版本号，校验 `tag == version.json` 与模块内 7 处版本号，任一不一致直接失败。发版前只需：
+
+```bash
+echo '{"version":"1.4.3"}' > version.json
+python scripts/sync_version.py
+git add -A && git commit -m "chore: bump 1.4.3"
+git tag v1.4.3 && git push origin main --tags
+```
 
 ---
 

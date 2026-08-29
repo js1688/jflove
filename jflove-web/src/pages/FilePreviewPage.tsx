@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { fileService } from '../services/file-service';
+import { repairService } from '../services/repair-service';
 import { useFileStore } from '../stores/file-store';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingSpinner } from '../components/LoadingSpinner';
@@ -31,9 +32,15 @@ export function FilePreviewPage() {
 
   const filename = previewTarget?.name || '';
   const path = previewTarget?.path || '';
+  // v1.4.2：修复产物验证播放（修复中心「验证播放」设置，>0 时媒体走产物流）
+  const repairTaskId = previewTarget?.repairTaskId ?? 0;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // v1.4.2：损坏文件标志（[MEDIA_NEEDS_REPAIR]）→ 展示「立即修复」引导
+  const [needsRepair, setNeedsRepair] = useState(false);
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairNotice, setRepairNotice] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   // 回退完整下载时的进度百分比（null = 未在下载模式）；大文件下载时避免“卡死”误解
@@ -49,6 +56,23 @@ export function FilePreviewPage() {
   const isAudio = AUDIO_EXTS.includes(ext);
   const isPdf = ext === 'pdf';
 
+  /** v1.4.2：损坏文件「立即修复」——创建修复任务 */
+  const handleRepairNow = async () => {
+    if (!diskId) return;
+    setRepairBusy(true);
+    try {
+      const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+      await repairService.create(Number(diskId), dir, filename);
+      setError(null);
+      setNeedsRepair(false);
+      setRepairNotice('已加入修复队列，可在「修复中心」查看进度');
+    } catch (e) {
+      setRepairNotice(`发起修复失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRepairBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (!diskId || !previewTarget) {
       setLoading(false);
@@ -63,6 +87,8 @@ export function FilePreviewPage() {
 
     setLoading(true);
     setError(null);
+    setNeedsRepair(false);
+    setRepairNotice(null);
     setContent(null);
     setImageUrl(null);
     setDownloadProgress(null);
@@ -86,13 +112,15 @@ export function FilePreviewPage() {
           if (cancelled) return;
           setContent(new TextDecoder('utf-8').decode(bytes));
         } else if (isVideo || isAudio) {
-          // ① MSE 主路径（v1.4.0）：HTTP/HTTPS 均可边下边播，不依赖 Service Worker。
-          //    修复流（time 模式）由服务端 ffmpeg 重封装为 fMP4 后解密喂给 SourceBuffer；
-          //    健康文件（byte 模式）按字节 range 流式。mkv/avi 等在服务端修复开启时
-          //    同样走 MSE（playWithMSE 用 fMP4 默认 codec 尝试，失败再回退 Blob）。
+          // ① MSE 主路径（v1.4.2：仅 byte 模式，播放纯净化）。
+          //    健康文件按字节 range 流式；repairTaskId>0 时为修复产物验证播放。
+          //    mkv/avi 等 MSE 不支持的容器首帧失败后回退 Blob 下载。
           const mediaEl = isVideo ? videoRef.current : audioRef.current;
           if (mediaEl) {
-            const cleanup = await playWithMSE(mediaEl, Number(diskId), path, filename, streamAbort.signal);
+            const cleanup = await playWithMSE(
+              mediaEl, Number(diskId), path, filename,
+              repairTaskId, streamAbort.signal,
+            );
             if (cancelled) {
               cleanup?.();
               return;
@@ -128,7 +156,16 @@ export function FilePreviewPage() {
           }
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : '预览加载失败');
+        if (!cancelled) {
+          // v1.4.2：损坏文件（服务端 415 [MEDIA_NEEDS_REPAIR]）→ 修复引导
+          const msg = e instanceof Error ? e.message : '预览加载失败';
+          if (msg.includes('[MEDIA_NEEDS_REPAIR]')) {
+            setNeedsRepair(true);
+            setError('该文件已损坏，无法在线播放');
+          } else {
+            setError(msg);
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -142,13 +179,38 @@ export function FilePreviewPage() {
       if (mseCleanup) mseCleanup();
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [diskId, previewTarget, path, filename, isImage, isText, isVideo, isAudio, ext]);
+  }, [diskId, previewTarget, path, filename, repairTaskId, isImage, isText, isVideo, isAudio, ext]);
 
   return (
     <div>
       <PageHeader title={filename || '文件预览'} onBack={() => navigate(-1)} />
       {loading && !isVideo && !isAudio && <LoadingSpinner text="加载预览…" />}
-      {!loading && error && (<div className="text-center py-12 text-red-500">{error}</div>)}
+      {!loading && error && (
+        <div className="flex flex-col items-center py-12">
+          <div className="text-red-500">{error}</div>
+          {needsRepair && (
+            <div className="mt-4 flex flex-col items-center gap-3">
+              <button
+                type="button"
+                disabled={repairBusy}
+                onClick={() => void handleRepairNow()}
+                className="rounded-lg bg-indigo-600 px-5 py-2 text-sm text-white
+                  hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {repairBusy ? '提交中…' : '🛠️ 立即修复'}
+              </button>
+              <p className="text-xs text-gray-400">
+                修复为异步任务，完成后可在「修复中心」验证播放并覆盖原文件
+              </p>
+            </div>
+          )}
+          {repairNotice && (
+            <div className="mt-3 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
+              {repairNotice}
+            </div>
+          )}
+        </div>
+      )}
       {!loading && !error && (
         <div className="p-6">
           {isImage && imageUrl && (

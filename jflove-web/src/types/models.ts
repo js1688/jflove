@@ -46,6 +46,8 @@ export interface VirtualDisk {
   real_path?: string;
   path: string;
   can_write: boolean;
+  /** v1.4.2：删除权限（修复功能要求写+删并存） */
+  can_delete: boolean;
   created_at: string;
 }
 

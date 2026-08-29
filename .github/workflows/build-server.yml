@@ -1,0 +1,66 @@
+name: Build Server Image (GHCR)
+
+# 服务端 Docker 镜像线上构建：复用本地 build.py（版本一致性校验 + prod DB 空校验 + docker build），
+# 构建后推送到 GitHub Container Registry (ghcr.io/<owner>/jflove-server)。
+# 版本号单一来源：仓库根 version.json；打 tag 时校验 tag 与 version.json 一致。
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # 从 version.json 读版本；打 tag 时校验 tag 与 version.json 一致；再校验全部 6 处版本号一致
+      - name: 提取并校验版本号
+        shell: bash
+        run: |
+          VERSION=$(python -c "import json; print(json.load(open('version.json', encoding='utf-8'))['version'])")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [ "${{ github.ref_type }}" == "tag" ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VERSION" != "$VERSION" ]; then
+              echo "::error::tag 版本 ${TAG_VERSION} 与 version.json 的 ${VERSION} 不一致"
+              exit 1
+            fi
+          fi
+          python scripts/sync_version.py --check
+          echo "构建版本：$VERSION"
+
+      # 复用本地构建脚本（内部再次校验 server 模块版本号 + prod DB 空校验）
+      - name: Build image（复用 build.py）
+        run: |
+          cd jflove-server
+          python build.py
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image to GHCR
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER}/jflove-server"
+          docker tag "jflove-server:${VERSION}" "${IMAGE}:${VERSION}"
+          docker tag "jflove-server:${VERSION}" "${IMAGE}:latest"
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:latest"
+          echo "pushed: ${IMAGE}:${VERSION} / ${IMAGE}:latest"

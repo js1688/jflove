@@ -1,4 +1,4 @@
-/// 本地流式 HTTP 代理
+/// 本地流式 HTTP 代理（v1.4.2 纯 byte 模式）
 ///
 /// 对标 jflove-desktop/src/components/stream_proxy.py。
 ///
@@ -7,6 +7,10 @@
 ///   1. 解析 HTTP Range 请求头，把字节范围传给服务端 /api/v1/files/stream
 ///   2. 逐帧解密后写回 HttpResponse
 ///   3. 响应 206 Partial Content，含正确的 Content-Range / Content-Length
+///
+/// v1.4.2 变更：移除 time 修复流分支（seek()/_seekSeconds/_seekVersion/
+/// duration）——服务端已不再实时修复，本代理只处理健康文件字节流；
+/// 新增 repairTaskId 支持（修复中心「验证播放」经同一代理拉取修复产物）。
 ///
 /// 安全保障：
 ///   - 只绑定 loopback 地址，外部无法访问
@@ -44,6 +48,9 @@ class StreamProxy {
   final String sessionId;
   final String serverUrl;
   final String jwtToken;
+  // v1.4.2：修复产物验证播放（>0 时 stream 请求携带 repair_task_id，
+  // 服务端流式返回修复任务产物；diskId/path/filename 不再指向原文件）
+  final int repairTaskId;
 
   late final String _token;
   HttpServer? _server;
@@ -53,14 +60,9 @@ class StreamProxy {
   // 元数据缓存（首次请求后填充）
   int _fileSize = 0;
   String _contentType = 'application/octet-stream';
-  // v1.4.0：time 修复流模式与媒体时长（秒），供 GET 线性时间 seek 映射
-  String _streamMode = 'byte';
-  double _duration = 0.0;
   bool _metaFetched = false;
-  // v1.4.1：UI 主动 seek 的目标秒（一次性，GET time 分支消费后归零）
-  double _seekSeconds = 0.0;
-  // v1.4.1：seek 版本号，拼进 URL query 强制 ExoPlayer 重新拉流
-  int _seekVersion = 0;
+  // v1.4.2：最近一次拉流错误（供预览页识别「需修复」错误码弹修复引导）
+  String lastError = '';
 
   StreamProxy({
     required this.diskId,
@@ -70,30 +72,13 @@ class StreamProxy {
     required this.sessionId,
     required this.serverUrl,
     required this.jwtToken,
+    this.repairTaskId = 0,
   }) {
     _token = _generateToken();
   }
 
-  /// 本地代理 URL（含一次性 token 与 seek 版本号）
-  String get url => 'http://127.0.0.1:$_port/$_token?v=$_seekVersion';
-
-  /// 媒体时长（秒），供 UI 显示总时长与 seek 映射。
-  ///
-  /// v1.4.1：ExoPlayer 对空 moov 的流式 fMP4 无法从 moof 提前推算出总时长
-  /// （边下边播时 duration 一直为 0 或只有已下载时长），故 UI 层改用 meta 的
-  /// duration 直接设置进度条，不再依赖 controller.value.duration。
-  double get duration => _duration;
-
-  /// UI 主动 seek：设置下次 GET 的时间起点（仅 time 修复流生效）。
-  ///
-  /// 调用后播放器需重新 initialize（重新 GET），本方法把目标秒缓存为一次性值，
-  /// GET 的 time 分支消费后归零；之后播放器内部的字节 Range 仍走线性映射。
-  void seek(double seconds) {
-    _seekSeconds = max(0, seconds);
-    // 递增版本号：ExoPlayer 对相同 URL 会复用缓存不再发 GET，版本号变化
-    // 强制其重新请求，从而消费 _seekSeconds 触发服务端 -ss 重拉
-    _seekVersion++;
-  }
+  /// 本地代理 URL（含一次性 token；v1.4.2 不再带 seek 版本号 query）
+  String get url => 'http://127.0.0.1:$_port/$_token';
 
   /// 启动代理服务器
   Future<void> start() async {
@@ -152,18 +137,12 @@ class StreamProxy {
       resp.statusCode = 200;
       resp.headers.set('Content-Type', _contentType);
       resp.headers.set('Content-Length', _fileSize.toString());
-      // v1.4.0：time 修复流为实时生成、总字节不可预知，不支持字节 seek，
-      // 不声明 Accept-Ranges，让播放器按顺序流式播放。
-      // v1.4.1：不要对 time 流声明 Accept-Ranges——ExoPlayer 一旦认为可 seek，
-      // 会进入随机访问模式并发字节 Range 探测，对 chunked empty_moov fMP4
-      // 解包失败（桌面端 QMediaPlayer 已实测复现）；UI 主动 seek 改由
-      // proxy.seek() + 新 URL 重新拉流实现，不依赖字节 Range。
-      if (_streamMode != 'time') {
-        resp.headers.set('Accept-Ranges', 'bytes');
-      }
+      // v1.4.2：恒为 byte 模式，支持字节 range（原生 seek）
+      resp.headers.set('Accept-Ranges', 'bytes');
       resp.headers.set('Connection', 'close');
       await resp.close();
     } catch (e) {
+      lastError = e.toString();
       _sendError(request.response, 500, e.toString());
     }
   }
@@ -174,6 +153,7 @@ class StreamProxy {
     try {
       await _ensureMeta();
     } catch (e) {
+      lastError = e.toString();
       _sendError(request.response, 500, e.toString());
       return;
     }
@@ -185,32 +165,6 @@ class StreamProxy {
 
     try {
       final resp = request.response;
-      // ── v1.4.0：time 修复流分支 ──
-      // 修复流总字节不可预知 → 200 + chunked（无 Content-Length）；
-      // 播放器字节 Range 用平均码率线性近似映射为时间起点，服务端 -ss 重拉。
-      // v1.4.1：UI 主动 seek 的 _seekSeconds 优先，一次性消费。
-      if (_streamMode == 'time') {
-        double seconds = _seekSeconds;
-        _seekSeconds = 0.0;
-        if (seconds <= 0) {
-          seconds = mapRangeToSeconds(rangeStart, _fileSize, _duration);
-        }
-        final stream = await _fetchStreamRange(
-          0,
-          0,
-          rangeStartSeconds: seconds,
-        );
-        resp.statusCode = 200;
-        resp.headers.set('Content-Type', _contentType);
-        resp.headers.set('Connection', 'close');
-        await for (final chunk in stream) {
-          if (_closed) break;
-          resp.add(chunk);
-        }
-        await resp.close();
-        return;
-      }
-
       final stream = await _fetchStreamRange(rangeStart, rangeEnd);
       final contentLength = rangeEnd - rangeStart;
       resp.statusCode = 206;
@@ -229,6 +183,7 @@ class StreamProxy {
       }
       await resp.close();
     } catch (e) {
+      lastError = e.toString();
       // 客户端断开（seek/关闭）属于正常流程
       if (e is HttpException || e is SocketException) {
         return;
@@ -242,11 +197,9 @@ class StreamProxy {
   Future<void> _ensureMeta() async {
     if (_metaFetched) return;
 
-    // 发 range(0,0) 请求拿元数据帧；v1.4.0：探测请求也声明支持时间 range，
-    // 服务端对损坏文件返回 time meta（file_size / duration）
-    final stream = await _fetchStreamRange(0, 0, rangeStartSeconds: 0);
-    // 只消费到首个数据帧：meta 帧解析在数据帧前完成（time 模式下服务端会
-    // 继续输出完整修复流，首帧到达后立即停止避免浪费转码）
+    // 发 range(0,0) 请求拿元数据帧
+    final stream = await _fetchStreamRange(0, 0);
+    // 只消费到首个数据帧：meta 帧解析在数据帧前完成
     await for (final _ in stream) {
       break;
     }
@@ -279,14 +232,10 @@ class StreamProxy {
   ///
   /// 每次请求的第一帧均为元数据帧（JSON: file_size / content_type 等），
   /// 自动过滤不传给调用方；后续帧为实际文件数据。
-  ///
-  /// [rangeStartSeconds]：v1.4.0 修复流专用时间起点（秒）。非 null 即向服务端
-  /// 声明支持时间 range 修复流（time 模式）；null 表示旧字节 range 语义。
   Future<Stream<Uint8List>> _fetchStreamRange(
     int rangeStart,
-    int rangeEnd, {
-    double? rangeStartSeconds,
-  }) async {
+    int rangeEnd,
+  ) async {
     // 构建请求体
     final payload = {
       'token': jwtToken,
@@ -296,8 +245,8 @@ class StreamProxy {
       'range_start': rangeStart,
       'range_end': rangeEnd,
     };
-    if (rangeStartSeconds != null) {
-      payload['range_start_seconds'] = rangeStartSeconds;
+    if (repairTaskId > 0) {
+      payload['repair_task_id'] = repairTaskId;
     }
     final plainBytes = utf8.encode(jsonEncode(payload));
     final envelope = CryptoUtils.encryptEnvelope(sessionKey, plainBytes);
@@ -320,7 +269,24 @@ class StreamProxy {
     );
 
     if (resp.statusCode != null && resp.statusCode! >= 400) {
-      throw Exception('服务端返回错误: ${resp.statusCode}');
+      // 尝试从加密信封解出 detail（含 [MEDIA_NEEDS_REPAIR] 错误码）
+      String detail = '服务端返回错误: ${resp.statusCode}';
+      try {
+        final raw = resp.data;
+        final body = raw is String ? jsonDecode(raw) : raw;
+        if (body is Map<String, dynamic> &&
+            body['nonce'] != null &&
+            body['ciphertext'] != null) {
+          final plain = CryptoUtils.decryptEnvelope(
+            sessionKey,
+            body['nonce'] as String,
+            body['ciphertext'] as String,
+          );
+          final obj = jsonDecode(utf8.decode(plain));
+          detail = obj['detail']?.toString() ?? detail;
+        }
+      } catch (_) {}
+      throw Exception(detail);
     }
 
     final rawStream = resp.data.stream as Stream<List<int>>;
@@ -349,9 +315,6 @@ class StreamProxy {
                   _contentType =
                       (json['content_type'] as String?) ??
                       'application/octet-stream';
-                  // v1.4.0：time 修复流模式与时长（GET 线性时间 seek 映射）
-                  _streamMode = (json['stream_mode'] as String?) ?? 'byte';
-                  _duration = ((json['duration'] as num?) ?? 0).toDouble();
                   _metaFetched = true;
                   return; // 元数据帧不传给播放器
                 }
@@ -371,19 +334,6 @@ class StreamProxy {
   }
 
   // ── 辅助 ──────────────────────────────────────────
-
-  /// 把播放器字节偏移线性映射为时间（秒，平均码率近似）。
-  ///
-  /// 供 time 修复流 seek 使用：seconds = offset / file_size * duration；
-  /// 任一参数非正（含零保护）时返回 0（从头开始）。
-  static double mapRangeToSeconds(
-    int rangeStart,
-    int fileSize,
-    double duration,
-  ) {
-    if (rangeStart <= 0 || fileSize <= 0 || duration <= 0) return 0.0;
-    return rangeStart / fileSize * duration;
-  }
 
   void _sendError(HttpResponse resp, int code, String msg) {
     resp.statusCode = code;

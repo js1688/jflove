@@ -164,43 +164,32 @@ class SettingsPage(QWidget):
         return card
 
     def _build_media_repair_card(self) -> CardWidget:
-        """构建「媒体修复」卡片（v1.4.0，仅管理员可见）
+        """构建「离线媒体修复」卡片（v1.4.2，仅管理员可见）
 
-        配置存服务端 config 表，三端共享；修改后立即生效、无需重启任何端。
-        总开关默认关闭（弱 CPU 设备无额外负担）；重编码子开关默认关闭；
-        并发数 1~8 或留空按服务器 CPU 核数自动推导。
+        v1.4.2 起修复改为手动离线任务（修复中心），不再有实时修复总开关。
+        此处仅保留离线修复队列的配置项：重编码子开关与并发数（存服务端
+        config 表，三端共享，修改后立即生效）。
         """
         card = CardWidget()
         ml = QVBoxLayout(card)
         ml.setContentsMargins(20, 16, 20, 16)
         ml.setSpacing(10)
 
-        ml.addWidget(StrongBodyLabel("媒体修复"))
+        ml.addWidget(StrongBodyLabel("离线媒体修复"))
         hint = CaptionLabel(
-            "开启后，损坏/非流式媒体文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）"
-            "由服务端实时无损修复后在线播放；修复仅用于播放，不修改原始文件。"
-            "弱 CPU 设备（如 N2850）建议保持关闭。配置为服务端配置，三端共享，修改后立即生效。"
+            "v1.4.2 起损坏媒体经「修复中心」手动离线修复（文件管理右键"
+            "「修复损坏媒体」发起）。以下为修复队列配置：并发数 1~8 或留空"
+            "按服务器 CPU 核数自动推导；重编码为无损修复失败时的降级手段。"
         )
         hint.setWordWrap(True)
         ml.addWidget(hint)
 
-        # 总开关
-        enabled_row = QHBoxLayout()
-        enabled_row.addWidget(BodyLabel("启用媒体修复"))
-        enabled_row.addStretch()
-        self._media_repair_switch = SwitchButton()
-        self._media_repair_switch.setChecked(False)
-        self._media_repair_switch.checkedChanged.connect(self._on_media_repair_toggled)
-        enabled_row.addWidget(self._media_repair_switch)
-        ml.addLayout(enabled_row)
-
-        # 重编码子开关（依赖总开关）
+        # 重编码子开关（独立于并发数，默认关闭）
         transcode_row = QHBoxLayout()
         transcode_row.addWidget(BodyLabel("允许重编码降级"))
         transcode_row.addStretch()
         self._transcode_switch = SwitchButton()
         self._transcode_switch.setChecked(False)
-        self._transcode_switch.setEnabled(False)
         self._transcode_switch.checkedChanged.connect(self._on_transcode_toggled)
         transcode_row.addWidget(self._transcode_switch)
         ml.addLayout(transcode_row)
@@ -212,7 +201,6 @@ class SettingsPage(QWidget):
         self._concurrent_input = LineEdit()
         self._concurrent_input.setPlaceholderText("自动")
         self._concurrent_input.setFixedWidth(80)
-        self._concurrent_input.setEnabled(False)
         concurrent_row.addWidget(self._concurrent_input)
         save_btn = PushButton("保存")
         save_btn.setMinimumWidth(80)
@@ -262,7 +250,7 @@ class SettingsPage(QWidget):
     # ── 数据加载 ───────────────────────────────────────
 
     def load_system_config(self) -> None:
-        """加载系统配置：笔记目录 +（管理员）媒体修复开关"""
+        """加载系统配置：笔记目录 +（管理员）离线修复配置"""
         self._worker = Worker(note_service.get_notes_disk)
         self._worker.finished.connect(self._on_disk_config_loaded)
         self._worker.error.connect(lambda e: self._show_error(f"加载笔记目录配置失败：{e}"))
@@ -285,7 +273,7 @@ class SettingsPage(QWidget):
         else:
             self._notes_current_label.setText("未配置")
 
-    # ── 媒体修复配置（v1.4.0，仅管理员） ──────────────
+    # ── 离线媒体修复配置（v1.4.2，仅管理员） ───────────
 
     def _load_media_repair_config(self) -> None:
         """异步加载媒体修复配置并更新开关状态（仅管理员）"""
@@ -302,27 +290,15 @@ class SettingsPage(QWidget):
         self._worker = worker
 
     def _on_media_repair_config_loaded(self, config) -> None:
-        """媒体修复配置加载回调：更新开关/输入状态（避免触发保存信号）"""
+        """离线修复配置加载回调：更新重编码/并发数状态（避免触发保存信号）"""
         cfg = config if isinstance(config, dict) else {
             c.get("key"): c.get("value", "")
             for c in config if isinstance(c, dict)
         }
-        enabled = cfg.get("media_repair_enabled", "0") == "1"
-        self._media_repair_switch.blockSignals(True)
-        self._media_repair_switch.setChecked(enabled)
-        self._media_repair_switch.blockSignals(False)
-        self._transcode_switch.setEnabled(enabled)
-        self._concurrent_input.setEnabled(enabled)
         self._transcode_switch.blockSignals(True)
         self._transcode_switch.setChecked(cfg.get("media_repair_allow_transcode", "0") == "1")
         self._transcode_switch.blockSignals(False)
         self._concurrent_input.setText(cfg.get("media_repair_max_concurrent", ""))
-
-    def _on_media_repair_toggled(self, checked: bool) -> None:
-        """总开关变化：写服务端配置，联动重编码/并发数可用性"""
-        self._transcode_switch.setEnabled(checked)
-        self._concurrent_input.setEnabled(checked)
-        self._save_media_repair("media_repair_enabled", "1" if checked else "0")
 
     def _on_transcode_toggled(self, checked: bool) -> None:
         """重编码子开关变化：写服务端配置"""

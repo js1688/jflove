@@ -22,9 +22,9 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QUrl, QByteArray, QTimer
+from PySide6.QtCore import Qt, QUrl, QByteArray
 from PySide6.QtGui import QPixmap, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QStackedWidget, QWidget, QLabel,
@@ -51,7 +51,7 @@ from qfluentwidgets import (
     SubtitleLabel, FluentIcon as FIF, ProgressRing,
 )
 
-from src.services import file_service
+from src.services import file_service, repair_service
 from src.utils.icon import get_app_icon
 from src.utils.worker import Worker
 from src.utils.logger import get_logger
@@ -212,19 +212,22 @@ class _MediaView(QWidget):
     视频 / 音频播放控件。
 
     通过 StreamProxy 本地代理 URL 流式拉取，无需写临时文件。
+    v1.4.2：纯 byte 模式（服务端已无实时修复流），seek 恢复 QMediaPlayer
+    原生字节 range；损坏文件由代理返回错误，弹「立即修复」引导。
     """
 
     def __init__(self, media_url: str, kind: str,
-                 display_name: str = "", proxy: Optional[StreamProxy] = None, parent=None):
+                 display_name: str = "", proxy: Optional[StreamProxy] = None,
+                 on_repair_requested: Optional[Callable[[], None]] = None,
+                 parent=None):
         super().__init__(parent)
         self._kind = kind  # "video" or "audio"
         self._media_url = media_url
         self._display_name = display_name
-        # v1.4.1：StreamProxy 引用，供时长兑底与主动 seek
+        # StreamProxy 引用：损坏文件时读取 last_error 识别 [MEDIA_NEEDS_REPAIR]
         self._proxy = proxy
-        # 当前流起始偏移（ms）：time 修复流 seek 后服务端 -ss 重拉、时间戳归零，
-        # QMediaPlayer 的 position 从 0 开始，用偏移把显示/滑块映射回绝对时间轴
-        self._seek_offset_ms = 0
+        # 播放失败且文件损坏时的「立即修复」回调（由 PreviewDialog 注入）
+        self._on_repair_requested = on_repair_requested
         self._setup_ui()
         self._setup_player()
 
@@ -312,13 +315,6 @@ class _MediaView(QWidget):
         # 自动播放
         self._player.play()
 
-        # v1.4.1：QMediaPlayer 的 FFmpeg 后端对空 moov 流式 fMP4 拿不到总时长，
-        # 用 QTimer 轮询 StreamProxy 的 meta.duration 兑底设置进度条范围。
-        self._hint_timer = QTimer(self)
-        self._hint_timer.setInterval(500)
-        self._hint_timer.timeout.connect(self._update_duration_hint)
-        self._hint_timer.start()
-
     # ── 控制回调 ───────────────────────────────────
 
     def _toggle_play(self) -> None:
@@ -337,43 +333,19 @@ class _MediaView(QWidget):
         self._position_label.setText(_format_ms(value))
 
     def _on_slider_released(self) -> None:
-        # v1.4.1：time 修复流 seek 依赖重新拉流（服务端 -ss），而非 QMediaPlayer
-        # 内部字节 seek。目标为绝对时间轴位置：记录偏移 → proxy.seek → 重新 setSource。
-        target_ms = self._slider.value()
-        self._seek_offset_ms = target_ms
-        new_url = self._media_url
-        if self._proxy is not None:
-            self._proxy.seek(target_ms / 1000.0)
-            # seek 后 URL 带新版本号，强制 QMediaPlayer 重新 GET（同 URL 会复用缓存）
-            new_url = self._proxy.url
-        self._player.stop()
-        self._player.setSource(QUrl(new_url))
-        self._player.play()
+        # v1.4.2：恢复 QMediaPlayer 原生 seek（发字节 Range，代理 206 直通）。
+        # 修复 v1.4.1 回归：此前无条件重拉流导致健康文件拖拽后从头播放。
+        self._player.setPosition(self._slider.value())
 
     def _on_position_changed(self, ms: int) -> None:
-        # 拖动进度条时不要被自动更新覆盖；position 加偏移映射回绝对时间轴
-        absolute = ms + self._seek_offset_ms
+        # 拖动进度条时不要被自动更新覆盖
         if not self._slider.isSliderDown():
-            self._slider.setValue(absolute)
-        self._position_label.setText(_format_ms(absolute))
+            self._slider.setValue(ms)
+        self._position_label.setText(_format_ms(ms))
 
     def _on_duration_changed(self, ms: int) -> None:
-        # QMediaPlayer 报告的 duration 可能为 0（流式拿不到），统一走兑底逻辑
-        self._update_duration_hint()
-
-    def _update_duration_hint(self) -> None:
-        """
-        用 StreamProxy 的 meta.duration 兑底设置进度条范围与总时长标签。
-
-        v1.4.1：QMediaPlayer 的 duration 只读且对空 moov 流式 fMP4 不可靠，故
-        优先用 meta 的完整时长（恒定），QMediaPlayer 的 duration 仅作兑底。
-        """
-        hint_ms = int(self._proxy.duration * 1000) if self._proxy else 0
-        player_ms = self._player.duration()
-        full_ms = hint_ms if hint_ms > 0 else player_ms
-        if full_ms > 0 and self._slider.maximum() != full_ms:
-            self._slider.setRange(0, full_ms)
-            self._duration_label.setText(_format_ms(full_ms))
+        self._slider.setRange(0, ms)
+        self._duration_label.setText(_format_ms(ms))
 
     def _on_state_changed(self, state) -> None:
         # 切换播放/暂停图标
@@ -383,6 +355,22 @@ class _MediaView(QWidget):
             self._play_btn.setIcon(FIF.PLAY)
 
     def _on_error(self, error, msg: str = "") -> None:
+        # v1.4.2：识别「文件损坏需修复」错误码 → 弹出修复引导（AC-1）
+        if self._proxy is not None and (
+            "[MEDIA_NEEDS_REPAIR]" in self._proxy.last_error
+        ):
+            from qfluentwidgets import MessageBox
+
+            box = MessageBox(
+                "文件已损坏",
+                "该文件已损坏，无法在线播放。\n是否立即加入修复队列？",
+                self.window(),
+            )
+            box.yesButton.setText("立即修复")
+            box.cancelButton.setText("取消")
+            if box.exec() and self._on_repair_requested:
+                self._on_repair_requested()
+            return
         logger.error("媒体播放错误：%s %s", error, msg)
 
     def stop_and_release(self) -> None:
@@ -454,13 +442,23 @@ class PreviewDialog(QDialog):
     :param disk_id: 虚拟磁盘 ID
     :param rel_path: 服务端文件相对路径
     :param filename: 显示用文件名
+    :param repair_task_id: v1.4.2 修复产物验证播放（>0 时媒体走该任务产物流，
+        此时 disk_id/rel_path/filename 仅用于展示）
     """
 
-    def __init__(self, disk_id: int, rel_path: str, filename: str, parent=None):
+    def __init__(
+        self,
+        disk_id: int,
+        rel_path: str,
+        filename: str,
+        repair_task_id: int = 0,
+        parent=None,
+    ):
         super().__init__(parent)
         self._disk_id = disk_id
         self._rel_path = rel_path
         self._filename = filename
+        self._repair_task_id = repair_task_id
         self._kind = _detect_kind(filename)
         self._media_view: Optional[_MediaView] = None
         self._worker: Optional[Worker] = None
@@ -530,8 +528,12 @@ class PreviewDialog(QDialog):
         """根据文件类型选择加载策略"""
         if self._kind in ("video", "audio"):
             # 媒体类：StreamProxy 本地代理，QMediaPlayer 直接 HTTP 拉取
+            # v1.4.2：repair_task_id>0 时播放修复产物（验证播放），不触发修复引导
             path_dir = os.path.dirname(self._rel_path)
-            self._proxy = StreamProxy(self._disk_id, path_dir, self._filename)
+            self._proxy = StreamProxy(
+                self._disk_id, path_dir, self._filename,
+                repair_task_id=self._repair_task_id,
+            )
             self._proxy.start()
             if not HAS_MEDIA:
                 self._show_message(
@@ -541,7 +543,8 @@ class PreviewDialog(QDialog):
                 return
             self._media_view = _MediaView(
                 self._proxy.url, self._kind,
-                display_name=self._filename, proxy=self._proxy, parent=self,
+                display_name=self._filename, proxy=self._proxy,
+                on_repair_requested=self._on_repair_requested, parent=self,
             )
             self._content_layout.addWidget(self._media_view)
             self._stack.setCurrentIndex(1)
@@ -603,6 +606,37 @@ class PreviewDialog(QDialog):
 
         self._content_layout.addWidget(view)
         self._stack.setCurrentIndex(1)
+
+    def _on_repair_requested(self) -> None:
+        """
+        v1.4.2：损坏文件播放失败后用户点击「立即修复」。
+
+        异步创建修复任务（健康拒绝/权限不足等错误经 Worker.error 提示）；
+        成功后提示可在修复中心查看进度。产物验证播放（repair_task_id>0）
+        不会走到此回调（产物为健康文件）。
+        """
+        path_dir = os.path.dirname(self._rel_path)
+        worker = Worker(
+            repair_service.create_task,
+            self._disk_id, path_dir, self._filename,
+        )
+        worker.finished.connect(self._on_repair_created)
+        worker.error.connect(lambda e: self._show_message(f"发起修复失败：{e}"))
+        worker.start()
+
+    def _on_repair_created(self, result: dict) -> None:
+        """修复任务创建成功：提示已入队（AC-5）"""
+        from qfluentwidgets import InfoBar, InfoBarPosition
+
+        InfoBar.success(
+            title="已加入修复队列",
+            content="修复完成后可在「修复中心」页面验证播放并覆盖原文件。",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=5000,
+            parent=self,
+        )
 
     def _on_load_error(self, msg: str) -> None:
         """加载失败"""

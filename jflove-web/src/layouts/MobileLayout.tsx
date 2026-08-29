@@ -10,6 +10,8 @@ export function MobileLayout() {
     { path: '/notes', label: '笔记', icon: '📝' },
     { path: '/sync', label: '同步', icon: '🔄' },
     { path: '/transfer', label: '传输', icon: '📊' },
+    // v1.4.2：修复中心
+    { path: '/repair', label: '修复', icon: '🛠️' },
     { path: '/settings', label: '设置', icon: '⚙️' },
   ];
 

@@ -28,6 +28,7 @@ from qfluentwidgets import (
 
 from src.ui.pages.file_page import FilePage
 from src.ui.pages.note_page import NotePage
+from src.ui.pages.repair_center_page import RepairCenterPage
 from src.ui.pages.security_page import SecurityPage
 from src.ui.pages.settings_page import SettingsPage
 from src.ui.pages.sync_page import SyncPage
@@ -73,6 +74,8 @@ class MainWindow(FluentWindow):
         self.note_page = NotePage(self)
         self.sync_page = SyncPage(self)
         self.transfer_page = TransferPage(self)
+        # v1.4.2：修复中心（全平台共享任务列表，所有登录用户可见）
+        self.repair_center_page = RepairCenterPage(self)
         self.security_page = SecurityPage(self)
         self.settings_page = SettingsPage(self)
 
@@ -98,6 +101,10 @@ class MainWindow(FluentWindow):
         )
         self.addSubInterface(
             self.transfer_page, FIF.SEND, "传输任务",
+            position=NavigationItemPosition.SCROLL,
+        )
+        self.addSubInterface(
+            self.repair_center_page, FIF.ROBOT, "修复中心",
             position=NavigationItemPosition.SCROLL,
         )
 

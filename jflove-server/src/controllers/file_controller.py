@@ -14,13 +14,17 @@
 """
 
 import json
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import aiosqlite
 
+from src.config.settings import REPAIR_DIR_NAME
 from src.models.database import get_db
-from src.services import file_service, auth_service, media_repair_service
+from src.repositories import repair_task_repository, virtual_disk_repository
+from src.services import file_service, auth_service
+from src.utils import media_probe
 from src.utils.middleware import decrypt_request_body, encrypt_response
 from src.utils.crypto import encrypt_stream_chunk, STREAM_PLAINTEXT_CHUNK_SIZE
 from src.utils.logger import get_logger
@@ -76,7 +80,9 @@ async def _get_user(request: Request, db: aiosqlite.Connection, body: dict) -> d
         "请求体（加密后）字段：\n"
         "- `token`：JWT 令牌\n\n"
         "响应体（加密后）字段：\n"
-        "- `disks`：磁盘列表，每项含 `id`、`name`"
+        "- `disks`：磁盘列表，每项含 `id`、`name`、`can_write`、`can_delete`\n"
+        "  （v1.4.2 新增 `can_delete`：修复功能要求写+删权限并存，三端据此\n"
+        "  禁用/隐藏「修复损坏媒体」入口）"
     ),
 )
 async def list_accessible_disks(request: Request, db: aiosqlite.Connection = Depends(get_db)):
@@ -491,9 +497,11 @@ def _build_range_stream_generator(
     若文件在传输途中被删除，发送错误帧后结束生成器。
     """
     # 帧 0：元数据
+    # v1.4.2：stream_mode 恒为 "byte"（实时修复流已移除；字段保留供三端统一判断）
     meta = json.dumps(
         {
             "type": "meta",
+            "stream_mode": "byte",
             "file_size": file_size,
             "range_start": eff_start,
             "range_end": eff_end,
@@ -530,12 +538,17 @@ def _build_range_stream_generator(
 
 @router.get(
     "/stream",
-    summary="流式 Range 预览（v1.1.0，端到端加密）",
+    summary="流式 Range 预览（v1.1.0，端到端加密；v1.4.2 移除实时修复）",
     description=(
         "校验读取权限后，按请求的字节范围（range_start / range_end）流式返回\n"
         "加密帧序列，供客户端边下边播，**不写入本地磁盘**。\n\n"
         "响应协议版本 `X-Encrypted-Stream: v2`，帧格式与 v1 相同，\n"
         "但增加了第 0 帧（元数据帧，含 file_size / content_type 等）。\n\n"
+        "v1.4.2 行为：\n"
+        "- 健康文件：原文件字节 range 直读（meta 帧 stream_mode=byte）\n"
+        "- 损坏/非流式媒体：415，detail 以 `[MEDIA_NEEDS_REPAIR]` 开头，\n"
+        "  客户端应弹「立即修复」引导\n"
+        "- 携带 `repair_task_id`：流式返回该修复任务产物（验证播放，仅 success 任务）\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：JWT 令牌\n"
         "- `disk_id`：虚拟磁盘 ID\n"
@@ -543,14 +556,21 @@ def _build_range_stream_generator(
         "- `filename`：文件名\n"
         "- `range_start`：字节起点（0=开头；负数=从末尾倒数）\n"
         "- `range_end`：字节终点，不含（-1=文件结尾）\n"
-        "- `range_start_seconds`：（v1.4.0，修复流专用）时间 range 起点，单位秒，\n"
-        "  仅当响应 meta 帧 stream_mode=time 时生效，健康文件（stream_mode=byte）忽略"
+        "- `repair_task_id`：（v1.4.2，可选）修复任务 ID，验证播放产物用"
     ),
 )
 async def stream_file(
     request: Request, db: aiosqlite.Connection = Depends(get_db)
 ):
-    """流式 Range 预览，响应为 v2 加密帧序列（byte / 修复 time 双模式）"""
+    """
+    流式 Range 预览，响应为 v2 加密帧序列（v1.4.2：仅 byte 模式）。
+
+    v1.4.2 架构变更：移除 time 实时修复流（播放路径零 ffmpeg）。
+      - 健康文件：原文件字节 range 直读 + 加密帧输出（不变）
+      - 损坏/非流式文件：415 + [MEDIA_NEEDS_REPAIR] 错误码，客户端弹窗引导修复
+      - 修复产物验证播放：repair_task_id 指向 success 任务的产物，
+        产物为 faststart MP4（健康），走同一加密帧管线
+    """
     body = await decrypt_request_body(request)
     user = await _get_user(request, db, body)
     disk_id = int(body.get("disk_id", 0))
@@ -558,14 +578,26 @@ async def stream_file(
     filename = body.get("filename", "").strip()
     range_start = _to_int(body.get("range_start", 0), 0)
     range_end = _to_int(body.get("range_end", -1), -1)
-    # v1.4.0：修复流专用时间 range（秒，仅 stream_mode="time" 时生效）。
-    # 请求「携带该字段」即声明客户端支持时间 range 修复流（Web MSE / 新版
-    # 桌面移动）；未携带的旧客户端一律 byte 原文件流，零回归。
-    range_start_seconds = _to_float(body.get("range_start_seconds", 0), 0.0)
-    client_supports_time = "range_start_seconds" in body
+    # v1.4.2：修复产物验证播放（repair_center「验证播放」按钮）。
+    # 携带 repair_task_id 时流式返回该任务产物（隐藏目录内，绕过健康判定）。
+    repair_task_id = _to_int(body.get("repair_task_id", 0), 0)
 
     if not filename:
         raise HTTPException(status_code=400, detail="filename 不能为空")
+
+    session_id = request.headers.get("X-Session-ID", "")
+    session_key = auth_service.get_session_key(session_id)
+    if not session_key:
+        raise HTTPException(status_code=401, detail="会话已失效")
+
+    # ── v1.4.2：修复产物验证播放分支 ──
+    if repair_task_id:
+        artifact_path = await _resolve_repair_artifact(
+            db, user, repair_task_id,
+        )
+        return _stream_artifact(
+            artifact_path, session_key, range_start, range_end,
+        )
 
     try:
         file_path, eff_start, eff_end, file_size, content_type = (
@@ -579,32 +611,17 @@ async def stream_file(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    session_id = request.headers.get("X-Session-ID", "")
-    session_key = auth_service.get_session_key(session_id)
-    if not session_key:
-        raise HTTPException(status_code=401, detail="会话已失效")
-
-    # v1.4.0：媒体修复决策（开关默认关闭时直接返回 byte 模式，零额外开销；
-    # 仅声明支持时间 range 的客户端才可能进入 time 修复流）
-    repair = await media_repair_service.ensure_playable(
-        db, file_path, filename, client_supports_time,
-    )
-    mode = repair.get("mode", "byte")
-    if mode == "time":
-        allow_transcode = await media_repair_service.is_transcode_enabled(db)
-        logger.info("流式预览(修复): disk_id=%s mode=time", disk_id)
-        return StreamingResponse(
-            media_repair_service.stream_repaired_frames(
-                db, file_path, session_key, range_start_seconds, allow_transcode,
-                file_size,
-            ),
-            media_type="application/octet-stream",
-            headers={"X-Encrypted-Stream": "v2"},
-        )
-    if mode == "error":
+    # ── v1.4.2：播放门禁——只拒「真损坏」（探测致命错/无媒体流）──
+    # 探测结果 60s TTL 缓存，健康文件零重复探测。MKV/AVI/moov 尾部等格式
+    # 不理想但原生播放器可播的文件不拦（桌面/移动原生支持；Web 走既有回退）。
+    # 真损坏 → 415，detail 携带 [MEDIA_NEEDS_REPAIR] 错误码前缀，三端据此
+    # 弹「该文件已损坏，无法在线播放 + 立即修复」引导。
+    probe = await media_probe.probe_media(file_path)
+    if media_probe.is_broken_media(filename, probe, file_path):
+        logger.info("流式预览拒绝(需修复): disk_id=%s", disk_id)
         raise HTTPException(
             status_code=415,
-            detail=repair.get("message", "该文件无法在线预览，请下载后查看"),
+            detail="[MEDIA_NEEDS_REPAIR] 该文件已损坏，无法在线播放，请先修复",
         )
 
     # 日志仅记录 ID / 大小，不记录路径和文件名，防 MITM 日志泄露
@@ -617,6 +634,60 @@ async def stream_file(
         _build_range_stream_generator(
             file_path, session_key, file_size,
             eff_start, eff_end, content_type,
+        ),
+        media_type="application/octet-stream",
+        headers={"X-Encrypted-Stream": "v2"},
+    )
+
+
+async def _resolve_repair_artifact(
+    db: aiosqlite.Connection, user: dict, task_id: int
+) -> str:
+    """
+    解析修复任务产物绝对路径（v1.4.2 验证播放用）。
+
+    任务必须处于 success 状态且产物存在；路径由服务端任务记录推导
+    （磁盘根 + rel_path + 隐藏目录 + output_name），不接受客户端传路径。
+    校验当前用户对任务所属磁盘的读权限（S-1 修复：任务列表全平台共享，
+    但产物内容仍受磁盘读权限约束，防止换 task_id 越权拉取内容）。
+
+    :raises HTTPException: 任务无效（400）/ 产物不存在（404）/ 无读权限（403）
+    """
+    task = await repair_task_repository.find_by_id(db, task_id)
+    if not task or task["status"] != "success" or not task["output_name"]:
+        raise HTTPException(status_code=400, detail="任务不存在或不可播放")
+    if user["role"] != "admin":
+        from src.services.permission_service import check_disk_permission
+
+        if not await check_disk_permission(db, user["id"], task["disk_id"], "read"):
+            raise HTTPException(status_code=403, detail="无读取权限")
+    disk = await virtual_disk_repository.find_by_id(db, task["disk_id"])
+    if not disk:
+        raise HTTPException(status_code=404, detail="虚拟磁盘不存在")
+    from src.services.file_service import _safe_join
+
+    repair_dir = os.path.join(
+        _safe_join(disk["real_path"], task["rel_path"]), REPAIR_DIR_NAME
+    )
+    artifact = os.path.join(repair_dir, task["output_name"])
+    if not os.path.isfile(artifact):
+        raise HTTPException(status_code=404, detail="修复产物不存在")
+    return artifact
+
+
+def _stream_artifact(
+    artifact_path: str, session_key: bytes, range_start: int, range_end: int
+) -> StreamingResponse:
+    """修复产物加密帧流（与正常文件同一 v2 帧管线，支持字节 range）。"""
+    file_size = os.path.getsize(artifact_path)
+    eff_start = max(0, min(range_start, file_size))
+    eff_end = range_end if range_end >= 0 else file_size
+    eff_end = max(eff_start, min(eff_end, file_size))
+    logger.info("修复产物验证播放: size=%s range=[%s,%s]", file_size, eff_start, eff_end)
+    return StreamingResponse(
+        _build_range_stream_generator(
+            artifact_path, session_key, file_size,
+            eff_start, eff_end, "video/mp4",
         ),
         media_type="application/octet-stream",
         headers={"X-Encrypted-Stream": "v2"},

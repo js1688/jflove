@@ -25,13 +25,20 @@ from qfluentwidgets import (
 )
 
 from src.components.preview_dialog import PreviewDialog
-from src.services import file_service
+from src.services import file_service, repair_service
 from src.utils.worker import Worker
 from src.utils.transfer_manager import transfer_manager
 from src.utils.session import session_manager
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# v1.4.2：可发起修复的媒体扩展名（对齐 preview_dialog 的 VIDEO_EXTS/AUDIO_EXTS）
+_MEDIA_EXTENSIONS = {
+    "mp4", "mkv", "avi", "mov", "webm", "flv", "wmv",
+    "m4v", "mpg", "mpeg", "ts", "3gp",
+    "mp3", "wav", "ogg", "flac", "m4a", "aac", "wma", "opus",
+}
 
 
 class MoveTargetDialog(QDialog):
@@ -160,6 +167,8 @@ class FilePage(QWidget):
         self._disks: list[dict] = []
         # v1.1.3：当前磁盘是否有写权限（控制重命名/移动/删除按钮可用性）
         self._can_write: bool = False
+        # v1.4.2：当前磁盘是否有删除权限（修复功能要求写+删并存）
+        self._can_delete: bool = False
         self._worker = None
         self._setup_ui()
 
@@ -249,8 +258,11 @@ class FilePage(QWidget):
         role = session_manager.role or ""
         if role == "admin":
             self._can_write = True
+            self._can_delete = True
         else:
             self._can_write = bool(self._disks[index].get("can_write", False))
+            # v1.4.2：修复功能要求写+删并存（服务端 v1.4.2 起返回 can_delete）
+            self._can_delete = bool(self._disks[index].get("can_delete", False))
         self._path_stack = [""]
         self._refresh()
 
@@ -335,12 +347,23 @@ class FilePage(QWidget):
 
         menu = QMenu(self)
         download_action = preview_action = None
+        repair_action = None
 
         # 下载 / 预览（仅文件）
         if not meta["is_dir"]:
             download_action = menu.addAction("下载")
             preview_action = menu.addAction("预览")
             menu.addSeparator()
+
+        # v1.4.2：修复损坏媒体（仅音视频文件；要求写+删权限并存）
+        ext = meta["name"].rsplit(".", 1)[-1].lower() if "." in meta["name"] else ""
+        if (
+            not meta["is_dir"]
+            and ext in _MEDIA_EXTENSIONS
+            and self._can_write
+            and self._can_delete
+        ):
+            repair_action = menu.addAction("修复损坏媒体")
 
         # 重命名 / 移动到…（写权限控制）
         rename_action = menu.addAction("重命名")
@@ -362,6 +385,8 @@ class FilePage(QWidget):
             self._download_file(meta["name"], meta.get("size", 0))
         elif not meta["is_dir"] and action == preview_action:
             self._preview_file(meta["name"])
+        elif repair_action is not None and action == repair_action:
+            self._repair_file(meta["name"])
         elif action == rename_action:
             self._rename_item(meta["name"], meta["is_dir"])
         elif action == move_action:
@@ -406,6 +431,25 @@ class FilePage(QWidget):
         rel = (self._current_rel_path() + "/" + filename).lstrip("/")
         dialog = PreviewDialog(self._current_disk_id, rel, filename, parent=self)
         dialog.exec()
+
+    def _repair_file(self, filename: str) -> None:
+        """
+        v1.4.2：右键「修复损坏媒体」。
+
+        异步创建修复任务：健康文件被服务端拒绝（提示无需修复）；
+        成功则提示已入队，可在修复中心查看进度。
+        """
+        worker = Worker(
+            repair_service.create_task,
+            self._current_disk_id, self._current_rel_path(), filename,
+        )
+        worker.finished.connect(
+            lambda _: self._show_success(
+                "已加入修复队列，可在「修复中心」页面查看进度"
+            )
+        )
+        worker.error.connect(lambda e: self._show_error(f"发起修复失败：{e}"))
+        worker.start()
 
     def _on_mkdir(self) -> None:
         """新建目录"""

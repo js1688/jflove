@@ -1,10 +1,11 @@
 """
 jflove-desktop pyinstaller 构建脚本
 
-按 .claude/commands/devops.md 约定：
+按 .claude/skills/devops/SKILL.md 约定：
   - 跨平台桌面端使用 pyinstaller 打包
   - 产物输出到 jflove-desktop/build/
   - 安装包不带任何源 session_key（运行时随密钥交换动态生成）
+  - 版本号单一来源：仓库根 version.json（本脚本不再硬编码版本号）
 
 平台支持：
   - Linux:   生成 ELF 单文件 build/dist/JFLove
@@ -14,6 +15,10 @@ jflove-desktop pyinstaller 构建脚本
 用法：
     python build.py             # 默认 onefile + windowed
     python build.py --clean     # 构建前先 rm -rf build/
+
+版本号管理：
+    版本号只读仓库根 version.json。改版本请用 `python scripts/sync_version.py`，
+    本脚本构建前校验模块内版本号（settings.py APP_VERSION）与 version.json 一致。
 """
 
 from __future__ import annotations
@@ -21,16 +26,20 @@ from __future__ import annotations
 import argparse
 import hashlib
 import platform
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-VERSION = "1.4.1"
+ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = ROOT.parent
+
+# 引入仓库根的 scripts/sync_version.py，复用「版本号单一来源」逻辑
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+import sync_version  # noqa: E402
+
 APP_NAME = "JFLove"
 
-ROOT = Path(__file__).resolve().parent
 SRC_MAIN = ROOT / "src" / "main.py"
 IMAGES_DIR = ROOT / "images"
 BUILD_DIR = ROOT / "build"
@@ -38,57 +47,17 @@ DIST_DIR = BUILD_DIR / "dist"
 WORK_DIR = BUILD_DIR / "pyinstaller_work"
 SPEC_DIR = BUILD_DIR / "spec"
 
-# 版本号定义位置（发布时必须全部一致）：
-#   - src/config/settings.py   APP_VERSION = "..."   —— 运行时窗口标题/关于对话框显示
-#   - build.py                 VERSION = "..."       —— 本脚本
-VERSION_FILES = [
-    (ROOT / "src" / "config" / "settings.py", r'APP_VERSION = "([^"]+)"'),
-    (ROOT / "build.py", r'^VERSION = "([^"]+)"', re.MULTILINE),
-]
-
-
-def _read_version(path: Path, pattern: str, flags: int = 0) -> str | None:
-    """读取指定文件中当前版本号，未匹配返回 None"""
-    text = path.read_text(encoding="utf-8")
-    m = re.search(pattern, text, flags)
-    return m.group(1) if m else None
-
 
 def assert_version_consistent() -> None:
-    """发布阻塞项：校验全部版本号位置与 build.py VERSION 一致，不一致直接失败"""
-    for path, pattern, *flags in VERSION_FILES:
-        flags = flags[0] if flags else 0
-        found = _read_version(path, pattern, flags)
-        rel = path.relative_to(ROOT)
-        if found is None:
-            fail(f"{rel} 中未找到版本号定义，无法校验")
-        if found != VERSION:
-            fail(
-                f"版本不一致：{rel} = {found}，build.py VERSION = {VERSION}\n"
-                f"请用 `python build.py --version {VERSION}` 一键同步，或手动统一后再构建。"
-            )
-    log(f"版本一致性校验通过：全部版本号 = v{VERSION}")
-
-
-def sync_version(new_version: str) -> None:
-    """把新版本号同步写入全部版本号位置（含 build.py 自身）"""
-    if not re.fullmatch(r"\d+\.\d+\.\d+", new_version):
-        fail(f"非法版本号：{new_version}（要求形如 x.y.z）")
-    # src/config/settings.py 的 APP_VERSION
-    settings_path = ROOT / "src" / "config" / "settings.py"
-    settings_text = settings_path.read_text(encoding="utf-8")
-    settings_text = re.sub(
-        r'APP_VERSION = "[^"]+"', f'APP_VERSION = "{new_version}"', settings_text, count=1
-    )
-    settings_path.write_text(settings_text, encoding="utf-8")
-    # build.py 自身
-    self_path = ROOT / "build.py"
-    self_text = self_path.read_text(encoding="utf-8")
-    self_text = re.sub(
-        r'^VERSION = "[^"]+"', f'VERSION = "{new_version}"', self_text, count=1, flags=re.MULTILINE
-    )
-    self_path.write_text(self_text, encoding="utf-8")
-    log(f"版本号已同步：v{new_version}（settings.py APP_VERSION / build.py VERSION）")
+    """发布阻塞项：校验模块内版本号与 version.json 一致，不一致直接失败"""
+    issues = sync_version.check_consistency("desktop")
+    if issues:
+        fail(
+            "版本不一致：\n"
+            + "\n".join(f"  - {i}" for i in issues)
+            + f"\n请先运行 `python scripts/sync_version.py` 同步到 v{sync_version.load_version()}。"
+        )
+    log(f"版本一致性校验通过：全部版本号 = v{sync_version.load_version()}")
 
 
 def log(msg: str) -> None:
@@ -167,15 +136,11 @@ def report_artifacts() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", default=VERSION, help="版本号（默认 build.py VERSION；指定新值会自动同步 settings.py APP_VERSION）")
     parser.add_argument("--clean", action="store_true", help="构建前清空 build/")
     args = parser.parse_args()
 
-    if args.version != VERSION:
-        sync_version(args.version)      # 显式指定新版本号 → 自动同步全部位置
-    else:
-        assert_version_consistent()     # 未指定 → 校验全部位置一致（不一致中止）
-    version = args.version
+    assert_version_consistent()  # 校验模块内版本号 == version.json
+    version = sync_version.load_version()
 
     log(f"=== jflove-desktop v{version} 构建开始（平台={platform.system()} {platform.machine()}）===")
     assert_no_secrets()

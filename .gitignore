@@ -39,6 +39,10 @@ jflove-db/jflove-dev.db
 # 运行时日志（可能含本地路径、用户名等个人隐私）
 logs/
 
+# 桌面端运行时数据（服务器地址历史、会话等，实际存于系统用户数据目录，
+# 项目内的 storage/ 为旧版遗留文件，仅做启动迁移读取，无需提交）
+jflove-desktop/storage/
+
 # Flutter / Dart 相关
 .dart_tool/
 .pub-cache/

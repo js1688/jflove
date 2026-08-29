@@ -73,11 +73,35 @@ CREATE TABLE IF NOT EXISTS config (
 )
 """
 
+# v1.4.2：手动离线媒体修复任务表（全平台共享，不做账户归属隔离——user_id 仅供展示）
+_CREATE_MEDIA_REPAIR_TASKS = """
+CREATE TABLE IF NOT EXISTS media_repair_tasks (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    username      TEXT    NOT NULL DEFAULT '',
+    disk_id       INTEGER NOT NULL,
+    rel_path      TEXT    NOT NULL,
+    filename      TEXT    NOT NULL,
+    status        TEXT    NOT NULL DEFAULT 'pending',
+    progress      INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT    NOT NULL DEFAULT '',
+    source_size   INTEGER NOT NULL DEFAULT 0,
+    output_name   TEXT    NOT NULL DEFAULT '',
+    started_at    TEXT,
+    finished_at   TEXT,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    deleted_at    TEXT
+)
+"""
+
 _INDEXES = [
     "CREATE INDEX IF NOT EXISTS users_username_idx ON users(username)",
     "CREATE INDEX IF NOT EXISTS sessions_session_id_idx ON sessions(session_id)",
     "CREATE INDEX IF NOT EXISTS user_permissions_user_id_idx ON user_permissions(user_id)",
     "CREATE INDEX IF NOT EXISTS user_permissions_disk_id_idx ON user_permissions(virtual_disk_id)",
+    "CREATE INDEX IF NOT EXISTS media_repair_tasks_user_id_idx ON media_repair_tasks(user_id)",
+    "CREATE INDEX IF NOT EXISTS media_repair_tasks_disk_id_idx ON media_repair_tasks(disk_id)",
 ]
 
 
@@ -91,6 +115,7 @@ async def init_db() -> None:
         # 历史 notes_permissions 表保留（不再读写），不影响新部署。
         await db.execute(_CREATE_SESSIONS)
         await db.execute(_CREATE_CONFIG)
+        await db.execute(_CREATE_MEDIA_REPAIR_TASKS)
         for idx in _INDEXES:
             await db.execute(idx)
         # 运行时迁移：为 users 表添加缺失字段（已存在则跳过）

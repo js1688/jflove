@@ -15,6 +15,8 @@ export function DesktopLayout() {
     { path: '/notes', label: '笔记管理', icon: '📝' },
     { path: '/sync', label: '同步管理', icon: '🔄' },
     { path: '/transfer', label: '传输任务', icon: '📊' },
+    // v1.4.2：修复中心（全平台共享任务列表）
+    { path: '/repair', label: '修复中心', icon: '🛠️' },
   ];
 
   // 底部固定项（对标桌面端 NavigationItemPosition.BOTTOM）：安全状态 + 设置

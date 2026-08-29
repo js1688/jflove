@@ -33,12 +33,15 @@ class FilePreviewPage extends ConsumerWidget {
   final int diskId;
   final String path;
   final String name;
+  // v1.4.2：修复产物验证播放（>0 时媒体走该任务产物流）
+  final int repairTaskId;
 
   const FilePreviewPage({
     super.key,
     required this.diskId,
     required this.path,
     required this.name,
+    this.repairTaskId = 0,
   });
 
   @override
@@ -88,6 +91,7 @@ class FilePreviewPage extends ConsumerWidget {
         path: path,
         name: name,
         isVideo: true,
+        repairTaskId: repairTaskId,
       );
     }
 
@@ -107,6 +111,7 @@ class FilePreviewPage extends ConsumerWidget {
         path: path,
         name: name,
         isVideo: false,
+        repairTaskId: repairTaskId,
       );
     }
 
@@ -250,19 +255,24 @@ class _ImagePreview extends ConsumerWidget {
   }
 }
 
-/// 视频/音频预览 - 通过本地 StreamProxy 流式播放，边下边播、支持 seek
-/// 对标桌面端 StreamProxy + QMediaPlayer
+/// 视频/音频预览 - 通过本地 StreamProxy 流式播放，边下边播、原生 seek
+/// 对标桌面端 StreamProxy + ExoPlayer
+/// v1.4.2：纯 byte 模式（服务端无实时修复流）；seek 恢复 ExoPlayer 原生字节
+/// range；损坏文件弹「立即修复」引导；repairTaskId>0 时验证播放修复产物。
 class _MediaPreview extends ConsumerStatefulWidget {
   final int diskId;
   final String path;
   final String name;
   final bool isVideo;
+  // v1.4.2：修复产物验证播放（>0 时经代理拉取修复任务产物流）
+  final int repairTaskId;
 
   const _MediaPreview({
     required this.diskId,
     required this.path,
     required this.name,
     required this.isVideo,
+    this.repairTaskId = 0,
   });
 
   @override
@@ -275,9 +285,8 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
   bool _isInitialized = false;
   bool _hasError = false;
   String _errorMessage = '';
-  // v1.4.1：完整时长（秒，来自 meta.duration）与当前流起始偏移（seek 后 position 归零补偿）
-  double _fullDurationSeconds = 0.0;
-  double _seekOffsetSeconds = 0.0;
+  // v1.4.2：损坏文件标志（[MEDIA_NEEDS_REPAIR]）——弹「立即修复」引导
+  bool _needsRepair = false;
 
   /// 文件所在目录（磁盘内相对路径，不含文件名）
   String get _pathDir {
@@ -300,7 +309,7 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
         throw Exception('会话密钥未就绪，请重新登录');
       }
 
-      // 2. 启动本地 StreamProxy（对标桌面端 StreamProxy）
+      // 2. 启动本地 StreamProxy（v1.4.2 纯 byte 模式）
       final proxy = StreamProxy(
         diskId: widget.diskId,
         path: _pathDir,
@@ -309,6 +318,7 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
         sessionId: session.sessionId,
         serverUrl: session.serverUrl,
         jwtToken: session.token,
+        repairTaskId: widget.repairTaskId,
       );
       _proxy = proxy;
       await proxy.start();
@@ -324,20 +334,24 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
       _controller = controller;
 
       await controller.initialize();
-      // v1.4.1：ExoPlayer 对空 moov 流式 fMP4 拿不到完整时长，用 meta.duration 兑底
-      _fullDurationSeconds = proxy.duration;
       if (mounted) {
         setState(() => _isInitialized = true);
       }
       controller.play();
     } catch (e) {
+      // 损坏文件（服务端 415 [MEDIA_NEEDS_REPAIR]）→ 修复引导而非普通错误
+      final msg = e.toString();
+      if (msg.contains('[MEDIA_NEEDS_REPAIR]') ||
+          (_proxy?.lastError.contains('[MEDIA_NEEDS_REPAIR]') ?? false)) {
+        _needsRepair = true;
+      }
       // 出错时清理 proxy
       _proxy?.close();
       _proxy = null;
       if (mounted) {
         setState(() {
           _hasError = true;
-          _errorMessage = e.toString();
+          _errorMessage = msg;
         });
       }
     }
@@ -350,31 +364,34 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
     super.dispose();
   }
 
-  /// v1.4.1：time 修复流 seek 依赖重新拉流（服务端 -ss），而非 ExoPlayer 内部 seek。
-  /// 目标为绝对时间轴位置：记录偏移 → proxy.seek → 重建 controller 重新 initialize。
+  /// v1.4.2：恢复 ExoPlayer 原生 seek（字节 range 直通）。
+  /// 修复 v1.4.1 回归：此前无条件重建 controller 重拉流，健康文件
+  /// 拖拽后从头播放且时间显示错位。
   Future<void> _seekTo(double targetSeconds) async {
-    final proxy = _proxy;
-    if (proxy == null) return;
-    _seekOffsetSeconds = targetSeconds;
-    proxy.seek(targetSeconds);
-    final old = _controller;
-    _controller = null;
-    old?.dispose();
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(proxy.url),
-      videoPlayerOptions: VideoPlayerOptions(
-        mixWithOthers: true,
-        allowBackgroundPlayback: true,
-      ),
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    await controller.seekTo(
+      Duration(milliseconds: (targetSeconds * 1000).round()),
     );
-    _controller = controller;
+  }
+
+  /// 损坏文件「立即修复」：调修复接口创建任务
+  Future<void> _repairNow() async {
     try {
-      await controller.initialize();
-      controller.play();
-    } catch (_) {
-      // seek 失败：保持现状，不打断播放
+      final repair = ref.read(repairServiceProvider);
+      await repair.createTask(widget.diskId, _pathDir, widget.name);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已加入修复队列，可在「修复中心」查看进度')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('发起修复失败：$e')),
+        );
+      }
     }
-    if (mounted) setState(() {});
   }
 
   @override
@@ -386,7 +403,7 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
           children: [
             Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
             const SizedBox(height: 12),
-            const Text('播放失败'),
+            Text(_needsRepair ? '该文件已损坏，无法在线播放' : '播放失败'),
             const SizedBox(height: 4),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -398,6 +415,14 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (_needsRepair) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _repairNow,
+                icon: const Icon(Icons.healing),
+                label: const Text('立即修复'),
+              ),
+            ],
           ],
         ),
       );
@@ -470,11 +495,9 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
               ),
             ),
           ),
-        // 底部控制栏
+        // 底部控制栏（v1.4.2：时长与进度回归 ExoPlayer 原生报告）
         _MediaControls(
           controller: controller,
-          fullDurationSeconds: _fullDurationSeconds,
-          seekOffsetSeconds: _seekOffsetSeconds,
           onSeek: _seekTo,
         ),
       ],
@@ -482,18 +505,13 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
   }
 }
 
-/// 媒体播放控制栏
+/// 媒体播放控制栏（v1.4.2：时长/进度回归 ExoPlayer 原生报告）
 class _MediaControls extends StatefulWidget {
   final VideoPlayerController controller;
-  // v1.4.1：完整时长（秒，meta.duration 兑底）与当前流起始偏移
-  final double fullDurationSeconds;
-  final double seekOffsetSeconds;
   final Future<void> Function(double seconds) onSeek;
 
   const _MediaControls({
     required this.controller,
-    required this.fullDurationSeconds,
-    required this.seekOffsetSeconds,
     required this.onSeek,
   });
 
@@ -529,14 +547,9 @@ class _MediaControlsState extends State<_MediaControls> {
   Widget build(BuildContext context) {
     final controller = widget.controller;
     final isPlaying = controller.value.isPlaying;
-    // v1.4.1：总时长用 meta.duration 兑底（ExoPlayer 对空 moov 流式拿不到）；
-    // position 加偏移映射回绝对时间轴（time seek 后 position 归零的补偿）。
-    final duration = Duration(
-      milliseconds: (widget.fullDurationSeconds * 1000).round(),
-    );
-    final position = controller.value.position + Duration(
-      milliseconds: (widget.seekOffsetSeconds * 1000).round(),
-    );
+    // v1.4.2：byte 模式容器自带完整 moov，ExoPlayer 直接报告时长与进度
+    final duration = controller.value.duration;
+    final position = controller.value.position;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -562,9 +575,12 @@ class _MediaControlsState extends State<_MediaControls> {
                       1.0,
                     )
                   : 0,
-              onChanged: (v) {
-                final seconds = v * widget.fullDurationSeconds;
-                widget.onSeek(seconds);
+              // v1.4.2：松手才 seek（onChangeEnd），修复拖动过程连续触发
+              // 重建/重拉的体验问题（v1.4.1 遗留）。onChanged 为 Slider 必需
+              // 参数，拖动过程中不做任何事（不触发网络请求）。
+              onChanged: (_) {},
+              onChangeEnd: (v) {
+                widget.onSeek(v * duration.inMilliseconds / 1000);
               },
             ),
           ),

@@ -33,16 +33,9 @@ export interface StreamMeta {
   /** byte 模式字段：有效字节终点（不含） */
   range_end?: number;
   content_type: string;
-  /** 流模式：byte=原文件字节 range；time=修复流时间 range */
+  /** 流模式：v1.4.2 起恒为 byte（服务端已移除 time 实时修复流；
+   *  字段保留供旧逻辑兼容判断） */
   stream_mode?: 'byte' | 'time';
-  /** time 模式字段：本次修复流的时间起点（秒） */
-  range_start_seconds?: number;
-  /** time 模式字段：媒体完整时长（秒），供 MSE 设置 MediaSource.duration
-   *  （empty_moov 的 fMP4 moov 无时长信息，浏览器无法知道总时长/进度条） */
-  duration?: number;
-  /** time 模式字段：修复流真实 codec 串（如 "avc1.64000c" / "avc1.64000c, mp4a.40.2"），
-   *  供 MSE 组装完整 MIME（v1.4.0） */
-  codec?: string;
 }
 
 /**
@@ -162,7 +155,7 @@ export async function openEncryptedStream(
   filename: string,
   rangeStart: number,
   rangeEnd: number,
-  rangeStartSeconds?: number,
+  repairTaskId?: number,
   signal?: AbortSignal,
 ): Promise<{ meta: StreamMeta; frames: AsyncGenerator<Uint8Array> }> {
   // /stream 接口约定：path=文件所在目录、filename=文件名（桌面/移动端一致）。
@@ -185,7 +178,8 @@ export async function openEncryptedStream(
     filename,
     range_start: rangeStart,
     range_end: rangeEnd,
-    range_start_seconds: rangeStartSeconds ?? 0,
+    // v1.4.2：修复产物验证播放（>0 时服务端流式返回该修复任务产物）
+    ...(repairTaskId && repairTaskId > 0 ? { repair_task_id: repairTaskId } : {}),
   });
   const { nonce, ciphertext } = encryptEnvelope(
     session.sessionKey,

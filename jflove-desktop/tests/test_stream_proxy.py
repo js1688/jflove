@@ -1,7 +1,7 @@
 """
 StreamProxy 单元测试
 
-通过 mock file_service.stream_range 测试本地 HTTP 代理行为：
+通过 mock file_service.stream_range 测试本地 HTTP 代理行为（v1.4.2 纯 byte 模式）：
   - HEAD 请求返回正确元数据（Content-Length、Accept-Ranges）
   - GET 请求无 Range：返回 206、完整字节内容
   - GET 请求带 Range bytes=X-Y：返回 206、Content-Range 正确
@@ -9,6 +9,7 @@ StreamProxy 单元测试
   - _ensure_meta 缓存：多次请求只拉取一次元数据
   - 无效 token → 404
   - 代理关闭后 → 503
+  - repair_task_id 透传给 stream_range（修复产物验证播放）
 """
 
 from __future__ import annotations
@@ -34,15 +35,16 @@ def _make_mock(content: bytes = _CONTENT):
     还附带一个可读的调用次数计数器（通过返回元组第 3 项传出）。
     """
     file_size = len(content)
-    call_log: list[tuple[int, int]] = []  # 记录每次调用的 (range_start, range_end)
+    # 记录每次调用的 (range_start, range_end, repair_task_id)
+    call_log: list[tuple[int, int, int]] = []
 
-    def _mock(disk_id, path, filename, range_start=0, range_end=-1, range_start_seconds=None):
+    def _mock(disk_id, path, filename, range_start=0, range_end=-1, repair_task_id=0):
         eff_start = (
             range_start if range_start >= 0 else max(0, file_size + range_start)
         )
         eff_end = range_end if range_end >= 0 else file_size
         eff_end = min(eff_end, file_size)
-        call_log.append((eff_start, eff_end))
+        call_log.append((eff_start, eff_end, repair_task_id))
 
         meta = {
             "type": "meta",
@@ -112,7 +114,7 @@ class Test元数据请求:
             f"期望 3 次 stream_range 调用，实际 {len(call_log)}：{call_log}"
         )
         # 第一次调用是元数据专用（range 0-0）
-        assert call_log[0] == (0, 0), f"第一次调用应为 range 0-0，实际 {call_log[0]}"
+        assert call_log[0] == (0, 0, 0), f"第一次调用应为 range 0-0，实际 {call_log[0]}"
 
 
 # ════════════════════════════════════════════════════════════════════ #
@@ -208,120 +210,6 @@ class TestGET字节范围:
 
 
 # ════════════════════════════════════════════════════════════════════ #
-#   测试组 3：time 修复流模式（v1.4.0 方案 B）
-# ════════════════════════════════════════════════════════════════════ #
-
-_FMP4_CONTENT = os.urandom(4096) + b"FMP4_REPAIR_STREAM" * 300
-
-
-def _make_time_mock(content: bytes = _FMP4_CONTENT, duration: float = 3.0):
-    """
-    模拟服务端 time 修复流：meta 含 stream_mode=time / file_size / duration，
-    数据帧为 fMP4 修复流字节；记录 range_start_seconds 调用参数。
-    """
-    file_size = len(content)
-    time_log: list[tuple[int, int, float | None]] = []
-
-    def _mock(
-        disk_id, path, filename, range_start=0, range_end=-1,
-        range_start_seconds=None,
-    ):
-        time_log.append((range_start, range_end, range_start_seconds))
-        meta = {
-            "type": "meta",
-            "stream_mode": "time",
-            "content_type": "video/mp4",
-            "range_start_seconds": range_start_seconds if range_start_seconds is not None else 0.0,
-            "file_size": file_size,
-            "duration": duration,
-            "codec": "avc1.64000c",
-        }
-
-        def _iter():
-            pos = 0
-            while pos < len(content):
-                yield content[pos:pos + 4096]
-                pos += 4096
-
-        return meta, _iter()
-
-    return _mock, time_log
-
-
-class TestTime修复流:
-    """time 模式：HEAD 不声明 seek；GET 200+chunked；Range 线性映射时间"""
-
-    def test_HEAD_不声明Accept_Ranges(self):
-        """time 模式 HEAD：200 + Content-Length，但不带 Accept-Ranges"""
-        mock_fn, _ = _make_time_mock()
-        with patch("src.services.file_service.stream_range", side_effect=mock_fn):
-            proxy = StreamProxy(1, "", "v.mkv")
-            proxy.start()
-            try:
-                resp = requests.head(proxy.url, timeout=5)
-                assert resp.status_code == 200
-                assert int(resp.headers["content-length"]) == len(_FMP4_CONTENT)
-                assert "accept-ranges" not in resp.headers, (
-                    "time 模式不可字节 seek，不应声明 Accept-Ranges"
-                )
-            finally:
-                proxy.close()
-
-    def test_GET_返回200_chunked_无Content_Length(self):
-        """time 模式 GET：200（非 206），无 Content-Length（chunked），数据完整"""
-        mock_fn, _ = _make_time_mock()
-        with patch("src.services.file_service.stream_range", side_effect=mock_fn):
-            proxy = StreamProxy(1, "", "v.mkv")
-            proxy.start()
-            try:
-                resp = requests.get(proxy.url, timeout=5)
-                assert resp.status_code == 200, f"期望 200，实际 {resp.status_code}"
-                assert resp.content == _FMP4_CONTENT, "修复流数据应完整透传"
-                assert "content-length" not in resp.headers, (
-                    "修复流总字节不可预知，应为 chunked（无 Content-Length）"
-                )
-            finally:
-                proxy.close()
-
-    def test_GET_带Range_线性映射range_start_seconds(self):
-        """Range 字节偏移线性映射时间：seconds = offset / file_size * duration"""
-        mock_fn, time_log = _make_time_mock()
-        file_size = len(_FMP4_CONTENT)
-        half = file_size // 2
-        with patch("src.services.file_service.stream_range", side_effect=mock_fn):
-            proxy = StreamProxy(1, "", "v.mkv")
-            proxy.start()
-            try:
-                headers = {"Range": f"bytes={half}-"}
-                resp = requests.get(proxy.url, headers=headers, timeout=5)
-                assert resp.status_code == 200
-                assert resp.content == _FMP4_CONTENT
-            finally:
-                proxy.close()
-
-        # 元数据请求 1 次（range 0-0，无时间参数）+ GET 数据 1 次（映射时间）
-        assert len(time_log) == 2, f"期望 2 次调用，实际 {len(time_log)}: {time_log}"
-        _, _, seconds = time_log[1]
-        expected = half / file_size * 3.0
-        assert seconds is not None, "time 模式 GET 应携带 range_start_seconds"
-        assert abs(seconds - expected) < 1e-9, f"线性映射错误: {seconds} != {expected}"
-
-    def test_映射边界_duration或size为零_时间取零(self):
-        """duration=0 时映射结果应为 0（防除零/负时间）"""
-        mock_fn, time_log = _make_time_mock(duration=0.0)
-        with patch("src.services.file_service.stream_range", side_effect=mock_fn):
-            proxy = StreamProxy(1, "", "v.mkv")
-            proxy.start()
-            try:
-                headers = {"Range": "bytes=100-"}
-                requests.get(proxy.url, headers=headers, timeout=5)
-            finally:
-                proxy.close()
-        _, _, seconds = time_log[1]
-        assert seconds == 0.0, f"duration=0 时映射应为 0，实际 {seconds}"
-
-
-# ════════════════════════════════════════════════════════════════════ #
 #   测试组 4：安全与错误处理
 # ════════════════════════════════════════════════════════════════════ #
 
@@ -363,7 +251,7 @@ class Test安全与错误:
             pass  # 连接被拒绝是正常的
 
     def test_proxy_url包含token路径(self):
-        """proxy.url 格式应为 http://127.0.0.1:{port}/{uuid_hex}?v={seek_version}"""
+        """proxy.url 格式应为 http://127.0.0.1:{port}/{uuid_hex}（v1.4.2 无 seek query）"""
         mock_fn, _ = _make_mock()
         with patch("src.services.file_service.stream_range", side_effect=mock_fn):
             proxy = StreamProxy(1, "", "test.mp4")
@@ -371,14 +259,30 @@ class Test安全与错误:
             try:
                 url = proxy.url
                 assert url.startswith("http://127.0.0.1:"), f"URL 应绑定 loopback: {url}"
-                # v1.4.1：URL 末尾带 ?v={seek_version}（QMediaPlayer 对相同 URL 复用缓存，
-                # 版本号变化强制重新拉流），解析 token 时需剥离 query
-                token = url.split("/")[-1].split("?")[0]
+                token = url.split("/")[-1]
                 assert len(token) == 32, f"token 长度应为 32（uuid4.hex），实际 {len(token)}"
                 assert token.isalnum(), f"token 应为十六进制字符，实际 {token}"
-                assert "?v=" in url, f"URL 应携带 seek 版本号 query，实际 {url}"
+                assert "?" not in url, f"v1.4.2 URL 不应带 query，实际 {url}"
             finally:
                 proxy.close()
+
+    def test_repair_task_id_透传(self):
+        """repair_task_id>0 时 stream_range 应收到该参数（修复产物验证播放）"""
+        mock_fn, call_log = _make_mock()
+        with patch("src.services.file_service.stream_range", side_effect=mock_fn):
+            proxy = StreamProxy(1, "", "v.mp4", repair_task_id=42)
+            proxy.start()
+            try:
+                resp = requests.get(proxy.url, timeout=5)
+                assert resp.status_code == 206
+            finally:
+                proxy.close()
+
+        assert len(call_log) >= 2, f"应至少 2 次调用（meta+GET），实际 {call_log}"
+        _, _, task_id = call_log[0]
+        assert task_id == 42, f"meta 请求应透传 repair_task_id=42，实际 {task_id}"
+        _, _, task_id = call_log[1]
+        assert task_id == 42, f"GET 数据请求应透传 repair_task_id=42，实际 {task_id}"
 
     def test_proxy只绑定loopback地址(self):
         """代理必须绑定 127.0.0.1，不暴露到外网（验证 server_address）"""

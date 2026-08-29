@@ -48,7 +48,7 @@ Client ← Encrypted Response
 - **认证**：PyJWT（ES256 签名）
 - **加密**：cryptography（X25519 ECDH + HKDF-SHA256 + ChaCha20-Poly1305）
 - **密码哈希**：bcrypt
-- **媒体修复（v1.4.0）**：imageio-ffmpeg（内置静态 FFmpeg 二进制，无需系统安装）
+- **媒体修复（v1.4.2）**：imageio-ffmpeg（内置静态 FFmpeg 二进制，无需系统安装；系统已装 ffmpeg 时优先用之）
 
 ---
 
@@ -94,17 +94,26 @@ venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload
 
 ---
 
-## 媒体修复（v1.4.0）
+## 媒体修复（v1.4.2 手动离线修复）
 
-对损坏/非流式媒体文件（普通 MP4 moov 在尾部、MKV、AVI、MOV、FLV 等）做无损修复，使浏览器 MSE 可正常边下边播：
+v1.4.2 起废弃「播放时实时修复」：播放路径零 ffmpeg，只输出健康文件字节流；
+损坏文件播放被拒（415 + `[MEDIA_NEEDS_REPAIR]`），由用户手动发起异步离线修复：
 
-- **服务端配置（config 表，三端共享）**：
-  - `media_repair_enabled`：总开关，默认 `"0"`（关闭）
+- **修复入口**：文件管理右键「修复损坏媒体」（三端）；播放失败弹窗「立即修复」直达
+- **修复流程**：任务入队（`pending → running → verifying → success`）→ 产物落盘
+  原文件同目录 `.jflove-repair/`（隐藏目录，文件列表不展示、路径访问拒绝）→
+  用户验证播放 → 二次确认后覆盖原文件（`os.replace` 原子替换，**不留备份**）
+- **权限门槛**：发起修复/覆盖/删除产物均要求磁盘**写+删权限并存**；任务列表
+  全平台共享（所有登录用户可见，只读账号可看不可操作）
+- **服务端配置（config 表）**：
   - `media_repair_allow_transcode`：重编码子开关，默认 `"0"`（关闭，仅 `-c copy`）
-  - `media_repair_max_concurrent`：并发数上限，未设置时按 CPU 核数自动推导，硬上限 8
-- **行为**：开关关闭时零开销（不探测、不修复）；开启时健康文件直接原文件流（`stream_mode=byte`），需修复文件走 ffmpeg `-c copy` 重封装为 fMP4 的 **stdout 管道直出（不落盘）**（`stream_mode=time`，时间 range）
-- **安全**：只读源文件、永不写回；ffmpeg 走 asyncio 子进程，客户端中断 kill+wait 回收；并发动态限流
-- **接口**：`/api/v1/files/stream` 保持加密帧协议（`X-Encrypted-Stream: v2`），meta 帧新增 `stream_mode`，请求体新增可选 `range_start_seconds`
+  - `media_repair_max_concurrent`：离线修复队列并发上限，未设置时按 CPU 核数自动推导，硬上限 8
+  - `media_repair_enabled`：**已废弃**（键保留不再读取）
+- **安全**：修复只读源文件；产物路径由服务端任务记录推导（客户端不可传路径）；
+  ffmpeg 参数列表（无 shell）；日志不记路径/文件名明文
+- **接口**：`/api/v1/files/repair/create|tasks|cancel|override|delete-artifact|delete-record`
+  （全部加密 body）；`/api/v1/files/stream` 可选 `repair_task_id` 验证播放产物，
+  meta 帧 `stream_mode` 恒为 `"byte"`
 
 ---
 

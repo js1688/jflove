@@ -4,11 +4,17 @@ import '../models/file_item.dart';
 import '../models/virtual_disk.dart';
 import '../services/disk_service.dart';
 import '../services/file_service.dart';
+import '../services/repair_service.dart';
 import 'session_provider.dart';
 
 /// 文件服务
 final fileServiceProvider = Provider<FileService>((ref) {
   return FileService(ref.watch(httpServiceProvider));
+});
+
+/// 媒体修复服务（v1.4.2）
+final repairServiceProvider = Provider<RepairService>((ref) {
+  return RepairService(ref.watch(httpServiceProvider));
 });
 
 /// 磁盘服务

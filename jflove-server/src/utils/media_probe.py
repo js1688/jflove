@@ -72,15 +72,20 @@ def get_ffmpeg_exe() -> str | None:
 
 def _moov_at_front(file_path: str, head_bytes: int = 64 * 1024) -> bool:
     """
-    检查 MP4 是否为 fMP4（fragmented MP4：moov 前置**且含 mvex**）。
+    检查 MP4 的 moov box 是否位于文件前部（v1.4.2 语义：原生可流式）。
 
-    MSE 边下边播要求**分片** fMP4，而非仅 moov 前置的 faststart MP4：
-    faststart MP4（moov 前置但无 mvex）MSE 无法流式播放，需修复转 fMP4。
-    避免「文件小于读取窗口时 b'moov' 必然命中」的误判（v1.4.1）。
+    v1.4.1 及之前要求 moov 含 mvex（fMP4）——普通 faststart MP4（moov 前置但
+    非分片）会被误判为需修复，导致大量健康文件被反复实时转码（正是 v1.4.1
+    播放卡顿与 seek 异常的重灾区）。v1.4.2 修正：**moov 前置即健康**——
+      - fMP4：Web MSE 边下边播 ✓
+      - faststart MP4：桌面/移动端原生字节流播放 ✓，Web 走既有
+        「完整下载 → Blob」回退（下载完成后播放与 seek 均正常）
+    moov 在尾部（mdat 在前）时，原生播放器需先取尾部索引，体验差且部分
+    客户端失败 → 视为需修复。
 
     :param file_path: 文件绝对路径
     :param head_bytes: 读取的头部字节数
-    :returns: fMP4 返回 True；faststart / moov 尾部 / 无法解析返回 False
+    :returns: moov 前置返回 True；moov 尾部 / 无法解析返回 False
     """
     try:
         with open(file_path, "rb") as f:
@@ -95,14 +100,12 @@ def _moov_at_front(file_path: str, head_bytes: int = 64 * 1024) -> bool:
         ftyp_size = struct.unpack(">I", head[0:4])[0]
         pos = ftyp_size if ftyp_size >= 8 else 0
 
-    # 扫描头部 box，判断首个业务 box 是否为「含 mvex 的 moov」（fMP4）
+    # 扫描头部 box：首个业务 box 为 moov（含或不含 mvex 均可）→ 健康
     while pos + 8 <= size:
         box_size = struct.unpack(">I", head[pos:pos + 4])[0]
         box_type = head[pos + 4:pos + 8]
         if box_type == b"moov":
-            moov_end = pos + box_size if box_size >= 8 else size
-            moov_data = head[pos:min(moov_end, size)]
-            return b"mvex" in moov_data
+            return True
         if box_type == b"mdat":
             # mdat 在前 → moov 在文件尾部（非流式），需要修复
             return False
@@ -221,7 +224,10 @@ async def probe_media(file_path: str) -> dict:
 
 def is_mse_friendly(filename: str, probe: dict, file_path: str) -> bool:
     """
-    判断文件是否为"浏览器 MSE 可直接播放的标准流式格式"（健康）。
+    判断文件是否为"原生播放器可直接流式播放"的健康格式（v1.4.2 语义）。
+
+    供「修复必要性判定」使用：返回 True = 健康（修复请求拒绝）；
+    False = 需修复（MKV/AVI/FLV 等非流式容器、moov 尾部 MP4 等）。
 
     :param filename: 文件名（用于推断扩展名）
     :param probe: probe_media 的返回结果
@@ -239,6 +245,31 @@ def is_mse_friendly(filename: str, probe: dict, file_path: str) -> bool:
         return False
     # 未知扩展名：若 probe 显示有流且无致命错误，视为健康（交给播放器尝试）
     return healthy_stream
+
+
+def is_broken_media(filename: str, probe: dict, file_path: str) -> bool:
+    """
+    判断文件是否为"真损坏、无法在线播放"（v1.4.2 播放门禁专用）。
+
+    与 is_mse_friendly（修复必要性）的区别：
+      - 本函数只拦「探测出致命错误或无媒体流」的文件——任何端都播不了，
+        必须拒绝播放并引导修复；
+      - MKV/AVI/moov 尾部等"格式不理想但桌面/移动端可能原生可播"的文件
+        **不拦**：桌面端 QMediaPlayer、移动端 ExoPlayer 原生支持这些容器，
+        直接放行原文件字节流（v1.4.2 播放纯净化 = 零转码，格式兼容性
+        交还给各端原生播放器）。
+
+    :param filename: 文件名（用于扩展名判定，仅媒体扩展名参与门禁）
+    :param probe: probe_media 的返回结果
+    :param file_path: 文件绝对路径（未使用，签名与 is_mse_friendly 对齐）
+    :returns: 真损坏返回 True（应 415 + MEDIA_NEEDS_REPAIR）；否则 False（放行）
+    """
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "").lower()
+    if ext not in _DIRECT_EXTS and ext not in _MP4_LIKE_EXTS and ext not in _REPAIR_EXTS:
+        return False  # 非媒体扩展名（文本/图片/压缩包等）不参与媒体门禁
+    if not probe.get("available"):
+        return False  # 探测本身失败（ffmpeg 缺失等）→ 放行，不误伤
+    return bool(probe.get("fatal")) or not bool(probe.get("has_stream"))
 
 
 def needs_repair(filename: str, probe: dict, file_path: str) -> bool:
@@ -405,65 +436,3 @@ def parse_fmp4_codec(init: bytes) -> str:
 def _join_codec(video: str | None, audio: str | None) -> str:
     """拼接 codec 字符串（按 视频, 音频 顺序）。"""
     return ", ".join(c for c in (video, audio) if c)
-
-
-def patch_mvhd_duration(init: bytes, duration_seconds: float) -> bytes:
-    """
-    改写 fMP4 init 段 moov/mvhd 的 duration 字段，返回新字节（原字节不变）。
-
-    empty_moov 流式输出的 mvhd duration 为 0，QMediaPlayer / ExoPlayer 等播放器
-    无法从容器得知媒体时长 → 进度条不可拖。此处按「秒 × timescale」改写
-    mvhd.duration，使播放器能正确显示总时长（v1.4.1 修复桌面/移动端「无总时长」）。
-
-    mvhd box 布局（ISO BMFF）：
-      ver=0：duration 为 4 字节大端，位于 box 起始 +24；timescale 在 +20
-      ver=1：duration 为 8 字节大端，位于 box 起始 +32；timescale 在 +28
-
-    :param init: fMP4 开头字节（需含 moov）
-    :param duration_seconds: 目标媒体时长（秒，>0 才改写）
-    :returns: 改写后的 init 字节；找不到 mvhd / timescale 非法时原样返回
-    """
-    if duration_seconds <= 0 or b"moov" not in init:
-        return init
-    pos = 0
-    n = len(init)
-    while pos + 8 <= n:
-        size = struct.unpack(">I", init[pos:pos + 4])[0]
-        btype = init[pos + 4:pos + 8]
-        if btype == b"moov":
-            # 在 moov 内定位 mvhd（通常为第一个子 box）
-            mpos = pos + 8
-            mend = min(pos + size, n)
-            while mpos + 8 <= mend:
-                msize = struct.unpack(">I", init[mpos:mpos + 4])[0]
-                mtype = init[mpos + 4:mpos + 8]
-                if mtype == b"mvhd":
-                    ver = init[mpos + 8]
-                    if ver == 0:
-                        ts_off, dur_off, fmt = 20, 24, ">I"
-                    else:
-                        ts_off, dur_off, fmt = 28, 32, ">Q"
-                    if mpos + dur_off + struct.calcsize(fmt) > n:
-                        return init
-                    timescale = struct.unpack(
-                        ">I", init[mpos + ts_off:mpos + ts_off + 4]
-                    )[0]
-                    if timescale <= 0:
-                        return init
-                    duration = int(round(duration_seconds * timescale))
-                    # 只写入非负值，避免损坏 box
-                    if duration < 0:
-                        return init
-                    return (
-                        init[:mpos + dur_off]
-                        + struct.pack(fmt, duration)
-                        + init[mpos + dur_off + struct.calcsize(fmt):]
-                    )
-                if msize < 8:
-                    break
-                mpos += msize
-            return init
-        if size < 8:
-            break
-        pos += size
-    return init

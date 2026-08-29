@@ -1,34 +1,53 @@
-/// StreamProxy time 修复流线性映射单元测试（v1.4.0 方案 B）
+/// StreamProxy 纯 byte 模式单元测试（v1.4.2）
 ///
-/// 覆盖：字节偏移 → 时间秒的线性映射、零值/边界保护。
+/// v1.4.2 移除了 time 修复流（mapRangeToSeconds / seek() / _seekVersion），
+/// 本文件验证纯 byte 模式的 URL 格式与 repairTaskId 构造语义。
 library;
+
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:jflove_app/utils/stream_proxy.dart';
 
 void main() {
-  group('mapRangeToSeconds 线性映射', () {
-    test('中点偏移映射为时长一半', () {
-      // file_size=10000, duration=10s → 偏移 5000 → 5.0s
-      final seconds = StreamProxy.mapRangeToSeconds(5000, 10000, 10.0);
-      expect(seconds, closeTo(5.0, 1e-9));
+  group('StreamProxy v1.4.2 纯 byte 模式', () {
+    test('URL 不含 seek 版本号 query（v1.4.2 移除 ?v=）', () {
+      final proxy = StreamProxy(
+        diskId: 1,
+        path: '',
+        filename: 'a.mp4',
+        sessionKey: Uint8List(32),
+        sessionId: 'sid',
+        serverUrl: 'http://127.0.0.1:8989',
+        jwtToken: 'tok',
+      );
+      // 未 start 时 port=0，只验证 URL 不带 query
+      expect(proxy.url.contains('?'), isFalse);
     });
 
-    test('零偏移从零开始', () {
-      expect(StreamProxy.mapRangeToSeconds(0, 10000, 10.0), 0.0);
-    });
-
-    test('fileSize 为零时防除零返回零', () {
-      expect(StreamProxy.mapRangeToSeconds(5000, 0, 10.0), 0.0);
-    });
-
-    test('duration 为零时返回零', () {
-      expect(StreamProxy.mapRangeToSeconds(5000, 10000, 0.0), 0.0);
-    });
-
-    test('负偏移返回零', () {
-      expect(StreamProxy.mapRangeToSeconds(-100, 10000, 10.0), 0.0);
+    test('repairTaskId 默认 0，可显式设置（验证播放）', () {
+      final proxy = StreamProxy(
+        diskId: 1,
+        path: '',
+        filename: 'a.mp4',
+        sessionKey: Uint8List(32),
+        sessionId: 'sid',
+        serverUrl: 'http://127.0.0.1:8989',
+        jwtToken: 'tok',
+      );
+      expect(proxy.repairTaskId, 0);
+      final verify = StreamProxy(
+        diskId: 1,
+        path: '',
+        filename: 'a.mp4',
+        sessionKey: Uint8List(32),
+        sessionId: 'sid',
+        serverUrl: 'http://127.0.0.1:8989',
+        jwtToken: 'tok',
+        repairTaskId: 42,
+      );
+      expect(verify.repairTaskId, 42);
     });
   });
 }

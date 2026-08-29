@@ -7,6 +7,7 @@ import 'providers/session_provider.dart';
 import 'pages/login/login_page.dart';
 import 'pages/files/file_list_page.dart';
 import 'pages/files/disk_browser_page.dart';
+import 'pages/repair/repair_center_page.dart';
 import 'pages/files/file_preview_page.dart';
 import 'pages/notes/note_list_page.dart';
 import 'pages/notes/note_edit_page.dart';
@@ -54,6 +55,11 @@ class JFLoveApp extends ConsumerWidget {
             GoRoute(path: '/notes', builder: (_, _) => const NoteListPage()),
             GoRoute(path: '/sync', builder: (_, _) => const SyncPage()),
             GoRoute(path: '/transfer', builder: (_, _) => const TransferPage()),
+            // v1.4.2：修复中心（全平台共享任务列表）
+            GoRoute(
+              path: '/repair',
+              builder: (_, _) => const RepairCenterPage(),
+            ),
             GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
           ],
         ),
@@ -124,7 +130,8 @@ class _AppScaffold extends StatelessWidget {
     if (location == '/notes') currentIndex = 1;
     if (location == '/sync') currentIndex = 2;
     if (location == '/transfer') currentIndex = 3;
-    if (location == '/settings') currentIndex = 4;
+    if (location == '/repair') currentIndex = 4;
+    if (location == '/settings') currentIndex = 5;
 
     return Scaffold(
       body: child,
@@ -136,6 +143,7 @@ class _AppScaffold extends StatelessWidget {
             '/notes',
             '/sync',
             '/transfer',
+            '/repair',
             '/settings',
           ];
           context.go(routes[index]);
@@ -156,6 +164,12 @@ class _AppScaffold extends StatelessWidget {
             icon: Icon(Icons.cloud_download_outlined),
             selectedIcon: Icon(Icons.cloud_download),
             label: '传输任务',
+          ),
+          // v1.4.2：修复中心
+          NavigationDestination(
+            icon: Icon(Icons.healing_outlined),
+            selectedIcon: Icon(Icons.healing),
+            label: '修复中心',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
