@@ -227,7 +227,7 @@ git tag v1.4.3 && git push origin main --tags
 | `build-server.yml` | 服务端 Docker 镜像（复用 `build.py` 的版本/DB 校验） | GHCR `ghcr.io/<owner>/jflove-server:<ver>` + `latest` |
 | `build-web.yml` | Web 端 Docker 镜像（复用 `build.py`） | GHCR `ghcr.io/<owner>/jflove-web:<ver>` + `latest` |
 | `build-desktop.yml` | 桌面端 PyInstaller（Linux + Windows） | Artifact：`JFLove` / `JFLove.exe` |
-| `build-app.yml` | 移动端 APK（debug + release，含 R8 禁令检查） | Artifact：`app-debug.apk` / `app-release.apk` |
+| `build-app.yml` | 移动端 APK（release，含 R8 禁令检查） | Artifact：`app-release.apk` |
 
 ### 产物如何获取
 

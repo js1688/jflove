@@ -31,13 +31,15 @@ jobs:
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           sed "s/__VERSION__/${VERSION}/g; s/__OWNER__/${OWNER}/g" \
             .github/release-body-template.md > release_body.md
+          echo "===== release_body.md 内容 ====="
+          cat release_body.md
 
       - name: 创建 Draft Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
-          body_path: release_body.md
+          body_path: ${{ github.workspace }}/release_body.md
           draft: true
           prerelease: false
         env:

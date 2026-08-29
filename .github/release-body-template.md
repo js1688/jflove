@@ -34,7 +34,7 @@ docker run -d --name jflove-web \
 从本页下方 **Assets** 下载对应平台产物：
 
 - 桌面端：`JFLove.exe`（Windows）/ `JFLove`（Linux），单文件免安装
-- 移动端：`app-release.apk`（正式安装）/ `app-debug.apk`（调试）
+- 移动端：`app-release.apk`（正式安装）
 
 ```bash
 # 移动端安装

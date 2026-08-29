@@ -70,7 +70,7 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
 | jflove-server | `build-server.yml` | `workflow_dispatch` / 打 tag `v*` | GHCR `ghcr.io/<owner>/jflove-server:<ver>` + `latest` |
 | jflove-web | `build-web.yml` | 同上 | GHCR `ghcr.io/<owner>/jflove-web:<ver>` + `latest` |
 | jflove-desktop | `build-desktop.yml` | 同上 | Artifact（Linux `JFLove` / Windows `JFLove.exe`） |
-| jflove-app | `build-app.yml` | 同上 | Artifact（`app-debug.apk` / `app-release.apk`） |
+| jflove-app | `build-app.yml` | 同上 | Artifact（`app-release.apk`） |
 
 **使用要点**：
 - CI 从 tag 提取版本并校验 `tag == version.json` 与模块内版本号，不一致直接失败；发版前本地 `python scripts/sync_version.py` 同步后再打 tag。

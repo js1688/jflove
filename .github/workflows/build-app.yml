@@ -1,6 +1,6 @@
 name: Build Android APK
 
-# 移动端线上构建：debug + release 两个 APK，作为 workflow artifact 下载。
+# 移动端线上构建：仅 release APK（debug 仅本地构建产出），作为 workflow artifact 下载。
 # 版本号单一来源：仓库根 version.json（pubspec.yaml 由 sync_version.py 同步，versionCode 从版本号派生）。
 
 on:
@@ -64,9 +64,6 @@ jobs:
       - name: flutter pub get
         run: cd jflove-app && flutter pub get
 
-      - name: Build debug APK
-        run: cd jflove-app && flutter build apk --debug
-
       - name: Build release APK
         run: cd jflove-app && flutter build apk --release
 
@@ -75,18 +72,16 @@ jobs:
         with:
           name: jflove-app-apks
           path: |
-            jflove-app/build/app/outputs/flutter-apk/app-debug.apk
             jflove-app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       - name: 上传产物到 Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.VERSION }}
           draft: true
           files: |
-            jflove-app/build/app/outputs/flutter-apk/app-debug.apk
             jflove-app/build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
