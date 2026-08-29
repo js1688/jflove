@@ -1,8 +1,8 @@
 name: Create Release
 
 # 打 tag 时自动创建 Draft Release，正文写清楚 GHCR 拉取/运行命令 + 各端产物下载说明。
-# 正文由本 workflow 统一生成（读 version.json 动态拼 GHCR 命令），desktop/app 构建完成后
-# 会把产物追加为 release Assets（不碰正文）；server/web 镜像推 GHCR，正文里给 docker 命令即可。
+# 正文模板在 .github/release-body-template.md，由本 workflow 读 version.json 后 sed 替换占位符生成；
+# desktop/app 构建完成后会把产物追加为 release Assets（不碰正文）；server/web 镜像推 GHCR。
 
 on:
   push:
@@ -29,43 +29,8 @@ jobs:
         shell: bash
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          cat > release_body.md <<'BODY'
-## 🚀 v__VERSION__ 发布
-
-### Docker 镜像（GHCR）
-
-**服务端**
-```bash
-docker pull ghcr.io/__OWNER__/jflove-server:__VERSION__
-docker run -d --name jflove-server -p 8989:8989 \
-  -v /opt/jflove/data:/data --restart=always \
-  ghcr.io/__OWNER__/jflove-server:__VERSION__
-```
-
-**Web 端**
-```bash
-docker pull ghcr.io/__OWNER__/jflove-web:__VERSION__
-docker run -d --name jflove-web -p 18080:80 --restart=always \
-  ghcr.io/__OWNER__/jflove-web:__VERSION__
-```
-
-### 桌面端 / 移动端
-
-从本页下方 **Assets** 下载对应平台产物：
-
-- 桌面端：`JFLove.exe`（Windows）/ `JFLove`（Linux），单文件免安装
-- 移动端：`app-release.apk`（正式安装）/ `app-debug.apk`（调试）
-
-```bash
-# 移动端安装
-adb install -r app-release.apk
-```
-
-### 完整发布记录
-
-[文档记录/版本发布记录/v__VERSION__.md](https://github.com/__OWNER__/jflove/blob/main/文档记录/版本发布记录/v__VERSION__.md)
-BODY
-          sed -i "s/__VERSION__/${VERSION}/g; s/__OWNER__/${OWNER}/g" release_body.md
+          sed "s/__VERSION__/${VERSION}/g; s/__OWNER__/${OWNER}/g" \
+            .github/release-body-template.md > release_body.md
 
       - name: 创建 Draft Release
         uses: softprops/action-gh-release@v2
