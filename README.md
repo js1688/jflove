@@ -73,7 +73,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
   - 音频：mp3 / wav / ogg / flac / m4a / aac / wma / opus（流式零缓存播放）
   - 文本：txt / log / json / xml / yaml / ini / csv / Markdown / 代码文件（流式逐帧加载，首屏 ≤3s）
   - Markdown：渲染为 HTML，支持代码块高亮、表格、Mermaid 图表
-- **流式预览（v1.1.0+）**：桌面端/移动端视频/音频通过本地 HTTP 代理零缓存播放；Web 端（v1.4.0+）统一 MSE 主路径（HTTP/HTTPS 均可用）真边下边播；损坏/非流式媒体经服务端媒体修复（开关可配）在线播放；文本通过 StreamTextLoader 逐帧流式加载，不写本地临时文件
+- **流式预览（v1.1.0+）**：桌面端/移动端视频/音频通过本地 HTTP 代理零缓存播放；Web 端（v1.4.0+）统一 MSE 主路径（HTTP/HTTPS 均可用）真边下边播；损坏/非流式媒体可手动发起离线修复（v1.4.2+，ffmpeg 无损重封装产物落盘后播放）；文本通过 StreamTextLoader 逐帧流式加载，不写本地临时文件
 
 ### 📝 笔记本管理
 
@@ -258,7 +258,28 @@ git tag v1.4.3 && git push origin main --tags
 
 > 以下记录从 v1.1.6 开始的版本变化。更早版本参见 `文档记录/需求文档/`。
 
-### v1.4.0（当前版本）— 媒体修复与行业标准边下边播（四端）
+### v1.4.2（当前版本）— 手动离线媒体修复 + 播放路径纯净化 + seek 回归修复
+
+| 类型 | 变更 |
+|------|------|
+| 📅 | 2026-08-29 |
+| 🔧 服务端 | 架构调整：移除 time 实时修复流，`/stream` 只输出健康文件字节流；新增播放门禁（真损坏 415 + `[MEDIA_NEEDS_REPAIR]`，MKV/AVI/faststart MP4 等原生可播格式放行）；新增离线修复任务（6 个加密 API + `media_repair_tasks` 表 + asyncio 队列 worker，ffmpeg 无损重封装产物落盘 `.jflove-repair/`，支持取消/覆盖/删除）；`_moov_at_front` 放宽为 moov 前置即健康（修复 v1.4.1 卡顿重灾区）；隐藏目录 `.jflove-repair` 全路径防护 |
+| 🐛 修复 | 代码审查 S-1：`repair_task_id` 产物流补磁盘读权限校验；M-1：`delete-record` 只读账号禁止删除他人记录 |
+| ✅ 测试 | 后端 131 / 桌面 99 / 移动 24 / Web 53 全通过（后端新增 23 例） |
+| 📦 发布 | 新增 `media_repair_tasks` 表（幂等 DDL + 回滚脚本）；桌面 JFLove.exe 244.5MB；移动 app-debug.apk 177MB |
+
+### v1.4.1 — 视频播放修复（时长 + seek）
+
+| 类型 | 变更 |
+|------|------|
+| 📅 | 2026-08-23 |
+| 🔧 服务端 | 媒体探测失败回退 byte、ffmpeg 可用性修复；TS 伪装 MP4 强制转 AAC；faststart MP4 判定修正（moov+mvex）；fMP4 init 段补读；fMP4 mvhd duration 改写（供播放器显示总时长） |
+| 🌐 Web 端 | MSE 非 fMP4 回退下载 + 下载进度；MSE 时长/seek 修复（timestampOffset + 非受控 src + AbortController 防竞态） |
+| 🖥️ 桌面端 / 📱 移动端 | StreamProxy time 修复流声明 Accept-Ranges，使 QMediaPlayer / ExoPlayer 可拖拽 seek |
+| ✅ 测试 | 后端 122 / 桌面 102 / 移动 27 / Web 52 全通过 |
+| 📦 发布 | 镜像 server/web 推送腾讯云 CCR；桌面 JFLove.exe 242MB；移动 debug+release APK（1.4.1+5） |
+
+### v1.4.0 — 媒体修复与行业标准边下边播（四端）
 
 | 类型 | 变更 |
 |------|------|

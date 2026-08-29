@@ -232,7 +232,7 @@
 | code-review | `.claude/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
 | testing | `.claude/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
 | pmo | `.claude/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
-| devops | `.claude/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/` |
+| devops | `.claude/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/` + 根 `README.md` |
 
 **调度原则**：
 
@@ -281,7 +281,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
 | **Phase 5** 代码审查 | "代码审查" | code-review | 所有代码变更 + 需求/设计文档 | `文档记录/代码审查报告/<版本号>.md` |
 | **Phase 6** 测试 | "测试" | testing | 需求/设计文档 + 代码 | 补全测试用例 + `文档记录/测试报告/<版本号>.md` |
 | **Phase 7** 项目管理 | "项目管理" | pmo | 版本范围与任务列表 | `文档记录/项目管理记录/<版本号>.md` |
-| **Phase 8** 版本发布 | "发布" | devops | 审查/测试通过（Phase 5+6） | 构建产物 + `文档记录/版本发布记录/<版本号>.md` |
+| **Phase 8** 版本发布 | "发布" | devops | 审查/测试通过（Phase 5+6） | 构建产物 + `文档记录/版本发布记录/<版本号>.md` + 根 `README.md` |
 
 ### 7.3 各阶段关键步骤
 
@@ -358,7 +358,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
 4. **统一打包所有已开发模块**：`python build.py -m all`（根目录统一入口，自动同步版本 + 逐模块环境检查 + desktop 切 venv）
    - 产物：服务端/Web 端 Docker 镜像、桌面端 PyInstaller 单文件、移动端 debug+release 两个 APK
 5. 执行冒烟测试
-6. 输出 `文档记录/版本发布记录/<版本号>.md`
+6. 输出 `文档记录/版本发布记录/<版本号>.md`，并同步更新根 `README.md` 的「版本变化」与「功能特性」章节
 
 ### 7.4 全局规则
 

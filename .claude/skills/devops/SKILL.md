@@ -77,6 +77,44 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
 - 桌面端 macOS 仍在本地构建；移动端 iOS/鸿蒙未启用。
 - 手动触发：仓库 Actions 页 → 对应 workflow → Run workflow；自动触发：推送 `v*` tag。
 
+## 发布方式分叉（强制询问，不可跳过）
+
+> ⚠️ **每次执行发布，第一步必须用 `AskUserQuestion` 强制询问用户发布方式，不得默认、不得跳过**，二选一：
+
+1. **发布到 Git 仓库** —— 提交代码 → 推送 main → 打 tag → 推送 tag，触发 GitHub Actions 自动构建（云端产出镜像 / APK / 桌面端产物）
+2. **仅限本地构建与发布** —— 只用根 `python build.py` 本地打包，**不做任何 git 提交 / 推送 / 打 tag**
+
+- 本项目开源，`main` 即开发分支（无其他分支），每次发布都用 main 打 tag，不建 release 分支、不走 PR。
+- 用户的日常提交（含写到一半的代码）由用户自行手动提交；devops 只负责「发布提交」。
+- 选「发布到 Git 仓库」→ 走下方「Git 发布操作序列」；选「仅限本地」→ devops 不碰 git，产物与发布记录留本地。
+
+## Git 发布操作序列（仅当选择「发布到 Git 仓库」）
+
+> 触发线上构建的唯一方式是用 `git push` 推送 `v*` tag；GitHub 网页「Create release」自动生成的 tag **不会**触发 `on: push: tags`，必须手动 `git push origin <tag>`。
+
+```bash
+# 1. 版本号定稿并同步（同步后的 7 处版本号文件要随发布一起提交）
+python scripts/sync_version.py --check   # 先确认一致，不一致先同步
+
+# 2. 提交并推送 main（先推 main，再推 tag，顺序不可颠倒）
+git add -A
+git commit -m "chore: 发布 v<version>"
+git push origin main
+
+# 3. 打 tag 并推送（这一步触发 4 个 workflow）
+git tag v<version>
+git push origin v<version>
+
+# 4. 观察 CI：Actions 页看对应 run，失败修复后重新打 tag 重推
+```
+
+**硬约束**：
+- **顺序不可颠倒**：必须先 `push origin main`，再 `git tag` + `push tag`（tag 要指向已上远程的 commit）。
+- **tag 名 = `v` + `version.json` 版本号**，去掉 `v` 后必须与 `version.json` 严格相等，否则 CI 版本校验直接 fail。
+- 打 tag 前 `python scripts/sync_version.py --check` 必须通过；改了版本号却没同步 7 处，CI 照样挂。
+- 命令中的 `<version>` 替换为实际版本号（如 `1.4.2`）。
+- commit message 统一用约定式：`chore: 发布 v<version>`。
+
 ## 发布步骤
 
 1. 核查全部交付物归档
@@ -96,10 +134,14 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
     - **服务端**：访问 `/docs` 或 `/health` 确认版本号 = <version>
     - **移动端**：debug 和 release 两个 APK 都必须在真机安装并完成：启动 → 登录 → 文件浏览 → 笔记编辑 → 「关于」显示版本号 = <version>
 8. 输出 `文档记录/版本发布记录/<版本号>.md`
+9. **分叉收尾**：按「发布方式分叉」的选择——选「发布到 Git 仓库」则执行上方「Git 发布操作序列」，并把 `文档记录/版本发布记录/<版本号>.md` 与根 `README.md` 一并提交，CI 全部通过后在 GitHub 网页 Draft release 挂到已有 tag `v<version>`；选「仅限本地构建与发布」则到此为止，不碰 git。
 
 ## 文档更新范围
 
 - 路径：`文档记录/版本发布记录/<版本号>.md`
+- 根目录 `README.md`（每次发布后必须同步维护，与版本发布记录一并交付）：
+  - 「版本变化」章节：追加本次版本条目，并将 `（当前版本）` 标记移到最新版本
+  - 「功能特性」章节：本次新增 / 去除 / 调整的功能同步增删改，按需标注引入版本号（如 `（v1.5.0+）`）
 - 必须包含：版本号/发布时间、交付物清单（含 debug + release 两个 APK）、构建产物（路径+校验值）、依赖变更、生产库 DDL（升级+回滚）、部署步骤（含 Docker 启动命令）、冒烟结果、回滚预案、加密协议版本
 
 ## 安全宪法
