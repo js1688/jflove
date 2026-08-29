@@ -30,6 +30,14 @@ import re
 import sys
 from pathlib import Path
 
+# Windows 默认 stdout/stderr 编码为 cp1252，print 中文会 UnicodeEncodeError（GitHub Actions
+# 的 windows-latest runner 上必现）。统一 reconfigure 到 UTF-8，保证本地 Windows 与 CI 行为一致。
+# 本模块被各 build.py import，因此这里的 reconfigure 对进程全局生效。
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 
