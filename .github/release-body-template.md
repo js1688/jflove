@@ -7,11 +7,12 @@
 # 拉取镜像
 docker pull ghcr.io/__OWNER__/jflove-server:__VERSION__
 
-# 启动（端口 8989；/data 数据目录、/storage 磁盘目录，宿主机路径按需调整）
+# 启动（端口 8989；/data 数据目录、/storage 磁盘目录(多盘,配置磁盘时要使用容器内的磁盘目录,例如:/mnt/disk-a)，宿主机路径按需调整）
 docker run -d --name jflove-server \
   -p 8989:8989 \
   -v /opt/jflove/data:/data \
-  -v /mnt/big-disk:/storage \
+  -v /mnt/disk-a:/storage/disk-a \
+  -v /mnt/disk-b:/storage/disk-b \
   --restart=always \
   ghcr.io/__OWNER__/jflove-server:__VERSION__
 ```
