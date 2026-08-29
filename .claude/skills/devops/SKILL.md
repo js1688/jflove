@@ -106,6 +106,8 @@ git tag v<version>
 git push origin v<version>
 
 # 4. 观察 CI：Actions 页看对应 run，失败修复后重新打 tag 重推
+#    打 tag 会同时触发 release.yml 自动创建 Draft Release（含 GHCR 命令 + 各端产物说明），
+#    desktop/app 构建完成后会把产物自动上传为 release Assets；server/web 镜像推 GHCR。
 ```
 
 **硬约束**：
@@ -134,7 +136,7 @@ git push origin v<version>
     - **服务端**：访问 `/docs` 或 `/health` 确认版本号 = <version>
     - **移动端**：debug 和 release 两个 APK 都必须在真机安装并完成：启动 → 登录 → 文件浏览 → 笔记编辑 → 「关于」显示版本号 = <version>
 8. 输出 `文档记录/版本发布记录/<版本号>.md`
-9. **分叉收尾**：按「发布方式分叉」的选择——选「发布到 Git 仓库」则执行上方「Git 发布操作序列」，并把 `文档记录/版本发布记录/<版本号>.md` 与根 `README.md` 一并提交，CI 全部通过后在 GitHub 网页 Draft release 挂到已有 tag `v<version>`；选「仅限本地构建与发布」则到此为止，不碰 git。
+9. **分叉收尾**：按「发布方式分叉」的选择——选「发布到 Git 仓库」则执行上方「Git 发布操作序列」，并把 `文档记录/版本发布记录/<版本号>.md` 与根 `README.md` 一并提交。打 tag 后 CI 会通过 `release.yml` 自动创建 **Draft Release**（正文含 GHCR 拉取/运行命令 + 各端产物下载说明），desktop/app 产物自动挂为 Assets；devops 需在 Releases 页 review 草稿无误后点 **Publish** 正式发布。选「仅限本地构建与发布」则到此为止，不碰 git。
 
 ## 文档更新范围
 

@@ -10,6 +10,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -72,3 +75,13 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: jflove-desktop/build/dist/
           if-no-files-found: error
+
+      - name: 上传产物到 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          draft: true
+          files: jflove-desktop/build/dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
