@@ -56,7 +56,7 @@ export function FilePreviewPage() {
   const isAudio = AUDIO_EXTS.includes(ext);
   const isPdf = ext === 'pdf';
 
-  /** v1.4.2：损坏文件「立即修复」——创建修复任务 */
+  /** v1.4.2：损坏文件「立即修复」——创建修复任务，成功后跳转修复中心 */
   const handleRepairNow = async () => {
     if (!diskId) return;
     setRepairBusy(true);
@@ -65,12 +65,19 @@ export function FilePreviewPage() {
       await repairService.create(Number(diskId), dir, filename);
       setError(null);
       setNeedsRepair(false);
-      setRepairNotice('已加入修复队列，可在「修复中心」查看进度');
+      navigate('/repair');
     } catch (e) {
       setRepairNotice(`发起修复失败：${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setRepairBusy(false);
     }
+  };
+
+  /** v1.4.2 hotfix：媒体元素播放失败（blob 下载后仍无法解码）→ 引导修复 */
+  const handleMediaError = () => {
+    setLoading(false);
+    setNeedsRepair(true);
+    setError('该文件已损坏或格式不受支持，无法在线播放');
   };
 
   useEffect(() => {
@@ -247,6 +254,7 @@ export function FilePreviewPage() {
           <video
             ref={videoRef}
             controls
+            onError={handleMediaError}
             className="max-w-full max-h-[80vh] mx-auto rounded-lg shadow-lg bg-black"
           />
         </div>
@@ -259,7 +267,7 @@ export function FilePreviewPage() {
               text={downloadProgress !== null ? `下载中 ${Math.round(downloadProgress)}%` : '边下边播准备中…'}
             />
           </div>
-          <audio ref={audioRef} controls className="w-full max-w-xl" />
+          <audio ref={audioRef} controls onError={handleMediaError} className="w-full max-w-xl" />
         </div>
       )}
     </div>

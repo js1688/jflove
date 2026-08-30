@@ -122,14 +122,13 @@ function defaultMp4Codec(filename: string): string {
 const MP4_LIKE_EXTS = ['mp4', 'm4v', 'mov', '3gp', 'm4a'];
 
 /**
- * 判断一段 MP4 数据是否为可流式初始化段（fMP4：ftyp 后紧跟 moov）。
+ * 判断一段 MP4 数据是否为可流式初始化段（分片 fMP4：ftyp 后紧跟含 mvex 的 moov）。
  *
- * 与后端 media_probe._moov_at_front 判定规则一致（v1.4.2）：
- *   - 首个非 ftyp box 为 moov → 可边下边播（faststart 亦算 moov 前置，
- *     但非分片 MP4 仍无法 MSE 增量 append——此处保持 fMP4 判断用于回退）
- *   - 首个非 ftyp box 为 mdat → 普通 MP4（moov 在尾部，MSE 无法初始化，
- *     Chrome 只无限等待、不报错 → 必须主动判定并回退完整下载）
- *   - 无法判定 → 返回 false（保守回退下载）
+ * v1.4.2 hotfix：MSE 边下边播只认分片 fMP4（moov 含 mvex + 后续 moof）。
+ * faststart MP4（moov 前置但无 mvex）无法被 MSE 增量 append，必须判为
+ * 不可流式并快速失败回退（否则 Chrome 不报错、只无限等待）。
+ *   - 首个非 ftyp box 为 moov 且 moov 内含 mvex → 可流式
+ *   - 首个非 ftyp box 为 mdat / moov 无 mvex / 无法判定 → 不可流式
  */
 function isFmp4Init(data: Uint8Array): boolean {
   if (data.length < 8) return false;
@@ -143,8 +142,26 @@ function isFmp4Init(data: Uint8Array): boolean {
     const boxType = String.fromCharCode(
       data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7],
     );
-    if (boxType === 'moov') return true;
+    if (boxType === 'moov') {
+      // moov 前置：仍需内部含 mvex（分片声明）才算可流式
+      return hasBoxInRange(data, pos + 8, pos + boxSize, 'mvex');
+    }
     if (boxType === 'mdat') return false;
+    if (boxSize < 8) break;
+    pos += boxSize;
+  }
+  return false;
+}
+
+/** 在 [start, end) 内扫描同层 box，判断是否含指定类型 box */
+function hasBoxInRange(data: Uint8Array, start: number, end: number, target: string): boolean {
+  let pos = start;
+  while (pos + 8 <= end && pos + 8 <= data.length) {
+    const boxSize = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3];
+    const boxType = String.fromCharCode(
+      data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7],
+    );
+    if (boxType === target) return true;
     if (boxSize < 8) break;
     pos += boxSize;
   }
@@ -183,6 +200,117 @@ function findMoofStart(data: Uint8Array): number {
   return -1;
 }
 
+/** 在 [start, end) 内查找指定类型 box，返回 {start,size} 或 null */
+function findBox(data: Uint8Array, start: number, target: string): { start: number; size: number } | null {
+  let pos = start;
+  while (pos + 8 <= data.length) {
+    const size = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3];
+    const type = String.fromCharCode(data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]);
+    if (type === target) return { start: pos, size };
+    if (size < 8) break;
+    pos += size;
+  }
+  return null;
+}
+
+/** 在 [start, end) 内查找所有指定类型 box */
+function findBoxes(data: Uint8Array, start: number, end: number, target: string): { start: number; size: number }[] {
+  const out: { start: number; size: number }[] = [];
+  let pos = start;
+  while (pos + 8 <= end && pos + 8 <= data.length) {
+    const size = (data[pos] << 24) | (data[pos + 1] << 16) | (data[pos + 2] << 8) | data[pos + 3];
+    const type = String.fromCharCode(data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]);
+    if (type === target) out.push({ start: pos, size });
+    if (size < 8) break;
+    pos += size;
+  }
+  return out;
+}
+
+/** 在字节数组中查找子序列，返回首个匹配下标或 -1 */
+function indexOfBytes(data: Uint8Array, needle: number[]): number {
+  outer: for (let i = 0; i + needle.length <= data.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (data[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function hex2(n: number): string {
+  return n.toString(16).padStart(2, '0');
+}
+
+/** 从 avc1/avc3 entry 提取 H.264 codec 字符串（avc1.xxyyzz） */
+function avc1Codec(entry: Uint8Array): string | null {
+  const idx = indexOfBytes(entry, [0x61, 0x76, 0x63, 0x43]); // 'avcC'
+  if (idx < 0 || idx + 8 > entry.length) return null;
+  // avcC payload: version(1)+profile(1)+compat(1)+level(1)
+  return `avc1.${hex2(entry[idx + 5])}${hex2(entry[idx + 6])}${hex2(entry[idx + 7])}`;
+}
+
+/** 从 av01 entry 提取 AV1 codec 字符串（av01.P.LLT.DD） */
+function av01Codec(entry: Uint8Array): string | null {
+  const idx = indexOfBytes(entry, [0x61, 0x76, 0x31, 0x43]); // 'av1C'
+  if (idx < 0 || idx + 7 > entry.length) return null;
+  // av1C payload: marker/version(1) + seq_profile/level(1) + tier/bitdepth(1)
+  const profileLevel = entry[idx + 5];
+  const tierDepth = entry[idx + 6];
+  const profile = (profileLevel >> 5) & 0x07;
+  const levelIdx = profileLevel & 0x1f;
+  const tier = (tierDepth >> 7) & 0x01;
+  const highBitdepth = (tierDepth >> 6) & 0x01;
+  const twelveBit = (tierDepth >> 5) & 0x01;
+  const major = 2 + (levelIdx >> 2);
+  const minor = levelIdx & 0x03;
+  const bitdepth = twelveBit ? 12 : highBitdepth ? 10 : 8;
+  return `av01.${profile}.${major}${minor}${tier ? 'H' : 'M'}.${String(bitdepth).padStart(2, '0')}`;
+}
+
+/** 从 mp4a entry 提取 AAC codec 字符串（服务端修复已统一 AAC-LC，采用 mp4a.40.2） */
+function mp4aCodec(): string {
+  return 'mp4a.40.2';
+}
+
+/**
+ * 从 fMP4 init 段解析 codec 字符串（avc1/av01/mp4a，逗号分隔），失败返回 null。
+ *
+ * v1.4.2 hotfix：MSE 需在 appendBuffer 前用精确 codec 声明 SourceBuffer；
+ * 按扩展名猜 codec 会误判 AV1 文件为 h264。此处直接解析 init 段 stsd，
+ * 与后端 media_probe.parse_fmp4_codec 语义对齐。
+ */
+function parseFmp4Codec(init: Uint8Array): string | null {
+  const moov = findBox(init, 0, 'moov');
+  if (!moov) return null;
+  let video: string | null = null;
+  let audio: string | null = null;
+  const moovEnd = moov.start + moov.size;
+  for (const trak of findBoxes(init, moov.start + 8, moovEnd, 'trak')) {
+    for (const mdia of findBoxes(init, trak.start + 8, trak.start + trak.size, 'mdia')) {
+      for (const minf of findBoxes(init, mdia.start + 8, mdia.start + mdia.size, 'minf')) {
+        for (const stbl of findBoxes(init, minf.start + 8, minf.start + minf.size, 'stbl')) {
+          for (const stsd of findBoxes(init, stbl.start + 8, stbl.start + stbl.size, 'stsd')) {
+            const stsdEnd = stsd.start + stsd.size;
+            let ep = stsd.start + 16; // version/flags(4) + entry_count(4)
+            while (ep + 8 <= stsdEnd && ep + 8 <= init.length) {
+              const esz = (init[ep] << 24) | (init[ep + 1] << 16) | (init[ep + 2] << 8) | init[ep + 3];
+              const etype = String.fromCharCode(init[ep + 4], init[ep + 5], init[ep + 6], init[ep + 7]);
+              const entry = init.subarray(ep, Math.min(ep + esz, init.length));
+              if (etype === 'avc1' || etype === 'avc3') video = avc1Codec(entry);
+              else if (etype === 'av01') video = av01Codec(entry);
+              else if (etype === 'mp4a') audio = mp4aCodec();
+              if (esz < 8) break;
+              ep += esz;
+            }
+          }
+        }
+      }
+    }
+  }
+  return [video, audio].filter(Boolean).join(', ') || null;
+}
+
 /**
  * 使用 MSE 播放视频/音频（v1.4.2：仅 byte 模式）。
  *
@@ -198,7 +326,7 @@ export async function playWithMSE(
   signal?: AbortSignal,
 ): Promise<(() => void) | null> {
   if (!isMSESupported()) return null;
-  const codec = probeMseCodec(filename) ?? defaultMp4Codec(filename);
+  let codec = probeMseCodec(filename) ?? defaultMp4Codec(filename);
 
   const sessionKey = getSessionKey();
   const sessionId = getSessionId();
@@ -218,8 +346,8 @@ export async function playWithMSE(
   // 当前活动流（seek 重拉时释放旧流）
   let currentFrames: AsyncGenerator<Uint8Array> | null = null;
   let currentStreamAbort: AbortController | null = null;
-  // 当前数据帧生成器
-  let frames: AsyncGenerator<Uint8Array>;
+  // 当前数据帧生成器（openStream 内赋值，恒先于使用）
+  let frames!: AsyncGenerator<Uint8Array>;
   // 是否处于 seek 重建中（避免并发触发多次重拉）
   let seeking = false;
   let ended = false;
@@ -272,6 +400,36 @@ export async function playWithMSE(
     // 初始打开（全文件 range）
     await openStream(0, -1);
 
+    // v1.4.2 hotfix：预读 fMP4 init 段解析真实 codec（avc1/av01/mp4a），
+    // 避免按扩展名猜错（如 AV1 文件误判为 h264 导致 addSourceBuffer 失败）。
+    // 解析失败则保持 probeMseCodec 的默认 codec，行为不劣化。
+    const initChunks: Uint8Array[] = [];
+    let parsedCodec: string | null = null;
+    try {
+      for await (const c of frames) {
+        initChunks.push(c);
+        const acc = initChunks.length === 1 ? c : concatBytes(initChunks);
+        parsedCodec = parseFmp4Codec(acc);
+        if (parsedCodec || acc.length > 4 * 1024 * 1024) break;
+      }
+    } catch {
+      /* init 预读失败：保持默认 codec，回退原逻辑 */
+    }
+    if (parsedCodec) {
+      const isAudioOnly = parsedCodec.split(',').every(p => p.trim().startsWith('mp4a.'));
+      codec = isAudioOnly
+        ? `audio/mp4; codecs="${parsedCodec}"`
+        : `video/mp4; codecs="${parsedCodec}"`;
+    }
+    // 将预读的 init 段回填到流头，consume 循环无需感知预读
+    if (initChunks.length > 0) {
+      const rest = frames;
+      frames = (async function* () {
+        for (const c of initChunks) yield c;
+        for await (const c of rest) yield c;
+      })();
+    }
+
     mediaSource = new MediaSource();
     objectUrl = URL.createObjectURL(mediaSource);
     video.src = objectUrl;
@@ -301,6 +459,10 @@ export async function playWithMSE(
     // ── append 串行队列 + 首帧快速失败检测 ──
     const queue: Uint8Array[] = [];
     let pending = false;
+    // v1.4.2 hotfix：大文件边下边播——SourceBuffer 缓冲超过内存配额时
+    // appendBuffer 抛 QuotaExceededError。此时暂停 append，等播放推进后
+    // 移除已播放数据再继续（否则大文件直接 fail，表现为「只能播后半段/损坏」）
+    let quotaPaused = false;
 
     let resolveFirst!: (r: 'ok' | 'fail') => void;
     const firstPromise = new Promise<'ok' | 'fail'>((res) => { resolveFirst = res; });
@@ -320,13 +482,50 @@ export async function playWithMSE(
       cleanup();
     };
 
+    /** 缓冲超配额后的恢复：移除播放点之前的数据（保留 30s 前置缓冲）后继续 append */
+    const tryEvictAndResume = () => {
+      if (!quotaPaused || failed) return;
+      const cur = typeof video.currentTime === 'number' ? video.currentTime : 0;
+      try {
+        if (cur > 30 && sourceBuffer.buffered.length > 0) {
+          const start = sourceBuffer.buffered.start(0);
+          // 仅当可移除范围 >10s 才执行，避免 no-op remove 触发 updateend 忙循环
+          if (cur - 30 - start > 10) {
+            sourceBuffer.remove(start, cur - 30);
+            // remove 也触发 updateend → onUpdateEnd 里继续 pump
+            quotaPaused = false;
+            return;
+          }
+        }
+      } catch { /* ignore */ }
+      // 无法释放足够空间：等待播放推进（timeupdate 会再次触发重试）
+      setTimeout(() => {
+        if (quotaPaused && !failed) tryEvictAndResume();
+      }, 1000);
+    };
+
+    const onTimeUpdate = () => {
+      if (quotaPaused) tryEvictAndResume();
+    };
+
     const pump = () => {
-      if (pending || queue.length === 0 || failed) return;
+      if (pending || queue.length === 0 || failed || quotaPaused) return;
       pending = true;
       const data = queue.shift()!;
       try {
         sourceBuffer.appendBuffer(data as unknown as BufferSource);
-      } catch {
+      } catch (e) {
+        const name = e instanceof DOMException
+          ? e.name
+          : (e as { name?: string } | null | undefined)?.name;
+        if (name === 'QuotaExceededError') {
+          // 缓冲超配额：放回数据，暂停 append，等播放推进后清理已播放数据
+          queue.unshift(data);
+          pending = false;
+          quotaPaused = true;
+          tryEvictAndResume();
+          return;
+        }
         settleFirst('fail');
         fail();
       }
@@ -352,6 +551,10 @@ export async function playWithMSE(
           try { video.currentTime = covered ? t : firstStart; } catch { /* ignore */ }
         }
       }
+      if (quotaPaused) {
+        tryEvictAndResume();
+        return;
+      }
       if (queue.length > 0) pump();
       else if (ended) {
         try { mediaSource?.endOfStream(); } catch { /* ignore */ }
@@ -362,6 +565,7 @@ export async function playWithMSE(
       settleFirst('fail');
       fail();
     });
+    video.addEventListener('timeupdate', onTimeUpdate);
 
     // 消费解密帧 → append 队列（v1.4.2：byte 模式；MP4 家族首帧非 fMP4 立即回退）
     const needsFmp4Check = MP4_LIKE_EXTS.includes(
@@ -384,6 +588,11 @@ export async function playWithMSE(
           }
           queue.push(chunk);
           pump();
+          // 缓冲超配额暂停时：暂停消费（形成网络背压，避免 queue 无限增长），
+          // 播放推进后 quotaPaused 解除，恢复消费
+          while (quotaPaused && !failed && gen === consumeGeneration) {
+            await new Promise(r => setTimeout(r, 200));
+          }
         }
         if (gen !== consumeGeneration) return;
         ended = true;
@@ -446,18 +655,21 @@ export async function playWithMSE(
         // 2. 自估算偏移取数据并定位 moof 分片起点
         const data = await openStream(estimate, -1);
         const dataBytes: Uint8Array[] = [];
+        let moofAt = -1;
         let collected = 0;
         for await (const c of data.frames) {
           dataBytes.push(c);
           collected += c.length;
+          const acc = concatBytes(dataBytes);
+          moofAt = findMoofStart(acc);
+          if (moofAt >= 0) break; // 找到分片边界即停
           if (collected > 8 * 1024 * 1024) break; // 8MB 内找不到分片边界即放弃
         }
-        const dataAll = concatBytes(dataBytes);
-        const moofAt = findMoofStart(dataAll);
         if (moofAt < 0) {
           await rebuildFromStart(target);
           return;
         }
+        const dataAll = concatBytes(dataBytes);
 
         // 3. 重建 SourceBuffer：init 段 + 自 moof 起的数据
         if (mediaSource && mediaSource.readyState === 'open') {
@@ -475,12 +687,21 @@ export async function playWithMSE(
         queue.length = 0;
         pending = false;
         ended = false;
+        quotaPaused = false;
         // 目标点可能落在「分片起点晚于目标」的缝隙：onUpdateEnd 覆盖判断失败时
         // 定位到 buffered.start（最近可用分片），保证拖拽后必然继续播放
         pendingSeekTarget = target;
         queue.push(initData.slice(0, moovEnd));
         queue.push(dataAll.slice(moofAt));
         pump();
+
+        // 4. 继续消费估算偏移处的剩余流数据（seek 后播放可持续，不因 8MB 截断卡停）
+        const rest = data.frames;
+        frames = (async function* () {
+          for await (const c of rest) yield c;
+        })();
+        firstChunkChecked = true; // init 段已单独 append，跳过 fmp4 init 检查
+        void consume();
       } catch {
         // S-2 修复：重拉失败 → 全流重建兜底（保证「失败不劣化」承诺成立）
         await rebuildFromStart(target);
@@ -520,6 +741,7 @@ export async function playWithMSE(
       queue.length = 0;
       pending = false;
       ended = false;
+      quotaPaused = false;
       firstChunkChecked = false;
       pendingSeekTarget = target;
       await openStream(0, -1);
@@ -528,6 +750,7 @@ export async function playWithMSE(
     video.addEventListener('seeked', onSeeked);
     seekCleanup = () => {
       try { video.removeEventListener('seeked', onSeeked); } catch { /* ignore */ }
+      try { video.removeEventListener('timeupdate', onTimeUpdate); } catch { /* ignore */ }
     };
 
     function cleanup(): void {
@@ -554,11 +777,16 @@ export async function playWithMSE(
     }
 
     return cleanup;
-  } catch {
+  } catch (e) {
     if (objectUrl) {
       try { URL.revokeObjectURL(objectUrl); } catch { /* ignore */ }
     }
     abortController.abort();
+    // v1.4.2 hotfix：服务端 415 [MEDIA_NEEDS_REPAIR]（不可流式/损坏）需向上
+    // 传播，由页面显示「立即修复」引导；其余错误（容器不支持等）回退完整下载。
+    if (e instanceof Error && e.message.includes('[MEDIA_NEEDS_REPAIR]')) {
+      throw e;
+    }
     return null;
   }
 }

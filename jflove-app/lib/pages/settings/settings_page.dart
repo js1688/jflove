@@ -454,7 +454,6 @@ class _MediaRepairConfigCardState
     extends ConsumerState<_MediaRepairConfigCard> {
   bool _loading = true;
   bool _saving = false;
-  bool _allowTranscode = false;
   final TextEditingController _concurrentCtrl = TextEditingController();
   String? _errorMsg;
 
@@ -485,7 +484,6 @@ class _MediaRepairConfigCardState
       final cfg = (resp['config'] as Map<String, dynamic>?) ?? {};
       if (!mounted) return;
       setState(() {
-        _allowTranscode = cfg['media_repair_allow_transcode'] == '1';
         _concurrentCtrl.text =
             (cfg['media_repair_max_concurrent'] as String?) ?? '';
         _loading = false;
@@ -517,11 +515,6 @@ class _MediaRepairConfigCardState
     }
   }
 
-  void _toggleTranscode(bool next) {
-    setState(() => _allowTranscode = next);
-    _save('media_repair_allow_transcode', next ? '1' : '0');
-  }
-
   void _saveConcurrent() {
     final raw = _concurrentCtrl.text.trim();
     if (raw.isEmpty) {
@@ -543,7 +536,7 @@ class _MediaRepairConfigCardState
     final theme = Theme.of(context);
     if (_loading) {
       return const _SectionCard(
-        title: '媒体修复',
+        title: '离线媒体修复',
         icon: Icons.healing_outlined,
         child: Padding(
           padding: EdgeInsets.all(12),
@@ -565,19 +558,12 @@ class _MediaRepairConfigCardState
             const SizedBox(height: 8),
           ],
           Text(
-            'v1.4.2 起损坏媒体经「修复中心」手动离线修复（文件列表长按'
-            '「修复损坏媒体」发起）。以下为修复队列配置：并发数 1~8 或留空'
-            '按服务器 CPU 核数自动推导；重编码为无损修复失败时的降级手段。',
+            '损坏或无法在线播放的视频/音频，可在文件列表长按「修复损坏媒体」'
+            '发起离线修复，修复为可边下边播的格式。下方配置修复队列的并发数，'
+            '配置保存在服务端，三端共享，修改后立即生效。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: Colors.grey.shade600,
             ),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('允许重编码降级'),
-            subtitle: const Text('默认关闭；-c copy 失败时的极端兜底'),
-            value: _allowTranscode,
-            onChanged: _saving ? null : _toggleTranscode,
           ),
           const SizedBox(height: 4),
           Row(

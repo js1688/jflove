@@ -9,9 +9,9 @@ import { httpClient } from '../utils/http-client';
 import type { ServerConfig } from '../types/models';
 
 /** 媒体修复相关配置键（与后端 settings.py 保持一致）
- * v1.4.2：media_repair_enabled（实时修复总开关）已废弃，前端不再读写 */
+ * v1.4.2 hotfix：media_repair_enabled（实时修复总开关）与
+ * media_repair_allow_transcode（重编码降级）均已废弃，前端不再读写 */
 export const MEDIA_REPAIR_KEYS = {
-  allowTranscode: 'media_repair_allow_transcode',
   maxConcurrent: 'media_repair_max_concurrent',
 } as const;
 

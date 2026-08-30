@@ -209,7 +209,13 @@ export function RepairCenterPage() {
                           type="button"
                           disabled={!canOperate(task) || busy}
                           onClick={() => void runOp(
-                            () => repairService.deleteArtifact(task.id), task.id, '产物已删除',
+                            async () => {
+                              // v1.4.2 hotfix：删除产物后同时删除任务记录，
+                              // 否则记录仍占用「同文件互斥」，无法重新发起修复
+                              await repairService.deleteArtifact(task.id);
+                              await repairService.deleteRecord(task.id);
+                            },
+                            task.id, '产物已删除',
                           )}
                           className="rounded-md border border-gray-300 px-3 py-1 text-xs
                             text-gray-600 hover:bg-gray-50 disabled:opacity-40"

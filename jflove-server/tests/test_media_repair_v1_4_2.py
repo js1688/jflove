@@ -58,8 +58,20 @@ def _ffmpeg_available() -> bool:
     return media_probe.get_ffmpeg_exe() is not None
 
 
-def _gen_media(disk_root: Path, name: str, faststart: bool = False) -> bytes:
-    """用内置 ffmpeg 生成 1 秒 testsrc 小视频，返回文件字节。"""
+def _gen_media(
+    disk_root: Path,
+    name: str,
+    faststart: bool = False,
+    frag: bool = False,
+    bad_frag: bool = False,
+) -> bytes:
+    """用内置 ffmpeg 生成 1 秒 testsrc 小视频，返回文件字节。
+
+    :param faststart: moov 前置（非分片 faststart MP4，不可 MSE 流式）
+    :param frag: 分片 fMP4（moov 前置含 mvex，可 MSE 边下边播）
+    :param bad_frag: 坏分片 fMP4（faststart+frag 组合：moov 后跟孤儿 mdat，
+        需修复）——每帧关键帧保证多 moof，复现 b7d468ab 旧产物的坏结构
+    """
     exe = media_probe.get_ffmpeg_exe()
     assert exe, "ffmpeg 不可用"
     out = disk_root / name
@@ -68,7 +80,14 @@ def _gen_media(disk_root: Path, name: str, faststart: bool = False) -> bytes:
         "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=10",
         "-c:v", "mpeg4", "-pix_fmt", "yuv420p",
     ]
-    if faststart:
+    if bad_frag:
+        # faststart 与 frag_keyframe 同用会丢首个 moof（孤儿 mdat）
+        cmd += ["-g", "1", "-movflags", "+frag_keyframe+faststart+default_base_moof"]
+    elif frag:
+        # v1.4.2 hotfix：与修复产物一致的参数——empty_moov 分片 fMP4
+        # （不能用 +faststart：与 frag_keyframe 组合会丢首个 moof 产生孤儿 mdat）
+        cmd += ["-movflags", "+empty_moov+frag_keyframe+default_base_moof"]
+    elif faststart:
         cmd += ["-movflags", "+faststart"]
     cmd.append(str(out))
     subprocess.run(cmd, check=True)
@@ -147,12 +166,29 @@ class Test修复必要性判定:
     """needs_repair / is_mse_friendly：修复入口的健康判定"""
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
-    def test_faststartMP4_健康_拒绝修复(self, disk_root):
-        """v1.4.2 修正：faststart MP4（moov 前置）不再误判为需修复"""
+    def test_faststartMP4_需修复(self, disk_root):
+        """v1.4.2 hotfix：faststart MP4（moov 前置但无 mvex）不可 MSE 流式 → 需修复"""
         _gen_media(disk_root, "probe_fast.mp4", faststart=True)
         fp = str(disk_root / "probe_fast.mp4")
         probe = asyncio.run(media_probe.probe_media(fp))
-        assert media_probe.needs_repair("probe_fast.mp4", probe, fp) is False
+        assert media_probe.needs_repair("probe_fast.mp4", probe, fp) is True
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_fmp4_健康_拒绝修复(self, disk_root):
+        """分片 fMP4（moov 前置且含 mvex）→ 可流式，无需修复"""
+        _gen_media(disk_root, "probe_fmp4.mp4", frag=True)
+        fp = str(disk_root / "probe_fmp4.mp4")
+        probe = asyncio.run(media_probe.probe_media(fp))
+        assert media_probe.needs_repair("probe_fmp4.mp4", probe, fp) is False
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_坏fMP4_孤儿mdat_需修复(self, disk_root):
+        """faststart+frag 组合产物（moov 后紧跟孤儿 mdat）→ 不可流式，需修复"""
+        _gen_media(disk_root, "probe_badfmp4.mp4", bad_frag=True)
+        fp = str(disk_root / "probe_badfmp4.mp4")
+        assert media_probe._moov_at_front(fp) is False
+        probe = asyncio.run(media_probe.probe_media(fp))
+        assert media_probe.needs_repair("probe_badfmp4.mp4", probe, fp) is True
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_moov尾部MP4_需修复(self, disk_root):
@@ -219,6 +255,28 @@ class Test播放门禁端到端:
         assert b"".join(frames[1:]) == raw
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_faststartMP4_mse_only_415(self, client, env):
+        """Web mse_only 模式：faststart MP4 不可流式 → 415 + [MEDIA_NEEDS_REPAIR]"""
+        _gen_media(env["disk_root"], "gate_fast.mp4", faststart=True)
+        resp = self._stream_req(
+            client, env["admin"], env["disk_id"], "gate_fast.mp4", extra={"mse_only": 1}
+        )
+        assert resp.status_code == 415
+        data = decrypt_response(env["admin"], resp)
+        assert "[MEDIA_NEEDS_REPAIR]" in str(data.get("detail", ""))
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_fmp4_mse_only_放行(self, client, env):
+        """Web mse_only 模式：分片 fMP4 可流式 → 200 正常输出"""
+        raw = _gen_media(env["disk_root"], "gate_fmp4.mp4", frag=True)
+        resp = self._stream_req(
+            client, env["admin"], env["disk_id"], "gate_fmp4.mp4", extra={"mse_only": 1}
+        )
+        assert resp.status_code == 200
+        frames = _parse_frames(resp.content, env["admin"].session_key)
+        assert b"".join(frames[1:]) == raw
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_MKV_放行流式(self, client, env):
         """MKV（原生可播）播放放行，原文件字节直出（v1.4.2 播放纯净化）"""
         # 生成一个真实可解的 mkv（mpeg4 视频）
@@ -272,18 +330,36 @@ class Test修复任务API:
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_健康文件_拒绝修复(self, client, env):
-        """健康 faststart MP4 → 400 无需修复，零磁盘写入（AC-4）"""
-        _gen_media(env["disk_root"], "repair_healthy.mp4", faststart=True)
+        """健康分片 fMP4 → 400 无需修复，零磁盘写入（AC-4）"""
+        _gen_media(env["disk_root"], "repair_healthy.mp4", frag=True)
         data = self._create(client, env["admin"], env, "repair_healthy.mp4", expect=400)
         assert "无需修复" in str(data.get("detail", ""))
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_重复任务_拦截(self, client, env):
-        """同文件未完成任务重复创建被拒（AC-6）"""
+        """同文件存在任意任务记录（含终态）重复创建被拒，删除记录后可再修（AC-6）"""
         _gen_media(env["disk_root"], "repair_dup.mp4")
+        # 进行中：重复创建被拒
         self._create(client, env["admin"], env, "repair_dup.mp4")
         data = self._create(client, env["admin"], env, "repair_dup.mp4", expect=400)
         assert "已有修复任务" in str(data.get("detail", ""))
+        # 等终态：终态后仍被拒（v1.4.2 hotfix：终态记录同样拦截）
+        resp = encrypted_request(
+            client, env["admin"], "GET", "/api/v1/files/repair/tasks",
+            {"page": 1, "page_size": 50},
+        )
+        tasks = decrypt_response(env["admin"], resp)["tasks"]
+        dup = next(t for t in tasks if t["filename"] == "repair_dup.mp4")
+        _wait_task_terminal(client, env["admin"], dup["id"])
+        data = self._create(client, env["admin"], env, "repair_dup.mp4", expect=400)
+        assert "已有修复任务" in str(data.get("detail", ""))
+        # 删除记录后：可重新修复
+        encrypted_request(
+            client, env["admin"], "POST", "/api/v1/files/repair/delete-record",
+            {"task_id": dup["id"]},
+        )
+        data = self._create(client, env["admin"], env, "repair_dup.mp4")
+        assert data.get("task_id")
         # 清理：等终态后删记录
         resp = encrypted_request(
             client, env["admin"], "GET", "/api/v1/files/repair/tasks",
@@ -379,6 +455,181 @@ class Test修复任务API:
             assert not any(
                 f.name.startswith("repair_delart") for f in repair_dir.iterdir()
             )
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_删除产物_已不存在_幂等(self, client, env):
+        """产物已被人工挪走时再次删除 → 200 幂等成功（v1.4.2 hotfix）"""
+        _gen_media(env["disk_root"], "repair_delart2.mp4")
+        data = self._create(client, env["admin"], env, "repair_delart2.mp4")
+        task_id = data["task_id"]
+        task = _wait_task_terminal(client, env["admin"], task_id)
+        assert task["status"] == "success", task["error_message"]
+        # 第一次删除：正常移除产物
+        resp = encrypted_request(
+            client, env["admin"], "POST", "/api/v1/files/repair/delete-artifact",
+            {"task_id": task_id},
+        )
+        assert resp.status_code == 200, resp.text
+        # 第二次删除：产物已不存在，仍应 200 不报错
+        resp = encrypted_request(
+            client, env["admin"], "POST", "/api/v1/files/repair/delete-artifact",
+            {"task_id": task_id},
+        )
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_修复产物_fMP4结构正确(self, client, env):
+        """修复产物为合法分片 fMP4：无孤儿 mdat，首个 moof tfdt 从 0 开始"""
+        import struct
+
+        _gen_media(env["disk_root"], "repair_frag.mp4")  # moov 尾部，需修复
+        data = self._create(client, env["admin"], env, "repair_frag.mp4")
+        task_id = data["task_id"]
+        task = _wait_task_terminal(client, env["admin"], task_id)
+        assert task["status"] == "success", task["error_message"]
+
+        # 定位产物文件
+        repair_dir = env["disk_root"] / REPAIR_DIR_NAME
+        artifact = next(
+            f for f in repair_dir.iterdir() if f.name.startswith("repair_frag")
+        )
+        raw = artifact.read_bytes()
+        n = len(raw)
+
+        def _walk(start: int, end: int):
+            boxes = []
+            i = start
+            while i + 8 <= end:
+                size = struct.unpack(">I", raw[i:i + 4])[0]
+                typ = raw[i + 4:i + 8]
+                if size < 8 or i + size > end:
+                    break
+                boxes.append((i, typ, size))
+                i += size
+            return boxes
+
+        tops = _walk(0, n)
+        # 顶层顺序：ftyp → moov → moof → mdat → ...（不允许 moov 后紧跟 mdat）
+        kinds = [t.decode("latin1") for _, t, _ in tops]
+        assert "moov" in kinds
+        moov_idx = kinds.index("moov")
+        assert kinds[moov_idx + 1] == "moof", (
+            "moov 后必须是 moof，不能是孤儿 mdat（faststart+frag 组合 bug）"
+        )
+        # moof 数与 mdat 数相等（一一对应，无孤儿 mdat）
+        assert kinds.count("moof") == kinds.count("mdat")
+        # 首个 moof 的视频 traf tfdt 应为 0（时间戳从 0 开始）
+        first_moof, first_moof_size = next(
+            (o, s) for o, t, s in tops if t == b"moof"
+        )
+        first_tfdt = None
+        for moff, mtyp, msize in _walk(first_moof + 8, first_moof + first_moof_size):
+            if mtyp != b"traf":
+                continue
+            for toff, ttyp, tsize in _walk(moff + 8, moff + msize):
+                if ttyp == b"tfdt":
+                    v = raw[toff + 8]
+                    tfdt = struct.unpack(">Q", raw[toff + 12:toff + 20])[0] \
+                        if v == 1 else struct.unpack(">I", raw[toff + 12:toff + 16])[0]
+                    if first_tfdt is None:
+                        first_tfdt = tfdt
+        assert first_tfdt == 0, f"首个 traf 的 tfdt 应为 0，实际 {first_tfdt}"
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_坏fMP4_可重新修复(self, client, env):
+        """faststart+frag 的坏 fMP4（孤儿 mdat）可被重新修复为正确 fMP4"""
+        import struct
+
+        _gen_media(env["disk_root"], "repair_badfmp4.mp4", bad_frag=True)
+        # 坏 fMP4 不应被误判为健康：创建任务应成功（而非 400 无需修复）
+        data = self._create(client, env["admin"], env, "repair_badfmp4.mp4")
+        task_id = data["task_id"]
+        task = _wait_task_terminal(client, env["admin"], task_id)
+        assert task["status"] == "success", task["error_message"]
+
+        # 新产物结构正确：moov 后紧跟 moof，无孤儿 mdat
+        repair_dir = env["disk_root"] / REPAIR_DIR_NAME
+        artifact = next(
+            f for f in repair_dir.iterdir() if f.name.startswith("repair_badfmp4")
+        )
+        raw = artifact.read_bytes()
+        n = len(raw)
+
+        def _walk(start: int, end: int):
+            boxes = []
+            i = start
+            while i + 8 <= end:
+                size = struct.unpack(">I", raw[i:i + 4])[0]
+                typ = raw[i + 4:i + 8]
+                if size < 8 or i + size > end:
+                    break
+                boxes.append((i, typ, size))
+                i += size
+            return boxes
+
+        tops = _walk(0, n)
+        kinds = [t.decode("latin1") for _, t, _ in tops]
+        assert "moov" in kinds
+        moov_idx = kinds.index("moov")
+        assert kinds[moov_idx + 1] == "moof", (
+            "重新修复后 moov 后必须紧跟 moof，不能是孤儿 mdat"
+        )
+        assert kinds.count("moof") == kinds.count("mdat")
+
+
+# ════════════════════════════════════════════════════════════════════ #
+#   测试组 3c：产物 duration 补丁
+# ════════════════════════════════════════════════════════════════════ #
+
+class Test产物duration补丁:
+    """patch_mp4_durations：修正 ffmpeg 分片 fMP4 的 duration 字段"""
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_patch修正mvhd_tkhd_mdhd(self, tmp_path):
+        """分片 fMP4 的 mvhd duration 被修正为真实总时长"""
+        import struct
+
+        _gen_media(tmp_path, "patch_src.mp4", frag=True)
+        fp = str(tmp_path / "patch_src.mp4")
+        probe = asyncio.run(media_probe.probe_media(fp))
+        dur = probe.get("duration", 0)
+        assert dur > 0
+
+        assert media_probe.patch_mp4_durations(fp, dur) is True
+
+        with open(fp, "rb") as fh:
+            d = fh.read(4 * 1024 * 1024)
+        pos = 0
+        while pos + 8 <= len(d):
+            size = struct.unpack(">I", d[pos:pos + 4])[0]
+            typ = d[pos + 4:pos + 8]
+            if typ == b"moov":
+                p = pos + 8
+                e = pos + size
+                while p + 8 <= e:
+                    s2 = struct.unpack(">I", d[p:p + 4])[0]
+                    t2 = d[p + 4:p + 8]
+                    if t2 == b"mvhd":
+                        ts = struct.unpack(">I", d[p + 20:p + 24])[0]
+                        dv = struct.unpack(">I", d[p + 24:p + 28])[0]
+                        assert abs(dv / ts - dur) < 0.5
+                        return
+                    if s2 < 8:
+                        break
+                    p += s2
+            if size < 8:
+                break
+            pos += size
+        pytest.fail("未找到 mvhd box")
+
+    def test_patch非法参数_返回False(self, tmp_path):
+        """文件不存在 / 时长为 0 → 返回 False"""
+        assert media_probe.patch_mp4_durations(
+            str(tmp_path / "nope.mp4"), 10.0
+        ) is False
+        assert media_probe.patch_mp4_durations(
+            str(tmp_path / "nope.mp4"), 0.0
+        ) is False
 
 
 # ════════════════════════════════════════════════════════════════════ #

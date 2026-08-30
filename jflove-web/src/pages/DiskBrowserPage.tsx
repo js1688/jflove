@@ -131,12 +131,12 @@ export function DiskBrowserPage() {
     navigate(`/files/${diskId}/preview`);
   };
 
-  /** v1.4.2：右键「修复损坏媒体」——创建异步修复任务 */
+  /** v1.4.2：右键「修复损坏媒体」——创建异步修复任务，成功后跳转修复中心 */
   const handleRepair = async (item: FileItem) => {
     try {
       const dir = item.path.includes('/') ? item.path.slice(0, item.path.lastIndexOf('/')) : '';
       await repairService.create(numDiskId, dir, item.name);
-      setToast('已加入修复队列，可在「修复中心」查看进度');
+      navigate('/repair');
     } catch (e) {
       setToast(`发起修复失败：${e instanceof Error ? e.message : String(e)}`);
     }

@@ -546,9 +546,11 @@ def _build_range_stream_generator(
         "但增加了第 0 帧（元数据帧，含 file_size / content_type 等）。\n\n"
         "v1.4.2 行为：\n"
         "- 健康文件：原文件字节 range 直读（meta 帧 stream_mode=byte）\n"
-        "- 损坏/非流式媒体：415，detail 以 `[MEDIA_NEEDS_REPAIR]` 开头，\n"
-        "  客户端应弹「立即修复」引导\n"
-        "- 携带 `repair_task_id`：流式返回该修复任务产物（验证播放，仅 success 任务）\n\n"
+        "- 携带 `repair_task_id`：流式返回该修复任务产物（验证播放，仅 success 任务）\n"
+        "- 播放门禁（按客户端能力区分）：\n"
+        "  - `mse_only=1`（Web 端）：仅可流式格式放行（fMP4/WebM/简单音频），\n"
+        "    其余 415，detail 以 `[MEDIA_NEEDS_REPAIR]` 开头，客户端应弹「立即修复」\n"
+        "  - 未声明（桌面/移动端）：仅真损坏文件 415 + `[MEDIA_NEEDS_REPAIR]`\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：JWT 令牌\n"
         "- `disk_id`：虚拟磁盘 ID\n"
@@ -556,7 +558,8 @@ def _build_range_stream_generator(
         "- `filename`：文件名\n"
         "- `range_start`：字节起点（0=开头；负数=从末尾倒数）\n"
         "- `range_end`：字节终点，不含（-1=文件结尾）\n"
-        "- `repair_task_id`：（v1.4.2，可选）修复任务 ID，验证播放产物用"
+        "- `repair_task_id`：（v1.4.2，可选）修复任务 ID，验证播放产物用\n"
+        "- `mse_only`：（v1.4.2 hotfix，可选）1=仅返回 Web MSE 可流式格式"
     ),
 )
 async def stream_file(
@@ -581,6 +584,9 @@ async def stream_file(
     # v1.4.2：修复产物验证播放（repair_center「验证播放」按钮）。
     # 携带 repair_task_id 时流式返回该任务产物（隐藏目录内，绕过健康判定）。
     repair_task_id = _to_int(body.get("repair_task_id", 0), 0)
+    # v1.4.2 hotfix：mse_only=1 表示 Web 端（只接受 MSE 可流式格式）。
+    # 桌面/移动端不传，维持原生可播格式放行。
+    mse_only = _to_int(body.get("mse_only", 0), 0)
 
     if not filename:
         raise HTTPException(status_code=400, detail="filename 不能为空")
@@ -611,13 +617,22 @@ async def stream_file(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    # ── v1.4.2：播放门禁——只拒「真损坏」（探测致命错/无媒体流）──
-    # 探测结果 60s TTL 缓存，健康文件零重复探测。MKV/AVI/moov 尾部等格式
-    # 不理想但原生播放器可播的文件不拦（桌面/移动原生支持；Web 走既有回退）。
-    # 真损坏 → 415，detail 携带 [MEDIA_NEEDS_REPAIR] 错误码前缀，三端据此
-    # 弹「该文件已损坏，无法在线播放 + 立即修复」引导。
+    # ── v1.4.2 hotfix：播放门禁——区分客户端能力 ──
+    # 探测结果 60s TTL 缓存，健康文件零重复探测。
+    #  - mse_only=1（Web 端）：只接受可流式格式（fMP4/WebM/简单音频），
+    #    其余（TS/MKV/AVI/普通 MP4/faststart/损坏）一律 415 引导修复。
+    #  - 未声明（桌面/移动端）：仅拒「真损坏」（探测致命错/无媒体流），
+    #    MKV/AVI/moov 尾部等原生可播格式放行。
+    # 415 detail 携带 [MEDIA_NEEDS_REPAIR] 错误码前缀，客户端据此弹修复引导。
     probe = await media_probe.probe_media(file_path)
-    if media_probe.is_broken_media(filename, probe, file_path):
+    if mse_only:
+        if not media_probe.is_web_streamable(filename, probe, file_path):
+            logger.info("流式预览拒绝(Web不可流式): disk_id=%s", disk_id)
+            raise HTTPException(
+                status_code=415,
+                detail="[MEDIA_NEEDS_REPAIR] 该文件无法在线边下边播，请先修复",
+            )
+    elif media_probe.is_broken_media(filename, probe, file_path):
         logger.info("流式预览拒绝(需修复): disk_id=%s", disk_id)
         raise HTTPException(
             status_code=415,

@@ -164,11 +164,10 @@ class SettingsPage(QWidget):
         return card
 
     def _build_media_repair_card(self) -> CardWidget:
-        """构建「离线媒体修复」卡片（v1.4.2，仅管理员可见）
+        """构建「离线媒体修复」卡片（仅管理员可见）
 
-        v1.4.2 起修复改为手动离线任务（修复中心），不再有实时修复总开关。
-        此处仅保留离线修复队列的配置项：重编码子开关与并发数（存服务端
-        config 表，三端共享，修改后立即生效）。
+        修复为手动离线任务（修复中心），此处仅保留离线修复队列的并发数
+        配置（存服务端 config 表，三端共享，修改后立即生效）。
         """
         card = CardWidget()
         ml = QVBoxLayout(card)
@@ -177,22 +176,12 @@ class SettingsPage(QWidget):
 
         ml.addWidget(StrongBodyLabel("离线媒体修复"))
         hint = CaptionLabel(
-            "v1.4.2 起损坏媒体经「修复中心」手动离线修复（文件管理右键"
-            "「修复损坏媒体」发起）。以下为修复队列配置：并发数 1~8 或留空"
-            "按服务器 CPU 核数自动推导；重编码为无损修复失败时的降级手段。"
+            "损坏或无法在线播放的视频/音频，可在文件管理右键「修复损坏媒体」"
+            "发起离线修复，修复为可边下边播的格式。下方配置修复队列的并发数，"
+            "配置保存在服务端，三端共享，修改后立即生效。"
         )
         hint.setWordWrap(True)
         ml.addWidget(hint)
-
-        # 重编码子开关（独立于并发数，默认关闭）
-        transcode_row = QHBoxLayout()
-        transcode_row.addWidget(BodyLabel("允许重编码降级"))
-        transcode_row.addStretch()
-        self._transcode_switch = SwitchButton()
-        self._transcode_switch.setChecked(False)
-        self._transcode_switch.checkedChanged.connect(self._on_transcode_toggled)
-        transcode_row.addWidget(self._transcode_switch)
-        ml.addLayout(transcode_row)
 
         # 并发数
         concurrent_row = QHBoxLayout()
@@ -290,19 +279,12 @@ class SettingsPage(QWidget):
         self._worker = worker
 
     def _on_media_repair_config_loaded(self, config) -> None:
-        """离线修复配置加载回调：更新重编码/并发数状态（避免触发保存信号）"""
+        """离线修复配置加载回调：更新并发数状态"""
         cfg = config if isinstance(config, dict) else {
             c.get("key"): c.get("value", "")
             for c in config if isinstance(c, dict)
         }
-        self._transcode_switch.blockSignals(True)
-        self._transcode_switch.setChecked(cfg.get("media_repair_allow_transcode", "0") == "1")
-        self._transcode_switch.blockSignals(False)
         self._concurrent_input.setText(cfg.get("media_repair_max_concurrent", ""))
-
-    def _on_transcode_toggled(self, checked: bool) -> None:
-        """重编码子开关变化：写服务端配置"""
-        self._save_media_repair("media_repair_allow_transcode", "1" if checked else "0")
 
     def _on_save_concurrent(self) -> None:
         """保存并发数（1~8 或留空自动）"""
