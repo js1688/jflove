@@ -44,6 +44,21 @@ PROD_DB_SOURCE = PROJECT_ROOT / "jflove-db" / "jflove-prod.db"
 DOCKER_BUILD_CTX_DB_DIR = ROOT / "db"
 BUILD_DIR = ROOT / "build"
 
+#: 允许出现在生产库里的**初始化数据**（AGENTS.md §5.1：prod 库"不同步业务数据
+#: （初始化数据除外）"）。
+#:
+#: `init_db()` 首次运行会幂等写入 media_repair_* 两个默认配置键（值均为 0 = 关闭）。
+#: 它们不是业务数据，而是让服务端有一份默认配置；若不放行，只要启动过一次服务端，
+#: 生产库就不再是"全 0 行"，打包会被误拦。
+#:
+#: ⚠ 白名单必须**精确到键名 + 默认值**，且只对 config 表生效：这样任何真实的
+#: 业务数据（用户、磁盘、权限、会话、修复任务，或管理员改过的配置值）仍会被拦下，
+#: 数据泄漏防线不降低。
+_INITIAL_CONFIG_ROWS: dict[str, str] = {
+    "media_repair_enabled": "0",
+    "media_repair_allow_transcode": "0",
+}
+
 
 def assert_version_consistent() -> None:
     """发布阻塞项：校验模块内版本号与 version.json 一致，不一致直接失败"""
@@ -67,7 +82,13 @@ def fail(msg: str) -> None:
 
 
 def assert_prod_db_empty() -> None:
-    """安全宪法：发布前必须确认 prod DB 不含业务数据"""
+    """
+    安全宪法：发布前必须确认 prod DB 不含**业务数据**。
+
+    放行条件（AGENTS.md §5.1）：`config` 表里仅存在 `init_db()` 写入的默认配置键
+    （见 `_INITIAL_CONFIG_ROWS`，值必须等于默认值）。其余任何表非空、或 config
+    出现白名单外的键/被改过的值，都视为业务数据泄漏并中止构建。
+    """
     if not PROD_DB_SOURCE.exists():
         fail(f"找不到生产数据库：{PROD_DB_SOURCE}")
 
@@ -78,15 +99,39 @@ def assert_prod_db_empty() -> None:
         tables = [r[0] for r in cur.fetchall() if r[0] != "sqlite_sequence"]
         if not tables:
             fail("prod DB 没有任何业务表，构建终止")
-        offending = []
+
+        offending: list[tuple[str, int]] = []
+        initial_rows: list[str] = []
+
         for t in tables:
+            if t == "config":
+                continue  # config 单独按白名单校验
             cur.execute(f"SELECT COUNT(*) FROM {t}")
             cnt = cur.fetchone()[0]
             if cnt > 0:
                 offending.append((t, cnt))
+
+        # config 表：逐行核对是否为"默认初始化键 + 默认值"
+        if "config" in tables:
+            cur.execute("SELECT key, value FROM config WHERE deleted_at IS NULL")
+            for key, value in cur.fetchall():
+                expected = _INITIAL_CONFIG_ROWS.get(key)
+                if expected is not None and str(value) == expected:
+                    initial_rows.append(f"{key}={value}")
+                else:
+                    offending.append(("config", f"{key}={value}"))
+
         if offending:
-            fail(f"prod DB 包含业务数据，禁止打入镜像：{offending}")
-        log(f"prod DB 表结构校验通过，{len(tables)} 张表全部为 0 行")
+            fail(
+                "prod DB 包含业务数据，禁止打入镜像："
+                f"{offending}\n"
+                "  提示：仅允许 config 表存在 init_db() 写入的默认键"
+                f"（{_INITIAL_CONFIG_ROWS}）；"
+                "其余表必须 0 行。请清理生产库后重试。"
+            )
+
+        extra = f"，初始化配置 {initial_rows}" if initial_rows else ""
+        log(f"prod DB 表结构校验通过，{len(tables)} 张表均无业务数据{extra}")
     finally:
         conn.close()
 
@@ -160,7 +205,11 @@ def main() -> None:
             log(f"SHA256: {file_sha256(tar)}")
     finally:
         cleanup_stage()
-    log(f"=== 构建完成。运行示例：docker run -d -p 8989:8989 -v /your/data:/data --restart=always {IMAGE_NAME}:{tag} ===")
+    log(
+        "=== 构建完成。运行示例："
+        f"docker run -d -p 8989:8989 -v /your/data:/data --restart=always "
+        f"{IMAGE_NAME}:{tag} ==="
+    )
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'providers/theme_provider.dart';
 import 'utils/crypto.dart';
 import 'utils/http_service.dart';
 import 'utils/logger.dart';
@@ -17,6 +18,17 @@ Future<void> main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  // 0. 主题偏好（v1.5.0）：在 runApp 之前恢复，保证首帧就是正确主题，
+  //    不会出现「先亮后暗」的闪烁
+  //
+  //    同时关闭 Riverpod 3 的默认自动重试（`ProviderContainer.defaultRetry`：
+  //    最多 10 次、指数退避到 6.4s）。它会让一个失败请求在约 30 秒内处于
+  //    「loading + 已有 error」状态，`AsyncValue.when` 于是持续走 loading 分支，
+  //    用户看到的是骨架屏而不是错误提示 —— 网络不通时体验极差。
+  //    改为：失败立即呈现 `ErrorState`，由用户点「重试」再发起请求。
+  final container = ProviderContainer(retry: (_, _) => null);
+  await container.read(themeModeProvider.notifier).load();
 
   // 1. 从安全存储恢复持久化字段（token / serverUrl / TTL 偏好等）
   final session = SessionManager();
@@ -48,5 +60,8 @@ Future<void> main() async {
     }
   }
 
-  runApp(const ProviderScope(child: JFLoveApp()));
+  runApp(UncontrolledProviderScope(
+    container: container,
+    child: const JFLoveApp(),
+  ));
 }

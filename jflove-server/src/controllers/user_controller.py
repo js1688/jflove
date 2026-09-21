@@ -61,11 +61,12 @@ async def list_users(request: Request, db: aiosqlite.Connection = Depends(get_db
         "创建一个新的普通用户账号，密码使用 bcrypt 哈希存储。\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：管理员 JWT 令牌\n"
-        "- `username`：用户名（系统唯一）\n"
+        "- `username`：用户名（系统唯一；含已软删除的历史行，见删除接口说明）\n"
         "- `password`：初始密码\n\n"
         "响应体（加密后）字段：\n"
         "- `id`：新用户的主键 ID\n"
-        "- `message`：操作结果描述"
+        "- `message`：操作结果描述\n\n"
+        "注：重名（含同名已删除账号）返回 400 与明确文案，不会暴露数据库原始错误。"
     ),
 )
 async def create_user(request: Request, db: aiosqlite.Connection = Depends(get_db)):
@@ -88,6 +89,9 @@ async def create_user(request: Request, db: aiosqlite.Connection = Depends(get_d
     summary="删除用户",
     description=(
         "软删除指定用户账号（管理员账号不可删除）。\n\n"
+        "注：`users.username` 是全局唯一约束且不区分是否删除，因此被软删除的\n"
+        "用户名仍被历史行占用，无法再次创建同名账号 —— 这一点在创建接口会返回\n"
+        "明确的 400 文案说明（而不是数据库原始错误）。\n\n"
         "路径参数：\n"
         "- `user_id`：目标用户 ID\n\n"
         "请求体（加密后）字段：\n"

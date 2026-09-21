@@ -1,0 +1,51 @@
+[
+  {
+    "method": "POST",
+    "target": "127.0.0.1:8989/api/v1/auth/key-exchange",
+    "status": 200,
+    "req_is_envelope": false,
+    "resp_is_envelope": false
+  },
+  {
+    "method": "POST",
+    "target": "127.0.0.1:8989/api/v1/auth/login",
+    "status": 200,
+    "req_is_envelope": true,
+    "resp_is_envelope": true
+  },
+  {
+    "method": "GET",
+    "target": "127.0.0.1:8989/api/v1/users",
+    "status": 200,
+    "req_is_envelope": true,
+    "resp_is_envelope": true
+  },
+  {
+    "method": "GET",
+    "target": "127.0.0.1:8989/api/v1/virtual-disks",
+    "status": 200,
+    "req_is_envelope": true,
+    "resp_is_envelope": true
+  },
+  {
+    "method": "GET",
+    "target": "127.0.0.1:8989/api/v1/files/disks",
+    "status": 200,
+    "req_is_envelope": true,
+    "resp_is_envelope": true
+  },
+  {
+    "method": "GET",
+    "target": "127.0.0.1:8989/api/v1/notes/list",
+    "status": 400,
+    "req_is_envelope": true,
+    "resp_is_envelope": true
+  },
+  {
+    "method": "GET",
+    "target": "127.0.0.1:8989/api/v1/config",
+    "status": 200,
+    "req_is_envelope": true,
+    "resp_is_envelope": true
+  }
+]

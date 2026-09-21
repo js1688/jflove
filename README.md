@@ -187,12 +187,18 @@ python build.py --skip-env-check   # 跳过环境检查强行构建
 
 流程：读 `version.json` → 自动同步版本号 → 选模块 → 逐模块环境检查（不满足则打印原因并跳过）→ 依次打包（desktop 自动切模块 venv）→ 汇总成功/跳过/失败。
 
+> **桌面端的标准交付形态是安装包**（Windows `*-setup.exe` / Linux/Fedora `*.rpm`）——
+> 无论从哪条路径触发（根入口 / 模块 `build.py` 裸命令 / 交互式多选 / CI）都以它为标准产出；
+> onedir 目录与便携 zip 是附带产物，**单体 exe（`--mode onefile`）仅为兼容保留的显式选项**。
+> 工具链缺失时构建会**降级但响亮报警**（缺 Inno Setup → 只出 zip；缺 rpmbuild → 只出 onedir），
+> 降级产物不得当成标准交付。
+
 ### 各模块环境依赖与产物
 
 | 模块 | 依赖（不满足自动跳过） | 产物 |
 |------|----------------------|------|
 | server | Docker | `jflove-server:<version>` 镜像 + `latest` |
-| desktop | 模块 venv（PyInstaller + PySide6） | `jflove-desktop/build/dist/JFLove`（Linux）/ `JFLove.exe`（Windows） |
+| desktop | 模块 venv（PyInstaller + PySide6）；Windows 出安装包另需 **Inno Setup 6**（`ISCC.exe`） | **onedir 目录 + 安装包**：`build/dist/JFLove/` + Windows `JFLove-<version>-win64-setup.exe`、便携 `JFLove-<version>-win64-portable.zip`；Linux/Fedora `jflove-desktop-<version>-1.fc<N>.x86_64.rpm` |
 | web | Docker + `package-lock.json` | `jflove-web:<version>` 镜像 |
 | app | Flutter + Android SDK | `build/app/outputs/flutter-apk/app-debug.apk` + `app-release.apk` |
 
@@ -226,7 +232,7 @@ git tag v1.4.3 && git push origin main --tags
 |---|---|---|
 | `build-server.yml` | 服务端 Docker 镜像（复用 `build.py` 的版本/DB 校验） | GHCR `ghcr.io/<owner>/jflove-server:<ver>` + `latest` |
 | `build-web.yml` | Web 端 Docker 镜像（复用 `build.py`） | GHCR `ghcr.io/<owner>/jflove-web:<ver>` + `latest` |
-| `build-desktop.yml` | 桌面端 PyInstaller（Linux + Windows） | Artifact：`JFLove` / `JFLove.exe` |
+| `build-desktop.yml` | 桌面端 **onedir + 安装包**（Windows job 装 Inno Setup；Linux job 用 Fedora 容器出 RPM） | Artifact：`JFLove-<ver>-win64-setup.exe` + `JFLove-<ver>-win64-portable.zip` / `jflove-desktop-<ver>-1.fc43.x86_64.rpm` |
 | `build-app.yml` | 移动端 APK（release，含 R8 禁令检查） | Artifact：`app-release.apk` |
 
 ### 产物如何获取

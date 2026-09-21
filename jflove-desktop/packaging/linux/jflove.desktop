@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=JFLove
+Name[zh_CN]=JFLove
+GenericName=File Sync & Notes
+GenericName[zh_CN]=文件同步与笔记
+Comment=JFLove 跨平台文件同步与笔记客户端
+Comment[zh_CN]=文件同步、笔记、图表渲染
+Exec=jflove
+Icon=jflove
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=JFLove;file;sync;notes;cloud;
+StartupNotify=true
+StartupWMClass=JFLove

@@ -1,15 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../config/design_tokens.dart';
 import '../../models/user.dart';
 import '../../providers/admin_provider.dart';
-import '../../widgets/loading_indicator.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/error_state.dart';
 
+/// 用户管理页（admin）
+///
+/// v1.5.0：列表项换 `AppCard`、角色/启用状态换 `AppBadge`、
+/// 空态 / 加载态 / 错误态换统一组件，硬编码红色换 `AppTokens.danger500`。
+/// 业务逻辑（列表隐藏管理员行的设计意图、启用/禁用、改密、删除）与 v1.4.2 完全一致。
 class AdminUsersPage extends ConsumerWidget {
   const AdminUsersPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final t = context.tokens;
     final userListAsync = ref.watch(userListProvider);
 
     return Scaffold(
@@ -31,68 +40,133 @@ class AdminUsersPage extends ConsumerWidget {
       body: userListAsync.when(
         data: (users) {
           final normalUsers = users.where((u) => u.role != 'admin').toList();
+          if (normalUsers.isEmpty) {
+            return const EmptyState(
+              icon: Icons.people_outline_rounded,
+              title: '暂无普通用户',
+              subtitle: '点击右上角「添加用户」创建第一个普通用户',
+            );
+          }
           return ListView.builder(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(t.s3),
             itemCount: normalUsers.length,
-            itemBuilder: (ctx, i) {
-              final user = normalUsers[i];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    child: Text(user.username[0].toUpperCase()),
-                  ),
-                  title: Text(user.username),
-                  subtitle: Text(
-                    '角色: ${user.role == 'admin' ? '管理员' : '普通用户'}  |  '
-                    '状态: ${user.enabled ? '启用' : '禁用'}',
-                  ),
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (action) {
-                      if (action == 'password') {
-                        _changePassword(context, ref, user);
-                      } else if (action == 'toggle') {
-                        _toggleEnabled(context, ref, user);
-                      } else if (action == 'delete') {
-                        _deleteUser(context, ref, user);
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                        value: 'password',
-                        child: ListTile(
-                          leading: Icon(Icons.lock),
-                          title: Text('修改密码'),
-                        ),
-                      ),
-                      PopupMenuItem(
-                        value: 'toggle',
-                        child: ListTile(
-                          leading: Icon(
-                            user.enabled ? Icons.block : Icons.check_circle,
-                          ),
-                          title: Text(user.enabled ? '禁用' : '启用'),
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: ListTile(
-                          leading: Icon(Icons.delete, color: Colors.red),
-                          title: Text(
-                            '删除',
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+            itemBuilder: (ctx, i) => _buildUserCard(context, ref, normalUsers[i]),
           );
         },
-        loading: () => const LoadingIndicator(),
-        error: (e, _) => Center(child: Text('加载失败: $e')),
+        loading: () => const ListSkeleton(rows: 5),
+        error: (e, _) => ErrorState(
+          message: '$e',
+          onRetry: () => ref.invalidate(userListProvider),
+        ),
+      ),
+    );
+  }
+
+  /// 单个用户卡片（首字母头像 + 用户名 + 角色/状态徽标 + 三点菜单）
+  Widget _buildUserCard(BuildContext context, WidgetRef ref, User user) {
+    final t = context.tokens;
+    return AppCard(
+      margin: EdgeInsets.only(bottom: t.s2),
+      padding: EdgeInsets.all(t.s3),
+      child: Row(
+        children: [
+          // 首字母头像（品牌淡底 + 品牌字色）
+          Container(
+            width: 40,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: t.bgActive, shape: BoxShape.circle),
+            child: Text(
+              user.username.isEmpty ? '?' : user.username[0].toUpperCase(),
+              style: const TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                color: AppTokens.brand600,
+              ),
+            ),
+          ),
+          SizedBox(width: t.s3),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user.username,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: t.fgDefault,
+                  ),
+                ),
+                SizedBox(height: t.s1),
+                // 角色与启用状态用徽标表达（替代原先的彩色/纯文本拼接）
+                Row(
+                  children: [
+                    AppBadge(
+                      user.role == 'admin' ? '管理员' : '普通用户',
+                      tone: user.role == 'admin'
+                          ? BadgeTone.brand
+                          : BadgeTone.neutral,
+                    ),
+                    SizedBox(width: t.s2),
+                    AppBadge(
+                      user.enabled ? '启用' : '禁用',
+                      tone: user.enabled ? BadgeTone.success : BadgeTone.neutral,
+                      icon: user.enabled
+                          ? Icons.check_circle_outline_rounded
+                          : Icons.block_rounded,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: '操作菜单',
+            onSelected: (action) {
+              if (action == 'password') {
+                _changePassword(context, ref, user);
+              } else if (action == 'toggle') {
+                _toggleEnabled(context, ref, user);
+              } else if (action == 'delete') {
+                _deleteUser(context, ref, user);
+              }
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'password',
+                child: ListTile(
+                  leading: Icon(Icons.lock_outline_rounded),
+                  title: Text('修改密码'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'toggle',
+                child: ListTile(
+                  leading: Icon(
+                    user.enabled ? Icons.block_rounded : Icons.check_circle,
+                  ),
+                  title: Text(user.enabled ? '禁用' : '启用'),
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: ListTile(
+                  leading: Icon(
+                    Icons.delete_outline_rounded,
+                    color: AppTokens.danger500,
+                  ),
+                  title: Text(
+                    '删除',
+                    style: TextStyle(color: AppTokens.danger500),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -218,6 +292,10 @@ class AdminUsersPage extends ConsumerWidget {
             child: const Text('取消'),
           ),
           FilledButton(
+            // 危险操作：主按钮用语义色，与 Web 端 ConfirmDialog 的 danger 一致
+            style: FilledButton.styleFrom(
+              backgroundColor: AppTokens.danger500,
+            ),
             onPressed: () async {
               Navigator.pop(ctx);
               try {

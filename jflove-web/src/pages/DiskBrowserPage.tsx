@@ -7,9 +7,18 @@ import { PageHeader } from '../components/PageHeader';
 import { PathBreadcrumb } from '../components/PathBreadcrumb';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DirTreeModal } from '../components/DirTreeModal';
-import { LoadingSpinner } from '../components/LoadingSpinner';
-import { EmptyState } from '../components/EmptyState';
 import { ErrorBanner } from '../components/ErrorBanner';
+import {
+  Badge,
+  Button,
+  EmptyState,
+  Icon,
+  ListSkeleton,
+  Modal,
+  toast,
+  type IconName,
+} from '../components/ui';
+import { fileVisual } from '../utils/file-visual';
 import type { FileItem } from '../types/models';
 
 /** 格式化文件大小 */
@@ -41,19 +50,30 @@ function isMediaFile(name: string): boolean {
   return MEDIA_EXTS.has(name.slice(dot + 1).toLowerCase());
 }
 
-/** 文件类型图标 */
-function fileIcon(item: FileItem): string {
-  if (item.is_dir) return '📁';
-  const ext = item.name.split('.').pop()?.toLowerCase() || '';
-  const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
-  const videoExts = ['mp4', 'webm', 'mkv', 'avi', 'mov'];
-  const audioExts = ['mp3', 'wav', 'flac', 'aac', 'ogg'];
-  const docExts = ['md', 'txt', 'json', 'xml', 'yaml', 'csv', 'pdf'];
-  if (imageExts.includes(ext)) return '🖼️';
-  if (videoExts.includes(ext)) return '🎬';
-  if (audioExts.includes(ext)) return '🎵';
-  if (docExts.includes(ext)) return '📄';
-  return '📎';
+/** 上下文菜单项（v1.5.0 新增：统一菜单行，emoji 换矢量图标） */
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  danger = false,
+}: {
+  icon: IconName;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-2.5 rounded-sm px-3 py-2 text-left text-[13px] transition-colors hover:bg-hover"
+      style={danger ? { color: 'var(--danger-700)' } : undefined}
+    >
+      <Icon name={icon} size="sm" />
+      {label}
+    </button>
+  );
 }
 
 export function DiskBrowserPage() {
@@ -76,13 +96,7 @@ export function DiskBrowserPage() {
   const [showNewDir, setShowNewDir] = useState(false);
   // 拖拽上传状态（PC 端）
   const [isDragOver, setIsDragOver] = useState(false);
-  // v1.4.2：操作结果 toast（修复等，3.5s 自动消失）
-  const [toast, setToast] = useState<string | null>(null);
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3500);
-    return () => clearTimeout(t);
-  }, [toast]);
+  // v1.5.0：操作结果改用全站统一 Toast（原先本页自建一套 fixed 定位提示）
 
   const numDiskId = Number(diskId);
   const disk = store.disks.find(d => d.id === numDiskId);
@@ -136,9 +150,9 @@ export function DiskBrowserPage() {
     try {
       const dir = item.path.includes('/') ? item.path.slice(0, item.path.lastIndexOf('/')) : '';
       await repairService.create(numDiskId, dir, item.name);
-      setToast('已加入修复队列，可在「修复中心」查看进度');
+      toast.success('已加入修复队列', '可在「修复中心」查看进度');
     } catch (e) {
-      setToast(`发起修复失败：${e instanceof Error ? e.message : String(e)}`);
+      toast.error('发起修复失败', e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -231,30 +245,25 @@ export function DiskBrowserPage() {
   return (
     <div>
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
-      {toast && (
-        <div className="fixed top-20 right-6 z-50 max-w-sm rounded-lg bg-gray-800 px-4 py-3 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
 
       <PageHeader
         title={diskName}
         onBack={handleBackToDisks}
+        subtitle={path ? `当前位置：${path}` : '根目录'}
         actions={
           store.canWrite ? (
             <>
-              <button
+              <Button
+                variant="primary"
+                size="sm"
+                icon="upload"
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
               >
-                📤 上传
-              </button>
-              <button
-                onClick={() => setShowNewDir(true)}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50"
-              >
-                📁 新建目录
-              </button>
+                上传
+              </Button>
+              <Button size="sm" icon="folder" onClick={() => setShowNewDir(true)}>
+                新建目录
+              </Button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -263,7 +272,11 @@ export function DiskBrowserPage() {
                 onChange={e => handleUpload(e.target.files)}
               />
             </>
-          ) : undefined
+          ) : (
+            <Badge tone="neutral" icon="locked">
+              只读
+            </Badge>
+          )
         }
       />
 
@@ -274,205 +287,232 @@ export function DiskBrowserPage() {
         onBackToDisks={handleBackToDisks}
       />
 
-      {/* 排序工具栏 */}
-      <div className="flex items-center gap-2 px-4 py-2 text-xs text-gray-400 border-b border-gray-50 bg-white">
-        <span>排序：</span>
-        {(['name', 'size', 'modified_at'] as const).map(field => (
-          <button
-            key={field}
-            onClick={() => {
-              if (store.sortBy === field) store.toggleSortOrder();
-              else store.setSortBy(field);
-            }}
-            className={`px-2 py-0.5 rounded ${
-              store.sortBy === field ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-gray-50'
-            }`}
-          >
-            {field === 'name' ? '名称' : field === 'size' ? '大小' : '时间'}
-            {store.sortBy === field && (store.sortAsc ? ' ↑' : ' ↓')}
-          </button>
-        ))}
+      {/* 排序工具栏（v1.5.0：箭头字符换矢量图标，配色走令牌） */}
+      <div className="flex items-center gap-1 border-b border-line-subtle bg-surface px-4 py-2">
+        <span className="mr-1 text-[11.5px] text-subtle">排序</span>
+        {(['name', 'size', 'modified_at'] as const).map(field => {
+          const on = store.sortBy === field;
+          return (
+            <button
+              key={field}
+              type="button"
+              onClick={() => {
+                if (on) store.toggleSortOrder();
+                else store.setSortBy(field);
+              }}
+              data-on={on}
+              className="tb !w-auto gap-1 px-2"
+            >
+              {field === 'name' ? '名称' : field === 'size' ? '大小' : '时间'}
+              {on && (
+                <Icon
+                  name="expand"
+                  size="sm"
+                  className={store.sortAsc ? '' : 'rotate-180'}
+                />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* 新建目录弹窗 */}
-      {showNewDir && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
-            <h3 className="font-semibold text-gray-800 mb-3">新建目录</h3>
-            <input
-              type="text"
-              value={newDirName}
-              onChange={e => setNewDirName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleCreateDir()}
-              placeholder="目录名称"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => { setShowNewDir(false); setNewDirName(''); }}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCreateDir}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-              >
-                创建
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={showNewDir}
+        title="新建目录"
+        icon="folder"
+        width={420}
+        onClose={() => {
+          setShowNewDir(false);
+          setNewDirName('');
+        }}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowNewDir(false);
+                setNewDirName('');
+              }}
+            >
+              取消
+            </Button>
+            <Button variant="primary" icon="checked" onClick={handleCreateDir}>
+              创建
+            </Button>
+          </>
+        }
+      >
+        <input
+          type="text"
+          value={newDirName}
+          onChange={e => setNewDirName(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleCreateDir()}
+          placeholder="目录名称"
+          className="input"
+          autoFocus
+        />
+      </Modal>
 
       {/* 文件列表（支持拖拽上传，PC 端） */}
       <div
-        className={`p-2 transition-colors ${isDragOver ? 'bg-indigo-50 ring-2 ring-indigo-300 rounded-lg' : ''}`}
+        className={[
+          'p-2 transition-colors',
+          isDragOver && 'rounded-lg bg-brand-50 ring-2 ring-brand-300',
+        ]
+          .filter(Boolean)
+          .join(' ')}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
         {isDragOver && (
-          <div className="flex flex-col items-center justify-center py-12 text-indigo-500">
-            <span className="text-3xl mb-2">📤</span>
-            <span className="text-sm font-medium">松开以上传到当前目录</span>
+          <div className="flex flex-col items-center justify-center py-12 text-brand-500">
+            <Icon name="upload" size="xl" strokeWidth={1.5} className="mb-2" />
+            <span className="text-[13px] font-medium">松开以上传到当前目录</span>
+            <span className="mt-1 text-[11.5px] text-subtle">
+              分片 64 KB · ChaCha20-Poly1305 端到端加密
+            </span>
           </div>
         )}
 
-        {store.filesLoading && <LoadingSpinner />}
+        {store.filesLoading && <ListSkeleton rows={6} />}
 
         {!store.filesLoading && sortedFiles.length === 0 && (
-          <EmptyState icon="📂" title="此目录为空" />
+          <EmptyState icon="files" title="此目录为空" description="可上传文件或新建目录" />
         )}
 
-        {!store.filesLoading && sortedFiles.map(item => (
-          <div
-            key={item.path}
-            onClick={() => item.is_dir ? handleEnterDir(item) : handlePreview(item)}
-            onContextMenu={e => handleContextMenu(e, item)}
-            className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors border-b border-gray-50"
-          >
-            <span className="text-xl w-8 text-center">{fileIcon(item)}</span>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm text-gray-800 truncate">{item.name}</div>
-              <div className="text-xs text-gray-400">
-                {!item.is_dir && `${formatSize(item.size)} · `}
-                {formatTime(item.modified_at)}
+        {!store.filesLoading &&
+          sortedFiles.map(item => {
+            const v = fileVisual(item.name, item.is_dir);
+            return (
+              <div
+                key={item.path}
+                onClick={() => (item.is_dir ? handleEnterDir(item) : handlePreview(item))}
+                onContextMenu={e => handleContextMenu(e, item)}
+                className="list-row cursor-pointer rounded-lg border-b border-line-subtle"
+              >
+                <span className={`file-ico file-ico-${v.tone}`}>
+                  <Icon name={v.icon} size="lg" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium text-fg">{item.name}</div>
+                  <div className="tabular text-[11.5px] text-subtle">
+                    {!item.is_dir && `${formatSize(item.size)} · `}
+                    {formatTime(item.modified_at)}
+                  </div>
+                </div>
+                <Icon name="next" size="sm" className="shrink-0 text-subtle" />
               </div>
-            </div>
-            <span className="text-gray-300 text-xs">→</span>
-          </div>
-        ))}
+            );
+          })}
       </div>
 
-      {/* 上下文菜单 */}
+      {/* 上下文菜单（v1.5.0：全部 emoji 换矢量图标） */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-white rounded-xl shadow-lg border border-gray-100 py-1 min-w-[160px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          className="card fixed z-50 min-w-[176px] p-1"
+          style={{ left: contextMenu.x, top: contextMenu.y, boxShadow: 'var(--e4)' }}
+          role="menu"
         >
           {!contextMenu.item.is_dir && (
             <>
-              <button
+              <MenuItem
+                icon="download"
+                label="下载"
                 onClick={() => {
-                  downloadFile(numDiskId, contextMenu.item.path, contextMenu.item.name, contextMenu.item.size);
+                  downloadFile(
+                    numDiskId,
+                    contextMenu.item.path,
+                    contextMenu.item.name,
+                    contextMenu.item.size,
+                  );
                   setContextMenu(null);
                 }}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
-              >
-                ⬇️ 下载
-              </button>
-              <button
+              />
+              <MenuItem
+                icon="view"
+                label="预览"
                 onClick={() => {
                   handlePreview(contextMenu.item);
                   setContextMenu(null);
                 }}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
-              >
-                👁️ 预览
-              </button>
+              />
               {isMediaFile(contextMenu.item.name) && store.canWrite && store.canDelete && (
-                <button
+                <MenuItem
+                  icon="repair"
+                  label="修复损坏媒体"
                   onClick={() => {
                     void handleRepair(contextMenu.item);
                     setContextMenu(null);
                   }}
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
-                >
-                  🛠️ 修复损坏媒体
-                </button>
+                />
               )}
-              <div className="border-t border-gray-100 my-1" />
+              <div className="mx-2 my-1 border-t border-line-subtle" />
             </>
           )}
           {store.canWrite && (
             <>
-              <button
+              <MenuItem
+                icon="edit"
+                label="重命名"
                 onClick={() => {
                   setRenameTarget(contextMenu.item);
                   setRenameValue(contextMenu.item.name);
                   setContextMenu(null);
                 }}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
-              >
-                ✏️ 重命名
-              </button>
-              <button
+              />
+              <MenuItem
+                icon="folder"
+                label="移动到…"
                 onClick={() => {
                   setMoveTarget(contextMenu.item);
                   setContextMenu(null);
                 }}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50"
-              >
-                📦 移动到…
-              </button>
-              <div className="border-t border-gray-100 my-1" />
-              <button
+              />
+              <div className="mx-2 my-1 border-t border-line-subtle" />
+              <MenuItem
+                icon="delete"
+                label="删除"
+                danger
                 onClick={() => {
                   setDeleteTarget(contextMenu.item);
                   setContextMenu(null);
                 }}
-                className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-red-50"
-              >
-                🗑️ 删除
-              </button>
+              />
             </>
           )}
         </div>
       )}
 
       {/* 重命名弹窗 */}
-      {renameTarget && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
-            <h3 className="font-semibold text-gray-800 mb-3">重命名</h3>
-            <input
-              type="text"
-              value={renameValue}
-              onChange={e => setRenameValue(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleRename()}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setRenameTarget(null)}
-                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleRename}
-                className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-              >
-                确认
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={Boolean(renameTarget)}
+        title="重命名"
+        icon="edit"
+        width={420}
+        onClose={() => setRenameTarget(null)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setRenameTarget(null)}>
+              取消
+            </Button>
+            <Button variant="primary" icon="checked" onClick={handleRename}>
+              确认
+            </Button>
+          </>
+        }
+      >
+        <input
+          type="text"
+          value={renameValue}
+          onChange={e => setRenameValue(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleRename()}
+          className="input"
+          autoFocus
+        />
+      </Modal>
 
       {/* 删除确认 */}
       {deleteTarget && (

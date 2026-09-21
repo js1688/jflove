@@ -1,0 +1,9 @@
+#!/bin/sh
+# JFLove 桌面客户端启动包装脚本
+#
+# RPM 安装位置：/usr/bin/jflove（见 jflove-desktop.spec 的 %files）
+# 载荷位置：    /usr/lib/jflove/（PyInstaller onedir 产物：JFLove + _internal/）
+#
+# 只做 exec 转发，不注入任何环境变量：应用自身在 src/main.py 里按需处理
+# Wayland 平台插件与中文输入法变量（Windows/macOS 自动跳过）。
+exec /usr/lib/jflove/JFLove "$@"

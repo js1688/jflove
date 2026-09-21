@@ -15,11 +15,13 @@ def _now() -> str:
 
 async def find_by_username(db: aiosqlite.Connection, username: str) -> aiosqlite.Row | None:
     """
-    按用户名查询未删除用户。
+    按用户名查询**活跃**用户（已软删除的历史行不算"存在"）。
 
-    :param db: 数据库连接
-    :param username: 用户名
-    :returns: 用户行数据，不存在则返回 None
+    v1.5.0：`users.username` 的列级 UNIQUE 已移除，改为
+    「普通索引 + 活跃行部分唯一索引」。因此本函数在活跃行里最多命中一条，
+    可以安全地用于登录与查重；被软删除的同名历史行不会干扰。
+
+    调用方若需要"含历史行"的判定，请勿改这里 —— 那样会让登录出现歧义。
     """
     async with db.execute(
         "SELECT * FROM users WHERE username = ? AND deleted_at IS NULL", (username,)
@@ -125,7 +127,11 @@ async def update_enabled(db: aiosqlite.Connection, user_id: int, enabled: bool) 
 
 async def soft_delete(db: aiosqlite.Connection, user_id: int) -> None:
     """
-    软删除用户，设置 deleted_at 时间戳。
+    软删除用户，设置 deleted_at 时间戳（遵守 AGENTS.md §5.2 的软删除约定）。
+
+    历史行会保留，但**不再占用用户名**：`users.username` 已去掉列级 UNIQUE，
+    唯一性由「活跃行部分唯一索引」保证（只对 `deleted_at IS NULL` 生效），
+    因此删除后可以用同名重建。
 
     :param db: 数据库连接
     :param user_id: 目标用户 ID

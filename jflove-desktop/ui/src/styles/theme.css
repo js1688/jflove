@@ -1,0 +1,118 @@
+/**
+ * Tailwind v4 令牌映射层
+ *
+ * 作用：把 `tokens.css` 里的语义变量映射成 Tailwind 工具类命名空间
+ * （`--color-brand-500` → `bg-brand-500` / `text-brand-500` …）。
+ *
+ * 关键点是 `@theme inline`：
+ *   - 用 `inline` 时，Tailwind 生成的工具类会写成 `background-color: var(--bg-canvas)`
+ *     （引用变量本身），而不是把当时的字面值拷贝进 `@theme`；
+ *   - 于是切到 `.dark` 只需覆盖 `:root` 语义变量，**所有工具类自动跟随**，
+ *     页面里不需要写任何 `dark:` 前缀 —— 这正是需求 AC-3「零硬编码 + 暗色零改动」的实现方式。
+ *
+ * 命名约定（与设计文档 §2.2 一致）：
+ *   tokens.css `--bg-canvas`  →  `bg-canvas` / `text-*` / `border-*`
+ *   tokens.css `--fg-muted`   →  `text-muted`
+ *   tokens.css `--border-default` → `border-line`
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  /* ---------- 字体 ---------- */
+  --font-sans:
+    'Inter', 'Segoe UI Variable Text', 'Segoe UI', -apple-system, 'PingFang SC', 'Microsoft YaHei UI',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'SF Mono', Consolas, monospace;
+
+  /* ---------- 品牌色阶 ---------- */
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+
+  /* ---------- 强调色 ---------- */
+  --color-accent-50: var(--accent-50);
+  --color-accent-100: var(--accent-100);
+  --color-accent-300: var(--accent-300);
+  --color-accent-500: var(--accent-500);
+  --color-accent-600: var(--accent-600);
+
+  /* ---------- 中性色阶（供极少数需要精确取值的场景）---------- */
+  --color-neutral-0: var(--neutral-0);
+  --color-neutral-25: var(--neutral-25);
+  --color-neutral-50: var(--neutral-50);
+  --color-neutral-100: var(--neutral-100);
+  --color-neutral-200: var(--neutral-200);
+  --color-neutral-300: var(--neutral-300);
+  --color-neutral-400: var(--neutral-400);
+  --color-neutral-500: var(--neutral-500);
+  --color-neutral-600: var(--neutral-600);
+  --color-neutral-700: var(--neutral-700);
+  --color-neutral-800: var(--neutral-800);
+  --color-neutral-850: var(--neutral-850);
+  --color-neutral-900: var(--neutral-900);
+  --color-neutral-950: var(--neutral-950);
+
+  /* ---------- 语义色状态阶 ---------- */
+  --color-success-50: var(--success-50);
+  --color-success-500: var(--success-500);
+  --color-success-700: var(--success-700);
+  --color-warning-50: var(--warning-50);
+  --color-warning-500: var(--warning-500);
+  --color-warning-700: var(--warning-700);
+  --color-danger-50: var(--danger-50);
+  --color-danger-500: var(--danger-500);
+  --color-danger-700: var(--danger-700);
+  --color-info-50: var(--info-50);
+  --color-info-500: var(--info-500);
+  --color-info-700: var(--info-700);
+
+  /* ---------- 语义表面对外暴露的名字（工具类用这些）---------- */
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-sunken: var(--bg-sunken);
+  --color-hover: var(--bg-hover);
+  --color-active: var(--bg-active);
+  --color-glass: var(--bg-glass);
+  --color-code: var(--bg-code);
+  /* 底部抽屉 / 手写弹层的遮罩底色（page 层走 bg-overlay/<alpha> 调整深浅） */
+  --color-overlay: var(--neutral-950);
+
+  --color-fg: var(--fg-default);
+  --color-muted: var(--fg-muted);
+  --color-subtle: var(--fg-subtle);
+  --color-invert: var(--fg-invert);
+  --color-fg-brand: var(--fg-brand);
+
+  --color-line-subtle: var(--border-subtle);
+  --color-line: var(--border-default);
+  --color-line-strong: var(--border-strong);
+
+  /* ---------- 圆角 ---------- */
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --radius-2xl: var(--r-2xl);
+
+  /* ---------- 阴影 ---------- */
+  --shadow-e1: var(--e1);
+  --shadow-e2: var(--e2);
+  --shadow-e3: var(--e3);
+  --shadow-e4: var(--e4);
+  --shadow-e5: var(--e5);
+  --shadow-ring: var(--ring-brand);
+  --shadow-ring-danger: var(--ring-danger);
+
+  /* ---------- 动效 ---------- */
+  --ease-out-quint: var(--ease-out-quint);
+  --ease-spring: var(--ease-spring);
+}

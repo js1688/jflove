@@ -31,15 +31,31 @@ docker run -d --name jflove-web \
 
 ### 桌面端 / 移动端
 
-从本页下方 **Assets** 下载对应平台产物：
+从本页下方 **Assets** 下载对应平台的产物：
 
-- 桌面端：`JFLove.exe`（Windows）/ `JFLove`（Linux），单文件免安装
-- 移动端：`app-release.apk`（正式安装）
+**桌面端**
+
+- `JFLove-__VERSION__-win64-setup.exe` —— Windows **安装版**：双击安装，含开始菜单快捷方式与卸载器
+- `JFLove-__VERSION__-win64-portable.zip` —— Windows **免安装版**：解压即用，不写注册表
+- `jflove-desktop-__VERSION__-*.x86_64.rpm` —— Fedora / RHEL 系 **RPM 安装包**
 
 ```bash
-# 移动端安装
+# Fedora / RHEL 安装
+sudo dnf install ./jflove-desktop-__VERSION__-*.x86_64.rpm
+# 之后从应用菜单启动，或命令行运行 jflove
+```
+
+**移动端**
+
+- `app-release.apk` —— Android 安装包
+
+```bash
+# Android 安装（手机已连电脑并开启 USB 调试）
 adb install -r app-release.apk
 ```
+
+> 桌面端为 **onedir（目录形态）**打包：不提供单体免安装 exe —— 单体形态每次启动都要把
+> 数百 MB 运行时解压到临时目录，启动明显更慢。
 
 ### 完整发布记录
 

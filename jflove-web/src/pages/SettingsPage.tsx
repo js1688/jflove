@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuthStore } from '../stores/auth-store';
 import { useSettingsStore } from '../stores/settings-store';
+import { useThemeStore, type ThemeMode } from '../stores/theme-store';
 import { useAuth } from '../hooks/use-auth';
 import { serverHistoryService } from '../services/server-history-service';
 import { diskService } from '../services/disk-service';
@@ -13,15 +14,25 @@ import { SecurityPage } from './SecurityPage';
 import { useIsPC } from '../hooks/use-responsive';
 import { APP_VERSION } from '../config/constants';
 import { getTokenExpiresAt, effectiveExpireAt } from '../utils/session';
+import { Button, Card, Icon, IconButton, Segmented, toast, type IconName } from '../components/ui';
 import type { VirtualDisk } from '../types/models';
 
-/** 设置页 */
+/**
+ * 设置页
+ *
+ * v1.5.0：Section 的 `icon` 由 emoji 字符串改为语义 `IconName`（矢量图标）；
+ * 手写弹窗换统一 Modal / Card，配色全部改语义令牌（暗色零改动）。
+ * 功能项（版本号、服务端地址、笔记目录、账号与登录凭证、管理面板入口、关于）
+ * 与 v1.4.2 逐项一致；移动端 / PC 分支（isPC）保留。
+ */
 export function SettingsPage() {
   const navigate = useNavigate();
   const isPC = useIsPC();
   const { username, role, isAdmin, serverUrl } = useAuthStore();
   const { handleLogout } = useAuth();
   const settings = useSettingsStore();
+  const themeMode = useThemeStore(s => s.mode);
+  const setThemeMode = useThemeStore(s => s.setMode);
 
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [showDirBrowser, setShowDirBrowser] = useState(false);
@@ -60,11 +71,13 @@ export function SettingsPage() {
       await useAuthStore.getState().keyExchange(url);
       // 服务端地址已变化：旧 token/用户信息对新服务端无效，清除会话并提示重新登录
       useAuthStore.getState().logout();
-      setServerMsg('服务端地址已更新，请重新登录');
+      toast.success('服务端地址已更新', '请使用新服务端重新登录');
       setShowServerSheet(false);
       navigate('/login', { replace: true });
     } catch (e) {
-      setServerMsg(e instanceof Error ? e.message : '连接失败，请检查地址');
+      const msg = e instanceof Error ? e.message : '连接失败，请检查地址';
+      setServerMsg(msg);
+      toast.error('连接失败', msg);
     } finally {
       setSavingServer(false);
     }
@@ -87,17 +100,25 @@ export function SettingsPage() {
     </div>
   ) : null;
 
+  /** 管理面板入口（仅移动端显示；PC 端侧边栏已有入口，避免重复） */
+  const adminEntries: { path: string; label: string; icon: IconName }[] = [
+    { path: '/admin/users', label: '用户管理', icon: 'users' },
+    { path: '/admin/disks', label: '磁盘管理', icon: 'disks' },
+    { path: '/admin/permissions', label: '权限配置', icon: 'permissions' },
+    { path: '/admin/system', label: '系统设置', icon: 'system' },
+  ];
+
   return (
     <div>
       <PageHeader title="设置" />
 
-      <div className="p-4 space-y-4">
+      <div className="flex flex-col gap-4 p-4">
         {/* 安全状态（移动端） */}
         {securitySection}
 
         {/* 服务端地址 */}
         {/* 移动端对齐安卓 App：显示当前地址 + 「修改服务器地址」按钮，点击弹底部面板输入，避免行内输入溢出 */}
-        <Section icon={isPC ? undefined : '🔌'} title="服务端">
+        <Section icon={isPC ? undefined : 'server'} title="服务端">
           {isPC ? (
             <>
               <div className="flex gap-2">
@@ -106,44 +127,42 @@ export function SettingsPage() {
                   list="settings-server-history"
                   value={serverUrlEdit}
                   onChange={e => setServerUrlEdit(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="input flex-1"
                 />
-                <button
-                  onClick={handleSaveServerUrl}
-                  disabled={savingServer || !serverUrlEdit.trim()}
-                  className="px-3 py-2 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 whitespace-nowrap"
+                <Button
+                  variant="primary"
+                  loading={savingServer}
+                  disabled={!serverUrlEdit.trim()}
+                  onClick={() => void handleSaveServerUrl()}
                 >
                   {savingServer ? '连接中…' : '保存并重新连接'}
-                </button>
+                </Button>
                 <datalist id="settings-server-history">
                   {history.map(url => <option key={url} value={url} />)}
                 </datalist>
               </div>
               {serverMsg && (
-                <div className="mt-2 text-xs text-indigo-600">{serverMsg}</div>
+                <div className="mt-2 text-[11.5px] text-fg-brand">{serverMsg}</div>
               )}
             </>
           ) : (
             <>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm text-gray-600 truncate flex-1">{serverUrl}</span>
-                <button
-                  onClick={() => setShowServerSheet(true)}
-                  className="px-3 py-1.5 text-xs bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 whitespace-nowrap"
-                >
+                <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{serverUrl}</span>
+                <Button size="sm" icon="edit" onClick={() => setShowServerSheet(true)}>
                   修改服务器地址
-                </button>
+                </Button>
               </div>
               {serverMsg && (
-                <div className="mt-2 text-xs text-indigo-600">{serverMsg}</div>
+                <div className="mt-2 text-[11.5px] text-fg-brand">{serverMsg}</div>
               )}
             </>
           )}
         </Section>
 
         {/* 笔记目录 */}
-        <Section icon={isPC ? undefined : '📁'} title="笔记目录">
-          <div className="text-xs text-gray-400 mb-2">
+        <Section icon={isPC ? undefined : 'folder'} title="笔记目录">
+          <div className="mb-2 text-[11.5px] text-subtle">
             {settings.notesDiskId
               ? (() => {
                   const d = disks.find(x => x.id === settings.notesDiskId);
@@ -151,7 +170,9 @@ export function SettingsPage() {
                 })()
               : '未配置'}
           </div>
-          <button
+          <Button
+            size="sm"
+            icon="folder"
             onClick={async () => {
               try {
                 const d = await diskService.listAllDisks();
@@ -159,60 +180,79 @@ export function SettingsPage() {
                 setShowDirBrowser(true);
               } catch { /* ignore */ }
             }}
-            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             浏览选择
-          </button>
+          </Button>
         </Section>
 
         {/* 账号（含 token 过期时间，对标桌面端登录凭证信息） */}
-        <Section icon={isPC ? undefined : '👤'} title="账号">
-          <div className="text-sm text-gray-700 mb-1">
-            {username} <span className="text-xs text-gray-400">({role === 'admin' ? '管理员' : '普通用户'})</span>
+        <Section icon={isPC ? undefined : 'user'} title="账号">
+          <div className="mb-1 text-[13px] text-fg">
+            {username}{' '}
+            <span className="text-[11.5px] text-subtle">
+              ({role === 'admin' ? '管理员' : '普通用户'})
+            </span>
           </div>
           {effectiveExpire && (
-            <div className="text-xs text-gray-400 mb-2">
+            <div className="tabular mb-2 text-[11.5px] text-subtle">
               登录凭证过期时间：{new Date(effectiveExpire * 1000).toLocaleString('zh-CN')}（剩余 {remainingText}）
             </div>
           )}
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            icon="logout"
+            className="btn-danger-ghost"
             onClick={() => setShowLogoutConfirm(true)}
-            className="px-4 py-2 text-sm text-red-500 border border-red-200 rounded-lg hover:bg-red-50"
           >
             退出登录
-          </button>
+          </Button>
         </Section>
 
         {/* 管理面板入口（仅移动端显示；PC 端侧边栏已有入口，避免重复） */}
         {/* 对齐移动端 Flutter：卡片式列表项（leading 图标 + 标题 + 右箭头），点击进入子页 */}
         {isAdmin && !isPC && (
-          <Section icon="🛡️" title="管理面板">
-            <div className="space-y-2">
-              {[
-                { path: '/admin/users', label: '用户管理', icon: '👤' },
-                { path: '/admin/disks', label: '磁盘管理', icon: '💾' },
-                { path: '/admin/permissions', label: '权限配置', icon: '🔑' },
-                { path: '/admin/system', label: '系统设置', icon: '⚙️' },
-              ].map(item => (
+          <Section icon="security" title="管理面板">
+            <div className="flex flex-col gap-2">
+              {adminEntries.map(item => (
                 <button
                   key={item.path}
+                  type="button"
                   onClick={() => navigate(item.path)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-600 bg-white rounded-lg border border-gray-100 hover:bg-gray-50"
+                  className="flex w-full items-center gap-3 rounded-lg border border-line-subtle bg-surface px-4 py-3 text-[13px] text-muted transition-colors hover:bg-hover"
                 >
-                  <span className="text-lg">{item.icon}</span>
+                  <Icon name={item.icon} size="sm" className="shrink-0 text-brand-500" />
                   <span className="flex-1 text-left">{item.label}</span>
-                  <span className="text-gray-300">→</span>
+                  <Icon name="next" size="sm" className="shrink-0 text-subtle" />
                 </button>
               ))}
             </div>
           </Section>
         )}
 
+        {/* 外观（v1.5.0 修复：主题切换从侧栏悬浮按钮移到这里，三端统一进设置页） */}
+        <Section icon={isPC ? undefined : 'theme'} title="外观">
+          <div className="text-[13px] text-muted">
+            <div className="mb-2 text-[11.5px] text-subtle">
+              跟随系统会随操作系统的亮/暗设置自动切换
+            </div>
+            <Segmented<ThemeMode>
+              value={themeMode}
+              onChange={(v) => setThemeMode(v)}
+              options={[
+                { value: 'system', label: '跟随系统', icon: 'themeSystem' },
+                { value: 'light', label: '亮色', icon: 'themeLight' },
+                { value: 'dark', label: '暗色', icon: 'theme' },
+              ]}
+            />
+          </div>
+        </Section>
+
         {/* 关于 */}
-        <Section icon={isPC ? undefined : 'ℹ️'} title="关于">
-          <div className="text-sm text-gray-600">
+        <Section icon={isPC ? undefined : 'info'} title="关于">
+          <div className="text-[13px] text-muted">
             <div>JFLove v{APP_VERSION}</div>
-            <div className="text-xs text-gray-400 mt-1">
+            <div className="mt-1 text-[11.5px] text-subtle">
               加密方案：X25519 ECDH + ChaCha20-Poly1305
             </div>
           </div>
@@ -233,29 +273,33 @@ export function SettingsPage() {
 
       {/* 笔记目录浏览 */}
       {showDirBrowser && selectedDiskId === null && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
-            <h3 className="font-semibold text-gray-800 mb-3">选择磁盘</h3>
-            <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-overlay/40 p-4">
+          <div className="card w-full max-w-sm p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <Icon name="disks" className="text-brand-500" />
+              <span className="text-[15px] font-semibold">选择磁盘</span>
+              <div className="grow" />
+              <IconButton icon="close" label="关闭" size="sm" onClick={() => setShowDirBrowser(false)} />
+            </div>
+            <div className="mb-4 max-h-60 space-y-2 overflow-y-auto">
               {disks.map(disk => (
                 <button
                   key={disk.id}
+                  type="button"
                   onClick={() => setSelectedDiskId(disk.id)}
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 rounded-lg border border-gray-100"
+                  className="flex w-full items-center gap-2.5 rounded-lg border border-line-subtle px-4 py-2 text-left text-[13px] transition-colors hover:bg-hover"
                 >
-                  💾 {disk.name}
+                  <Icon name="disks" size="sm" className="shrink-0 text-brand-500" />
+                  <span className="truncate">{disk.name}</span>
                 </button>
               ))}
               {disks.length === 0 && (
-                <div className="text-center text-sm text-gray-400 py-4">暂无可用磁盘</div>
+                <div className="py-4 text-center text-[13px] text-subtle">暂无可用磁盘</div>
               )}
             </div>
-            <button
-              onClick={() => setShowDirBrowser(false)}
-              className="w-full py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
-            >
+            <Button variant="ghost" className="w-full" onClick={() => setShowDirBrowser(false)}>
               取消
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -279,21 +323,21 @@ export function SettingsPage() {
       {/* 移动端：修改服务器地址底部面板（对齐安卓 App BottomSheet，避免行内输入溢出） */}
       {showServerSheet && (
         <div
-          className="fixed inset-0 z-50 flex items-end bg-black/30"
+          className="fixed inset-0 z-50 flex items-end bg-overlay/40"
           onClick={() => setShowServerSheet(false)}
         >
           <div
-            className="w-full bg-white rounded-t-2xl p-4 pb-6 max-h-[80vh] overflow-y-auto"
+            className="card max-h-[80vh] w-full overflow-y-auto rounded-t-2xl rounded-b-none p-4 pb-6"
             onClick={e => e.stopPropagation()}
           >
-            <div className="text-sm font-semibold text-gray-800 mb-1">修改服务器地址</div>
-            <div className="text-xs text-gray-400 mb-3">保存后需重新密钥交换并登录</div>
+            <div className="mb-1 text-[13px] font-semibold text-fg">修改服务器地址</div>
+            <div className="mb-3 text-[11.5px] text-subtle">保存后需重新密钥交换并登录</div>
             <input
               type="text"
               list="settings-server-history-sheet"
               value={serverUrlEdit}
               onChange={e => setServerUrlEdit(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="input mb-3"
               placeholder="http://localhost:8989"
             />
             <datalist id="settings-server-history-sheet">
@@ -301,25 +345,28 @@ export function SettingsPage() {
             </datalist>
             {history.length > 0 && (
               <div className="mb-3 space-y-1">
-                <div className="text-xs text-gray-400">历史地址</div>
+                <div className="text-[11.5px] text-subtle">历史地址</div>
                 {history.map(url => (
                   <button
                     key={url}
+                    type="button"
                     onClick={() => setServerUrlEdit(url)}
-                    className="block w-full text-left text-xs text-indigo-600 hover:text-indigo-800 truncate px-2 py-1.5 rounded hover:bg-indigo-50"
+                    className="block w-full truncate rounded-sm px-2 py-1.5 text-left text-[11.5px] text-fg-brand transition-colors hover:bg-active"
                   >
                     {url}
                   </button>
                 ))}
               </div>
             )}
-            <button
-              onClick={handleSaveServerUrl}
-              disabled={savingServer || !serverUrlEdit.trim()}
-              className="w-full py-2.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            <Button
+              variant="primary"
+              className="w-full"
+              loading={savingServer}
+              disabled={!serverUrlEdit.trim()}
+              onClick={() => void handleSaveServerUrl()}
             >
               {savingServer ? '连接中…' : '保存并重新连接'}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -338,14 +385,23 @@ function formatDuration(seconds: number): string {
 }
 
 /** 分组卡片（移动端对齐安卓 App：小图标 + 加粗标题 + 灰边框圆角卡片） */
-function Section({ icon, title, children }: { icon?: string; title: string; children: React.ReactNode }) {
+function Section({
+  icon,
+  title,
+  children,
+}: {
+  /** 语义图标名（v1.5.0 起不再接受 emoji 字面量） */
+  icon?: IconName;
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-      <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-700 mb-3">
-        {icon && <span className="text-base leading-none text-indigo-500">{icon}</span>}
+    <Card>
+      <h3 className="mb-3 flex items-center gap-1.5 text-[13px] font-semibold text-fg">
+        {icon && <Icon name={icon} size="sm" className="text-brand-500" />}
         {title}
       </h3>
       {children}
-    </div>
+    </Card>
   );
 }

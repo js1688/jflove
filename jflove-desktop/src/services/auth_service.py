@@ -253,6 +253,30 @@ def _clear_saved_session() -> None:
     _write_session_file(cleaned)
 
 
+def _is_session_accepted_by_server() -> bool:
+    """
+    向服务端确认当前 token 是否**仍被接受**。
+
+    为什么必须有这一步：`try_restore_session()` 原来只检查**本地**过期时间，
+    但服务端可能已经吊销该会话（用户登出、改了密码、管理员禁用、换库重建），
+    这时应用会"假装已登录"进入主界面 —— 随后**每个接口都失败**，
+    用户看到的是莫名其妙的报错（此前实测到连锁的 401 与"响应体解密失败"）。
+
+    用一次轻量鉴权调用（列可访问磁盘）来判定，失败即视为会话已失效。
+
+    :returns: True 表示服务端仍接受该会话
+    """
+    try:
+        # 惰性导入：避免与服务层形成循环依赖
+        from src.services import file_service
+
+        file_service.list_accessible_disks()
+        return True
+    except Exception as exc:  # noqa: BLE001 - 任何失败都按"会话不可用"处理
+        logger.info("服务端已不接受该会话：%s", exc)
+        return False
+
+
 def try_restore_session() -> bool:
     """
     尝试从 session.json 恢复上次的会话，并重新执行密钥交换。
@@ -293,6 +317,13 @@ def try_restore_session() -> bool:
         session_manager.role = role
         session_manager.user_id = int(user_id) if user_id is not None else None
         session_manager.token_expires_at = expires_at
+
+        # 关键一步：向服务端确认 token 仍有效（见 `_is_session_accepted_by_server`）
+        if not _is_session_accepted_by_server():
+            logger.info("免登录恢复：服务端已不接受该会话，转回登录页")
+            _clear_saved_session()
+            return False
+
         logger.info("免登录恢复会话成功: %s (role=%s)", username, role)
         return True
     except Exception as e:

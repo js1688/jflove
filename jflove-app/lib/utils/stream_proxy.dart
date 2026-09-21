@@ -177,15 +177,33 @@ class StreamProxy {
       resp.headers.set('Accept-Ranges', 'bytes');
       resp.headers.set('Connection', 'close');
 
+      // ⚠ 必须**逐块 flush**（v1.5.0 反馈修复：局域网播大视频卡死）。
+      //
+      // `resp.add()` 是**非阻塞**的：它只把数据塞进 `HttpResponse` 的**内存缓冲**。
+      // 不 flush 时这条循环会以上游（服务端）能送多快就多快地跑：
+      //   · 上游越**快**（局域网/本机），内存缓冲涨得越猛 —— 播放器只按播放速率取数据，
+      //     取不动的部分全堆在内存里。1GB 的视频足以把内存吃满、GC 疯狂抖动 → 界面卡死；
+      //   · 队列里 64KB 一帧的解密（纯 Dart 的 ChaCha20-Poly1305）也跑在**主 isolate** 上，
+      //     上游不停就永远不让出事件循环 → 界面直接失去响应。
+      // 这正好解释"**移动网络（慢）能正常播、局域网（快）反而卡死**"这个反直觉现象：
+      // 慢链路自带节流，快链路把背压问题暴露出来。
+      //
+      // `flush()` 会等到数据真正被 socket 接收，于是背压一路传导回上游：
+      // **播放器不取，就不继续下载、不继续解密**，内存占用与上游速率彻底解耦。
       await for (final chunk in stream) {
         if (_closed) break;
         resp.add(chunk);
+        await resp.flush();
       }
       await resp.close();
     } catch (e) {
       lastError = e.toString();
-      // 客户端断开（seek/关闭）属于正常流程
-      if (e is HttpException || e is SocketException) {
+      // 客户端断开（seek/关闭）属于正常流程；此时也必须把响应关掉，
+      // 否则连接会一直挂着（旧实现直接 return，响应既不 close 也不清理）。
+      if (e is HttpException || e is SocketException || _closed) {
+        try {
+          await request.response.close();
+        } catch (_) {}
         return;
       }
       _sendError(request.response, 500, e.toString());
@@ -254,7 +272,12 @@ class StreamProxy {
     final dio = Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 5),
-        receiveTimeout: const Duration(seconds: 30),
+        // ⚠ 这里**不能**用 30 秒级别的 receiveTimeout（v1.5.0 反馈修复）：
+        // 我们已经在 `_handleGet` 里对响应做 flush 背压，而背压会在**播放器缓冲满**时
+        // 主动暂停读取上游 —— 用户暂停播放、或播放器缓冲吃满时，服务端本来就会
+        // 长时间没有新数据，30 秒的「两帧之间超时」会误判成连接故障并中断。
+        // 保留一个较长的上限只为兜住"服务端彻底挂死"：正常暂停不会触发。
+        receiveTimeout: const Duration(minutes: 5),
       ),
     );
 

@@ -38,15 +38,26 @@ async def create_user(db: aiosqlite.Connection, username: str, password: str) ->
     """
     创建普通用户账号，密码使用 bcrypt 哈希存储。
 
+    用户名唯一性口径（v1.5.0）：**只对活跃账号唯一**。
+    `users.username` 是普通索引，另有部分唯一索引
+    `users_username_active_uidx ... WHERE deleted_at IS NULL` 兜底。
+    因此被软删除的历史行不占用用户名 —— 删掉账号后可以用同名重建，
+    这是用户反馈「账号删除后添加相同账号会报错」的修复点。
+
     :param db: 数据库连接
-    :param username: 用户名（系统唯一）
+    :param username: 用户名（活跃账号内唯一）
     :param password: 明文密码
     :returns: 新用户的主键 ID
-    :raises ValueError: 用户名已存在
+    :raises ValueError: 用户名已存在（仅指活跃账号）
     """
+    # 只对**活跃**账号查重：`users.username` 已改为普通索引 +
+    # 「活跃行唯一」的部分唯一索引（v1.5.0），被软删除的历史行不再占用用户名，
+    # 管理员删了账号可以用同名重建。
     existing = await user_repository.find_by_username(db, username)
     if existing:
-        raise ValueError(f"用户名已存在: {username}")
+        # 文案面向界面展示：明确指出是"已经被占用的活跃账号"，
+        # 而不是数据库术语（前端会把它原样弹给用户）。
+        raise ValueError(f"用户名「{username}」已存在，请换一个")
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
     user_id = await user_repository.create(db, username, password_hash, role="user")
     logger.info("普通用户已创建: %s", username)
@@ -93,6 +104,10 @@ async def set_enabled(
 async def delete_user(db: aiosqlite.Connection, user_id: int) -> None:
     """
     软删除用户账号（管理员账号不可删除）。
+
+    保留软删除以遵守 AGENTS.md §5.2「必备字段 deleted_at（软删除）」。
+    副作用：`users.username` 是全局唯一约束、不区分是否删除，所以该用户名会
+    被历史行占用、无法再次创建 —— 这一点由 `create_user` 给出明确提示。
 
     :param db: 数据库连接
     :param user_id: 目标用户 ID

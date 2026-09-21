@@ -1,7 +1,7 @@
 name: jflove_app
 description: "JFLove 移动端 App - 私有文档与笔记协同管理"
 publish_to: 'none'
-version: 1.4.2+1004002
+version: 1.5.0+1005000
 
 environment:
   sdk: ^3.12.2
@@ -21,6 +21,8 @@ dependencies:
   video_player: ^2.13.0
   logging: ^1.2.0
   file_picker: ^10.0.0
+  webview_flutter: ^4.14.1
+  markdown: ^7.3.1
 
 dev_dependencies:
   flutter_test:
@@ -29,3 +31,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # v1.5.0：Mermaid 离线渲染资源
+  #   renderer.html      —— 本地渲染页（零网络依赖，模板内联 bundle）
+  #   mermaid.bundle.js  —— 自包含 IIFE，由仓库根
+  #                         scripts/build_mermaid_bundle.mjs 生成，三端共用同一份产物
+  assets:
+    - assets/mermaid/

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JFLove AppStream 元数据（RPM 安装到 /usr/share/metainfo/jflove.metainfo.xml）
+
+  @VERSION@ / @DATE@ 由 packaging/linux/build_rpm.sh 在打包时用仓库根 version.json
+  的版本号与当天日期替换（版本号唯一真相仍是 version.json，本文件不写死版本号）。
+-->
+<component type="desktop-application">
+  <id>com.jflove.JFLove</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>JFLove</name>
+  <summary>跨平台文件同步与笔记客户端</summary>
+
+  <description>
+    <p>
+      JFLove 是一款端到端加密的个人文件同步与笔记客户端。支持虚拟磁盘浏览、
+      分片上传下载、Markdown 笔记与离线 Mermaid 图表渲染，三端（桌面端 / Web 端 /
+      移动端）共用同一套后端与加密协议。
+    </p>
+    <p>本包为 Fedora / RHEL 系的桌面端 RPM，安装后可从应用菜单直接启动。</p>
+  </description>
+
+  <launchable type="desktop-id">jflove.desktop</launchable>
+
+  <url type="homepage">https://github.com/js1688/jflove</url>
+  <url type="bugtracker">https://github.com/js1688/jflove/issues</url>
+
+  <developer id="com.jflove">
+    <name>js1688</name>
+  </developer>
+
+  <categories>
+    <category>Network</category>
+    <category>FileTransfer</category>
+  </categories>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="@VERSION@" date="@DATE@">
+      <description>
+        <p>Fedora RPM 包（PyInstaller onedir 载荷 + FHS 布局）。</p>
+      </description>
+    </release>
+  </releases>
+</component>

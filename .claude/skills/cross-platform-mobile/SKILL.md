@@ -55,6 +55,29 @@ description: 移动端工程师，负责 jflove-app 跨平台移动应用开发�
 - 涉及权限（文件读取、通知等）必须同时维护 `AndroidManifest.xml`，iOS/鸿蒙的权限配置文件预留但注释状态不参与编译。
 - 命名规范：类/Widget PascalCase，方法/变量 camelCase，常量 UPPER_SNAKE_CASE，文件 kebab-case。
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
+> **通用经验库**：见 `.claude/skills/LESSONS.md`（静默失败、编码陷阱等跨角色经验，开工前先扫一眼）。
+
+### ⚠️ UI 与渲染硬约束（v1.5.0 实测踩出来的）
+
+1. **工具栏按钮不能被横向滚动挤出屏幕**
+   用户反馈「笔记本没有插入图表功能」—— 代码和 APK 都有，但按钮排在**横向滚动工具栏的第 10 位**，
+   手机宽度下被挤出可视区，必须横滑才看得到。
+   - 本版新增/重要的功能入口应**常驻在工具栏右侧**（不参与滚动），或单独成行；
+   - 回归用例必须做**几何断言**（`tester.getRect` 在屏幕内 + `hitTestOnBinding` 命中 + 不在
+     `AxisDirection.right` 的 `Scrollable` 祖先里）—— 只断言"控件存在"抓不住这类问题。
+
+2. **`flutter_markdown` 的 `builders` 注册键必须是块级标签**
+   把 builder 注册在 `code` 键上，会把 `<code>` **全局**变成块级标签，后果是：
+   ① 行内代码 / 围栏代码的文字被吞掉（默认 `visitText` 返回 null）；
+   ② 文档**最后一块是代码块**时触发上游 `assert(_inlines.isEmpty)`，预览区整块构建失败。
+   正确做法：注册在 `pre` 上，由分派 builder 决定渲染成图表卡还是代码卡，并且
+   `visitText` **必须返回占位 Text**（返回 null 会保留那个 assert）。
+
+3. **图表尺寸依赖渲染页，不要动 `assets/mermaid/renderer.html` 的归一化逻辑**
+   WebView 渲染页的视口可能是 0×0，mermaid 会量到 0 并把 `viewBox="0 0 0 H"` 写进 SVG，
+   导致图表**整张不可见**（实测甘特图中招）。渲染页已做尺寸归一化（重新 `getBBox()` 写回）。
+   **改渲染页后必须把 `MermaidRenderService.renderConfigVersion` +1**，否则缓存不失效、
+   界面看不出任何变化。
 
 ### ⚠️ 加密实现陷阱（必须遵守）
 

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>JFLove — P0-1 无边框外壳 PoC</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <!-- ============ Web 自绘标题栏（替代 Qt 原生外框） ============ -->
+  <header class="titlebar" id="titlebar">
+    <div class="titlebar__brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-name">JFLove</span>
+        <span class="brand-sub">P0-1 · 无边框外壳 PoC</span>
+      </span>
+    </div>
+
+    <div class="titlebar__drag" id="drag-region"></div>
+
+    <div class="window-controls">
+      <button type="button" class="win-btn" id="btn-min" title="最小化" aria-label="最小化">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0 5.5h10" stroke="currentColor" stroke-width="1" fill="none" />
+        </svg>
+      </button>
+      <button type="button" class="win-btn" id="btn-max" title="最大化" aria-label="最大化"></button>
+      <button type="button" class="win-btn win-btn--close" id="btn-close" title="关闭" aria-label="关闭">
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" stroke="currentColor" stroke-width="1" fill="none" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ 应用区（占位，Phase 1 由真实 Web UI 接管） ============ -->
+  <main class="app-body">
+    <aside class="sidebar">
+      <nav class="nav">
+        <span class="nav-item is-active">文件管理</span>
+        <span class="nav-item">笔记管理</span>
+        <span class="nav-item">同步管理</span>
+        <span class="nav-item">传输任务</span>
+      </nav>
+      <div class="nav nav--bottom">
+        <span class="nav-item">安全状态</span>
+        <span class="nav-item">设置</span>
+      </div>
+    </aside>
+
+    <section class="content">
+      <h1 class="page-title">P0-1：无边框窗口 + Web 自绘标题栏</h1>
+      <p class="page-desc">
+        上方标题栏（含最小化 / 最大化 / 关闭）完全由 Web 绘制，Qt 原生外框已移除。
+        左侧 <code>248px</code> 侧栏与 <code>56px</code> 标题栏高度取自 Web 端设计令牌，仅作视觉占位。
+      </p>
+
+      <div class="card">
+        <div class="card__row">
+          <span class="dot" id="bridge-dot"></span>
+          <strong>桥连通状态</strong>
+          <span class="mono" id="bridge-status">正在连接…</span>
+        </div>
+        <div class="card__row card__row--sub">
+          <span class="mono" id="bridge-info">—</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <strong>请手动验收以下 6 项</strong>
+        <ol class="checklist">
+          <li>拖动标题栏空白处 → 窗口跟随移动（松手后仍在该位置）</li>
+          <li>把鼠标移到窗口 4 条边 / 4 个角 → 光标变为缩放光标，拖动可改变窗口大小</li>
+          <li>双击标题栏空白处 → 最大化；再双击 → 还原（右上角图标同步切换）</li>
+          <li>点「最大化」按钮 → 最大化；再点 → 还原</li>
+          <li>点「最小化」按钮 → 最小化到任务栏</li>
+          <li>点「关闭」按钮 → 窗口关闭</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <strong>已知 / 待决事项（不在本 PoC 范围）</strong>
+        <ul class="checklist checklist--plain">
+          <li>无边框后系统不再提供窗口阴影与 Windows 11 圆角 —— 是否补，留到 N1 决定</li>
+          <li>本地资源当前走 <code>file://</code>；N1 改为自定义 scheme + 严格 CSP</li>
+          <li>关闭动作正式形态为「最小化到托盘」，见 N17</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

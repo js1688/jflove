@@ -1,0 +1,8 @@
+{
+  "mermaidVersion": "11.16.0",
+  "lockedMajorMinor": "11.16",
+  "sha256": "be4d8fbd3cf42e90bcfa0c89639086b9833108ac63799ca9419084fe14556385",
+  "bytes": 3453765,
+  "generatedBy": "scripts/build_mermaid_bundle.mjs",
+  "note": "三端共用同一份离线渲染包；改动 mermaid 版本必须同步设计文档 §4.1"
+}

@@ -14,8 +14,19 @@ describe('server-history-service 服务端地址历史', () => {
     expect(serverHistoryService.listHistory()).toEqual([]);
   });
 
-  it('无历史时默认地址为 localhost:8989', () => {
-    expect(serverHistoryService.getDefault()).toBe('http://localhost:8989');
+  it('无历史时默认地址为**同源**（空串）', () => {
+    // v1.5.0 反馈修复：默认值由写死的 'http://localhost:8989' 改成空串。
+    // 写死绝对地址会让每个请求变成跨源请求，浏览器先发 OPTIONS 预检 ——
+    // 服务端收到的 HTTP 条数翻倍，用户感知为「接口像被调了两遍」。
+    // 空串 ⇒ 走相对路径 `/api/v1/...`，由 nginx / dev proxy 同源反代。
+    expect(serverHistoryService.getDefault()).toBe('');
+  });
+
+  it('同源模式下请求路径是相对路径（不拼主机名）', async () => {
+    const { getServerUrl } = await import('../../src/utils/session');
+    expect(getServerUrl()).toBe('');
+    // 拼接结果必须是相对路径，否则又会变成跨源
+    expect(`${getServerUrl()}/api/v1/auth/key-exchange`).toBe('/api/v1/auth/key-exchange');
   });
 
   it('记录地址后置顶', () => {

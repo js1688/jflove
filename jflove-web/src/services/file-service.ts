@@ -31,11 +31,23 @@ export const fileService = {
   },
 
   /** 创建目录 */
+  /**
+   * 创建目录
+   *
+   * **BUG 修复（v1.5.0）**：服务端 `/api/v1/files/mkdir` **只读 `path`**，
+   * 其语义是「**要创建的目录的完整相对路径**」（等同 `mkdir -p`）。
+   * 原来发的是 `{path: 当前目录, dir_name: 新目录名}` —— `dir_name` 服务端根本不读，
+   * 于是把**当前目录**又创建了一遍：接口静默返回 200，新目录却从未出现
+   * （表现为「点新建目录没反应」）。
+   *
+   * 现在在客户端拼出完整相对路径，与桌面端服务层 `make_dir(disk_id, rel_path)`
+   * 的契约保持一致。调用签名不变，页面无需改动。
+   */
   async createDir(diskId: number, path: string, dirName: string): Promise<void> {
+    const relPath = path ? `${path}/${dirName}` : dirName;
     await httpClient.post('/api/v1/files/mkdir', {
       disk_id: diskId,
-      path,
-      dir_name: dirName,
+      path: relPath,
     });
   },
 
@@ -57,9 +69,17 @@ export const fileService = {
     });
   },
 
+  /**
+   * 删除文件/目录
+   *
+   * **BUG 修复（v1.5.0）**：服务端的删除路由是 `DELETE /api/v1/files`（`@router.delete("")`），
+   * 原来请求的是 `/api/v1/files/delete` —— **该路由不存在，服务端返回 404**，
+   * 于是"右键删除"看起来走完了流程（请求发出、无前端报错），文件却纹丝不动。
+   * 移动端与桌面端服务层一直用的是正确路由，只有这里写错了。
+   */
   /** 删除文件/目录 */
   async delete(diskId: number, path: string): Promise<void> {
-    await httpClient.delete('/api/v1/files/delete', {
+    await httpClient.delete('/api/v1/files', {
       disk_id: diskId,
       path,
     });

@@ -11,8 +11,11 @@ const STORAGE_KEY = 'jflove_server_history';
 /**
  * 规范化服务端地址：
  *  - 去除首尾空白与尾部斜杠
+ *  - **空串原样返回**：v1.5.0 起空串表示「同源」（请求走相对路径 `/api/...`，
+ *    由 nginx / dev proxy 反代到后端）。这能避免跨源 CORS 预检 —— 否则每次
+ *    业务调用都会先发一条 `OPTIONS`，服务端收到的 HTTP 条数翻倍
  *  - 未带协议（如 `127.0.0.1:8989`）时自动补全 `http://`，
- *    避免 baseUrl 拼成相对路径导致请求发往当前站点
+ *    否则会被当成相对路径发往当前站点（那是"同源"，不是用户想要的地址）
  */
 export function normalizeServerUrl(input: string): string {
   let url = input.trim();
@@ -41,9 +44,11 @@ export const serverHistoryService = {
     return history[0] || DEFAULT_SERVER_URL;
   },
 
-  /** 记录成功连接的地址（去重 + 置顶 + 限 10 条） */
+  /** 记录成功连接的地址（去重 + 置顶 + 限 10 条）。空串（同源）不入历史 */
   record(url: string): void {
     const normalized = url.replace(/\/+$/, '');
+    // 同源模式（空串）没有"地址"可记，也不需要出现在历史列表里
+    if (!normalized) return;
     const history = this.listHistory().filter(
       (h) => h.replace(/\/+$/, '') !== normalized,
     );

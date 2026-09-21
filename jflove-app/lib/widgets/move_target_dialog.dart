@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/design_tokens.dart';
 import '../models/file_item.dart';
 import '../providers/file_provider.dart';
-import '../widgets/loading_indicator.dart';
+import '../widgets/app_card.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/error_state.dart';
 import '../widgets/path_breadcrumb.dart';
 
 /// 移动目标目录选择弹窗
@@ -11,6 +14,10 @@ import '../widgets/path_breadcrumb.dart';
 /// 对标桌面端 `MoveTargetDialog`。
 /// 展示当前磁盘的目录树（仅目录），用户选定后返回目标目录的相对路径。
 /// 采用「逐级浏览」交互（点击进入子目录、返回上级），更适合移动端。
+///
+/// v1.5.0：视觉层接入设计令牌 —— 选中态由 `primaryContainer` 换成
+/// `t.bgActive`（品牌淡底），文件夹图标用 `AppTokens.warning500`，
+/// 空态 / 加载态 / 错误态换成统一组件；浏览与选择逻辑与 v1.4.2 完全一致。
 class MoveTargetDialog extends ConsumerStatefulWidget {
   final int diskId;
 
@@ -77,15 +84,41 @@ class _MoveTargetDialogState extends ConsumerState<MoveTargetDialog> {
     });
   }
 
+  /// 当前浏览路径对应的文件列表 provider 参数（重试时复用同一参数）
+  ({int diskId, String path}) _fileListArg() =>
+      (diskId: widget.diskId, path: _currentPath);
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final t = context.tokens;
     // 根目录不能是被移动项的子树
     final rootDisabled = _isSrcOrChild('');
 
     return AlertDialog(
-      title: const Text('选择目标目录'),
-      contentPadding: const EdgeInsets.fromLTRB(0, 16, 0, 0),
+      titlePadding: EdgeInsets.fromLTRB(t.s5, t.s5, t.s5, 0),
+      // 标题：品牌淡底图标块 + 文案（与统一卡片的分区标题观感一致）
+      title: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              gradient: t.gradBrandSoft,
+              borderRadius: BorderRadius.circular(t.rMd),
+              border: Border.all(color: t.borderSubtle),
+            ),
+            child: const Icon(
+              Icons.drive_file_move_outline,
+              size: 17,
+              color: AppTokens.brand600,
+            ),
+          ),
+          SizedBox(width: t.s3),
+          const Expanded(child: Text('选择目标目录')),
+        ],
+      ),
+      contentPadding: EdgeInsets.fromLTRB(0, t.s4, 0, 0),
       content: SizedBox(
         width: double.maxFinite,
         height: 420,
@@ -105,36 +138,30 @@ class _MoveTargetDialogState extends ConsumerState<MoveTargetDialog> {
               onTap: rootDisabled ? null : _selectRoot,
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                color: _selectedPath == '' && !rootDisabled
-                    ? theme.colorScheme.primaryContainer
-                    : null,
+                padding: EdgeInsets.symmetric(horizontal: t.s4, vertical: t.s3),
+                color: _selectedPath == '' && !rootDisabled ? t.bgActive : null,
                 child: Row(
                   children: [
                     Icon(
-                      Icons.home,
+                      Icons.home_rounded,
                       size: 20,
-                      color: rootDisabled
-                          ? theme.disabledColor
-                          : theme.colorScheme.primary,
+                      color: rootDisabled ? t.fgSubtle : AppTokens.brand500,
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: t.s3),
                     Expanded(
                       child: Text(
                         '根目录 /',
                         style: TextStyle(
-                          color: rootDisabled ? theme.disabledColor : null,
+                          fontSize: 13.5,
+                          color: rootDisabled ? t.fgSubtle : t.fgDefault,
                         ),
                       ),
                     ),
                     if (_selectedPath == '' && !rootDisabled)
-                      Icon(
-                        Icons.check,
+                      const Icon(
+                        Icons.check_rounded,
                         size: 20,
-                        color: theme.colorScheme.primary,
+                        color: AppTokens.brand500,
                       ),
                   ],
                 ),
@@ -159,16 +186,17 @@ class _MoveTargetDialogState extends ConsumerState<MoveTargetDialog> {
   }
 
   Widget _buildDirList() {
-    final dirListAsync = ref.watch(
-      fileListProvider((diskId: widget.diskId, path: _currentPath)),
-    );
+    final dirListAsync = ref.watch(fileListProvider(_fileListArg()));
 
     return dirListAsync.when(
       data: (files) {
         // 只显示目录，过滤掉文件
         final dirs = files.where((f) => f.isDir).toList();
         if (dirs.isEmpty) {
-          return const Center(child: Text('此目录下无子目录'));
+          return const EmptyState(
+            icon: Icons.folder_off_outlined,
+            title: '此目录下无子目录',
+          );
         }
         return ListView.builder(
           itemCount: dirs.length,
@@ -180,8 +208,11 @@ class _MoveTargetDialogState extends ConsumerState<MoveTargetDialog> {
           ),
         );
       },
-      loading: () => const LoadingIndicator(message: '加载中…'),
-      error: (e, _) => Center(child: Text('加载失败: $e')),
+      loading: () => const ListSkeleton(rows: 4),
+      error: (e, _) => ErrorState(
+        message: '$e',
+        onRetry: () => ref.invalidate(fileListProvider(_fileListArg())),
+      ),
     );
   }
 
@@ -207,30 +238,40 @@ class _DirListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final t = context.tokens;
     return InkWell(
       onTap: disabled ? null : onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        color: selected ? theme.colorScheme.primaryContainer : null,
+        padding: EdgeInsets.symmetric(horizontal: t.s4, vertical: t.s3),
+        color: selected ? t.bgActive : null,
         child: Row(
           children: [
             Icon(
-              Icons.folder,
+              Icons.folder_rounded,
               size: 20,
-              color: disabled ? theme.disabledColor : Colors.amber.shade700,
+              // 文件夹用警示黄（与文件列表的目录图标语义一致）
+              color: disabled ? t.fgSubtle : AppTokens.warning500,
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: t.s3),
             Expanded(
               child: Text(
                 item.name,
-                style: TextStyle(color: disabled ? theme.disabledColor : null),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  color: disabled ? t.fgSubtle : t.fgDefault,
+                ),
               ),
             ),
             if (selected)
-              Icon(Icons.check, size: 20, color: theme.colorScheme.primary)
+              const Icon(
+                Icons.check_rounded,
+                size: 20,
+                color: AppTokens.brand500,
+              )
             else if (!disabled)
-              const Icon(Icons.chevron_right, size: 20),
+              Icon(Icons.chevron_right_rounded, size: 20, color: t.fgSubtle),
           ],
         ),
       ),

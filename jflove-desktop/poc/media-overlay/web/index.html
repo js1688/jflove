@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>P0-4 媒体原生浮层 PoC</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden;
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+    .titlebar { height: 56px; display: flex; align-items: center; padding: 0 16px;
+      background: #fff; border-bottom: 1px solid #edf0f6; font-size: 13px; color: #0f172a; }
+    .scroll { height: calc(100% - 56px); overflow-y: auto; background: #f6f7fb; padding: 24px; }
+    .card { max-width: 720px; margin: 0 auto 16px; padding: 18px 20px; background: #fff;
+      border: 1px solid #edf0f6; border-radius: 12px; font-size: 13px; line-height: 1.7;
+      color: #475569; }
+    /* 预留的播放区：真实实现里这是 Web 端画的外框，画面由原生浮层盖在上面 */
+    #video-slot { width: 480px; height: 270px; margin: 0 auto;
+      border: 2px dashed #6366f1; border-radius: 10px; background: #eef2ff;
+      display: grid; place-items: center; color: #4338ca; font-size: 12.5px; }
+    .filler { height: 640px; }
+    .hint { text-align: center; font-size: 12px; color: #94a3b8; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header class="titlebar" id="titlebar">
+    P0-4 PoC：原生浮层贴合验证（青色方块 = 由 Python 摆放的原生窗口）
+  </header>
+
+  <div class="scroll" id="scroller">
+    <div class="card">
+      <strong>验证目标</strong><br />
+      页面在下方预留一个 480×270 的矩形（虚线框），Python 侧把一个**独立顶层原生窗口**
+      精确摆到该矩形上。移动窗口、缩放窗口、滚动页面时都必须保持贴合。
+    </div>
+
+    <div class="filler"></div>
+
+    <div id="video-slot">Web 预留播放区（原生画面应完整覆盖此框）</div>
+    <div class="hint">原生浮层若与虚线框完全重合，即说明"OS 解码器画面贴进 Web 页面"可行</div>
+
+    <div class="filler"></div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      var slot = document.getElementById('video-slot');
+      var scroller = document.getElementById('scroller');
+      var overlayObj = null;
+
+      /** 诊断信息（测试读取，便于定位"为什么没上报"） */
+      var diag = { err: '', objReady: false, reports: 0, skipped: 0, qwc: typeof QWebChannel,
+                   qt: typeof qt };
+      window.__JF_POC_DIAG__ = diag;
+
+      /** 计算预留矩形（相对视口，CSS 像素）并上报给 Python */
+      function report() {
+        if (!overlayObj) { diag.skipped++; return; }
+        var r = slot.getBoundingClientRect();
+        var vh = window.innerHeight;
+        var vw = window.innerWidth;
+        // 完全滚出视口 → 视为不可见（真实实现里此时应隐藏原生浮层）
+        var visible = r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw;
+        diag.reports++;
+        try {
+          overlayObj.setTargetRect(JSON.stringify({
+            x: r.left, y: r.top, w: r.width, h: r.height, visible: visible
+          }));
+        } catch (e) {
+          diag.err = 'setTargetRect: ' + String(e);
+        }
+      }
+
+      function boot() {
+        if (typeof QWebChannel === 'undefined' || !window.qt || !qt.webChannelTransport) {
+          diag.err = 'no QWebChannel / transport';
+          document.getElementById('titlebar').textContent += '（未检测到 QWebChannel）';
+          return;
+        }
+        try {
+          new QWebChannel(qt.webChannelTransport, function (channel) {
+            overlayObj = channel.objects.overlay;
+            diag.objReady = !!overlayObj;
+            if (!overlayObj) { diag.err = 'channel.objects.overlay 缺失'; return; }
+            report();
+            // 滚动 / 缩放窗口都要重新贴合
+            scroller.addEventListener('scroll', report, { passive: true });
+            window.addEventListener('resize', report);
+            // 兜底轮询：布局变化（字体加载、图片等）也能跟上
+            setInterval(report, 300);
+          });
+        } catch (e) {
+          diag.err = 'QWebChannel: ' + String(e);
+        }
+      }
+
+      // 供自动化测试驱动
+      window.__JF_POC__ = {
+        slotRect: function () {
+          var r = slot.getBoundingClientRect();
+          return JSON.stringify({ x: r.left, y: r.top, w: r.width, h: r.height });
+        },
+        /** 把预留框滚进视口（留 40px 余量） */
+        scrollSlotIntoView: function () {
+          scroller.scrollTop = slot.offsetTop - 40;
+          report();
+          return scroller.scrollTop;
+        },
+        scrollTo: function (y) { scroller.scrollTop = y; report(); return scroller.scrollTop; },
+        scrollTop: function () { return scroller.scrollTop; },
+        slotOffsetTop: function () { return slot.offsetTop; },
+        report: report
+      };
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+      } else {
+        boot();
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JFLove Mermaid renderer (mobile)</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    background: transparent;
+    /* Diagram fills the viewport; the Flutter side sizes the widget. */
+    overflow: hidden;
+  }
+  #stage { display: block; padding: 0; }
+  #stage svg { display: block; width: 100% !important; max-width: 100%; height: auto !important; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+__JF_BUNDLE__
+</script>
+<script>
+/*
+  Offline Mermaid renderer for the Flutter app.
+
+  Loaded through WebViewController.loadHtmlString(); the mermaid bundle is
+  inlined by the Dart side so the page needs no relative asset resolution and
+  no network access at all.
+
+  Protocol: once rendering finishes the result JSON is written to a global
+  result variable and also posted to the "JFLoveBridge" JavaScript channel
+  (see lib/services/mermaid/mermaid_render_service.dart). Flutter reads the
+  channel message and may poll the global as a fallback.
+
+  Dart substitutes the bundle, the ready-to-use code literal, the ready-to-use
+  theme literal, a per-render id and the target width -- so this page performs
+  NO JSON.parse.
+
+  HARD CONSTRAINTS, all learned the hard way -- do not "simplify" them away:
+
+    1. NEVER write a placeholder name literally anywhere in this file except at
+       its substitution point. Substitution is a plain textual replace, so a
+       placeholder merely *mentioned* in prose gets replaced too. That is not
+       hypothetical: an HTML comment here once listed the placeholder names and
+       the 3.4 MB bundle was inlined a SECOND time inside the comment, doubling
+       the page to ~6.8 MB on every render. Refer to them by description only.
+
+    2. Keep this file ASCII-only. Non-ASCII comments got decoded with the system
+       ANSI codepage when the page was written to disk and reopened, which broke
+       string literals and produced a misleading "is not valid JSON" error.
+
+    3. Do not put the placeholder names inside an HTML comment (see 1), and do
+       not wrap the script body in an IIFE or async main(): the flat top-level
+       form is what was verified end to end on both desktop and mobile.
+*/
+// Ready-to-use literals injected from Dart; no parsing needed here.
+var MM_CODE = __JF_CODE__;
+var MM_THEME = __JF_THEME__;
+var MM_ID = __JF_ID__;
+var MM_WIDTH = __JF_WIDTH__;
+
+/*
+  Pin the document width to the width the diagram will actually be DISPLAYED at.
+
+  WHY (measured on this asset, see design-preview/probe_app_gantt_viewport.mjs):
+
+  mermaid sizes a diagram against the width it can see. An Android WebView that
+  loads HTML without a viewport meta tag uses a **980px layout viewport**, so the
+  gantt chart was laid out for 980px:
+
+    viewBox="0 0 980 128"
+
+  but the phone screen is ~360px wide. The gantt therefore had to be either
+  squeezed to ~0.37x (its 11px labels became ~4px: unreadable) or shown clipped --
+  users reported it as "the gantt chart cannot be displayed".
+
+  Other diagram types do not care: they lay themselves out from their own content
+  and come out 130-450 wide either way, which is why only the gantt looked broken.
+
+  Fix: Dart passes the real display width, and we constrain html/body to it BEFORE
+  mermaid measures. Measured result of doing so:
+
+    layout viewport 980 -> viewBox "0 0 360 128", 14px labels, whole chart on screen
+
+  Constraining `#stage` alone is NOT enough (measured: mermaid keeps using the
+  document width), so html/body must be pinned as well.
+*/
+function mmApplyTargetWidth() {
+  if (!(MM_WIDTH > 0)) { return; }
+  var px = Math.round(MM_WIDTH) + 'px';
+  var targets = [document.documentElement, document.body];
+  for (var i = 0; i < targets.length; i++) {
+    var el = targets[i];
+    if (!el) { continue; }
+    el.style.width = px;
+    el.style.maxWidth = px;
+  }
+}
+
+/*
+  Fit the SVG's viewBox to the diagram's REAL content extent.
+
+  WHY THE PREVIOUS VERSION WAS WRONG -- it is NOT svg.getBBox() any more:
+
+  The old implementation sized the diagram from `svgEl.getBBox()` and widened the
+  viewBox to it. That breaks every diagram type where mermaid deliberately draws a
+  helper shape far outside the picture and lets the viewport clip it:
+
+    - sequence: `line.actor-line` is drawn down to y=2000   (viewport is ~234)
+    - gantt:    `line.today` sits at x=28399                (viewport is ~980)
+
+  Measured on this very asset (design-preview/probe_app_renderer.mjs):
+    gantt    engine viewBox "0 0 980 128"      -> written back as "0 0 19289 128"
+    sequence engine viewBox "-50 -10 440 234"  -> written back as "-50 -10 440 2000"
+
+  19289x128 squeezes the gantt into a hair-thin strip -- reported by users as
+  "the gantt chart cannot be previewed". 440x2000 shrinks the sequence diagram
+  into the top ~12% of a mostly empty panel -- reported as "the diagram panel
+  looks wrong". Both came from trusting getBBox().
+
+  So measure only what is worth fitting:
+    1. every non-empty <text> -- text must never be clipped, no exceptions;
+    2. shapes -- but only when their overflow beyond the current viewBox is not
+       larger than the viewBox's own size. Helper lines overflow by 1800-28000
+       units while real content stays under ~100, so the two groups are an order
+       of magnitude apart and the rule is not delicate.
+
+  Sizing is GROW-ONLY: a viewBox that already contains its content is left alone,
+  so anything that rendered correctly before stays byte-identical.
+
+  Returns { svg, width, height }, or null when nothing usable could be measured
+  (the caller then keeps mermaid's output untouched).
+*/
+function mmIsInDefs(node) {
+  var p = node && node.parentNode;
+  while (p && p.tagName) {
+    var tag = String(p.tagName).toLowerCase();
+    if (tag === 'defs' || tag === 'marker' || tag === 'clippath' ||
+        tag === 'mask' || tag === 'symbol') {
+      return true;
+    }
+    p = p.parentNode;
+  }
+  return false;
+}
+
+/*
+  viewport pixels -> SVG user units.
+
+  Uses the SVG's own getBoundingClientRect() as the origin so that any page-level
+  offset cancels out. Do NOT use inverse(getCTM()) here: measured in an off-screen
+  page it folds the page position in and shifts coordinates by ~300000 (that same
+  mistake on the Web client blew a viewBox up to 680000 wide).
+*/
+function mmRectToUser(svgRect, vb, rect) {
+  if (!(vb.w > 0) || !(vb.h > 0) || !(svgRect.width > 0) || !(svgRect.height > 0)) {
+    return null;
+  }
+  var sx = svgRect.width / vb.w;
+  var sy = svgRect.height / vb.h;
+  if (!(sx > 0) || !(sy > 0)) { return null; }
+  var out = {
+    x1: vb.x + (rect.left - svgRect.left) / sx,
+    y1: vb.y + (rect.top - svgRect.top) / sy,
+    x2: vb.x + (rect.left + rect.width - svgRect.left) / sx,
+    y2: vb.y + (rect.top + rect.height - svgRect.top) / sy
+  };
+  if (!isFinite(out.x1) || !isFinite(out.y1) || !isFinite(out.x2) || !isFinite(out.y2)) {
+    return null;
+  }
+  return out;
+}
+
+function mmContentBounds(svgEl, vb) {
+  var svgRect;
+  try { svgRect = svgEl.getBoundingClientRect(); } catch (e) { return null; }
+  if (!svgRect || !(svgRect.width > 0) || !(svgRect.height > 0)) { return null; }
+  var x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity, touched = false;
+
+  function include(node) {
+    var box;
+    try { box = node.getBBox(); } catch (e) { return; }
+    if (!box || (!(box.width > 0) && !(box.height > 0))) { return; }
+    var rect;
+    try { rect = node.getBoundingClientRect(); } catch (e) { return; }
+    if (!rect || (!rect.width && !rect.height)) { return; }
+    var u = mmRectToUser(svgRect, vb, rect);
+    if (!u) { return; }
+    touched = true;
+    if (u.x1 < x1) { x1 = u.x1; }
+    if (u.y1 < y1) { y1 = u.y1; }
+    if (u.x2 > x2) { x2 = u.x2; }
+    if (u.y2 > y2) { y2 = u.y2; }
+  }
+
+  /* Text is always included: clipped text is the failure users actually notice. */
+  var texts = svgEl.querySelectorAll('text');
+  var i;
+  for (i = 0; i < texts.length; i++) {
+    if (!String(texts[i].textContent || '').replace(/\s+/g, '')) { continue; }
+    include(texts[i]);
+  }
+
+  var limitX = Math.max(vb.w, 48);
+  var limitY = Math.max(vb.h, 48);
+  var shapes = svgEl.querySelectorAll('rect, path, polygon, circle, ellipse, line');
+  for (i = 0; i < shapes.length; i++) {
+    var node = shapes[i];
+    if (mmIsInDefs(node)) { continue; }
+    var box2;
+    try { box2 = node.getBBox(); } catch (e) { continue; }
+    if (!box2) { continue; }
+    var bigX = Math.max(vb.x - box2.x, box2.x + box2.width - (vb.x + vb.w));
+    var bigY = Math.max(vb.y - box2.y, box2.y + box2.height - (vb.y + vb.h));
+    if (bigX > limitX || bigY > limitY) { continue; }
+    include(node);
+  }
+
+  if (!touched || !isFinite(x1)) { return null; }
+  return { x1: x1, y1: y1, x2: x2, y2: y2 };
+}
+
+var MM_FIT_MARGIN = 2;
+
+function mmNormalizeSize(svgEl, svgText) {
+  var re = /viewBox="([-\d.eE]+)[\s,]+([-\d.eE]+)[\s,]+([-\d.eE]+)[\s,]+([-\d.eE]+)"/;
+  var m = re.exec(svgText);
+  if (!m) { return null; }
+  var vb = {
+    x: parseFloat(m[1]), y: parseFloat(m[2]),
+    w: parseFloat(m[3]), h: parseFloat(m[4])
+  };
+  if (!isFinite(vb.x)) { vb.x = 0; }
+  if (!isFinite(vb.y)) { vb.y = 0; }
+  if (!isFinite(vb.w) || vb.w <= 0) { vb.w = 0; }
+  if (!isFinite(vb.h) || vb.h <= 0) { vb.h = 0; }
+  var broken = !(vb.w > 0) || !(vb.h > 0);
+
+  /* Measurement must never break rendering: the worst case is that the size stays
+     exactly as mermaid wrote it (still visible), never an error card. */
+  var bounds = null;
+  try { bounds = mmContentBounds(svgEl, vb); } catch (e) { bounds = null; }
+
+  var ox = vb.x, oy = vb.y, w = vb.w, h = vb.h;
+  if (bounds && broken) {
+    /* mermaid measured a 0x0 viewport: fall back to the content extent. */
+    ox = bounds.x1 - MM_FIT_MARGIN;
+    oy = bounds.y1 - MM_FIT_MARGIN;
+    w = bounds.x2 - bounds.x1 + MM_FIT_MARGIN * 2;
+    h = bounds.y2 - bounds.y1 + MM_FIT_MARGIN * 2;
+  } else if (bounds) {
+    /* Grow only, and only on the sides the content actually exceeds. */
+    var bx1 = ox, by1 = oy, bx2 = ox + w, by2 = oy + h;
+    if (bounds.x1 < bx1) { bx1 = bounds.x1 - MM_FIT_MARGIN; }
+    if (bounds.y1 < by1) { by1 = bounds.y1 - MM_FIT_MARGIN; }
+    if (bounds.x2 > bx2) { bx2 = bounds.x2 + MM_FIT_MARGIN; }
+    if (bounds.y2 > by2) { by2 = bounds.y2 + MM_FIT_MARGIN; }
+    ox = bx1; oy = by1; w = bx2 - bx1; h = by2 - by1;
+  }
+  if (!(w > 0) || !(h > 0)) { return null; }
+
+  var fw = Math.ceil(w);
+  var fh = Math.ceil(h);
+  var fx = Math.round(ox * 100) / 100;
+  var fy = Math.round(oy * 100) / 100;
+  var out = svgText.replace(re, 'viewBox="' + fx + ' ' + fy + ' ' + fw + ' ' + fh + '"');
+  /* mermaid writes width="100%": replace it with concrete pixels, otherwise the
+     viewing page stretches a narrow diagram horizontally. */
+  out = out.replace(/\swidth="[^"]*"/, ' width="' + fw + '"');
+  if (/\sheight="[^"]*"/.test(out)) {
+    out = out.replace(/\sheight="[^"]*"/, ' height="' + fh + '"');
+  } else {
+    out = out.replace(/(<svg\b)/, '$1 height="' + fh + '"');
+  }
+  out = out.replace(/\sstyle="([^"]*)"/, function (all, style) {
+    var kept = String(style).split(';').filter(function (part) {
+      return part.trim() && !/^\s*max-width\s*:/.test(part);
+    }).join(';');
+    return kept ? ' style="' + kept + '"' : '';
+  });
+  return { svg: out, width: fw, height: fh };
+}
+
+function mmReport(payload) {
+  try {
+    payload.id = MM_ID;
+    var text = JSON.stringify(payload);
+    window.__JF_RESULT__ = text;
+    // Preferred channel: a single string message back to Dart.
+    if (window.JFLoveBridge && window.JFLoveBridge.postMessage) {
+      window.JFLoveBridge.postMessage(text);
+    }
+  } catch (e) {
+    window.__JF_RESULT__ = '{"ok":false,"error":{"line":0,"reason":"serialize failed"}}';
+  }
+}
+
+function mmRun() {
+  var m = window.mermaid;
+  if (!m) {
+    mmReport({ ok: false, error: { line: 0, reason: 'renderer not loaded' } });
+    return;
+  }
+  // MUST run before initialize()/render(): mermaid reads the available width while
+  // laying the diagram out (see mmApplyTargetWidth).
+  mmApplyTargetWidth();
+  m.initialize({
+    startOnLoad: false,
+    // Security baseline: no HTML labels, no javascript: links.
+    securityLevel: 'strict',
+    theme: 'base',
+    // htmlLabels MUST be at the TOP level, not only inside `flowchart`.
+    // Measured with the shipped bundle (design-preview/verify_mermaid_labels.mjs):
+    // with it only under `flowchart`, flow/state/class/ER labels still land in
+    // <foreignObject>; with it here too, every diagram type emits plain <text>.
+    // This matters because the SVG is displayed by a JavaScript-disabled WebView
+    // and any foreignObject content is stripped, so those four diagram types
+    // would render as empty boxes with no text at all.
+    htmlLabels: false,
+    fontFamily: MM_THEME.fontFamily,
+    themeVariables: MM_THEME.vars,
+    flowchart: { curve: 'basis', useMaxWidth: true, padding: 8, htmlLabels: false },
+    sequence: { useMaxWidth: true, mirrorActors: false, actorMargin: 40, boxMargin: 8, fontSize: 12 },
+    gantt: { useMaxWidth: true, barHeight: 20, topPadding: 40, fontSize: 11 },
+    er: { useMaxWidth: true },
+    pie: { useMaxWidth: true },
+    state: { useMaxWidth: true },
+    class: { useMaxWidth: true }
+  });
+
+  // The render id must be unique per call: mermaid caches internally by diagram
+  // text, so a fixed id would make a later render (e.g. after a theme switch)
+  // return the previous result.
+  m.render('jf-mmd-' + MM_ID, MM_CODE).then(function (out) {
+    document.getElementById('stage').innerHTML = out.svg;
+    var svg = document.querySelector('#stage svg');
+    if (!svg) {
+      mmReport({ ok: false, error: { line: 0, reason: 'empty render result' } });
+      return;
+    }
+    // Normalize the SVG's own size attributes, then report that size.
+    // Must pass the live element: the correction measures it in the document.
+    var fixed = mmNormalizeSize(svg, out.svg);
+    if (fixed) {
+      out.svg = fixed.svg;
+    }
+    mmReport({
+      ok: true,
+      svg: out.svg,
+      width: fixed ? fixed.width : 0,
+      height: fixed ? fixed.height : 0
+    });
+  }).catch(function (e) {
+    var line = 0;
+    try {
+      if (e && e.hash && e.hash.loc && typeof e.hash.loc.first_line === 'number') {
+        line = e.hash.loc.first_line + 1; // mermaid line numbers are 0-based
+      }
+    } catch (ignored) { /* missing line info is fine, we still degrade */ }
+    var reason = 'render failed';
+    try {
+      reason = String((e && e.message) || e).split('\n')[0].slice(0, 200);
+    } catch (ignored) { /* keep the fallback text */ }
+    mmReport({ ok: false, error: { line: line, reason: reason } });
+  });
+}
+
+mmRun();
+</script>
+</body>
+</html>

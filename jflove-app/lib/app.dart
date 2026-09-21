@@ -4,10 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import 'config/theme.dart';
 import 'providers/session_provider.dart';
+import 'providers/theme_provider.dart';
 import 'pages/login/login_page.dart';
 import 'pages/files/file_list_page.dart';
 import 'pages/files/disk_browser_page.dart';
-import 'pages/repair/repair_center_page.dart';
 import 'pages/files/file_preview_page.dart';
 import 'pages/notes/note_list_page.dart';
 import 'pages/notes/note_edit_page.dart';
@@ -17,6 +17,7 @@ import 'pages/settings/settings_page.dart';
 import 'pages/admin/admin_users_page.dart';
 import 'pages/admin/admin_disks_page.dart';
 import 'pages/admin/admin_permissions_page.dart';
+import 'pages/admin/admin_system_page.dart';
 
 /// JFLove 移动端 App
 class JFLoveApp extends ConsumerWidget {
@@ -25,6 +26,7 @@ class JFLoveApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionManagerProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     final router = GoRouter(
       initialLocation: '/login',
@@ -55,10 +57,11 @@ class JFLoveApp extends ConsumerWidget {
             GoRoute(path: '/notes', builder: (_, _) => const NoteListPage()),
             GoRoute(path: '/sync', builder: (_, _) => const SyncPage()),
             GoRoute(path: '/transfer', builder: (_, _) => const TransferPage()),
-            // v1.4.2：修复中心（全平台共享任务列表）
+            // v1.5.0：修复中心并入传输页第二个页签；旧路径 `/repair` 继续可用，
+            // 直接落到该页签，避免旧书签 / 通知跳转失效。
             GoRoute(
               path: '/repair',
-              builder: (_, _) => const RepairCenterPage(),
+              builder: (_, _) => const TransferPage(initialTab: 1),
             ),
             GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
           ],
@@ -99,6 +102,10 @@ class JFLoveApp extends ConsumerWidget {
           path: '/admin/permissions',
           builder: (_, _) => const AdminPermissionsPage(),
         ),
+        GoRoute(
+          path: '/admin/system',
+          builder: (_, _) => const AdminSystemPage(),
+        ),
       ],
     );
 
@@ -106,7 +113,7 @@ class JFLoveApp extends ConsumerWidget {
       title: 'JFLove',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      themeMode: toMaterialThemeMode(themeMode),
       routerConfig: router,
       debugShowCheckedModeBanner: false,
     );
@@ -116,38 +123,35 @@ class JFLoveApp extends ConsumerWidget {
 /// 底部导航框架
 ///
 /// 对标桌面端 FluentWindow + NavigationInterface。
+/// v1.5.0：底部菜单 6 → 5（修复中心并入「传输」页签二），
 /// 底部菜单：文件 / 笔记 / 同步 / 传输任务 / 设置
 class _AppScaffold extends StatelessWidget {
   final Widget child;
 
   const _AppScaffold({required this.child});
 
+  /// 底部导航路由（顺序与 destinations 一一对应）
+  static const List<String> _routes = [
+    '/files',
+    '/notes',
+    '/sync',
+    '/transfer',
+    '/settings',
+  ];
+
   @override
   Widget build(BuildContext context) {
     // 获取当前路由对应的底部导航索引
     final location = GoRouterState.of(context).matchedLocation;
-    int currentIndex = 0;
-    if (location == '/notes') currentIndex = 1;
-    if (location == '/sync') currentIndex = 2;
-    if (location == '/transfer') currentIndex = 3;
-    if (location == '/repair') currentIndex = 4;
-    if (location == '/settings') currentIndex = 5;
+    // `/repair` 已并入传输页，仍需高亮「传输任务」而非回落到「文件」
+    final normalized = location == '/repair' ? '/transfer' : location;
+    final currentIndex = _routes.indexOf(normalized).clamp(0, _routes.length - 1);
 
     return Scaffold(
       body: child,
       bottomNavigationBar: NavigationBar(
         selectedIndex: currentIndex,
-        onDestinationSelected: (index) {
-          final routes = [
-            '/files',
-            '/notes',
-            '/sync',
-            '/transfer',
-            '/repair',
-            '/settings',
-          ];
-          context.go(routes[index]);
-        },
+        onDestinationSelected: (index) => context.go(_routes[index]),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.folder_outlined),
@@ -159,17 +163,15 @@ class _AppScaffold extends StatelessWidget {
             selectedIcon: Icon(Icons.note),
             label: '笔记',
           ),
-          NavigationDestination(icon: Icon(Icons.sync), label: '同步'),
+          NavigationDestination(
+            icon: Icon(Icons.sync_outlined),
+            selectedIcon: Icon(Icons.sync),
+            label: '同步',
+          ),
           NavigationDestination(
             icon: Icon(Icons.cloud_download_outlined),
             selectedIcon: Icon(Icons.cloud_download),
             label: '传输任务',
-          ),
-          // v1.4.2：修复中心
-          NavigationDestination(
-            icon: Icon(Icons.healing_outlined),
-            selectedIcon: Icon(Icons.healing),
-            label: '修复中心',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),

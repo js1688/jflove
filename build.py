@@ -67,15 +67,70 @@ def check_server() -> tuple[bool, str]:
     return True, "docker 可用"
 
 
+def _find_iscc() -> Path | None:
+    """
+    Windows 侧探测 Inno Setup 编译器 iscc.exe（用于判断能否产出安装包）。
+
+    与 jflove-desktop/build.py::find_iscc 保持同一探测口径（本编排器不 import
+    模块构建脚本，避免耦合）：环境变量 ISCC → PATH → 常见安装目录。
+    探测不到**不算环境不满足**：只降级为便携 zip（构建照常成功）。
+    """
+    env = os.environ.get("ISCC") or os.environ.get("INNO_SETUP_ISCC")
+    if env and Path(env).is_file():
+        return Path(env)
+    for name in ("iscc", "ISCC", "iscc.exe", "ISCC.exe"):
+        found = shutil.which(name)
+        if found:
+            return Path(found)
+    roots: list[Path] = []
+    for var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        value = os.environ.get(var)
+        if value:
+            roots.append(Path(value))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        roots.append(Path(local) / "Programs")
+    for root in roots:
+        for sub in ("Inno Setup 6", "Inno Setup 5", "Inno Setup"):
+            cand = root / sub / "ISCC.exe"
+            if cand.is_file():
+                return cand
+    return None
+
+
 def check_desktop() -> tuple[bool, str]:
-    """desktop 需要模块 venv（内含 PyInstaller / PySide6）"""
+    """
+    desktop 需要模块 venv（内含 PyInstaller / PySide6）。
+
+    安装包能力按平台探测（只提示、不影响环境是否满足）：
+      - Windows: 有 iscc → 出 Inno Setup 安装包；无 → 降级为便携 zip
+      - Linux:   走 packaging/linux/build_rpm.sh 出 RPM
+      - 其他:    PyInstaller 不能交叉编译，RPM 不可用
+    """
     py = _venv_python("jflove-desktop")
     if py is None:
         return False, "未找到 jflove-desktop 的 venv（venv-win / venv-linux）"
     proc = subprocess.run([str(py), "-c", "import PyInstaller"], capture_output=True)
     if proc.returncode != 0:
         return False, f"{py.relative_to(ROOT)} 中未安装 PyInstaller"
-    return True, f"venv 就绪（{py.relative_to(ROOT)}）"
+
+    system = platform.system()
+    notes = [f"venv 就绪（{py.relative_to(ROOT)}）"]
+    if system == "Windows":
+        iscc = _find_iscc()
+        if iscc:
+            notes.append(f"Inno Setup 可用（{iscc}）→ 出安装包 + 便携 zip")
+        else:
+            notes.append("未装 Inno Setup → 降级为便携 zip（装 Inno Setup 6 可出 setup.exe）")
+    elif system == "Linux":
+        if shutil.which("rpmbuild"):
+            notes.append("RPM 可用 → 出 onedir + *.rpm（标准交付形态）")
+        else:
+            notes.append("缺 rpmbuild ⇒ 本次**不会产出 RPM**（RPM 是 Linux 端标准形态；"
+                         "装：sudo dnf install -y rpm-build）")
+    else:
+        notes.append(f"RPM 不可用（PyInstaller 不能交叉编译，需 Linux；当前 {system}）")
+    return True, "；".join(notes)
 
 
 def check_web() -> tuple[bool, str]:
@@ -113,12 +168,33 @@ def build_server() -> int:
 
 
 def build_desktop() -> int:
-    # desktop 必须用模块 venv（内含 PyInstaller）
+    """
+    桌面端统一打包（默认 onedir + 安装包，按平台能力分支）：
+
+      - Windows: build/dist/JFLove/ + JFLove-<ver>-win64-setup.exe（Inno Setup，
+                 iscc 缺失时由模块 build.py 打印指引并降级）+ 便携 zip
+      - Linux:   build/dist/JFLove/ + jflove-desktop-<ver>-1.fc<N>.x86_64.rpm
+      - 其他:    只出 onedir 目录（不出安装包/RPM：PyInstaller 不能交叉编译）
+
+    desktop 必须用模块 venv（内含 PyInstaller）。
+    """
     py = _venv_python("jflove-desktop")
     if py is None:
         log("desktop venv 丢失，无法构建")
         return 1
-    return subprocess.run([str(py), "build.py"], cwd=ROOT / "jflove-desktop").returncode
+    system = platform.system()
+    cmd = [str(py), "build.py", "--mode", "onedir"]
+    if system == "Linux":
+        # 统一入口同一条命令：Linux 上直接连 RPM 一起出（默认 Fedora 43 基线）
+        cmd.append("--rpm")
+        log("desktop: Linux 平台 → onedir + RPM（如需换 Fedora 基线，用模块脚本 --fedora <N>）")
+    elif system == "Windows":
+        # onedir 下 --installer / --zip 已是默认开；显式传一遍表明意图
+        cmd += ["--installer", "--zip"]
+    else:
+        cmd += ["--no-installer", "--no-zip"]
+        log(f"desktop: {system} 平台不出安装包/RPM（PyInstaller 不能交叉编译）")
+    return subprocess.run(cmd, cwd=ROOT / "jflove-desktop").returncode
 
 
 def build_web() -> int:
@@ -145,7 +221,8 @@ def build_app() -> int:
 # ── 模块表 ───────────────────────────────────────────────────────
 MODULES: dict[str, dict] = {
     "server": {"label": "jflove-server（Docker 镜像）", "check": check_server, "build": build_server},
-    "desktop": {"label": "jflove-desktop（PyInstaller）", "check": check_desktop, "build": build_desktop},
+    "desktop": {"label": "jflove-desktop（PyInstaller onedir + 安装包）",
+                "check": check_desktop, "build": build_desktop},
     "web": {"label": "jflove-web（Docker 镜像）", "check": check_web, "build": build_web},
     "app": {"label": "jflove-app（APK debug+release）", "check": check_app, "build": build_app},
 }

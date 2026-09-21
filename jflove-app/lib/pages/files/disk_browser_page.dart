@@ -6,12 +6,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../config/design_tokens.dart';
 import '../../models/file_item.dart';
 import '../../providers/file_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/transfer_provider.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/error_state.dart';
 import '../../widgets/file_list_tile.dart';
-import '../../widgets/loading_indicator.dart';
 import '../../widgets/move_target_dialog.dart';
 import '../../widgets/path_breadcrumb.dart';
 
@@ -121,116 +124,111 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
   /// 当前所在目录的相对路径
   String get _currentRelPath => _currentPath.isEmpty ? '' : _currentPath;
 
+  /// 长按弹出的操作菜单（下载 / 预览 / 修复 / 重命名 / 移动 / 删除）
+  ///
+  /// v1.5.0：颜色全部走设计令牌——不可用项用弱化前景色 `t.fgSubtle`，
+  /// 危险操作（删除）用 `AppTokens.danger500`，不再写红色字面量。
   void _showFileMenu(FileItem item, bool canWrite) {
+    // 修复权限需「写 + 删」并存，进入弹层前算一次即可
+    final canRepair = _computeCanRepair();
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!item.isDir) ...[
-              ListTile(
-                leading: const Icon(Icons.download),
-                title: const Text('下载'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _downloadFile(item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.preview),
-                title: const Text('预览'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _previewFile(item);
-                },
-              ),
-              // v1.4.2：修复损坏媒体（仅音视频；要求写+删权限并存）
-              if (_isMediaFile(item.name))
+      builder: (ctx) {
+        final t = ctx.tokens;
+        final disabled = t.fgSubtle;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!item.isDir) ...[
                 ListTile(
-                  leading: Icon(
-                    Icons.healing,
-                    color: _computeCanRepair()
-                        ? null
-                        : Theme.of(context).disabledColor,
-                  ),
-                  title: Text(
-                    '修复损坏媒体',
-                    style: TextStyle(
-                      color: _computeCanRepair()
-                          ? null
-                          : Theme.of(context).disabledColor,
+                  leading: const Icon(Icons.download),
+                  title: const Text('下载'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _downloadFile(item);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.preview),
+                  title: const Text('预览'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _previewFile(item);
+                  },
+                ),
+                // v1.4.2：修复损坏媒体（仅音视频；要求写+删权限并存）
+                if (_isMediaFile(item.name))
+                  ListTile(
+                    leading: Icon(
+                      Icons.healing,
+                      color: canRepair ? null : disabled,
                     ),
+                    title: Text(
+                      '修复损坏媒体',
+                      style: TextStyle(color: canRepair ? null : disabled),
+                    ),
+                    onTap: canRepair
+                        ? () {
+                            Navigator.pop(ctx);
+                            _repairFile(item);
+                          }
+                        : null,
                   ),
-                  onTap: _computeCanRepair()
-                      ? () {
-                          Navigator.pop(ctx);
-                          _repairFile(item);
-                        }
-                      : null,
+                const Divider(),
+              ],
+              ListTile(
+                leading: Icon(Icons.edit, color: canWrite ? null : disabled),
+                title: Text(
+                  '重命名',
+                  style: TextStyle(color: canWrite ? null : disabled),
                 ),
+                onTap: canWrite
+                    ? () {
+                        Navigator.pop(ctx);
+                        _renameItem(item);
+                      }
+                    : null,
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.drive_file_move,
+                  color: canWrite ? null : disabled,
+                ),
+                title: Text(
+                  '移动到…',
+                  style: TextStyle(color: canWrite ? null : disabled),
+                ),
+                onTap: canWrite
+                    ? () {
+                        Navigator.pop(ctx);
+                        _moveItem(item);
+                      }
+                    : null,
+              ),
               const Divider(),
+              ListTile(
+                leading: Icon(
+                  Icons.delete,
+                  color: canWrite ? AppTokens.danger500 : disabled,
+                ),
+                title: Text(
+                  '删除',
+                  style: TextStyle(
+                    color: canWrite ? AppTokens.danger500 : disabled,
+                  ),
+                ),
+                onTap: canWrite
+                    ? () {
+                        Navigator.pop(ctx);
+                        _deleteItem(item);
+                      }
+                    : null,
+              ),
             ],
-            ListTile(
-              leading: Icon(
-                Icons.edit,
-                color: canWrite ? null : Theme.of(context).disabledColor,
-              ),
-              title: Text(
-                '重命名',
-                style: TextStyle(
-                  color: canWrite ? null : Theme.of(context).disabledColor,
-                ),
-              ),
-              onTap: canWrite
-                  ? () {
-                      Navigator.pop(ctx);
-                      _renameItem(item);
-                    }
-                  : null,
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.drive_file_move,
-                color: canWrite ? null : Theme.of(context).disabledColor,
-              ),
-              title: Text(
-                '移动到…',
-                style: TextStyle(
-                  color: canWrite ? null : Theme.of(context).disabledColor,
-                ),
-              ),
-              onTap: canWrite
-                  ? () {
-                      Navigator.pop(ctx);
-                      _moveItem(item);
-                    }
-                  : null,
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(
-                Icons.delete,
-                color: canWrite ? Colors.red : Theme.of(context).disabledColor,
-              ),
-              title: Text(
-                '删除',
-                style: TextStyle(
-                  color: canWrite
-                      ? Colors.red
-                      : Theme.of(context).disabledColor,
-                ),
-              ),
-              onTap: canWrite
-                  ? () {
-                      Navigator.pop(ctx);
-                      _deleteItem(item);
-                    }
-                  : null,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -397,7 +395,8 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
+              // 危险操作统一用令牌里的语义红
+              backgroundColor: AppTokens.danger500,
             ),
             child: const Text('删除'),
           ),
@@ -513,6 +512,7 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
     );
     final canWrite = _computeCanWrite();
     final diskName = _diskName();
+    final t = context.tokens;
 
     return Scaffold(
       appBar: AppBar(
@@ -546,15 +546,25 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
         },
         child: fileListAsync.when(
           data: (files) {
+            // v1.5.0：空目录换统一 EmptyState（文案对齐 Web 端）；
+            // 仍包在「至少一屏高」的可滚动容器里，避免下拉刷新在空目录下失效
             if (files.isEmpty) {
-              return ListView(
-                children: const [
-                  SizedBox(height: 80),
-                  Center(child: Text('此目录为空')),
-                ],
+              return LayoutBuilder(
+                builder: (ctx, constraints) => SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: const EmptyState(
+                      icon: Icons.folder_open,
+                      title: '此目录为空',
+                      subtitle: '可上传文件或新建目录',
+                    ),
+                  ),
+                ),
               );
             }
             return ListView.builder(
+              padding: EdgeInsets.fromLTRB(t.s3, t.s3, t.s3, t.s6),
               itemCount: files.length,
               itemBuilder: (ctx, i) {
                 final item = files[i];
@@ -572,8 +582,9 @@ class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
               },
             );
           },
-          loading: () => const LoadingIndicator(message: '加载中…'),
-          error: (e, _) => Center(child: Text('加载失败: $e')),
+          // 加载态由转圈换骨架屏，避免列表高度跳动
+          loading: () => const ListSkeleton(),
+          error: (e, _) => ErrorState(message: '$e', onRetry: _refresh),
         ),
       ),
     );

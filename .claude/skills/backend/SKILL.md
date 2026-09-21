@@ -39,6 +39,60 @@ description: 后端工程师，负责 jflove-server 后端业务代码开发（F
 - 耗时操作异步化（asyncio / 多线程）。
 
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
+> **通用经验库**：见 `.claude/skills/LESSONS.md`（静默失败、编码陷阱等跨角色经验，开工前先扫一眼）。
+
+## 数据库变更硬约束（v1.5.0 实测踩出来的）
+
+1. **软删除 + 唯一约束会互相打架**
+   `AGENTS.md §5.2` 要求每张表都有 `deleted_at`（软删除），而**列级 `UNIQUE` 不区分是否删除**：
+   删掉的记录仍占着那个值 → 用户"删了却建不回同名"。
+   - 正确建模：**唯一性只约束"活跃行"** —— 去掉列级 `UNIQUE`，改
+     「普通索引 + 部分唯一索引 `... WHERE deleted_at IS NULL`」；
+   - 查重语句必须与约束**同口径**：若约束只看活跃行，查重也必须只看活跃行，
+     否则会出现"查重通过 → INSERT 撞约束 → 抛数据库原始错误"；
+   - 拿到行之后仍要**显式判断 `deleted_at`**，历史行绝不允许登录。
+   - 反面案例（v1.5.0）：`users.username` 原是列级 `UNIQUE` + 查重带 `deleted_at IS NULL`，
+     口径不一致，管理员删号后无法重建同名，报的是 `UNIQUE constraint failed`。
+
+2. **改结构前先问 `init_db()` 兜不兜得住**
+   `init_db()` 的运行时迁移只会**加表 / 加列 / 建索引**，**管不到"去掉约束"**这类既有结构变更。
+   SQLite 也**不支持** `ALTER TABLE ... DROP CONSTRAINT`，只能**重建表**。
+   - 凡涉及"去掉/修改既有约束"，必须写显式迁移脚本 + 回滚脚本（见 `AGENTS.md §5.1.2`），
+     并在发布前核对对齐（`AGENTS.md §5.1.1`）；
+   - 重建表时**主键 id 必须原样保留**（其它表按 `user_id` 整数引用），失败要整体回滚。
+   - **禁止**用 `PRAGMA writable_schema` 直接改建表语句：实测会留下悬空自动索引，
+     之后任何访问都报 `malformed database schema ... orphan index`，且**当时不抛异常**、看着像成功了。
+
+3. **迁移判断要先剥掉 SQL 注释**
+   建表语句里可能带中文说明（如 `username TEXT NOT NULL, -- 去掉了原来的 UNIQUE`），
+   直接做 `"UNIQUE" in sql` 的子串判断会**误判成"还没迁移"**，导致每次启动白重建一次表。
+   正确做法：剥掉 `--` / `/* */` 注释后再用精确正则判断。
+
+4. **开发库 ≠ 生产库，不要用 `init_db()` 当发布手段**
+   `AGENTS.md §5.1`：开发期只允许动 `jflove-dev.db`；prod 库仅发布时同步**表结构**。
+   没有任何脚本会自动同步 dev → prod。
+
+5. **改了 `init_db()` 的建表 DDL，必须同步 `expected_schema()` / `expected_indexes()`**
+   `src/models/database.py` 导出的这两个函数是**代码侧结构的唯一声明**，
+   `scripts/check_db_schema.py` 靠它们把"代码期望的结构"建在内存库里，
+   再与 dev 库比对（发布前的第一道关）。漏同步 = 门禁拿旧结构当基准，形同虚设。
+   - **`CREATE TABLE` 里没有的列要显式补进去**：例如 `users.notes_disk_id` /
+     `notes_path` 是 `init_db()` 用 `ALTER TABLE ADD COLUMN` 后补的
+     （见 `_USERS_ALTERED_COLUMNS`），`expected_schema()` 必须把它们拼进期望结构，
+     否则会把正常库误报成"陈旧"；
+   - **代码不再创建的表不要写进去**，同时把表名登记到
+     `scripts/check_db_schema.py::_LEGACY_TABLES`，避免它被对齐工具复制进 prod。
+
+6. **`DB_PATH` 是硬编码常量，隔离测试别用环境变量**
+   `src/config/settings.py` 里 `DB_PATH` 不读任何环境变量。想在没有 GUI/服务的环境
+   里造一个临时库，必须改 `src.models.database` 模块命名空间里的 `DB_PATH`
+   （它由 `from src.config.settings import DB_PATH` 导入），并在 `finally` 里复原。
+   设环境变量会**静默操作真实的 dev 库**（`LESSONS.md` L20）。
+
+7. **新增错误文案要面向界面**
+   controller 会把 `ValueError` 转成 400 `detail`，客户端**原样展示给用户**。
+   所以文案要写"用户名「xxx」已存在，请换一个"，不要写成数据库术语或内部标识。
+   同理，**不要把数据库原始异常文本透出去**（如 `UNIQUE constraint failed: users.username`）。
 
 ## 文档更新范围
 

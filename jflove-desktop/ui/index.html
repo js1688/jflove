@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="JFLove - 私有文档与笔记协同管理（桌面端）" />
+    <title>JFLove</title>
+    <script>
+      /* 首屏防暗色闪烁（FOUC）：必须在 React 挂载与 CSS 绘制之前同步执行，
+         因此这段脚本刻意内联在此处。逻辑与 src/stores/theme-store.ts 的
+         readStoredThemeMode / resolveTheme / applyThemeToDom 保持一致，
+         localStorage 键名改动时必须同时改这两处。
+         （与 Web 端 index.html 完全一致） */
+      (function () {
+        try {
+          var KEY = 'jflove.theme';
+          var mode = localStorage.getItem(KEY) || 'system';
+          var isDark =
+            mode === 'dark' ||
+            (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var root = document.documentElement;
+          root.classList.toggle('dark', isDark);
+          root.style.colorScheme = isDark ? 'dark' : 'light';
+          // 内联背景色：避免样式表加载完成前出现白屏闪烁
+          root.style.backgroundColor = isDark ? '#080d18' : '#f6f7fb';
+        } catch (e) {
+          /* localStorage 不可用时按亮色渲染 */
+        }
+      })();
+    </script>
+  </head>
+  <body class="antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

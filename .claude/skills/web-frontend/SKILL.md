@@ -105,9 +105,105 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 ## 边界约束（禁止越界）
 
 - 只在 `jflove-web/` 下编码，不可触碰 jflove-server / jflove-desktop / jflove-app。
+- **桌面端 `jflove-desktop/webui/` 是另一套独立前端工程**（Vite + React + Tailwind + TypeScript），
+  **与 `jflove-web` 各自独立、互不干扰**：不共享源码 / 组件 / 构建配置，`jflove-web` 也**不得**引用它。
+  两边观感对齐靠「同一套设计令牌 +  校验」，
+  **不要"顺手共享组件"**去破坏独立性；本模块的发布流程与 CI **不因桌面端而改动**
+  （依据：`plans/desktop-hybrid-shell-v1.5.0.md` §四.2、`文档记录/桌面端开发记录/v1.5.0.md` §16.5）。
 - 不修改 `.github`、`.vscode`、`.gitignore`、`.git`、`.idea`，除非用户明确要求。
 - 不做产品设计、不做技术设计，仅按现有设计文档实现。
 - 不引入新的加密算法 / 模式 / KDF，必须复用已有加密原语（见 §技术栈约束 加密部分）。
+
+> **通用经验库**：见 `.claude/skills/LESSONS.md`（静默失败、编码陷阱等跨角色经验，开工前先扫一眼）。
+
+## Web 端专属硬约束（v1.5.0 实测踩出来的）
+
+1. **接口错误必须让用户看到**
+   页面里所有会发请求的 handler 必须 `try/catch`，并用 `toast.error(标题, e.message)` 展示；
+   **失败时不要关闭弹窗**（保留已填内容便于修正重试）。
+   反面案例：v1.5.0 有 9 处 handler 是**裸 `await`**，接口报错被静默吞掉 ——
+   用户反馈「添加重名用户应该报错但 Web 端没有任何提示（安卓端有）」。
+   回归保障：`tests/error-visibility.test.ts` 会**静态扫描**全量源码找裸 await，不要跳过它。
+
+2. **默认同源，不要写死绝对地址**
+   `DEFAULT_SERVER_URL` 为空串 = 同源（请求走相对路径 `/api/...`）。
+   写死 `http://localhost:8989` 会让每个请求变成**跨源请求**，浏览器先发一条 `OPTIONS` 预检 ——
+   服务端收到的 HTTP 条数是业务调用量的 **2 倍**（实测 32 个场景里 `OPTIONS` 数恒等于业务请求数）。
+   同源由 `nginx.conf` 的 `/api/` 反代承担（用 `resolver` + 变量延迟解析，
+   避免单独起 web 容器时 nginx 因解析不到上游而启动失败）。
+
+3. **loading 初值必须是 `true`**
+   初值为 `false` 时首帧会渲染**假的空态**（实测「暂无可用磁盘」159ms → 骨架屏 167ms → 内容 214ms），
+   用户看到的就是「进入系统闪动好几次」。所有 loading 状态初值一律 `true`。
+
+4. **不要用 `<Navigate>` 做默认路由**
+   它在 effect 里跳转，会先渲染一帧「只有侧边栏、主内容空白」。改用 `loader: () => redirect(...)`（渲染前生效）。
+
+5. **React `StrictMode` 下的请求 ×2 是开发态假象**
+   React 18 dev 会双跑 mount effect，生产构建已实测恢复 ×1。**不要为了消除它而删 StrictMode**；
+   判断"是否真的重复调用"必须在**生产构建**（`vite build` + `vite preview`）下测。
+
+6. **effect 的依赖数组不要含"会被自己改变的值"**
+   反面案例：轮询 effect 依赖 `disks.length`，而 effect 内部调 `loadDisks()` 把它 0→1 ——
+   effect 自我触发重跑，接口在 19ms 内被连发两次（生产构建实测，与 StrictMode 无关）。
+   需要读瞬时值时用 `useStore.getState()`，不要放进依赖数组。
+
+7. **SVG 图表不要无条件拉伸**
+   `svg { width: 100% }` 会把自然尺寸很窄的图（如类图 153px 宽、却 369px 高）横向压扁；
+   极宽的图又会被缩到字不可读。正确策略：`width:auto` + `max-width:100%` + `height:auto`
+   （只等比缩小、不放大），容器给 `overflow-x:auto`。
+
+8. **dev server 只监听 IPv6**
+   Vite 在本机只绑 `::1`，自动化脚本一律用 `http://localhost:3000`，**不要用 `127.0.0.1`**（会连不上）。
+
+9. **全局 `*` + `!important` 不得覆盖第三方渲染库依赖的属性**（v1.5.0 最贵的一个坑）
+   反面案例：为无障碍写的
+   `@media (prefers-reduced-motion: reduce) { * { transition-duration:.01ms!important } }`
+   **改变了 mermaid 的几何** —— 当该偏好生效时（Windows「关闭动画效果」、无头浏览器默认值都会命中），
+   同一份笔记渲染成：类图外框只按标题高度画、成员文字跑到框外；ER / 流程图 / 状态图文字被裁；
+   导出的 SVG 与屏幕同源，于是"下载的图片也不全"。
+   实测逐条对照：**只留 `transition-duration` 照样坏**，只留 `animation-duration` 或整条去掉即正常。
+   - 正确写法：全局冻结只作用于 HTML UI，**SVG 子树豁免**（`:not(svg):not(svg *)`）；
+   - 同类高危属性：`transition` / `animation` / `transform` / `will-change` / `contain`；
+   - 依据与复现：`.claude/skills/LESSONS.md` L23、。
+
+10. **媒体/系统偏好类结论必须显式枚举，不能吃环境默认值**
+    无头浏览器**默认报告 `prefers-reduced-motion: reduce`** —— 上面那条 CSS 只在 reduce 下生效，
+    于是"只在无头里测"会得到与真实用户相反的结论（v1.5.0 因此把"我们自己的 CSS 问题"
+    误判成"mermaid 引擎缺陷"，白做了一整套替代方案）。
+    - 自动化里用 CDP `Emulation.setEmulatedMedia` **显式**指定该维度的每个取值，各测一遍；
+    - 同页对比多种设置时**每次开新页面**（渲染结果有内存缓存，否则第二次读的是缓存）；
+    - 下"这是库的缺陷"这种重结论前，先问：**还有哪个环境维度没被枚举？**
+    - 依据：`.claude/skills/LESSONS.md` L24。
+
+11. **离屏容器里不要用 `inverse(getCTM())` 做坐标换算**
+    把 SVG 放在 `left:-99999px` 的离屏容器里渲染时，Chromium 的 `getCTM()`
+    **把元素在页面里的位置也算进去了** —— `inverse(parent.getCTM())` 算出的坐标偏移可达 30 万，
+    viewBox 直接暴涨到 68 万（实测）。用"相对 SVG 自身 `getBoundingClientRect()` 的差值 + 缩放比"
+    换算，页面偏移天然抵消；矩阵法要用 `inverse(svgCTM) × elementCTM`（两者偏移相乘相消），
+    不要单用 `inverse(parentCTM)`。
+
+12. **渲染后处理必须"先插 DOM 再量"**
+    v1.5.0 的尺寸归一化曾经是**死代码**：它对着一个空容器 `querySelector('svg')`，
+    永远返回 `null`，于是"重新测量"从未生效，五类图的文字一直被裁掉却没人发现。
+    任何"渲染后量一次再修正"的逻辑，都要断言**元素已在文档里**，并加一条
+    "调用顺序"的静态断言锁死（见 `tests/utils/mermaid-geometry.test.ts`）。
+
+13. **占位符 / 特殊字符的约定必须"默认不生效"，且不能挑正文里常见的字符**
+    反面案例：`insertMarkdown` 把插入文本里**第一个 `|`** 当光标占位符并无条件吃掉，
+    而 mermaid 的 ER 关系语法恰好是 `||--o{` —— 用户点「ER 图」插入后**必报语法错误**
+    （`用户 |--o{ 会话`，少了一根竖线）。7 个模板里只有 ER 图含 `|`，所以只它中招。
+    - **默认原样插入**，只有显式声明的调用方（工具栏按钮）才解析占位符；
+    - 占位符字符不能选 Markdown / mermaid / 表格里随处可见的（`|`、`*`、`_`、`` ` ``）；
+    - 这类逻辑要从组件里抽成纯函数，才可能被单测覆盖。见 `.claude/skills/LESSONS.md` L25。
+
+14. **验证"某功能产出什么"必须走用户真实路径**
+    把源文件里的常量拿去渲染**不等于**验证了插入结果 —— ER 图那个缺陷就是这么漏掉一轮的：
+    模板常量完全正确，坏在插入逻辑。正确做法是**真的点按钮、读编辑区、看预览**，
+    并加**负向对照**（把修复前行为注入回去，确认用例会失败且失败信息与用户报的现象一致）。
+    桩后端 + 伪造登录态的配方按版本需要临时编写、跑完即弃。
+    、。
+
 
 ## 文档更新范围
 

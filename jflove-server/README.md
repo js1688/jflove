@@ -78,6 +78,22 @@ venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload
 | 开发库 | [`../jflove-db/jflove-dev.db`](../jflove-db/) | 开发期间使用，自动初始化表结构 |
 | 生产库 | [`../jflove-db/jflove-prod.db`](../jflove-db/) | 仅发布时同步表结构，不同步业务数据 |
 
+> **发布前强制核对（`AGENTS.md §5.1.1`，发布阻塞项）**：`jflove-dev.db` 是表结构基准，
+> prod 结构必须与它对齐，且**没有任何脚本会自动同步** —— 发布前必须执行
+> `python scripts/check_db_schema.py`（退出码 0 = 一致；1 = 存在差异 → 阻塞发布；
+> 2 = 环境/参数错误）。有差异用 `python scripts/check_db_schema.py --align` 对齐
+> （先自动备份 prod，只改结构、不删 prod 多出的对象，重建表时保留 prod 自有列）。
+> `init_db()` 的运行时迁移只会加表 / 加列 / 建索引，**管不到"去掉约束"这类既有结构变更**
+> （如 v1.5.0 去掉 `users.username` 的列级 `UNIQUE`），不能拿它替代核对。
+>
+> 工具内置**三道关**：① 代码 `expected_schema()` / `expected_indexes()` 在内存库建出的结构
+> vs dev 库（拦住"dev 陈旧"或"dev 含代码已不建的死表"）→ ② dev vs prod → ③ `--align` 后复验。
+> 代码已不再创建的历史遗留表（当前为 `notes_permissions`）登记在
+> `scripts/check_db_schema.py::_LEGACY_TABLES`，**不参与比对、不会被复制进 prod**；
+> prod 上若残留空表可用 `--prune-legacy` 清理（非空会拒绝删除）。
+> 改动本工具后必须跑通反向验证：`设计预览\verify_schema_guard.py`、
+> `设计预览\verify_align_preserves_data.py`（两者退出码都要为 0）。
+
 ### 表结构
 
 | 表名 | 说明 |
@@ -87,10 +103,13 @@ venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload
 | `user_permissions` | 用户对虚拟磁盘的访问权限（读/写/删） |
 | `sessions` | 会话记录（session_id、JWT hash、过期时间） |
 | `config` | 服务端配置（key-value） |
+| `media_repair_tasks` | 媒体修复任务记录（v1.4.0+） |
 
 > 所有表均包含 `id`、`created_at`、`updated_at`、`deleted_at` 字段（软删除）。
 > 索引命名：`{field}_idx`；外键字段命名 `{related_table}_id`（不建外键约束）。
 > v1.1.6：`sync_configs` 表已移除（同步配置改为客户端本地存储）。
+> v1.5.0：`users.username` 去掉列级 `UNIQUE`，改为「普通索引 `users_username_idx` + 活跃行部分唯一索引 `users_username_active_uidx`」（软删除账号的用户名可被复用）；老库需按上方的「发布前强制核对」对齐结构。
+> 代码不再创建的 `notes_permissions`（早期"笔记目录权限"概念的遗留表）在**全新部署中不会存在**，`init_db()` 也不删它；属历史遗留对象，不参与结构核对。
 
 ---
 
@@ -181,7 +200,7 @@ venv/bin/python build.py --version 1.3.2
 venv/bin/python build.py --save
 ```
 
-构建脚本会自检：`jflove-prod.db` 必须 0 行业务数据（防止数据泄漏到镜像）；版本号三处（`main.py` / `build.py` / `Dockerfile`）不一致时中止构建。
+构建脚本会自检：`jflove-prod.db` 必须不含业务数据（防止数据泄漏到镜像）——**仅放行** `config` 表里 `init_db()` 写入的默认键 `media_repair_enabled=0` / `media_repair_allow_transcode=0`，其余任何表非空、或 `config` 出现白名单外的键 / 被改过的值都会中止构建；版本号三处（`main.py` / `build.py` / `Dockerfile`）不一致时中止构建。
 
 ---
 

@@ -7,9 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../config/design_tokens.dart';
 import '../../providers/file_provider.dart';
 import '../../providers/session_provider.dart';
+import '../../utils/markdown/markdown_builder.dart';
 import '../../utils/stream_proxy.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/error_state.dart';
 
 /// 文件预览页面
 ///
@@ -204,17 +208,10 @@ class FilePreviewPage extends ConsumerWidget {
     }
 
     // 不支持
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.preview, size: 64, color: Colors.grey.shade400),
-          const SizedBox(height: 16),
-          const Text('不支持预览此文件类型'),
-          const SizedBox(height: 8),
-          Text('请下载后查看', style: TextStyle(color: Colors.grey.shade600)),
-        ],
-      ),
+    return const EmptyState(
+      icon: Icons.preview_outlined,
+      title: '不支持预览此文件类型',
+      subtitle: '请下载后查看',
     );
   }
 }
@@ -396,34 +393,56 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     if (_hasError) {
+      // 损坏文件需要「立即修复」入口，故用自定义错误态（ErrorState 无 action 槽）
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
-            const SizedBox(height: 12),
-            Text(_needsRepair ? '该文件已损坏，无法在线播放' : '播放失败'),
-            const SizedBox(height: 4),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.all(t.s6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppTokens.danger500.withValues(alpha: 0.12),
+                ),
+                child: const Icon(
+                  Icons.error_outline,
+                  size: 32,
+                  color: AppTokens.danger500,
+                ),
+              ),
+              SizedBox(height: t.s4),
+              Text(
+                _needsRepair ? '该文件已损坏，无法在线播放' : '播放失败',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: t.fgDefault,
+                ),
+              ),
+              SizedBox(height: t.s2),
+              Text(
                 _errorMessage,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                style: TextStyle(fontSize: 12.5, height: 1.6, color: t.fgMuted),
                 textAlign: TextAlign.center,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
               ),
-            ),
-            if (_needsRepair) ...[
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _repairNow,
-                icon: const Icon(Icons.healing),
-                label: const Text('立即修复'),
-              ),
+              if (_needsRepair) ...[
+                SizedBox(height: t.s5),
+                FilledButton.icon(
+                  onPressed: _repairNow,
+                  icon: const Icon(Icons.healing),
+                  label: const Text('立即修复'),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       );
     }
@@ -437,7 +456,7 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
             const SizedBox(height: 16),
             Text(
               widget.isVideo ? '正在加载视频…' : '正在加载音频…',
-              style: TextStyle(color: Colors.grey.shade600),
+              style: TextStyle(color: t.fgMuted),
             ),
           ],
         ),
@@ -448,6 +467,7 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
     final aspectRatio = widget.isVideo
         ? controller.value.aspectRatio
         : 1.0; // 音频固定 1:1
+    final tokens = context.tokens;
 
     return Column(
       children: [
@@ -476,20 +496,32 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.audiotrack,
-                    size: 80,
-                    color: Theme.of(context).colorScheme.primary,
+                  Container(
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: tokens.bgActive,
+                    ),
+                    child: const Icon(
+                      Icons.audiotrack,
+                      size: 40,
+                      color: AppTokens.brand600,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     '正在播放音频',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: tokens.fgDefault,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     widget.name,
-                    style: TextStyle(color: Colors.grey.shade600),
+                    style: TextStyle(color: tokens.fgMuted),
                   ),
                 ],
               ),
@@ -554,9 +586,8 @@ class _MediaControlsState extends State<_MediaControls> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withAlpha(80),
+        color: context.tokens.bgSunken,
+        border: Border(top: BorderSide(color: context.tokens.borderSubtle)),
       ),
       child: Row(
         children: [
@@ -758,19 +789,21 @@ class _TextPreviewState extends ConsumerState<_TextPreview> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _content.isEmpty) {
-      return Center(child: Text('加载失败: $_error'));
+      return ErrorState(message: '加载失败：$_error');
     }
 
     if (widget.isMarkdown) {
+      // v1.5.0：接入设计令牌样式 + mermaid 图表分支
+      MermaidBuilder.resetCounter();
       return Column(
         children: [
           if (_truncated)
             Container(
               padding: const EdgeInsets.all(8),
-              color: Colors.orange.shade50,
-              child: const Text(
-                '⚠ 文件过大，已截断旧内容',
-                style: TextStyle(fontSize: 12),
+              color: context.tokens.bgSunken,
+              child: Text(
+                '文件过大，已截断旧内容',
+                style: TextStyle(fontSize: 12, color: context.tokens.fgMuted),
               ),
             ),
           Expanded(
@@ -778,23 +811,52 @@ class _TextPreviewState extends ConsumerState<_TextPreview> {
               data: _content,
               selectable: true,
               padding: const EdgeInsets.all(16),
+              styleSheet: buildMarkdownStyleSheet(context),
+              builders: {
+                // 同 note_edit_page：注册在 `pre` 上，由 CodeBlockBuilder 分派
+                // mermaid 图块 / 代码卡（注册在 `code` 上会丢代码文本）
+                'pre': CodeBlockBuilder(mermaid: MermaidBuilder()),
+              },
             ),
           ),
         ],
       );
     }
 
+    final t = context.tokens;
     return Column(
       children: [
         if (_truncated)
           Container(
-            padding: const EdgeInsets.all(8),
-            color: Colors.orange.shade50,
-            child: const Text('⚠ 文件过大，已截断旧内容', style: TextStyle(fontSize: 12)),
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(
+              horizontal: t.s4,
+              vertical: t.s2,
+            ),
+            color: AppTokens.warning500.withValues(alpha: 0.14),
+            child: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  size: 15,
+                  color: AppTokens.warning500,
+                ),
+                SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '文件过大，已截断旧内容',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTokens.warning500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(t.s4),
             child: SelectableText(
               _content,
               style: const TextStyle(fontFamily: 'monospace', fontSize: 13),

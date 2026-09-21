@@ -77,3 +77,10 @@ jflove-app/android/**/*.jks
 
 # Windows 系统工件
 $null
+
+# 桌面端 PoC：护栏临时文件（含会话令牌/测试账号口令，严禁入库）与自动化截图
+jflove-desktop/poc/**/.tmp_*
+jflove-desktop/poc/login-shell/out/
+
+# 桌面端前端：Mermaid 离线包由 build.py::ensure_mermaid_bundle() 生成（三端共用，不入库）
+jflove-desktop/ui/public/vendor/

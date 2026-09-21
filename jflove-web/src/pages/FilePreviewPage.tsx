@@ -5,9 +5,9 @@ import { repairService } from '../services/repair-service';
 import { useFileStore } from '../stores/file-store';
 import { PageHeader } from '../components/PageHeader';
 import { LoadingSpinner } from '../components/LoadingSpinner';
+import { MarkdownRenderer } from '../components/markdown';
+import { Button, ErrorState, Icon } from '../components/ui';
 import { playWithMSE } from '../utils/media-source-player';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 
 const TEXT_EXTS = ['md', 'txt', 'json', 'xml', 'yaml', 'yml', 'csv', 'ini', 'log', 'js', 'ts', 'py', 'html', 'css'];
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
@@ -25,6 +25,18 @@ function mediaMime(ext: string): string {
   return map[ext] || 'application/octet-stream';
 }
 
+/**
+ * 文件预览页
+ *
+ * v1.5.0：emoji 图标与硬编码红/绿/靛换语义令牌；错误态与修复引导改用
+ * 统一 ErrorState + Button；音频占位图标改矢量。
+ *
+ * 注意：以下关键实现保持不变（MSE 播放稳定性，勿动）：
+ *   - effect 内 `setTimeout(0)` 延迟启动 playWithMSE（规避 StrictMode 双跑争用 <video>）；
+ *   - video / audio 元素**始终渲染**（不受 loading/error 影响），src 由播放逻辑命令式管理；
+ *   - 加载提示层始终渲染、用 class 控制可见性 —— 否则无 key 兄弟列表长度变化会让
+ *     React 卸载重建媒体元素，playWithMSE 持有的元素引用失效，MSE 播放必然失败。
+ */
 export function FilePreviewPage() {
   const { diskId } = useParams<{ diskId: string }>();
   const navigate = useNavigate();
@@ -186,26 +198,26 @@ export function FilePreviewPage() {
       <PageHeader title={filename || '文件预览'} onBack={() => navigate(-1)} />
       {loading && !isVideo && !isAudio && <LoadingSpinner text="加载预览…" />}
       {!loading && error && (
-        <div className="flex flex-col items-center py-12">
-          <div className="text-red-500">{error}</div>
+        <div className="flex flex-col items-center">
+          <ErrorState message={error} onRetry={() => navigate(0)} />
           {needsRepair && (
-            <div className="mt-4 flex flex-col items-center gap-3">
-              <button
-                type="button"
-                disabled={repairBusy}
+            <div className="-mt-6 flex flex-col items-center gap-3 px-6 pb-10">
+              <Button
+                variant="primary"
+                icon="repair"
+                loading={repairBusy}
                 onClick={() => void handleRepairNow()}
-                className="rounded-lg bg-indigo-600 px-5 py-2 text-sm text-white
-                  hover:bg-indigo-700 disabled:opacity-50"
               >
-                {repairBusy ? '提交中…' : '🛠️ 立即修复'}
-              </button>
-              <p className="text-xs text-gray-400">
+                {repairBusy ? '提交中…' : '立即修复'}
+              </Button>
+              <p className="m-0 text-center text-[11.5px] text-subtle">
                 修复为异步任务，完成后可在「修复中心」验证播放并覆盖原文件
               </p>
             </div>
           )}
           {repairNotice && (
-            <div className="mt-3 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-brand-500/25 bg-brand-50 px-4 py-2 text-[13px] text-brand-700">
+              <Icon name="info" size="sm" className="shrink-0" />
               {repairNotice}
             </div>
           )}
@@ -215,20 +227,30 @@ export function FilePreviewPage() {
         <div className="p-6">
           {isImage && imageUrl && (
             <div className="flex items-center justify-center">
-              <img src={imageUrl} alt={filename} className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-lg" />
+              <img
+                src={imageUrl}
+                alt={filename}
+                className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-e4"
+              />
             </div>
           )}
           {isText && ext === 'md' && content !== null && (
-            <div className="markdown-body max-w-3xl mx-auto" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+            <MarkdownRenderer content={content} className="mx-auto max-w-[880px] pb-16" />
           )}
           {isText && ext !== 'md' && content !== null && (
-            <pre className="p-6 text-sm font-mono whitespace-pre-wrap overflow-x-auto max-w-3xl mx-auto bg-gray-50 rounded-lg">{content}</pre>
+            <pre className="mx-auto max-w-[880px] overflow-x-auto rounded-lg border border-line-subtle bg-sunken p-6 text-[13px] whitespace-pre-wrap">
+              {content}
+            </pre>
           )}
           {!isImage && !isText && !isVideo && !isAudio && (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-              <span className="text-5xl mb-3">{isPdf ? '📄' : '📎'}</span>
-              <p className="text-sm">{isPdf ? 'PDF 文件' : '不支持预览此文件类型'}</p>
-              <p className="text-xs mt-1">请下载后使用本地程序打开</p>
+            <div className="flex flex-col items-center justify-center py-16 text-subtle">
+              <div className="empty-art mb-4">
+                <Icon name={isPdf ? 'doc' : 'file'} size="xl" strokeWidth={1.4} className="!h-11 !w-11" />
+              </div>
+              <p className="text-[13.5px] font-semibold text-fg">
+                {isPdf ? 'PDF 文件' : '不支持预览此文件类型'}
+              </p>
+              <p className="mt-1 text-xs">请下载后使用本地程序打开</p>
             </div>
           )}
         </div>
@@ -239,7 +261,7 @@ export function FilePreviewPage() {
           playWithMSE 持有的元素引用失效，MSE 播放必然失败（v1.4.0 修复）。 */}
       {isVideo && !error && (
         <div className="relative">
-          <div className={`absolute inset-0 z-10 flex items-center justify-center bg-black/40 ${loading ? '' : 'hidden'}`}>
+          <div className={`absolute inset-0 z-10 flex items-center justify-center bg-overlay/60 ${loading ? '' : 'hidden'}`}>
             <LoadingSpinner
               text={downloadProgress !== null ? `下载中 ${Math.round(downloadProgress)}%` : '边下边播准备中…'}
             />
@@ -247,13 +269,15 @@ export function FilePreviewPage() {
           <video
             ref={videoRef}
             controls
-            className="max-w-full max-h-[80vh] mx-auto rounded-lg shadow-lg bg-black"
+            className="mx-auto max-h-[80vh] max-w-full rounded-lg bg-code shadow-e3"
           />
         </div>
       )}
       {isAudio && !error && (
         <div className="flex flex-col items-center py-8">
-          <span className="text-6xl mb-4">🎵</span>
+          <span className="mb-4 grid h-20 w-20 place-items-center rounded-full bg-brand-50 text-brand-500">
+            <Icon name="audio" size="xl" strokeWidth={1.4} className="!h-9 !w-9" />
+          </span>
           <div className={loading ? '' : 'hidden'}>
             <LoadingSpinner
               text={downloadProgress !== null ? `下载中 ${Math.round(downloadProgress)}%` : '边下边播准备中…'}
@@ -264,13 +288,4 @@ export function FilePreviewPage() {
       )}
     </div>
   );
-}
-
-function renderMarkdown(content: string): string {
-  try {
-    const rawHtml = marked.parse(content, { async: false }) as string;
-    return DOMPurify.sanitize(rawHtml);
-  } catch {
-    return content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
 }

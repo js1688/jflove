@@ -137,6 +137,10 @@ async def login(
     user = await user_repository.find_by_username(db, username)
     if not user:
         raise ValueError("用户名或密码错误")
+    # 防御性判断：find_by_username 已按 deleted_at IS NULL 过滤，这里再确认一次
+    # ——「已软删除的账号绝不允许登录」，即使将来查询口径变化也不会漏。
+    if user["deleted_at"]:
+        raise ValueError("用户名或密码错误")
     if not user["enabled"]:
         raise ValueError("账号已被禁用")
     if not bcrypt.checkpw(password.encode(), user["password_hash"].encode()):

@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../config/design_tokens.dart';
 import '../../providers/session_provider.dart';
+import '../../providers/theme_provider.dart';
 import '../../services/auth_service.dart';
-import '../../services/config_service.dart';
 import '../../services/note_service.dart';
 import '../../services/disk_service.dart';
 import '../../utils/http_service.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/empty_state.dart';
 
 /// 设置页
 class SettingsPage extends ConsumerWidget {
@@ -16,7 +19,6 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionManagerProvider);
-    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
@@ -102,6 +104,9 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 12),
+          // ---- 外观（v1.5.0 新增：三态主题切换） ----
+          const _ThemeModeCard(),
+          const SizedBox(height: 12),
           // ---- 笔记目录配置 ----
           _NotesDirConfigCard(),
           const SizedBox(height: 12),
@@ -133,10 +138,14 @@ class SettingsPage extends ConsumerWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    icon: const Icon(Icons.logout, size: 18, color: Colors.red),
+                    icon: const Icon(
+                      Icons.logout,
+                      size: 18,
+                      color: AppTokens.danger500,
+                    ),
                     label: const Text(
                       '退出登录',
-                      style: TextStyle(color: Colors.red),
+                      style: TextStyle(color: AppTokens.danger500),
                     ),
                     onPressed: () async {
                       final http = HttpService(session);
@@ -176,13 +185,17 @@ class SettingsPage extends ConsumerWidget {
                     title: '权限配置',
                     onTap: () => context.push('/admin/permissions'),
                   ),
+                  const Divider(height: 1, indent: 16),
+                  _AdminListTile(
+                    icon: Icons.tune,
+                    title: '系统设置',
+                    onTap: () => context.push('/admin/system'),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 12),
-            // v1.4.0：媒体修复开关（仅管理员，服务端配置三端共享）
-            const _MediaRepairConfigCard(),
-            const SizedBox(height: 12),
+                  const SizedBox(height: 12),
           ],
           // ---- 关于 ----
           _SectionCard(
@@ -191,20 +204,18 @@ class SettingsPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoRow(label: '版本', value: 'v1.4.2'),
+                _InfoRow(label: '版本', value: 'v1.5.0'),
                 const SizedBox(height: 6),
                 Text(
                   '私有文档 & 笔记管理系统',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12.5, color: context.tokens.fgMuted),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   'X25519 ECDH + ChaCha20-Poly1305 + ES256 JWT',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.grey.shade500,
+                  style: TextStyle(
                     fontSize: 11,
+                    color: context.tokens.fgSubtle,
                   ),
                 ),
               ],
@@ -300,7 +311,147 @@ class SettingsPage extends ConsumerWidget {
 
 // ============ 子组件 ============
 
-/// 带图标的分组卡片
+/// 外观卡片：三态主题切换（v1.5.0 新增）
+///
+/// 与桌面端托盘「主题」子菜单、Web 端 ThemeToggle 语义一致：
+/// 跟随系统 / 亮色 / 暗色。选择会立即生效并持久化（`themeModeProvider`）。
+class _ThemeModeCard extends ConsumerWidget {
+  const _ThemeModeCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = context.tokens;
+    final current = ref.watch(themeModeProvider);
+
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: t.bgActive,
+                  borderRadius: BorderRadius.circular(t.rSm),
+                ),
+                child: const Icon(
+                  Icons.brightness_6_outlined,
+                  size: 15,
+                  color: AppTokens.brand600,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '外观',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: t.fgDefault,
+                  ),
+                ),
+              ),
+              AppBadge(current.label, tone: BadgeTone.brand),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // 三选一分段控件：跟随系统 / 亮色 / 暗色
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: t.bgSunken,
+              borderRadius: BorderRadius.circular(t.rMd),
+            ),
+            child: Row(
+              children: [
+                for (final mode in AppThemeMode.values)
+                  Expanded(
+                    child: _ThemeModeOption(
+                      mode: mode,
+                      selected: mode == current,
+                      onTap: () => ref
+                          .read(themeModeProvider.notifier)
+                          .setMode(mode),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 外观分段控件的单个选项
+class _ThemeModeOption extends StatelessWidget {
+  const _ThemeModeOption({
+    required this.mode,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppThemeMode mode;
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// 每个模式对应的图标（语义化，避免只用文字）
+  IconData get _icon {
+    switch (mode) {
+      case AppThemeMode.system:
+        return Icons.brightness_auto_outlined;
+      case AppThemeMode.light:
+        return Icons.light_mode_outlined;
+      case AppThemeMode.dark:
+        return Icons.dark_mode_outlined;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(t.rSm),
+        child: AnimatedContainer(
+          duration: t.durFast,
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? t.bgSurface : Colors.transparent,
+            borderRadius: BorderRadius.circular(t.rSm),
+            boxShadow: selected ? t.e1 : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _icon,
+                size: 15,
+                color: selected ? AppTokens.brand600 : t.fgMuted,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                mode.label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected ? t.fgDefault : t.fgMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 带图标的分组卡片（v1.5.0：改用统一 AppCard + 设计令牌）
 class _SectionCard extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -314,40 +465,46 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 18, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(
+    final t = context.tokens;
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: t.bgActive,
+                  borderRadius: BorderRadius.circular(t.rSm),
+                ),
+                child: Icon(icon, size: 15, color: AppTokens.brand600),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
                   title,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w600,
+                    color: t.fgDefault,
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            child,
-          ],
-        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
       ),
     );
   }
 }
 
 /// 信息行（标签 + 值）
+
 class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
@@ -356,7 +513,7 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final t = context.tokens;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -364,18 +521,21 @@ class _InfoRow extends StatelessWidget {
           width: 90,
           child: Text(
             label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: Colors.grey.shade600,
-            ),
+            style: TextStyle(fontSize: 12.5, color: t.fgMuted),
           ),
         ),
-        Expanded(child: Text(value, style: theme.textTheme.bodyMedium)),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(fontSize: 13.5, color: t.fgDefault, height: 1.4),
+          ),
+        ),
       ],
     );
   }
 }
 
-/// 状态行（带颜色指示）
+/// 状态行（带状态徽标）
 class _StatusRow extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -391,23 +551,20 @@ class _StatusRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isActive ? Colors.green.shade700 : Colors.grey;
+    final t = context.tokens;
     return Row(
       children: [
         SizedBox(
           width: 90,
           child: Text(
             label,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+            style: TextStyle(fontSize: 12.5, color: t.fgMuted),
           ),
         ),
-        Icon(icon, size: 14, color: color),
-        const SizedBox(width: 6),
-        Text(
+        AppBadge(
           value,
-          style: TextStyle(color: color, fontWeight: FontWeight.w500),
+          icon: icon,
+          tone: isActive ? BadgeTone.success : BadgeTone.neutral,
         ),
       ],
     );
@@ -438,185 +595,6 @@ class _AdminListTile extends StatelessWidget {
   }
 }
 
-// ============ 媒体修复配置卡片（v1.4.0，仅管理员） ============
-
-/// 媒体修复配置卡片（独立 ConsumerStatefulWidget）
-/// 配置存服务端 config 表，三端共享；修改后立即生效、无需重启任何端。
-class _MediaRepairConfigCard extends ConsumerStatefulWidget {
-  const _MediaRepairConfigCard();
-
-  @override
-  ConsumerState<_MediaRepairConfigCard> createState() =>
-      _MediaRepairConfigCardState();
-}
-
-class _MediaRepairConfigCardState
-    extends ConsumerState<_MediaRepairConfigCard> {
-  bool _loading = true;
-  bool _saving = false;
-  bool _allowTranscode = false;
-  final TextEditingController _concurrentCtrl = TextEditingController();
-  String? _errorMsg;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadConfig();
-  }
-
-  @override
-  void dispose() {
-    _concurrentCtrl.dispose();
-    super.dispose();
-  }
-
-  ConfigService _configService() {
-    final session = ref.read(sessionManagerProvider);
-    return ConfigService(HttpService(session));
-  }
-
-  Future<void> _loadConfig() async {
-    setState(() {
-      _loading = true;
-      _errorMsg = null;
-    });
-    try {
-      final resp = await _configService().getConfig();
-      final cfg = (resp['config'] as Map<String, dynamic>?) ?? {};
-      if (!mounted) return;
-      setState(() {
-        _allowTranscode = cfg['media_repair_allow_transcode'] == '1';
-        _concurrentCtrl.text =
-            (cfg['media_repair_max_concurrent'] as String?) ?? '';
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _errorMsg = '$e';
-      });
-    }
-  }
-
-  Future<void> _save(String key, String value) async {
-    setState(() => _saving = true);
-    try {
-      await _configService().updateConfig(key, value);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('配置已保存，立即生效')));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('保存失败: $e')));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  void _toggleTranscode(bool next) {
-    setState(() => _allowTranscode = next);
-    _save('media_repair_allow_transcode', next ? '1' : '0');
-  }
-
-  void _saveConcurrent() {
-    final raw = _concurrentCtrl.text.trim();
-    if (raw.isEmpty) {
-      _save('media_repair_max_concurrent', '');
-      return;
-    }
-    final n = int.tryParse(raw);
-    if (n != null && n >= 1 && n <= 8) {
-      _save('media_repair_max_concurrent', '$n');
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('并发数需为 1~8 的整数，或留空使用自动基线')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    if (_loading) {
-      return const _SectionCard(
-        title: '媒体修复',
-        icon: Icons.healing_outlined,
-        child: Padding(
-          padding: EdgeInsets.all(12),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
-    return _SectionCard(
-      title: '离线媒体修复',
-      icon: Icons.healing_outlined,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_errorMsg != null) ...[
-            Text(
-              '加载失败: $_errorMsg',
-              style: TextStyle(color: Colors.red.shade600, fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Text(
-            'v1.4.2 起损坏媒体经「修复中心」手动离线修复（文件列表长按'
-            '「修复损坏媒体」发起）。以下为修复队列配置：并发数 1~8 或留空'
-            '按服务器 CPU 核数自动推导；重编码为无损修复失败时的降级手段。',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: Colors.grey.shade600,
-            ),
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('允许重编码降级'),
-            subtitle: const Text('默认关闭；-c copy 失败时的极端兜底'),
-            value: _allowTranscode,
-            onChanged: _saving ? null : _toggleTranscode,
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '修复并发数（1~8，留空自动）',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-              SizedBox(
-                width: 90,
-                child: TextField(
-                  controller: _concurrentCtrl,
-                  enabled: !_saving,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    hintText: '自动',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton.tonal(
-                onPressed: _saving ? null : _saveConcurrent,
-                child: const Text('保存'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============ 笔记目录配置卡片 ============
-
-/// 笔记目录配置卡片（独立 ConsumerStatefulWidget，内部管理异步加载与对话框）
 class _NotesDirConfigCard extends ConsumerStatefulWidget {
   @override
   ConsumerState<_NotesDirConfigCard> createState() =>
@@ -734,7 +712,6 @@ class _NotesDirConfigCardState extends ConsumerState<_NotesDirConfigCard> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return _SectionCard(
       title: '笔记目录',
       icon: Icons.menu_book_outlined,
@@ -751,8 +728,9 @@ class _NotesDirConfigCardState extends ConsumerState<_NotesDirConfigCard> {
                   const SizedBox(height: 4),
                   Text(
                     '加载失败: $_errorMsg',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.red,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppTokens.danger500,
                     ),
                   ),
                 ],
@@ -938,28 +916,23 @@ class _NotesDirDialogState extends State<_NotesDirDialog> {
             ),
             const SizedBox(height: 4),
             _selectedDiskId == null
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(
-                      child: Text(
-                        '请先选择虚拟磁盘',
-                        style: TextStyle(color: Colors.grey),
-                      ),
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: EmptyState(
+                      icon: Icons.folder_off_outlined,
+                      title: '请先选择虚拟磁盘',
+                      subtitle: '选择磁盘后可浏览并挑选笔记目录',
                     ),
                   )
                 : _loadingDirs
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
+                ? const ListSkeleton(rows: 3)
                 : _subdirs.isEmpty
                 ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(
-                      child: Text(
-                        '（此目录下没有子文件夹）',
-                        style: TextStyle(color: Colors.grey),
-                      ),
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: EmptyState(
+                      icon: Icons.folder_open_outlined,
+                      title: '此目录下没有子文件夹',
+                      subtitle: '可直接使用当前目录作为笔记目录',
                     ),
                   )
                 : SizedBox(

@@ -43,7 +43,7 @@
 | 模块 | 语言 | 框架 / 关键库 | 详细技术栈 |
 |------|------|-------------|-----------|
 | jflove-server | Python 3.14+ | FastAPI + SQLite3 + PyJWT(ES256) + cryptography | `backend/SKILL.md` |
-| jflove-desktop | Python 3.14+ | PySide6 6.8 + Fluent-Widgets + requests | `cross-platform-desktop/SKILL.md` |
+| jflove-desktop | Python 3.14+ | PySide6 6.11 + QtWebEngine（界面为 Web UI：React + TS + Vite + Tailwind，与 Web 端同源快照、独立演进） + requests | `cross-platform-desktop/SKILL.md` |
 | jflove-app | Dart 3.6+ | Flutter 3.27 + Riverpod + dio + pointycastle | `cross-platform-mobile/SKILL.md` |
 
 > **加密协议三端统一**：X25519 ECDH + ChaCha20-Poly1305 + HKDF-SHA256（盐 `b"jflove-v1"`，32B）。
@@ -71,20 +71,32 @@
 
 ### jflove-desktop
 
+> **界面形态 = Web UI（QtWebEngine 渲染，与 Web 端同一套界面）**：Python 侧只保留**原生外壳**（无边框窗口 / 系统托盘 / 媒体原生浮层 / 原生文件对话框），
+> 业务界面全部在前端工程 `ui/`（React + TS + Vite + Tailwind），经 `src/bridge/bridge.py` 的**白名单桥**与 Python 通信（JS 无网络出口）。
+> 详见 `cross-platform-desktop/SKILL.md`。
+
 ```jflove-desktop/
 ├── src/
-│   ├── components/     # UI 组件
-│   ├── services/       # 与后端交互的服务层
-│   ├── utils/          # 工具与公共模块
-│   ├── config/         # 配置项
-│   ├── ui/             # UI 页面与样式
-│   └── main.py         # 入口
-├── tests/
-├── venv/
-├── build/
-├── build.py
+│   ├── ui/                   # 原生外壳（无边框窗口 / 托盘 / 媒体浮层）
+│   │   ├── web_shell.py      # 承载 QtWebEngine、注入桥、关闭=最小化到托盘
+│   │   ├── tray.py           # 系统托盘（显示窗口 / 主题 / 退出）
+│   │   └── media_overlay.py  # 媒体原生浮层（贴 Web 预留矩形，画面由 OS 解码器渲染）
+│   ├── bridge/               # JS↔Python 桥（白名单分发 + 主线程方法集合）
+│   ├── components/           # 原生能力组件（stream_proxy：本地解密 + Range 206）
+│   ├── services/             # 与后端交互的服务层（唯一网络通道 http_client）
+│   ├── utils/                # 工具与公共模块（sync_engine / transfer_manager / http_client …）
+│   ├── config/               # 配置项
+│   └── main.py               # 入口（Linux 强制 XWayland）
+├── ui/                       # 前端工程（React + TS + Vite + Tailwind）
+│   ├── src/                  # pages / components / services / stores / layouts
+│   ├── public/               # 静态资源（logo、vendor/mermaid.bundle.js 离线包）
+│   └── dist/                 # 前端产物（构建生成；打包时作为 webui/ 进包）
+├── tests/                    # 单元测试
+├── venv-win/                 # 虚拟环境
+├── build/                    # 构建输出
+├── packaging/                # 打包资产（Windows Inno Setup 脚本 / Linux RPM）
+├── build.py                  # 构建脚本（先构建前端 → onedir + 安装包 + 便携 zip；Linux 走 RPM）
 ├── requirements.txt
-└── README.md
 ```
 
 ### jflove-app
@@ -207,6 +219,60 @@
 
 - 开发：`jflove-db/jflove-dev.db` —— 开发期间**只允许**操作此库
 - 生产：`jflove-db/jflove-prod.db` —— 仅在发布时同步**表结构**，**不同步业务数据**（初始化数据除外）
+
+#### 5.1.1 结构唯一真相与发布前强制核对（强制）
+
+**`jflove-dev.db` 是表结构基准**；`jflove-prod.db` 的结构必须与它对齐，且 **dev 自己
+必须先等于"当前程序代码期望的结构"**（否则两边会一起被带偏）。
+**没有任何脚本会自动把 dev 结构同步到 prod** —— 这是发布时的显式步骤。
+
+发布前**必须**执行（devops 技能发布步骤内）：
+
+```bash
+python scripts/check_db_schema.py            # 核对：退出码 0 = 一致；1 = 有差异
+python scripts/check_db_schema.py --align    # 对齐（自动备份 prod，只改结构不动数据）
+```
+
+三道关，缺一不可（脚本内置，退出码即判据）：
+
+| 关卡 | 判据 | 失败含义 |
+| --- | --- | --- |
+| ① 代码 → dev | `expected_schema()` / `expected_indexes()` 在内存库里建出的结构 vs dev 库 | dev 库**陈旧**或**含代码已不建的死表**，直接对齐会把 prod 带偏 |
+| ② dev → prod | 表 / 列 / 索引 / **结构化**建表语句比对 | prod 缺对象或约束不一致 → 必须 `--align` |
+| ③ 复验 | `--align` 后自动重跑 ② | 对齐没生效 ⇒ 仍需人工处理 |
+
+- **退出码 1 是发布阻塞项**，必须处理完才能继续打包/发版。
+- 判据是**以 dev 为准**，且只朝"**基准要求而目标不满足**"的方向判定：
+  dev 有而 prod 无的对象必须补齐；**prod 多出来的表/列/索引一律只报告、不自动删**，
+  也**不允许**因为它们的出现而触发"重建表"（重建会连数据一起丢）。
+- **历史遗留表不参与比对**（`scripts/check_db_schema.py::_LEGACY_TABLES`）：代码早已不再
+  创建的死表（如 `notes_permissions`）**不会被复制进 prod**；prod 上若残留可用
+  `python scripts/check_db_schema.py --prune-legacy` 清理（**仅当该表为空时**才删，非空会中止）。
+- **不要指望 `init_db()` 兜底**：它的运行时迁移只会"加表 / 加列 / 建索引"，
+  **管不到"需要去掉约束"的既有结构变更**（v1.5.0 的 `users.username` 去掉
+  `UNIQUE` 就是这类）；也不能用它来替代发布前的核对。
+- 对齐方式与结果（含命令、前后差异、复验）必须写进 `文档记录/版本发布记录/<版本号>.md`
+  的「生产库 DDL（升级+回滚）」章节。
+
+> 修改过本工具或做过结构迁移后，**必须**跑一遍反向验证（喂坏数据要拦住、喂纯格式差异要放行），
+> 复验退出码都要为 `0` 才算工具可信（依据：`.claude/skills/LESSONS.md` L15–L17）。
+
+
+#### 5.1.2 版本内有表结构变更时的必备交付物（强制）
+
+| 交付物 | 要求 |
+| --- | --- |
+| `jflove-db/migrate-<版本号>.sql` | 升级 DDL；**幂等、可重复执行、不触碰业务数据** |
+| `jflove-db/rollback-<版本号>.sql` | 回滚 DDL；若回滚会因数据冲突失败，**必须在脚本里写明回滚前的冲突检查 SQL** |
+
+#### 5.1.3 生产库"空库"校验
+
+`jflove-server/build.py::assert_prod_db_empty()` 在打镜像前校验 prod **不含业务数据**：
+
+- **允许** `config` 表存在 `init_db()` 写入的默认键
+  （`media_repair_enabled=0`、`media_repair_allow_transcode=0`，属 §5.1 的"初始化数据"）；
+- 其余任何表非空、或 config 出现白名单外的键/被改过的值 → **构建中止**；
+- 被拦时**不要绕过校验**，先清理生产库。
 
 ### 5.2 表设计
 
@@ -354,9 +420,9 @@ Phase 8              Phase 7              Phase 6              Phase 5
 
 1. 校验审查报告（Phase 5）和测试报告（Phase 6）均已通过
 2. 版本号单一来源核查：`version.json` 为唯一真相，`python scripts/sync_version.py` 同步全部位置（含移动端 versionCode 派生）
-3. 同步生产库表结构（带回滚脚本）
+3. **核对并对齐生产库表结构**（阻塞项）：`python scripts/check_db_schema.py`（退出码必须为 0；工具会先自动做「代码 → dev」前置检查）→ 有差异则 `python scripts/check_db_schema.py --align` 对齐 → 复验；prod 残留空的历史遗留表可用 `--prune-legacy` 清理；做法与交付物见 §5.1.1 / §5.1.2
 4. **统一打包所有已开发模块**：`python build.py -m all`（根目录统一入口，自动同步版本 + 逐模块环境检查 + desktop 切 venv）
-   - 产物：服务端/Web 端 Docker 镜像、桌面端 PyInstaller 单文件、移动端 debug+release 两个 APK
+   - 产物：服务端/Web 端 Docker 镜像、桌面端 **onedir 目录 + 安装包**（Windows `*-setup.exe` + 便携 `*-portable.zip`、Linux/Fedora `*.rpm`）、移动端 debug+release 两个 APK
 5. 执行冒烟测试
 6. 输出 `文档记录/版本发布记录/<版本号>.md`，并同步更新根 `README.md` 的「版本变化」与「功能特性」章节
 
@@ -472,6 +538,15 @@ Step 5：发布（devops）
 - 版本号策略：主版本号代表重大变更，次版本号代表小迭代。
 - **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余位置（server `main.py`/`Dockerfile`、desktop `settings.py`、web `package.json`/`constants.ts`、app `pubspec.yaml`/`settings_page.dart`）全部由 `python scripts/sync_version.py` 派生/同步，各角色**禁止手动改版本号字段**。改版本只改 `version.json` + 跑同步脚本；移动端 versionCode 由版本号派生（`major*1e6+minor*1e3+patch`），无需单独维护。
 - **统一打包入口（强制）**：本地打包一律走根 `python build.py`（`-m` 参数或交互多选），禁止直接调用各模块 build.py / flutter build。
+- **桌面端交付形态 = 安装包（强制，2026-07-14 用户定）**：任何触发路径（根入口 / 模块 `build.py` / 交互式多选 / GitHub Actions）都必须以安装包为标准产出，**不得以单体 exe 交付**：
+  - Windows：`JFLove-<ver>-win64-setup.exe`（Inno Setup；另附便携 `*-portable.zip` 与 onedir 目录）
+  - Linux/Fedora：`jflove-desktop-<ver>-1.fc<N>.x86_64.rpm`
+  - `--mode onefile`（单体 exe）仅为兼容保留的**显式**选项，禁止作为默认或交付形态
+  - 工具链缺失时**降级但必须响亮报警**（Inno Setup 缺失 → 只出 zip；rpmbuild 缺失 → 只出 onedir），
+    且**不得把降级产物当成标准交付**
+  - CI 侧由 `build-desktop.yml` 的 `if-no-files-found: error` 强制：缺 `*setup.exe` / `*.rpm` 时该 job 直接失败
+  - 原因：onefile 每次启动要解压数百 MB（实测「启动→首窗可见」中位 9.58s → onedir 1.31s，快约 7.3×），
+    且 onedir 才配得上"正常安装模式"（开始菜单 / 卸载器）
 - 文档应同时具备：架构 / 模块 / 接口 / 数据库 / 使用部署 / 变更日志。
 - 定期更新依赖、做性能优化与代码重构，但**不要在不相关的任务里夹带**这些工作。
 
@@ -540,7 +615,7 @@ Step 5：发布（devops）
 | product | 不在需求文案中要求"在 URL 中显示文件名"、"明文传输文件以提升性能"等违反本节的写法 |
 | designer | 设计新接口时必须显式标注：是否在明文白名单、是否有路径参数、归属校验逻辑、加密信封策略 |
 | backend | 新增 controller 必须用 `decrypt_request_body` + `encrypt_response`；新增文件流接口必须用 `StreamingResponse + encrypt_stream_chunk` |
-| cross-platform-desktop | 所有 HTTP 调用走 `http_client`；流式响应通过 `parse_stream_frame` 解密；不引入任何加密相关的硬编码常量 |
+| cross-platform-desktop | 所有 HTTP 调用走 `http_client`；流式响应通过 `parse_stream_frame` 解密；不引入任何加密相关的硬编码常量。**Web UI 迁移后新增**：渲染层（JS）**无网络出口**，一切与后端的通信只经 `src/bridge/bridge.py` 的白名单桥（`api.request` 有路径白名单，并拒绝 `SESSION_MANAGED_PATHS`）；**文件字节与密钥严禁进入渲染层** —— 上传/下载/预览都在 Python 侧完成，媒体由 `StreamProxy` 解密后交给 **OS 解码器**（`QMediaPlayer` / Qt 图像解码），渲染层只拿到本地 URL 或本地文件路径 |
 | cross-platform-mobile | 所有 HTTP 调用走 `http_service.dart`；流式响应通过 `stream_frame.dart` 帧解析器解密；不引入任何加密相关的硬编码常量；session_key 与 JWT 严禁出现在调试日志 |
 | web-frontend | 所有 HTTP 调用走 `http-client.ts`；流式响应通过 `stream-frame.ts` 帧解析器解密；加密使用 `@noble/ciphers`（ChaCha20） + Web Crypto API（X25519 ECDH + HKDF），禁止引入其他加密库；session_key 与 JWT 严禁出现在 console.log / DOM 属性 |
 | code-review | 把本节当成硬规则逐条核查，发现违反一律标记**严重**；重点核查"路径参数路由是否能用伪造 ID 绕过权限" |

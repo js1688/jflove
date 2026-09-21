@@ -1,16 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../config/design_tokens.dart';
 import '../../models/disk_permission.dart';
 import '../../models/user.dart';
 import '../../models/virtual_disk.dart';
 import '../../providers/admin_provider.dart';
-import '../../widgets/loading_indicator.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/empty_state.dart';
+import '../../widgets/error_state.dart';
 
 /// 权限配置页（admin）
 ///
 /// 移动端全屏单列布局：用户列表 → 点击弹出权限配置底部弹窗。
 /// 使用 CheckboxListTile 替代 DataTable，提升触摸操作体验。
+///
+/// v1.5.0：用户列表换 `AppCard` + `AppBadge`，空态 / 加载态 / 错误态换统一组件，
+/// 底部弹窗的磁盘权限组改用 `AppCard` + `SectionTitle`，硬编码灰阶换令牌灰阶；
+/// **复选框矩阵的功能与布局结构保持不变**，仅颜色 / 圆角 / 间距走令牌。
 class AdminPermissionsPage extends ConsumerStatefulWidget {
   const AdminPermissionsPage({super.key});
 
@@ -22,6 +29,7 @@ class AdminPermissionsPage extends ConsumerStatefulWidget {
 class _AdminPermissionsPageState extends ConsumerState<AdminPermissionsPage> {
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     final userListAsync = ref.watch(userListProvider);
 
     return Scaffold(
@@ -42,54 +50,78 @@ class _AdminPermissionsPageState extends ConsumerState<AdminPermissionsPage> {
         data: (users) {
           final normalUsers = users.where((u) => u.role != 'admin').toList();
           if (normalUsers.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.people_outline,
-                    size: 64,
-                    color: Colors.grey.shade400,
-                  ),
-                  const SizedBox(height: 12),
-                  Text('暂无普通用户', style: Theme.of(context).textTheme.bodyLarge),
-                ],
-              ),
+            return const EmptyState(
+              icon: Icons.people_outline_rounded,
+              title: '暂无普通用户',
+              subtitle: '先在「用户管理」中创建普通用户，再回到此处配置磁盘权限',
             );
           }
           return ListView.separated(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(t.s4),
             itemCount: normalUsers.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
+            separatorBuilder: (_, _) => SizedBox(height: t.s2),
             itemBuilder: (ctx, i) {
               final user = normalUsers[i];
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Theme.of(
-                      context,
-                    ).colorScheme.primaryContainer,
-                    child: Text(
-                      user.username.isEmpty
-                          ? '?'
-                          : user.username[0].toUpperCase(),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
-                        fontWeight: FontWeight.bold,
+              return AppCard(
+                padding: EdgeInsets.all(t.s3),
+                onTap: () => _showPermBottomSheet(context, ref, user),
+                child: Row(
+                  children: [
+                    // 首字母头像（品牌淡底 + 品牌字色）
+                    Container(
+                      width: 40,
+                      height: 40,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: t.bgActive,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        user.username.isEmpty
+                            ? '?'
+                            : user.username[0].toUpperCase(),
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppTokens.brand600,
+                        ),
                       ),
                     ),
-                  ),
-                  title: Text(user.username),
-                  subtitle: const Text('点击配置磁盘权限'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _showPermBottomSheet(context, ref, user),
+                    SizedBox(width: t.s3),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            user.username,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                              color: t.fgDefault,
+                            ),
+                          ),
+                          SizedBox(height: t.s1),
+                          Text(
+                            '点击配置磁盘权限',
+                            style: TextStyle(fontSize: 11.5, color: t.fgMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: t.fgSubtle),
+                  ],
                 ),
               );
             },
           );
         },
-        loading: () => const LoadingIndicator(),
-        error: (e, _) => Center(child: Text('加载失败: $e')),
+        loading: () => const ListSkeleton(rows: 5),
+        error: (e, _) => ErrorState(
+          message: '$e',
+          onRetry: () => ref.invalidate(userListProvider),
+        ),
       ),
     );
   }
@@ -153,9 +185,6 @@ class _AdminPermissionsPageState extends ConsumerState<AdminPermissionsPage> {
     await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
       builder: (ctx) => _PermBottomSheet(
         user: user,
         disks: disks,
@@ -228,22 +257,26 @@ class _AdminPermissionsPageState extends ConsumerState<AdminPermissionsPage> {
     String message, {
     bool isError = false,
   }) {
+    final t = context.tokens;
+    // 提示条底色是深色反相面（见 theme.dart 的 snackBarTheme），
+    // 因此图标取 `onPrimary`（亮色）而非页面前景色，避免在深底上看不清。
+    final onInverse = Theme.of(context).colorScheme.onPrimary;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
             Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: Colors.white,
+              isError ? Icons.error_outline_rounded : Icons.check_circle_outline,
+              color: onInverse,
               size: 20,
             ),
-            const SizedBox(width: 12),
+            SizedBox(width: t.s3),
             Expanded(child: Text(message)),
           ],
         ),
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        margin: EdgeInsets.fromLTRB(t.s4, 0, t.s4, t.s4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(t.rMd)),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -286,7 +319,7 @@ class _PermBottomSheet extends StatefulWidget {
 class _PermBottomSheetState extends State<_PermBottomSheet> {
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final t = context.tokens;
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -296,27 +329,29 @@ class _PermBottomSheetState extends State<_PermBottomSheet> {
         children: [
           // 拖拽手柄
           Container(
-            margin: const EdgeInsets.only(top: 8, bottom: 4),
+            margin: EdgeInsets.only(top: t.s2, bottom: t.s1),
             width: 32,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300,
+              color: t.borderDefault,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           // 标题
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            padding: EdgeInsets.fromLTRB(t.s4, t.s2, t.s4, t.s1),
             child: Row(
               children: [
-                Icon(Icons.security, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
+                const Icon(
+                  Icons.security_rounded,
+                  size: 20,
+                  color: AppTokens.brand500,
+                ),
+                SizedBox(width: t.s2),
                 Expanded(
                   child: Text(
                     '${widget.user.username} 的权限',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 TextButton(
@@ -333,66 +368,108 @@ class _PermBottomSheetState extends State<_PermBottomSheet> {
             ),
           ),
           const Divider(height: 1),
-          // 权限列表
+          // 权限列表：每个磁盘一张卡片（分区标题 + 三项权限复选框）
           Flexible(
             child: ListView(
               shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: widget.disks.map((disk) {
-                final state = widget.permState[disk.id]!;
-                return Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          Icon(Icons.folder, color: theme.colorScheme.primary),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              disk.name,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w500,
+              padding: EdgeInsets.fromLTRB(t.s4, t.s3, t.s4, t.s3),
+              children: [
+                SectionTitle(
+                  '磁盘权限',
+                  trailing: AppBadge(
+                    '${widget.disks.length} 个磁盘',
+                    tone: BadgeTone.neutral,
+                  ),
+                ),
+                SizedBox(height: t.s3),
+                ...widget.disks.map((disk) {
+                  final state = widget.permState[disk.id]!;
+                  return AppCard(
+                    margin: EdgeInsets.only(bottom: t.s3),
+                    padding: EdgeInsets.zero,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: t.s3,
+                            vertical: t.s2,
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 30,
+                                height: 30,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  gradient: t.gradBrandSoft,
+                                  borderRadius: BorderRadius.circular(t.rMd),
+                                  border: Border.all(color: t.borderSubtle),
+                                ),
+                                child: const Icon(
+                                  Icons.folder_rounded,
+                                  size: 16,
+                                  color: AppTokens.brand600,
+                                ),
                               ),
-                            ),
+                              SizedBox(width: t.s3),
+                              Expanded(
+                                child: Text(
+                                  disk.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: t.fgDefault,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        const Divider(height: 1),
+                        // 复选框矩阵：左缩进保持 v1.4.2 的 40（= s6 + s4），只是改为令牌组合
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            t.s6 + t.s4,
+                            t.s1,
+                            t.s3,
+                            t.s1,
+                          ),
+                          child: Column(
+                            children: [
+                              _PermCheckboxRow(
+                                label: '读取',
+                                icon: Icons.visibility_outlined,
+                                value: state.canRead,
+                                enabled: !widget.isSaving,
+                                onChanged: (v) =>
+                                    setState(() => state.canRead = v),
+                              ),
+                              _PermCheckboxRow(
+                                label: '写入',
+                                icon: Icons.edit_outlined,
+                                value: state.canWrite,
+                                enabled: !widget.isSaving,
+                                onChanged: (v) =>
+                                    setState(() => state.canWrite = v),
+                              ),
+                              _PermCheckboxRow(
+                                label: '删除',
+                                icon: Icons.delete_outline,
+                                value: state.canDelete,
+                                enabled: !widget.isSaving,
+                                onChanged: (v) =>
+                                    setState(() => state.canDelete = v),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 40),
-                      child: Column(
-                        children: [
-                          _PermCheckboxRow(
-                            label: '读取',
-                            icon: Icons.visibility_outlined,
-                            value: state.canRead,
-                            enabled: !widget.isSaving,
-                            onChanged: (v) => setState(() => state.canRead = v),
-                          ),
-                          _PermCheckboxRow(
-                            label: '写入',
-                            icon: Icons.edit_outlined,
-                            value: state.canWrite,
-                            enabled: !widget.isSaving,
-                            onChanged: (v) =>
-                                setState(() => state.canWrite = v),
-                          ),
-                          _PermCheckboxRow(
-                            label: '删除',
-                            icon: Icons.delete_outline,
-                            value: state.canDelete,
-                            enabled: !widget.isSaving,
-                            onChanged: (v) =>
-                                setState(() => state.canDelete = v),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1, indent: 40),
-                  ],
-                );
-              }).toList(),
+                  );
+                }),
+              ],
             ),
           ),
         ],
@@ -419,16 +496,26 @@ class _PermCheckboxRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return Row(
       children: [
-        Icon(icon, size: 16, color: Colors.grey.shade600),
-        const SizedBox(width: 8),
-        Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
+        Icon(icon, size: 16, color: t.fgMuted),
+        SizedBox(width: t.s2),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 14, color: t.fgDefault),
+          ),
+        ),
         Checkbox(
           value: value,
           onChanged: enabled ? (v) => onChanged(v ?? false) : null,
           visualDensity: VisualDensity.compact,
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          side: BorderSide(color: t.borderDefault),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(t.rSm),
+          ),
         ),
       ],
     );

@@ -1,0 +1,33 @@
+# JFLove 桌面端 RPM 构建镜像（干净的 Fedora 基线环境）
+#
+# 由 packaging/linux/build_rpm.sh --container 调用：
+#   docker build --build-arg FEDORA_VERSION=43 -f Dockerfile.build -t jflove-rpm-build:fc43 .
+#
+# 为什么要独立镜像：RPM 里的 glibc 要求取决于**构建机的 Fedora 版本**，
+# 想拿到真正 fc43 的基线就得在 fedora:43 里构建（Podman 同样可用，把 docker 换成 podman 即可）。
+ARG FEDORA_VERSION=43
+FROM fedora:${FEDORA_VERSION}
+
+# 构建期依赖：
+#   python3 / python3-pip / python3-devel  → PyInstaller + PySide6（PEP 668 下必须用 venv）
+#   rpm-build / redhat-rpm-config          → rpmbuild 与构建宏
+#   gcc / gcc-c++ / make                   → 少数依赖无 wheel 时需要本机编译
+#   findutils / which / tar / gzip         → 构建脚本与 PyInstaller 常用工具
+#   mesa-libGL-devel / libglvnd-devel      → PySide6 链接期需要 libGL/libEGL
+RUN dnf install -y --setopt=install_weak_deps=False \
+        python3 python3-pip python3-devel \
+        rpm-build redhat-rpm-config \
+        gcc gcc-c++ make \
+        findutils which tar gzip \
+        mesa-libGL-devel libglvnd-devel \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /work
+
+# 真正的工作由 build_rpm.sh 通过 docker run 传入（见该脚本 --container 分支）
+CMD ["sh", "-c", "echo '请通过 packaging/linux/build_rpm.sh --container 使用本镜像' >&2; exit 2"]
