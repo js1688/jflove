@@ -1,6 +1,6 @@
 # jflove-desktop
 
-JFLove 桌面客户端，基于 PySide6 + PySide6-Fluent-Widgets 构建的私有文档与笔记协同管理桌面应用。
+JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲染）** 的私有文档与笔记协同管理桌面应用，界面与 Web 端同一套，同时保留托盘、本地解码的媒体预览、原生文件对话框与系统拖放上传。
 
 > **当前版本：v1.4.2**（桌面端版本号定义位置：`src/config/settings.py` 的 `APP_VERSION` 与 `build.py` 的 `VERSION`，两处必须一致；推荐用 `python build.py --version x.y.z` 一键同步）
 
@@ -15,7 +15,7 @@ JFLove 桌面客户端，基于 PySide6 + PySide6-Fluent-Widgets 构建的私有
 | 组件 | 用途 |
 |------|------|
 | **PySide6 6.11.0** | Qt 绑定，UI 框架 |
-| **PySide6-Fluent-Widgets** | Material Design 风格组件库 |
+| **QtWebEngine** | 渲染前端工程 `ui/`（React + TS + Vite + Tailwind） |
 | **QWebEngineView** | Markdown 预览渲染（GitHub 风格 CSS + highlight.js + Mermaid） |
 
 ### 架构模式
@@ -31,7 +31,7 @@ UI (Page) → Signal → Service (业务逻辑) → http_client → 后端 API
 | 层 | 目录 | 职责 |
 |----|------|------|
 | **UI 页面** | [`src/ui/pages/`](jflove-desktop/src/ui/pages/) | 用户界面、交互事件 |
-| **UI 窗口** | [`src/ui/`](jflove-desktop/src/ui/) | 登录窗口、主窗口（FluentWindow + 侧边导航） |
+| **原生外壳** | [`src/ui/`](jflove-desktop/src/ui/) | `web_shell.py`（无边框窗口/桥/关闭到托盘）、`tray.py`、`media_overlay.py` |
 | **组件** | [`src/components/`](jflove-desktop/src/components/) | 可复用 UI 组件（预览对话框、流式代理、文本加载器） |
 | **服务** | [`src/services/`](jflove-desktop/src/services/) | 与后端 API 交互的业务服务层 |
 | **工具** | [`src/utils/`](jflove-desktop/src/utils/) | 加密、HTTP 客户端、会话管理、工作线程 |
@@ -52,7 +52,7 @@ Service Layer → http_client.py → 加密请求 → 后端 API
 
 - **语言**：Python 3.14+
 - **UI 框架**：PySide6 6.11.0
-- **组件库**：PySide6-Fluent-Widgets
+- **界面**：Web UI（`ui/`，与 Web 端同源快照、独立演进）
 - **HTTP**：requests
 - **加密**：cryptography（X25519 / HKDF-SHA256 / ChaCha20-Poly1305）
 - **构建**：PyInstaller（`--onefile --windowed`）
@@ -144,7 +144,7 @@ jflove-desktop/
 │   ├── main.py                   # 应用入口
 │   ├── config/settings.py        # 全局配置（版本号、上传策略、加密盐值等）
 │   ├── components/
-│   │   ├── preview_dialog.py     # 通用文件预览对话框
+│   │   ├── stream_proxy.py       # 本地解密 + Range 206 流代理（媒体预览通路）
 │   │   ├── stream_proxy.py       # 本地流式 HTTP 代理（视频/音频）
 │   │   └── stream_text_loader.py # 文本流式加载线程
 │   ├── services/
@@ -159,7 +159,7 @@ jflove-desktop/
 │   │   └── server_history_service.py  # 服务端地址历史
 │   ├── ui/
 │   │   ├── login_window.py       # 登录/初始化窗口
-│   │   ├── main_window.py        # 主窗口（FluentWindow + 侧边导航）
+│   │   ├── web_shell.py          # 原生外壳：承载 QtWebEngine + 桥 + 关闭到托盘
 │   │   └── pages/
 │   │       ├── file_page.py      # 文档管理
 │   │       ├── note_page.py      # 笔记管理
@@ -239,7 +239,7 @@ JFLove/
 | 依赖 | 用途 |
 |------|------|
 | `PySide6==6.11.0` | Qt 绑定，UI 框架 |
-| `PySide6-Fluent-Widgets==1.11.2` | Material Design 风格组件库 |
+| `PySide6`（含 QtWebEngine） | 原生外壳 + 界面渲染引擎 |
 | `cryptography==47.0.0` | X25519 / ChaCha20-Poly1305 加密 |
 | `requests==2.33.1` | HTTP 客户端 |
 | `markdown==3.10.2` | Markdown→HTML 渲染 |
