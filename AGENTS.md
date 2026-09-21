@@ -418,6 +418,16 @@ Phase 8              Phase 7              Phase 6              Phase 5
 
 #### Phase 8：版本发布
 
+0. **先问用户：本次是「真实发布」还是「仅本地构建」？**（强制，不得自行假定）
+
+   | 用户选择 | 该怎么做 |
+   | --- | --- |
+   | **仅本地构建** | 只调用该模块的 `build.py`（如 `python build.py -m desktop`）。**不做** tag / push / Release，也不写发布记录 |
+   | **真实发布** | **本地不打包**（不要跑 `build.py -m all`）。只产出 `文档记录/版本发布记录/<版本>.md` → commit → 打 tag `v<版本>` 并 push → **由 GitHub Actions 在云端构建并创建 Release**，产物与哈希**以 CI 为准** |
+
+   > 为什么强制先问：一旦方向搞错，代价是双重的 —— 既白跑几分钟、产出 GB 级本地垃圾，
+   > 又会把**本地构建的哈希**写进发布记录（与 CI 产物不符，让人无法核对）。
+
 1. 校验审查报告（Phase 5）和测试报告（Phase 6）均已通过
 2. 版本号单一来源核查：`version.json` 为唯一真相，`python scripts/sync_version.py` 同步全部位置（含移动端 versionCode 派生）
 3. **核对并对齐生产库表结构**（阻塞项）：`python scripts/check_db_schema.py`（退出码必须为 0；工具会先自动做「代码 → dev」前置检查）→ 有差异则 `python scripts/check_db_schema.py --align` 对齐 → 复验；prod 残留空的历史遗留表可用 `--prune-legacy` 清理；做法与交付物见 §5.1.1 / §5.1.2
