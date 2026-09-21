@@ -70,22 +70,39 @@ def get_ffmpeg_exe() -> str | None:
     return _ffmpeg_exe if isinstance(_ffmpeg_exe, str) and _ffmpeg_exe else None
 
 
-def _moov_at_front(file_path: str, head_bytes: int = 64 * 1024) -> bool:
-    """
-    检查 MP4 的 moov box 是否位于文件前部（v1.4.2 语义：原生可流式）。
+def _box_contains(data: bytes, start: int, end: int, target: bytes) -> bool:
+    """在 [start, end) 内扫描同层 box，判断是否包含 target 类型 box。"""
+    pos = start
+    while pos + 8 <= end and pos + 8 <= len(data):
+        box_size = struct.unpack(">I", data[pos:pos + 4])[0]
+        box_type = data[pos + 4:pos + 8]
+        if box_type == target:
+            return True
+        if box_size < 8:
+            break
+        pos += box_size
+    return False
 
-    v1.4.1 及之前要求 moov 含 mvex（fMP4）——普通 faststart MP4（moov 前置但
-    非分片）会被误判为需修复，导致大量健康文件被反复实时转码（正是 v1.4.1
-    播放卡顿与 seek 异常的重灾区）。v1.4.2 修正：**moov 前置即健康**——
-      - fMP4：Web MSE 边下边播 ✓
-      - faststart MP4：桌面/移动端原生字节流播放 ✓，Web 走既有
-        「完整下载 → Blob」回退（下载完成后播放与 seek 均正常）
-    moov 在尾部（mdat 在前）时，原生播放器需先取尾部索引，体验差且部分
-    客户端失败 → 视为需修复。
+
+def _moov_at_front(file_path: str, head_bytes: int = 4 * 1024 * 1024) -> bool:
+    """
+    检查 MP4 是否为「可流式分片 fMP4」：moov 位于文件前部 **且含 mvex**，
+    且 moov 之后紧跟 moof（而非孤儿 mdat）。
+
+    v1.4.2 hotfix 修正：Web MSE 边下边播只认分片 fMP4（moov 含 mvex +
+    后续 moof）。faststart MP4（moov 前置但非分片）无法被 MSE 增量 append，
+    必须视为需修复；moov 在尾部（mdat 在前）同样无法流式 → 需修复。
+    桌面/移动端原生播放器虽能播 faststart/普通 MP4，但「修复必要性」与
+    「Web 可流式」统一以分片 fMP4 为标准（用户确认：不能边下边播即需修复）。
+
+    v1.4.2 二轮 hotfix：`+faststart` 与 `+frag_keyframe` 组合会产生
+    「moov → mdat(孤儿) → moof」的坏结构（首个 moof 丢失），MSE 首段 append
+    失败导致闪屏/只播后半段。此类文件 moov 虽含 mvex，但 moov 后紧跟 mdat
+    （孤儿，无 moof 描述）→ 同样需修复。
 
     :param file_path: 文件绝对路径
-    :param head_bytes: 读取的头部字节数
-    :returns: moov 前置返回 True；moov 尾部 / 无法解析返回 False
+    :param head_bytes: 读取的头部字节数（4MB，覆盖绝大多数 moov）
+    :returns: moov 前置且含 mvex、且 moov 后紧跟 moof 返回 True；否则 False
     """
     try:
         with open(file_path, "rb") as f:
@@ -100,12 +117,31 @@ def _moov_at_front(file_path: str, head_bytes: int = 64 * 1024) -> bool:
         ftyp_size = struct.unpack(">I", head[0:4])[0]
         pos = ftyp_size if ftyp_size >= 8 else 0
 
-    # 扫描头部 box：首个业务 box 为 moov（含或不含 mvex 均可）→ 健康
+    # 扫描头部 box：首个业务 box 为 moov 且其内部含 mvex → 可流式
     while pos + 8 <= size:
         box_size = struct.unpack(">I", head[pos:pos + 4])[0]
         box_type = head[pos + 4:pos + 8]
         if box_type == b"moov":
-            return True
+            if pos + box_size > size:
+                # moov 超出已读头部，无法确认 mvex → 保守视为需修复
+                return False
+            if not _box_contains(head, pos + 8, pos + box_size, b"mvex"):
+                # moov 前置但无 mvex → 非分片（faststart/普通 MP4），需修复
+                return False
+            # moov 之后必须紧跟 moof：跳过 free/skip/wide 等无关 box 后，
+            # 若首个媒体 box 是 mdat（孤儿，无 moof 描述）→ 坏 fMP4，需修复
+            nxt = pos + box_size
+            while nxt + 8 <= size:
+                nxt_size = struct.unpack(">I", head[nxt:nxt + 4])[0]
+                nxt_type = head[nxt + 4:nxt + 8]
+                if nxt_size < 8:
+                    return False
+                if nxt_type in (b"free", b"skip", b"wide"):
+                    nxt += nxt_size
+                    continue
+                # 首个媒体 box 必须是 moof；mdat 在前 = 孤儿 mdat → 坏结构
+                return nxt_type == b"moof"
+            return False
         if box_type == b"mdat":
             # mdat 在前 → moov 在文件尾部（非流式），需要修复
             return False
@@ -272,6 +308,29 @@ def is_broken_media(filename: str, probe: dict, file_path: str) -> bool:
     return bool(probe.get("fatal")) or not bool(probe.get("has_stream"))
 
 
+def is_web_streamable(filename: str, probe: dict, file_path: str) -> bool:
+    """
+    判断文件能否被 Web 端 MSE 边下边播（v1.4.2 hotfix：以能否流式为标准）。
+
+    供 /stream 的 mse_only 模式使用：Web 只接受「可流式」格式——
+      - _DIRECT_EXTS（WebM / MP3 / WAV / FLAC / OGG / OPUS）：probe 正常即可流式
+      - MP4 家族：必须是分片 fMP4（moov 前置且含 mvex）
+      - 其余（TS/MKV/AVI/普通 MP4/faststart/损坏/未知）→ 不可流式，应引导修复
+
+    :returns: Web MSE 可边下边播返回 True；否则 False
+    """
+    ext = (filename.rsplit(".", 1)[-1] if "." in filename else "").lower()
+    healthy_stream = bool(probe.get("has_stream")) and not bool(probe.get("fatal"))
+    if not probe.get("available"):
+        # 探测失败（ffmpeg 缺失等）：仅直接可播格式放行，其余保守拒绝
+        return ext in _DIRECT_EXTS
+    if ext in _DIRECT_EXTS:
+        return healthy_stream
+    if ext in _MP4_LIKE_EXTS:
+        return healthy_stream and _moov_at_front(file_path)
+    return False
+
+
 def needs_repair(filename: str, probe: dict, file_path: str) -> bool:
     """
     判断文件是否需要修复（供修复服务使用）。
@@ -282,6 +341,105 @@ def needs_repair(filename: str, probe: dict, file_path: str) -> bool:
     :returns: 需要修复返回 True
     """
     return not is_mse_friendly(filename, probe, file_path)
+
+
+def patch_mp4_durations(file_path: str, duration_seconds: float) -> bool:
+    """
+    修正 fMP4 产物的所有 duration 字段（mvhd / tkhd / mdhd）（v1.4.2 hotfix）。
+
+    ffmpeg `-movflags +empty_moov+frag_keyframe` 生成的 moov 是空壳，
+    mvhd / tkhd / mdhd 的 duration 都写成 0（时长由 mvex + moof 决定），
+    浏览器在边下边播时读不到总时长，video.duration 异常、进度条与 seek
+    异常。本函数按真实总时长重写这些字段（tkhd 用 movie timescale，
+    mvhd / mdhd 用各自 timescale）。
+
+    :param file_path: 产物绝对路径
+    :param duration_seconds: 真实总时长（秒，来自 probe_media 解析）
+    :returns: 成功返回 True；无法定位 moov/mvhd 返回 False
+    """
+    if duration_seconds <= 0:
+        return False
+    try:
+        with open(file_path, "r+b") as f:
+            data = f.read(4 * 1024 * 1024)
+            n = len(data)
+            # 1) 定位顶层 moov
+            pos = 0
+            moov_pos = -1
+            while pos + 8 <= n:
+                size = struct.unpack(">I", data[pos:pos + 4])[0]
+                typ = data[pos + 4:pos + 8]
+                if typ == b"moov":
+                    moov_pos = pos
+                    break
+                if size < 8:
+                    break
+                pos += size
+            if moov_pos < 0:
+                return False
+            moov_size = struct.unpack(">I", data[moov_pos:moov_pos + 4])[0]
+            moov_end = moov_pos + moov_size
+            if moov_end > n:
+                return False
+
+            movie_timescale = 0
+            # (offset, is_64bit, timescale) —— tkhd 的 timescale 先记 0，统一用 movie
+            writes: list[tuple[int, bool, int]] = []
+
+            def _scan(start: int, end: int) -> None:
+                nonlocal movie_timescale
+                p = start
+                while p + 8 <= end:
+                    size = struct.unpack(">I", data[p:p + 4])[0]
+                    typ = data[p + 4:p + 8]
+                    if size < 8:
+                        break
+                    if typ == b"mvhd":
+                        v = data[p + 8]
+                        if v == 1:
+                            movie_timescale = struct.unpack(">I", data[p + 28:p + 32])[0]
+                            writes.append((p + 32, True, movie_timescale))
+                        else:
+                            movie_timescale = struct.unpack(">I", data[p + 20:p + 24])[0]
+                            writes.append((p + 24, False, movie_timescale))
+                    elif typ == b"tkhd":
+                        v = data[p + 8]
+                        if v == 1:
+                            writes.append((p + 32, True, 0))
+                        else:
+                            writes.append((p + 28, False, 0))
+                    elif typ == b"mdhd":
+                        v = data[p + 8]
+                        if v == 1:
+                            ts = struct.unpack(">I", data[p + 28:p + 32])[0]
+                            writes.append((p + 32, True, ts))
+                        else:
+                            ts = struct.unpack(">I", data[p + 20:p + 24])[0]
+                            writes.append((p + 24, False, ts))
+                    if typ in (b"trak", b"mdia"):
+                        _scan(p + 8, p + size)
+                    p += size
+
+            _scan(moov_pos + 8, moov_end)
+            if movie_timescale <= 0:
+                return False
+
+            # 2) 按各自 timescale 重写 duration
+            for off, is64, ts in writes:
+                if ts <= 0:
+                    ts = movie_timescale  # tkhd 用 movie timescale
+                new_dur = int(round(duration_seconds * ts))
+                if is64:
+                    f.seek(off)
+                    f.write(struct.pack(">Q", new_dur))
+                else:
+                    if new_dur > 0xFFFFFFFF:
+                        return False
+                    f.seek(off)
+                    f.write(struct.pack(">I", new_dur))
+            return True
+    except OSError:
+        return False
 
 
 def is_repair_supported_extension(filename: str) -> bool:

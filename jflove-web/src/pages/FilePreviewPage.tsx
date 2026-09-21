@@ -68,6 +68,13 @@ export function FilePreviewPage() {
   const isAudio = AUDIO_EXTS.includes(ext);
   const isPdf = ext === 'pdf';
 
+  /** v1.4.2 hotfix（自 origin/main 移植）：媒体元素播放失败 → 引导用户发起离线修复 */
+  const handleMediaError = () => {
+    setLoading(false);
+    setNeedsRepair(true);
+    setError('该文件已损坏或格式不受支持，无法在线播放');
+  };
+
   /** v1.4.2：损坏文件「立即修复」——创建修复任务 */
   const handleRepairNow = async () => {
     if (!diskId) return;
@@ -269,6 +276,7 @@ export function FilePreviewPage() {
           <video
             ref={videoRef}
             controls
+            onError={handleMediaError}
             className="mx-auto max-h-[80vh] max-w-full rounded-lg bg-code shadow-e3"
           />
         </div>
@@ -283,7 +291,7 @@ export function FilePreviewPage() {
               text={downloadProgress !== null ? `下载中 ${Math.round(downloadProgress)}%` : '边下边播准备中…'}
             />
           </div>
-          <audio ref={audioRef} controls className="w-full max-w-xl" />
+          <audio ref={audioRef} controls onError={handleMediaError} className="w-full max-w-xl" />
         </div>
       )}
     </div>

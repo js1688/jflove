@@ -13,7 +13,7 @@
  *    Service Worker 无法访问 localStorage，故会话参数全部显式传入）。
  */
 
-import { decryptStreamChunk, encryptEnvelope } from './crypto';
+import { decryptEnvelope, decryptStreamChunk, encryptEnvelope } from './crypto';
 
 /** 流式会话参数（SW 场景下由页面 postMessage 传入） */
 export interface StreamSessionParams {
@@ -133,6 +133,30 @@ function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
 }
 
 /**
+ * 解密错误信封并提取 detail（v1.4.2 hotfix）。
+ *
+ * 后端非 2xx 错误响应均为加密信封 `{"nonce","ciphertext"}`（§9.1），
+ * 此前 openEncryptedStream 只抛 `HTTP ${status}`，丢失了 detail 里的
+ * `[MEDIA_NEEDS_REPAIR]` 错误码，导致播放失败时无「立即修复」引导。
+ */
+async function tryDecryptStreamError(
+  resp: Response,
+  sessionKey: Uint8Array,
+): Promise<string> {
+  try {
+    const json: { nonce?: string; ciphertext?: string; detail?: string } = await resp.json();
+    if (json.nonce && json.ciphertext) {
+      const decrypted = decryptEnvelope(sessionKey, json.nonce, json.ciphertext);
+      const parsed = JSON.parse(new TextDecoder().decode(decrypted)) as { detail?: string };
+      return parsed.detail || '';
+    }
+    return json.detail || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
  * 向后端 /api/v1/files/stream 打开加密 Range 流（v2 帧协议）。
  *
  * 帧 0 为 meta 元数据帧（file_size / content_type / range 等），本函数读取并返回；
@@ -180,6 +204,9 @@ export async function openEncryptedStream(
     range_end: rangeEnd,
     // v1.4.2：修复产物验证播放（>0 时服务端流式返回该修复任务产物）
     ...(repairTaskId && repairTaskId > 0 ? { repair_task_id: repairTaskId } : {}),
+    // v1.4.2 hotfix：声明 Web 端仅接受 MSE 可流式格式，
+    // 服务端对不可流式文件返回 415 + [MEDIA_NEEDS_REPAIR] 引导修复
+    mse_only: 1,
   });
   const { nonce, ciphertext } = encryptEnvelope(
     session.sessionKey,
@@ -201,7 +228,10 @@ export async function openEncryptedStream(
     signal: controller.signal,
   });
   if (!resp.ok) {
-    throw new Error(`流式请求失败：HTTP ${resp.status}`);
+    // v1.4.2 hotfix：解密错误信封提取 detail（含 [MEDIA_NEEDS_REPAIR]），
+    // 否则页面无法识别「需修复」引导。
+    const detail = await tryDecryptStreamError(resp, session.sessionKey);
+    throw new Error(detail || `流式请求失败：HTTP ${resp.status}`);
   }
   if (!resp.body) {
     throw new Error('流式响应体为空');

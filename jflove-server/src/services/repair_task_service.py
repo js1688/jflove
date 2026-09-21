@@ -145,12 +145,13 @@ async def create_task(
     if not probe.get("has_stream"):
         raise ValueError("该文件无法修复，请下载后查看")
 
-    # 同文件互斥：存在未完成任务则拒绝（重复修复拦截）
-    active = await repair_task_repository.find_active_by_file(
+    # 同文件互斥：存在任意未删除任务记录则拒绝（重复修复拦截，
+    # 必须先删除记录后才能重新发起修复）。
+    existing = await repair_task_repository.list_by_file(
         db, disk_id, rel_path, filename
     )
-    if active:
-        raise ValueError("该文件已有修复任务在进行中")
+    if existing:
+        raise ValueError("该文件已有修复任务，请先删除任务记录后再修复")
 
     # 失败重试不留垃圾：清理该文件历史任务产物与半成品（按任务记录精确清理）
     await _cleanup_file_artifacts(db, disk_id, rel_path, filename)
@@ -247,9 +248,9 @@ async def delete_artifact(
     base = await _disk_base(db, task["disk_id"])
     repair_dir = _repair_dir_for(base, task["rel_path"])
     artifact = os.path.join(repair_dir, task["output_name"])
-    if not os.path.isfile(artifact):
-        raise ValueError("修复产物不存在")
-    os.remove(artifact)
+    # 产物存在才删；不存在（可能被人工挪走）也视为删除成功，不报错
+    if os.path.isfile(artifact):
+        os.remove(artifact)
     _remove_dir_if_empty(repair_dir)
     logger.info("修复产物已删除: task_id=%s", task_id)
 
@@ -374,6 +375,11 @@ async def _run_task(db: aiosqlite.Connection, task_id: int) -> None:
             db, task_id, "verifying", output_name=output_name
         )
         probe = await media_probe.probe_media(artifact)
+        # v1.4.2 hotfix：ffmpeg frag_keyframe+faststart 回写的 mvhd/tkhd/mdhd
+        # duration 是首个分片时长而非总时长，需按真实总时长修正，否则浏览器
+        # 视频总时长、进度条拖拽与 seek 全部异常。
+        if probe.get("duration", 0) > 0:
+            media_probe.patch_mp4_durations(artifact, probe["duration"])
         verified = (
             probe.get("has_stream")
             and not probe.get("fatal")
@@ -473,7 +479,15 @@ def _build_repair_cmd(src: str, dst: str) -> list[str]:
 
     参数语义沿用 v1.4.0 实时修复：视频无损 copy、音频统一转 AAC
     （TS/MKV 来源的 mp4a esds 常缺 DecoderSpecificInfo，转 AAC 后完整可解）。
-    离线产物用 faststart（moov 前置）优化后续边下边播首帧。
+    离线产物用 **分片 fMP4**（moov 只含 mvex + moof/mdat 分片）——
+      - `+empty_moov`：moov 为空壳（仅 ftyp/mvex），分片 fMP4 的标准结构；
+        **不能用 `+faststart`**（与 `frag_keyframe` 组合会丢失首个 moof，
+        产生孤儿 mdat 且时间戳不从 0 开始，导致 MSE 闪屏/只播后半段）
+      - `+frag_keyframe`：按关键帧分片
+      - `+default_base_moof`：moof 相对寻址，tfhd 不带 base-data-offset
+        （否则 Chrome MSE 报「TFHD base-data-offset not allowed by MSE」）
+    视频 `-c:v copy` 无损不丢清晰度；mvhd/tkhd/mdhd duration 由
+    patch_mp4_durations 在产物落盘后按真实总时长修正。
     """
     return [
         media_probe.get_ffmpeg_exe() or "ffmpeg",
@@ -482,7 +496,7 @@ def _build_repair_cmd(src: str, dst: str) -> list[str]:
         "-i", src,
         "-map", "0:v:0?", "-map", "0:a:0?",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart",
+        "-movflags", "+empty_moov+frag_keyframe+default_base_moof",
         "-f", "mp4", dst,
     ]
 

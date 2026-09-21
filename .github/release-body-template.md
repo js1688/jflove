@@ -2,25 +2,36 @@
 
 ### Docker 镜像（GHCR）
 
+**数据库**
+> 如果你不打算将数据库挂载到宿主机上，这一步可以跳过
+```bash
+# 也不是每次都需要这么做，主要是看开发记录，发布记录有没有涉及到数据库的变化，如果你实在不想看，可以先不更新数据库，只更新后端服务，看功能是否正常
+# 下载数据库到本地，放到挂载到宿主机目录（例如：/home/tanjun/jflove/data）
+wget https://github.com/js1688/jflove/blob/v__VERSION__/jflove-db/jflove-prod.db
+```
+
 **服务端**
 ```bash
-# 拉取镜像
+# 拉取镜像（自动发布->一定会存在）
 docker pull ghcr.io/__OWNER__/jflove-server:__VERSION__
+# 拉取镜像（国内推荐->非自动发布，不一定存在，但可以尝试）
+docker pull ccr.ccs.tencentyun.com/jflove/jflove-server:__VERSION__
 
-# 启动（端口 8989；/data 数据目录、/storage 磁盘目录(多盘,配置磁盘时要使用容器内的磁盘目录,例如:/mnt/disk-a)，宿主机路径按需调整）
+# 启动（端口 8989；/data 数据目录、/storage 磁盘目录(系统内添加磁盘的时候，注意要使用容器内的目录)，宿主机路径按需调整）
 docker run -d --name jflove-server \
   -p 8989:8989 \
-  -v /opt/jflove/data:/data \
-  -v /mnt/disk-a:/storage/disk-a \
-  -v /mnt/disk-b:/storage/disk-b \
+  -v /home/tanjun/jflove/data:/data \
+  -v /mnt:/storage \
   --restart=always \
   ghcr.io/__OWNER__/jflove-server:__VERSION__
 ```
 
 **Web 端**
 ```bash
-# 拉取镜像
+# 拉取镜像（自动发布->一定会存在）
 docker pull ghcr.io/__OWNER__/jflove-web:__VERSION__
+# 拉取镜像（国内推荐->非自动发布，不一定存在，但可以尝试）
+docker pull ccr.ccs.tencentyun.com/jflove/jflove-web:__VERSION__
 
 # 启动（宿主机 18080 → 容器 80）
 docker run -d --name jflove-web \
