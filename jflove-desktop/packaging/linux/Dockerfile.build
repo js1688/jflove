@@ -10,12 +10,16 @@ FROM fedora:${FEDORA_VERSION}
 
 # 构建期依赖：
 #   python3 / python3-pip / python3-devel  → PyInstaller + PySide6（PEP 668 下必须用 venv）
+#   nodejs / npm                           → 桌面端 v1.5.0 起界面是 React（ui/），
+#                                            build.py 打包前必须先 `npm ci && vite build`，
+#                                            缺 node 会直接失败（"找不到 npm"）
 #   rpm-build / redhat-rpm-config          → rpmbuild 与构建宏
 #   gcc / gcc-c++ / make                   → 少数依赖无 wheel 时需要本机编译
 #   findutils / which / tar / gzip         → 构建脚本与 PyInstaller 常用工具
 #   mesa-libGL-devel / libglvnd-devel      → PySide6 链接期需要 libGL/libEGL
 RUN dnf install -y --setopt=install_weak_deps=False \
         python3 python3-pip python3-devel \
+        nodejs npm \
         rpm-build redhat-rpm-config \
         gcc gcc-c++ make \
         findutils which tar gzip \
@@ -23,9 +27,20 @@ RUN dnf install -y --setopt=install_weak_deps=False \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 
+# npm 源默认走 npmmirror（与 jflove-web/Dockerfile 同一口径）：容器内 `npm ci`
+# 要拉 200+ 个包，官方源在受限网络下会很慢。需要时用 --build-arg NPM_REGISTRY=... 覆盖。
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry "${NPM_REGISTRY}"
+
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1
+
+# pip 源默认走清华 TUNA（与 jflove-server / jflove-web 的 Dockerfile 保持同一口径）：
+# 容器内构建要装 PySide6 等大包，官方源在受限网络下会长时间零字节卡住。
+# 需要时用 `--build-arg PIP_INDEX_URL=...` 覆盖回官方源。
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 
 WORKDIR /work
 

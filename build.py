@@ -125,9 +125,11 @@ def check_desktop() -> tuple[bool, str]:
     elif system == "Linux":
         if shutil.which("rpmbuild"):
             notes.append("RPM 可用 → 出 onedir + *.rpm（标准交付形态）")
+        elif _has_cmd("docker"):
+            notes.append("本机无 rpmbuild → 自动改用容器（fedora:<N>）构建，仍出 *.rpm")
         else:
-            notes.append("缺 rpmbuild ⇒ 本次**不会产出 RPM**（RPM 是 Linux 端标准形态；"
-                         "装：sudo dnf install -y rpm-build）")
+            notes.append("缺 rpmbuild 且无 docker ⇒ 本次**不会产出 RPM**（RPM 是 Linux 端"
+                         "标准形态；装：sudo dnf install -y rpm-build，或装 docker 走容器）")
     else:
         notes.append(f"RPM 不可用（PyInstaller 不能交叉编译，需 Linux；当前 {system}）")
     return True, "；".join(notes)

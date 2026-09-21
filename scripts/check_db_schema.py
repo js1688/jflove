@@ -17,6 +17,9 @@ dev / prod 表结构核对与对齐工具
 判定口径：
   - **以 dev 为准**（dev 是开发期唯一被操作的结构真相），但 dev 本身必须先与
     **当前程序代码的 DDL** 一致（前置检查，见 `--skip-code-check`）；
+  - **关卡①无法完成 ⇒ 直接失败（退出码 2），不再静默跳过**：跳过它时
+    「dev == prod」只证明两个库彼此一样，而两边可能都是旧结构，且工具给出的
+    差异方向是反的（v1.5.0 复查实测：用系统 python 跑会走到这条路）；
   - 只比对**结构**（表、列、索引、建表 SQL），不比数据；
   - prod 允许保留 `init_db()` 写入的默认 config 行，但本脚本不看数据；
   - **历史遗留表不参与比对**（见 `_LEGACY_TABLES`）：代码已不再创建的死表
@@ -28,7 +31,8 @@ dev / prod 表结构核对与对齐工具
   3. 不删除 prod 上多出来的表/列，只报告（避免误删真实数据）；
   4. 任何异常整体回滚。
 
-退出码：0 = 结构一致；1 = 存在差异（--align 后仍不一致）；2 = 环境/参数错误。
+退出码：0 = 结构一致；1 = 存在差异（--align 后仍不一致）；2 = 环境/参数错误
+（含「关卡①无法完成」与库文件缺失）。
 """
 
 from __future__ import annotations
@@ -217,17 +221,27 @@ def table_structure(ddl: str) -> tuple[dict[str, str], frozenset[str]]:
     return columns, frozenset(constraints)
 
 
-def ddl_structure_mismatch(dev_ddl: str, prod_ddl: str) -> list[str]:
+def ddl_structure_mismatch(
+    dev_ddl: str,
+    prod_ddl: str,
+    base_label: str = "dev",
+    target_label: str = "prod",
+) -> list[str]:
     """
-    返回 **dev 要求、而 prod 不满足** 的结构项；prod 多出来的东西不算（另有
+    返回 **基准要求、而目标不满足** 的结构项；目标方多出来的东西不算（另有
     `extra_column` 单独报告）。
+
+    ⚠ 标签必须可传（v1.5.0 复查修复）：本函数同时服务于两道关 ——
+    「dev ↔ prod」与「代码期望 ↔ dev」。若把 dev/prod 写死，关卡① 的提示会
+    显示成「dev[X] prod[Y]」，而实际比的是 **代码期望[X] dev 库[Y]**，
+    方向正好读反（照提示操作会把 prod 带偏）。
 
     ⚠ 为什么不能用整串比较（v1.5.0 实测踩坑）：整串比较会把
     「prod 多了一列」也判成 `table_ddl_mismatch`，而对齐动作是**重建表** ——
     重建时只拷贝交集列，于是那多出来的一列**连同数据被静默删掉**，
     与"不删除 prod 多出的列"的承诺自相矛盾。
-    改成结构化比较后：只有 **dev 的列定义对不上** 或 **dev 的表级约束缺失**
-    才要求重建，prod 自己的额外列不再引发破坏性重建。
+    改成结构化比较后：只有 **基准的列定义对不上** 或 **基准的表级约束缺失**
+    才要求重建，目标方自己的额外列不再引发破坏性重建。
 
     另一个好处：列顺序差异不再误报（SQLite 里列顺序不影响语义）。
     """
@@ -247,7 +261,8 @@ def ddl_structure_mismatch(dev_ddl: str, prod_ddl: str) -> list[str]:
             continue
         if prod_cols[name] != definition:
             reasons.append(
-                f"列 {name} 定义不同：dev[{definition}] prod[{prod_cols[name]}]"
+                f"列 {name} 定义不同：{base_label}[{definition}] "
+                f"{target_label}[{prod_cols[name]}]"
             )
     for c in sorted(dev_cons - prod_cons):
         reasons.append(f"缺表级约束：{c}")
@@ -303,9 +318,17 @@ def schema_snapshot(path: Path) -> dict:
         conn.close()
 
 
-def diff_schemas(dev: dict, prod: dict) -> list[dict]:
+def diff_schemas(
+    dev: dict,
+    prod: dict,
+    base_label: str = "dev",
+    target_label: str = "prod",
+) -> list[dict]:
     """
     比对结构差异，返回差异清单。
+
+    `dev` 恒为**基准**、`prod` 恒为**目标**；标签只影响提示文案，便于同一函数
+    同时服务于「dev ↔ prod」（默认标签）与「代码期望 ↔ dev」（传自定义标签）。
 
     每项：{"kind", "target", "detail", "action"}
       kind: missing_table | missing_index | missing_column | table_ddl_mismatch |
@@ -320,16 +343,16 @@ def diff_schemas(dev: dict, prod: dict) -> list[dict]:
         diffs.append({
             "kind": "missing_table",
             "target": t,
-            "detail": "dev 有、prod 无",
-            "action": "按 dev 建表 + 建索引（不写数据）",
+            "detail": f"{base_label} 有、{target_label} 无",
+            "action": f"按 {base_label} 建表 + 建索引（不写数据）",
         })
 
     for t in sorted(prod_tables - dev_tables):
-        # prod 多出来的表通常是历史遗留（如已废弃表）—— 只报告，不自动删
+        # 目标方多出来的表通常是历史遗留（如已废弃表）—— 只报告，不自动删
         diffs.append({
             "kind": "extra_table",
             "target": t,
-            "detail": "prod 有、dev 无（历史遗留？）",
+            "detail": f"{target_label} 有、{base_label} 无（历史遗留？）",
             "action": "人工确认后处理；本工具不自动删除",
         })
 
@@ -341,28 +364,30 @@ def diff_schemas(dev: dict, prod: dict) -> list[dict]:
                 diffs.append({
                     "kind": "missing_column",
                     "target": f"{t}.{col}",
-                    "detail": "dev 有、prod 无",
-                    "action": "ALTER TABLE ADD COLUMN（取 dev 的列定义）",
+                    "detail": f"{base_label} 有、{target_label} 无",
+                    "action": f"ALTER TABLE ADD COLUMN（取 {base_label} 的列定义）",
                 })
         for col in prod_cols:
             if col not in dev_cols:
                 diffs.append({
                     "kind": "extra_column",
                     "target": f"{t}.{col}",
-                    "detail": "prod 有、dev 无",
+                    "detail": f"{target_label} 有、{base_label} 无",
                     "action": "人工确认；本工具不自动删列（可能承载数据）",
                 })
 
         # 建表 SQL 的**结构化**比较（列定义 + 表级约束），
-        # 只看"dev 要求而 prod 不满足"的部分；prod 多出的列不在此判定，
+        # 只看"基准要求而目标不满足"的部分；目标方多出的列不在此判定，
         # 否则会触发破坏性的整表重建（见 ddl_structure_mismatch 的说明）。
-        reasons = ddl_structure_mismatch(dev["ddl"].get(t, ""), prod["ddl"].get(t, ""))
+        reasons = ddl_structure_mismatch(
+            dev["ddl"].get(t, ""), prod["ddl"].get(t, ""), base_label, target_label
+        )
         if reasons:
             diffs.append({
                 "kind": "table_ddl_mismatch",
                 "target": t,
                 "detail": "建表语句不一致：" + "；".join(reasons),
-                "action": "重建表：按 dev 建新表 → 拷贝交集列（含 id）→ 替换",
+                "action": f"重建表：按 {base_label} 建新表 → 拷贝交集列（含 id）→ 替换",
             })
 
     dev_idx = dev["indexes"]
@@ -371,14 +396,14 @@ def diff_schemas(dev: dict, prod: dict) -> list[dict]:
         diffs.append({
             "kind": "missing_index",
             "target": name,
-            "detail": "dev 有、prod 无",
-            "action": "按 dev 的索引定义创建",
+            "detail": f"{base_label} 有、{target_label} 无",
+            "action": f"按 {base_label} 的索引定义创建",
         })
     for name in sorted(set(prod_idx) - set(dev_idx)):
         diffs.append({
             "kind": "extra_index",
             "target": name,
-            "detail": "prod 有、dev 无（历史遗留？）",
+            "detail": f"{target_label} 有、{base_label} 无（历史遗留？）",
             "action": "人工确认后处理；本工具不自动删除",
         })
     for name in sorted(set(dev_idx) & set(prod_idx)):
@@ -387,7 +412,7 @@ def diff_schemas(dev: dict, prod: dict) -> list[dict]:
                 "kind": "index_ddl_mismatch",
                 "target": name,
                 "detail": "索引定义不一致",
-                "action": "DROP + 按 dev 重建该索引",
+                "action": f"DROP + 按 {base_label} 重建该索引",
             })
 
     return diffs
@@ -674,6 +699,70 @@ def _restore_autoinc_seq(
         pass
 
 
+def _venv_python_rel() -> str:
+    """模块 venv 的解释器，**相对 jflove-server 目录**的路径"""
+    if sys.platform == "win32":
+        return r"venv-win\Scripts\python.exe"
+    return "venv-linux/bin/python"
+
+
+def _venv_python_hint() -> str:
+    """
+    按平台给出模块 venv 的解释器路径（相对仓库根）。
+
+    关卡①要 import `jflove-server/src/models/database.py`，它依赖 `aiosqlite` 等
+    第三方包 —— 用系统 python 跑通常会失败，必须提示到**装了依赖的那个解释器**上
+    （AGENTS.md §3.1 的 venv 路径约定）。
+    """
+    if sys.platform == "win32":
+        return "jflove-server\\" + _venv_python_rel()
+    return "jflove-server/" + _venv_python_rel()
+
+
+def _migrate_command() -> str:
+    """在 dev 库上跑当前代码迁移的命令（按平台拼路径）"""
+    py = _venv_python_rel()
+    runner = py if sys.platform == "win32" else "./" + py
+    return (
+        "cd jflove-server && " + runner
+        + " -c \"import asyncio; from src.models.database import init_db;"
+          " asyncio.run(init_db())\""
+    )
+
+
+def _code_check_failed(reason: str, exc: Exception | None = None) -> int:
+    """
+    关卡①无法完成时的统一收尾：**响亮失败**，绝不静默放行。
+
+    ⚠ 为什么不能"跳过并返回 0"（L18「静默跳过 = 假通过」+ v1.5.0 实测踩坑）：
+    关卡①是唯一能证明"dev 库 == 当前代码结构"的一步。它一旦被跳过，后面的
+    「dev ↔ prod 一致」就**只证明两个库彼此一样**，而两边可能都是旧结构；
+    更糟的是此时工具会照 dev 的数据给出**方向相反**的提示（把"代码期望"
+    显示成 dev、把 dev 显示成 prod），照着 `--align` 做会把 prod 退回旧结构。
+    所以这里必须非 0 退出，把"没检查"这件事变成阻塞项。
+    """
+    log("")
+    log("=" * 72)
+    log("[FATAL] 关卡①（代码 → dev）无法完成，本次核对**未通过**")
+    log("=" * 72)
+    log(f"原因：{reason}")
+    if exc is not None:
+        log(f"异常：{type(exc).__name__}: {exc}")
+    log("")
+    log("为什么这算失败：跳过这一步后，「dev == prod」只说明两个库彼此一样，")
+    log("而两边可能都不是当前代码的结构 —— 此时工具给出的差异方向也是错的，")
+    log("照它对齐会把 prod 带偏（AGENTS.md §5.1.1 关卡① 存在的原因）。")
+    log("")
+    hint = _venv_python_hint()
+    log("请用**装了依赖的模块 venv 解释器**重跑（依赖含 aiosqlite）：")
+    log(f"  {hint} scripts/check_db_schema.py")
+    log("（Windows 用反斜杠路径，Linux/macOS 用上面的正斜杠路径）")
+    log("")
+    log("确实要跳过这道关（**不推荐**，仅在已知 dev 与代码一致时）：")
+    log("  python scripts/check_db_schema.py --skip-code-check")
+    return 2
+
+
 def check_dev_matches_code(dev_path: Path) -> int:
     """
     确认 **dev 库本身就是"当前代码期望的结构"**（发布前的前置检查）。
@@ -686,14 +775,14 @@ def check_dev_matches_code(dev_path: Path) -> int:
     做法：让当前代码的建表/索引 DDL 在一个**内存临时库**里执行一遍，
     得到"代码期望的结构"，再与 dev 比对。全程不碰 dev 库本身。
 
-    返回 0 = dev 与代码一致；1 = 不一致（需先在 dev 上跑 `init_db()`）。
+    返回 0 = dev 与代码一致；1 = 不一致（需先在 dev 上跑 `init_db()`）；
+    2 = 本关卡无法完成（缺依赖 / 代码 DDL 取不到）——**不是**放行。
     """
     try:
         sys.path.insert(0, str(ROOT / "jflove-server"))
         from src.models.database import expected_indexes, expected_schema  # noqa: PLC0415
-    except Exception as e:  # noqa: BLE001 - 取不到代码 DDL 时降级为跳过
-        log(f"[WARN] 无法加载程序代码的表结构定义（{e}），跳过 dev↔代码 比对")
-        return 0
+    except Exception as e:  # noqa: BLE001 - 取不到代码 DDL ⇒ 无法证明基准正确
+        return _code_check_failed("无法加载程序代码的表结构定义", e)
 
     reference = sqlite3.connect(":memory:")
     try:
@@ -714,14 +803,15 @@ def check_dev_matches_code(dev_path: Path) -> int:
             ]
             expected["ddl"][t] = table_ddl(reference, t)
     except Exception as e:  # noqa: BLE001
-        log(f"[WARN] 构建代码期望结构失败（{e}），跳过 dev↔代码 比对")
-        return 0
+        return _code_check_failed("构建代码期望结构失败", e)
     finally:
         reference.close()
 
     actual = schema_snapshot(dev_path)
-    diffs = diff_schemas(expected, actual)
-    # prod 多出的对象在这层不关心（这里只关心 dev 是否缺当前代码要求的东西）
+    # 标签必须显式传：这里的"基准"是**代码期望**、目标是 **dev 库**，
+    # 用默认的 dev/prod 写法会把方向读反（见 ddl_structure_mismatch 的说明）。
+    diffs = diff_schemas(expected, actual, base_label="代码期望", target_label="dev 库")
+    # 目标方（dev）多出的对象在这层不关心（这里只关心 dev 是否缺当前代码要求的东西）
     blocking = [
         d for d in diffs
         if d["kind"] in {
@@ -742,10 +832,11 @@ def check_dev_matches_code(dev_path: Path) -> int:
         log(f"      → {d['action']}")
     log("")
     log("这意味着 **dev 库本身是陈旧的** —— 直接对齐 prod 会把两边一起带偏。")
-    log("请先让 dev 库跑一次当前代码的迁移，例如：")
-    log("  jflove-server\\venv-win\\Scripts\\python.exe -c \"import asyncio; "
-        "from src.models.database import init_db; asyncio.run(init_db())\"")
-    log("（在 jflove-server 目录下执行；只加表/加列/建索引，不会删数据）")
+    log("请先让 dev 库跑一次当前代码的迁移：")
+    log("  " + _migrate_command())
+    log("说明：运行时迁移会加表 / 加列 / 建索引；遇到「必须去掉列约束」的变更"
+        "（如 v1.5.0 的 users.username）会**重建该表**，保留 id 与全部数据行，"
+        "不会删除业务数据。")
     return 1
 
 

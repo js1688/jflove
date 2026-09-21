@@ -7,7 +7,9 @@
 ```bash
 # 也不是每次都需要这么做，主要是看开发记录，发布记录有没有涉及到数据库的变化，如果你实在不想看，可以先不更新数据库，只更新后端服务，看功能是否正常
 # 下载数据库到本地，放到挂载到宿主机目录（例如：/home/tanjun/jflove/data）
-wget https://github.com/js1688/jflove/blob/v__VERSION__/jflove-db/jflove-prod.db
+# ⚠ 必须用 raw 地址：`/blob/` 是 GitHub 的网页地址，wget 下来的是 HTML 而不是 SQLite 文件
+wget -O jflove-prod.db \
+  https://raw.githubusercontent.com/__OWNER__/jflove/v__VERSION__/jflove-db/jflove-prod.db
 ```
 
 **服务端**

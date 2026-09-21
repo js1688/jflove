@@ -10,9 +10,10 @@ name: Build Desktop (PyInstaller onedir + 安装包)
 #
 # PyInstaller **不能交叉编译** ⇒ Windows 与 Linux 必须各自构建，故分两个 job。
 #
-# ⚠ 构建前必须先生成 Mermaid 离线包：`jflove-desktop/resources/mermaid/` 是**生成物**
-#   （未被 git 跟踪，见 scripts/build_mermaid_bundle.mjs），而 build.py 有
-#   `assert_mermaid_assets()` 硬门禁 —— 少了这一步构建会直接失败（这是本次补掉的既有缺口）。
+# ⚠ 构建前必须先生成 Mermaid 离线包：`jflove-web/public/vendor/mermaid.{bundle.js,version.json}`
+#   是**生成物**（未被 git 跟踪，见 scripts/build_mermaid_bundle.mjs）。桌面端界面在构建期
+#   直接 import 该清单（`ui/src/utils/mermaid/loader.ts`），缺了 `vite build` 会直接失败；
+#   桌面端自己的 `ui/public/vendor/` 由 `build.py::ensure_mermaid_bundle()` 从 web 端自动复制。
 #
 # 版本号单一来源：仓库根 version.json；打 tag 时校验 tag 与 version.json 一致。
 
@@ -135,6 +136,8 @@ jobs:
 
       # 脚本内部：建 venv 装 PyInstaller 依赖 → 跑模块 build.py --mode onedir（复用全部安全门禁）
       #            → 按 FHS 布局 → rpmbuild。已在 Fedora 容器内，故不加 --container。
+      # 载荷压缩默认 w6.zstdio：Fedora 自带的 w19 对 ~1GB 冻结包要压 **~25 分钟**，
+      # w6 约 12 秒、体积只大 17%（实测 249MB vs 213MB）。要最小体积加 `--payload w19.zstdio`。
       - name: Build RPM
         run: sh jflove-desktop/packaging/linux/build_rpm.sh --fedora 43
 

@@ -11,8 +11,10 @@ jflove-desktop PyInstaller 构建脚本
   - Windows: JFLove-<ver>-win64-setup.exe（Inno Setup 安装包；需 iscc，缺失则**降级**跳过并给指引）
              + JFLove-<ver>-win64-portable.zip（便携绿色版）
              + build/dist/JFLove/（onedir 目录，安装包的载荷）
-  - Linux:   jflove-desktop-<ver>-1.fc<N>.x86_64.rpm（**默认开**；需 rpmbuild，缺失则降级跳过）
+  - Linux:   jflove-desktop-<ver>-1.fc<N>.x86_64.rpm（**默认开**）
              + build/dist/JFLove/（onedir 目录，见 packaging/linux/build_rpm.sh）
+    Linux 上 rpmbuild 缺失时**先自动改走容器**（docker + fedora:<N>，见 build_rpm.sh
+    的 `--container`），仍产出标准 RPM；连 docker 都没有才降级跳过（响亮报警）。
   - macOS:   在 macOS 主机上跑同一脚本生成 .app（建议手动 codesign）
   - --mode onefile 仅为**兼容保留的显式选项**：单体文件 build/dist/JFLove[.exe]，
     **不是交付形态**（启动慢、且无法配安装包）
@@ -33,6 +35,11 @@ jflove-desktop PyInstaller 构建脚本
     python build.py --rpm --fedora 43   # 指定 Fedora 基线版本（默认 43）
     python build.py --mode onefile      # 旧行为：单体文件（**不推荐**，仅兼容用）
     python build.py --clean             # 构建前清空 build/
+
+RPM 载荷压缩级别（Linux）：
+    默认 `w6.zstdio`（由 build_rpm.sh 决定）。Fedora 自带的默认是 `w19.zstdio`，
+    对 ~1 GB 冻结包要压 **约 25 分钟**；实测 w6 只需 ~12 秒、体积只大 17%。
+    要最小体积可加环境变量：JFLOVE_RPM_PAYLOAD=w19.zstdio python build.py
 
 版本号管理：
     版本号只读仓库根 version.json。改版本请用 `python scripts/sync_version.py`，
@@ -467,11 +474,26 @@ def assert_rpm_available() -> None:
     )
 
 
-def run_rpm(fedora: int, clean: bool) -> int:
-    """Linux 上委托给 packaging/linux/build_rpm.sh（onedir 载荷 + rpmbuild）"""
+def run_rpm(fedora: int, clean: bool, container: bool = False) -> int:
+    """
+    Linux 上委托给 packaging/linux/build_rpm.sh（onedir 载荷 + rpmbuild）。
+
+    :param container: True 时加 `--container`，让 build_rpm.sh 起 fedora:<fedora>
+        容器构建（本机没装 rpmbuild 但装了 docker 时用这条路，仍产出标准 RPM）
+    """
+    # 防自我递归：build_rpm.sh 内部会回头调本脚本生成 onedir 载荷，若那次调用
+    # 又开启 RPM 分支就会无限循环（该脚本已用 --no-rpm 堵住；此处是第二道防线，
+    # 让将来任何新调用方漏加开关时**立即报错**而不是死循环）。
+    if os.environ.get("JFLOVE_RPM_BUILDING") == "1":
+        fail(
+            "检测到 RPM 构建递归：build_rpm.sh 调 build.py 生成载荷时必须带 --no-rpm。\n"
+            "  （环境变量 JFLOVE_RPM_BUILDING=1 说明当前已在 RPM 流程内）"
+        )
     if not RPM_SCRIPT.is_file():
         fail(f"缺少 RPM 构建脚本：{RPM_SCRIPT.relative_to(ROOT)}")
     cmd = ["sh", str(RPM_SCRIPT), "--fedora", str(fedora)]
+    if container:
+        cmd.append("--container")
     if clean:
         cmd.append("--clean")
     log("执行 RPM 构建: " + " ".join(cmd))
@@ -534,10 +556,23 @@ def main() -> None:
     want_rpm = args.rpm if args.rpm is not None else (args.mode == "onedir" and is_linux)
     if want_rpm and not is_linux:
         assert_rpm_available()  # 打印两条正路并以非 0 退出
+
+    # 本机没有 rpmbuild 时**优先改走容器**（docker + fedora:<N>），仍产出标准 RPM；
+    # 只有连 docker 都没有才降级（降级时响亮报警，符合 AGENTS §8 的要求）。
+    rpm_via_container = False
     if want_rpm and shutil.which("rpmbuild") is None:
-        log("[warn] 未检测到 rpmbuild —— RPM 是 Linux 端**标准交付形态**，本次降级跳过")
-        log("       装好后重跑：sudo dnf install -y rpm-build && python build.py")
-        want_rpm = False
+        if shutil.which("docker"):
+            rpm_via_container = True
+            log(f"[warn] 本机没有 rpmbuild —— 自动改用容器构建（fedora:{args.fedora}），"
+                "仍产出标准 RPM")
+            log("       提示：首次会联网构建构建镜像（dnf/npm/pip），耗时较长；"
+                "想省掉这步可 sudo dnf install -y rpm-build")
+        else:
+            log("[warn] 未检测到 rpmbuild，也没有 docker —— RPM 是 Linux 端**标准交付形态**，"
+                "本次降级跳过")
+            log("       二选一后重跑：① sudo dnf install -y rpm-build   "
+                "② 装 docker（走容器构建）")
+            want_rpm = False
 
     assert_version_consistent()  # 校验模块内版本号 == version.json
     version = sync_version.load_version()
@@ -548,7 +583,7 @@ def main() -> None:
 
     if want_rpm:
         # Linux：RPM 是交付形态；onedir 载荷由 build_rpm.sh 内部再调本脚本产出
-        rc = run_rpm(args.fedora, args.clean)
+        rc = run_rpm(args.fedora, args.clean, container=rpm_via_container)
         if rc != 0:
             fail(f"RPM 构建失败，退出码 {rc}")
         report_artifacts(args.mode)
