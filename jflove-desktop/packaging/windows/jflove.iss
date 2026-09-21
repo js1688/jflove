@@ -13,7 +13,7 @@
 ;     （Inno 6 语义：非管理员模式下 {autopf} 自动解析为用户目录）
 ;   - 开始菜单组 + 可选桌面快捷方式 + UninstallDisplayIcon
 ;   - 卸载时询问是否删除用户数据，**默认保留**
-;   - 简体中文界面（需 ChineseSimplified.isl，缺失时退英文并给出编译期提示）
+;   - 简体中文界面（语言文件路径由 build.py 解析校验后传入；缺失时退英文并有编译期提示）
 ;   - **不打包任何用户数据 / 配置**：配置在 %APPDATA%\JFLove（见 src/config/settings.py）
 
 #define AppName "JFLove"
@@ -48,9 +48,14 @@
 #ifndef LicenseFile
   #define LicenseFile "..\..\..\LICENSE"
 #endif
-; 简体中文语言文件是否存在（由 build.py 探测后传入 0/1）
-#ifndef HasChineseIsl
-  #define HasChineseIsl 0
+; 简体中文语言文件路径（绝对路径，由 build.py 解析并**校验存在**后传入）
+; ⚠ 不要写 MessagesFile: "compiler:Languages\ChineseSimplified.isl"：
+;    `compiler:` 由 ISCC 解析为它**自身安装目录**，与构建脚本探测的目录不一定相同
+;    （CI 上 iscc 常来自包管理器 shim）→ 会在 [Languages] 段直接编译中止。
+; v1.5.0 CI 故障即由此产生，故改为「传入绝对路径 + 编译期兜底」。
+#ifndef IslPath
+  ; 手动编译（未传 /DIslPath）时的默认：仓库内置副本，相对本 .iss 所在目录
+  #define IslPath AddBackslash(SourcePath) + "Languages\ChineseSimplified.isl"
 #endif
 
 [Setup]
@@ -90,12 +95,14 @@ CloseApplications=yes
 RestartApplications=no
 
 [Languages]
-#if HasChineseIsl
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 判据是 FileExists(IslPath)（**文件真实存在**），而不是「构建脚本说存在」：
+; 缺文件时退回内置英文界面，安装包照常产出，绝不编译中止。
+#if FileExists(IslPath)
+Name: "chinesesimplified"; MessagesFile: "{#IslPath}"
 #else
-; Inno Setup 官方发行包不含简体中文语言文件（ChineseSimplified.isl 属社区翻译），
-; 缺失时退回内置英文界面并在编译日志里提示——安装包本身照常产出。
-#pragma message "未找到 Languages\ChineseSimplified.isl：本次安装向导使用英文界面（放入该文件后自动切中文）"
+; Inno Setup 官方发行包不保证含简体中文语言文件（ChineseSimplified.isl 属社区翻译）。
+; 仓库内置副本位于 packaging/windows/Languages/，缺失说明 git 检出不完整。
+#pragma message "未找到 ChineseSimplified.isl：本次安装向导使用英文界面（放入 packaging/windows/Languages/ 后自动切中文）"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 #endif
 

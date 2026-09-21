@@ -85,6 +85,11 @@ LINUX_PACKAGING_DIR = PACKAGING_DIR / "linux"
 INSTALLER_SCRIPT = WINDOWS_PACKAGING_DIR / "jflove.iss"
 RPM_SCRIPT = LINUX_PACKAGING_DIR / "build_rpm.sh"
 
+#: 仓库**内置**的 Inno Setup 简体中文语言文件（Inno 官方包不保证含它）。
+#: 内置的理由与来源见 packaging/windows/Languages/README.md；它是安装包中文化的
+#: **可靠来源**：不依赖构建机装了哪个 Inno Setup、iscc 是否来自包管理器 shim。
+BUNDLED_CHINESE_ISL = WINDOWS_PACKAGING_DIR / "Languages" / "ChineseSimplified.isl"
+
 #: RPM 默认 Fedora 基线：在「仍受支持」里取较旧的一个 → glibc 要求更低、兼容面更宽，
 #: 同时在更新的 Fedora 上也能正常安装。
 DEFAULT_FEDORA = 43
@@ -234,15 +239,62 @@ def find_iscc() -> Path | None:
     return None
 
 
+def _compiler_dirs(iscc: Path) -> list[Path]:
+    """
+    列出「Inno Setup 编译器可能所在的目录」（仅用于兜底查找语言文件）。
+
+    为什么要单独找：`shutil.which("iscc")` 在 CI 上很可能命中包管理器的 **shim**
+    （如 `C:\\ProgramData\\Chocolatey\\bin\\iscc.EXE`），而 shim 所在目录**不是**
+    编译器安装目录；ISCC 解析 `compiler:` 前缀用的是**自身安装目录**。两者混用会
+    得到「探测说文件在、编译说文件不在」的矛盾（v1.5.0 CI 就是这么炸的）。
+    所以这里宁可多列几个候选目录，也不拿 shim 目录当编译器目录。
+    """
+    dirs: list[Path] = [iscc.parent]
+    roots: list[Path] = []
+    for var in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        value = os.environ.get(var)
+        if value:
+            roots.append(Path(value))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        roots.append(Path(local) / "Programs")
+    for root in roots:
+        for sub in ("Inno Setup 6", "Inno Setup 5", "Inno Setup"):
+            dirs.append(root / sub)
+    return dirs
+
+
 def find_chinese_isl(iscc: Path) -> Path | None:
     """
-    探测 Inno Setup 的简体中文语言文件（ChineseSimplified.isl）。
+    定位简体中文语言文件（ChineseSimplified.isl），**只在文件真实存在时才返回路径**。
 
-    Inno Setup 官方发行包**不含**中文语言文件（属社区翻译），所以中文化要
-    「有则用、无则退回英文并提示」，而不是让整个构建失败。
+    查找顺序（先命中先返回）：
+
+      1. 环境变量 `JFLOVE_CHINESE_ISL`（显式覆盖，便于特殊环境）；
+      2. **仓库内置副本** `packaging/windows/Languages/ChineseSimplified.isl`
+         —— CI / 离线 / 本机一致命中，是安装包中文化的可靠来源；
+      3. 构建机上真实编译器目录里的同名文件（多候选目录，见 `_compiler_dirs`）；
+      4. 都没有 → 返回 None，调用方**响亮降级为英文界面**（安装包照常产出）。
+
+    ⚠ 不变式：返回值要么是 `is_file()` 为真的路径，要么是 None。
+    绝不允许出现「探测说找到、交给 iscc 却打不开」的第三种状态——那正是 v1.5.0
+    CI 构建失败（iscc 编译中止、安装包缺失）的直接原因。
     """
-    cand = iscc.parent / "Languages" / "ChineseSimplified.isl"
-    return cand if cand.is_file() else None
+    override = os.environ.get("JFLOVE_CHINESE_ISL")
+    if override:
+        cand = Path(override)
+        if cand.is_file():
+            return cand
+        log(f"[warn] JFLOVE_CHINESE_ISL 指向的文件不存在，已忽略：{cand}")
+
+    if BUNDLED_CHINESE_ISL.is_file():
+        return BUNDLED_CHINESE_ISL
+
+    for directory in _compiler_dirs(iscc):
+        cand = directory / "Languages" / "ChineseSimplified.isl"
+        if cand.is_file():
+            return cand
+    return None
 
 
 # ── PyInstaller ──────────────────────────────────────────────────
@@ -424,13 +476,25 @@ def build_installer(version: str, mode: str) -> Path | None:
 
     isl = find_chinese_isl(iscc)
     if isl is None:
-        log("[warn] 未找到 Languages\\ChineseSimplified.isl —— Inno Setup 官方包不含简体中文"
-            "语言文件（属社区翻译），本次安装向导使用英文界面")
-        log("       把 ChineseSimplified.isl 放进 "
-            f"{Path(iscc).parent / 'Languages'} 即可自动切中文界面")
+        log("[warn] **************************************************************")
+        log("[warn] 未找到 ChineseSimplified.isl ⇒ 本次安装向导使用**英文**界面")
+        log("[warn] （安装包本身照常产出，不影响交付；只是向导文案不是中文）")
+        log("[warn] 期望位置：仓库内置 " + str(BUNDLED_CHINESE_ISL.relative_to(ROOT)))
+        log("[warn] 内置副本不应缺失：请检查 git 检出是否完整"
+            "（packaging/windows/Languages/ 目录）")
+        log("[warn] 也可用环境变量显式指定：JFLOVE_CHINESE_ISL=<isl 绝对路径>")
+        log("[warn] **************************************************************")
+    else:
+        origin = "仓库内置" if isl == BUNDLED_CHINESE_ISL else "构建机"
+        log(f"简体中文语言文件（{origin}）：{isl}")
 
     base = f"{APP_NAME}-{version}-win64-setup"
     out = DIST_DIR / f"{base}.exe"
+    # ⚠ 语言文件路径**由本脚本解析并校验**，再以绝对路径传给 iscc。
+    # 为什么不用 .iss 里的 `MessagesFile: "compiler:Languages\\..."`：`compiler:`
+    # 由 ISCC 解析为它**自身安装目录**，一旦与探测假设的目录不一致，编译就会在
+    # [Languages] 段直接中止（v1.5.0 CI 故障）。绝对路径把这条不一致彻底切断。
+    # 正斜杠：Inno Setup 的路径参数用反斜杠会被当作转义（`\P` → `P`），正斜杠最稳。
     cmd = [
         str(iscc), "/Qp",
         f"/DAppVersion={version}",
@@ -441,9 +505,11 @@ def build_installer(version: str, mode: str) -> Path | None:
         f"/DOutputBaseFilename={base}",
         f"/DIconFile={IMAGES_DIR / 'icon.ico'}",
         f"/DLicenseFile={PROJECT_ROOT / 'LICENSE'}",
-        f"/DHasChineseIsl={1 if isl else 0}",
-        str(INSTALLER_SCRIPT),
     ]
+    # 命中才传 /DIslPath；.iss 以 FileExists 兜底，所以"不传"即英文界面（不会中止）
+    if isl is not None:
+        cmd.append(f"/DIslPath={isl.as_posix()}")
+    cmd.append(str(INSTALLER_SCRIPT))
     log("执行 iscc: " + " ".join(cmd))
     proc = subprocess.run(cmd, cwd=WINDOWS_PACKAGING_DIR)
     if proc.returncode != 0:
