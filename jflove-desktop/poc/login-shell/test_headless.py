@@ -2368,6 +2368,83 @@ def main() -> int:
         and not os.path.exists(drop_src),
     )
 
+    # ── N10：**取消是真的**（切到 Python TransferManager 后的核心验证） ──
+    from src.bridge import transfer as _transfer_bridge
+    # 提交一个较大的上传 → 立刻取消 → 断言任务真的终止（而不是"界面说取消、文件还在传"）
+    big_name = "poc-cancel-probe.bin"
+    big_src = str(_HERE / "out" / big_name)
+    with open(big_src, "wb") as fp:
+        fp.write(b"0" * (24 * 1024 * 1024))  # 24MB：足够让任务停留在传输中
+    cancel_id = str(
+        _transfer_bridge._h_transfer_upload(
+            {"disk_id": first_disk_id, "rel_dir": "", "local_path": big_src}
+        )["id"]
+    )
+    check("已提交大文件上传（用于取消验证）", bool(cancel_id), cancel_id)
+
+    # 等它真的开始跑（避免"还没启动就取消"这种假验证）
+    started = _wait_python_pumping(
+        app,
+        lambda: next(
+            (
+                i["status"]
+                for i in _transfer_bridge._h_transfer_list({})["tasks"]
+                if i["id"] == cancel_id
+            ),
+            "",
+        )
+        in ("running", "hashing", "pending"),
+        timeout_s=20,
+    )
+    check("任务进入运行态", started)
+
+    check(
+        "调用取消",
+        _transfer_bridge._h_transfer_cancel({"task_id": cancel_id}) == {"ok": True},
+    )
+    cancelled = _wait_python_pumping(
+        app,
+        lambda: next(
+            (
+                i["status"]
+                for i in _transfer_bridge._h_transfer_list({})["tasks"]
+                if i["id"] == cancel_id
+            ),
+            "",
+        )
+        in ("cancelled", "failed"),
+        timeout_s=60,
+    )
+    final_status = next(
+        (
+            i["status"]
+            for i in _transfer_bridge._h_transfer_list({})["tasks"]
+            if i["id"] == cancel_id
+        ),
+        "",
+    )
+    check(
+        "取消后任务**真的终止**（未跑成 completed）",
+        cancelled and final_status != "completed",
+        f"status={final_status}",
+    )
+
+    # 清理：本地大文件 + 远端若已产生同名文件
+    if os.path.exists(big_src):
+        os.remove(big_src)
+    try:
+        _file_svc.delete_file(first_disk_id, big_name)
+    except Exception:  # noqa: BLE001 - 没传上去就无需删
+        pass
+    check(
+        "取消测试零残留",
+        not os.path.exists(big_src)
+        and not any(
+            str(f.get("name")) == big_name for f in _file_svc.list_files(first_disk_id, "")
+        ),
+    )
+    _transfer_bridge._h_transfer_clear({})
+
     # ── 字节级验证：StreamProxy 的 Range 是否**逐字节准确** ──
     # 背景：用户在真实使用中拖动进度后日志出现
     #   `Packet corrupt` / `Invalid NAL unit size` / `partial file`
