@@ -9,11 +9,25 @@
   用**纯格式差异**证明它不误报，两类用例一起跑。
 
 跑法（本脚本只用标准库，用哪个解释器启动都行）：
+    # ① 开发机（默认前提：仓库里的真 dev 库 + 模块 venv 解释器，AGENTS.md §3.1）
     python scripts/verify_check_db_schema.py
-    jflove-server/venv-linux/bin/python scripts/verify_check_db_schema.py
+
+    # ② CI / 任意环境：把三个前提**显式传参**（dev 库与模块 venv 都不入库）
+    python scripts/verify_check_db_schema.py \
+        --dev "$RUNNER_TEMP/ci-dev.db" \
+        --prod jflove-db/jflove-prod.db \
+        --tool-python "$(python -c 'import sys; print(sys.executable)')"
 
   它会自己去找一个「没装 aiosqlite」的解释器来验证「关卡①跑不了必须失败」
   这条断言；找不到时该组会 SKIP（可用环境变量 JFLOVE_BARE_PYTHON 指定）。
+
+为什么要能传参（v1.5.0 CI 复盘，实测踩坑）：
+  本脚本原先只认开发机约定 —— `DEV_DB` / `PROD_DB` / `VENV_PY` 全写死，且不接受
+  任何参数。`ci-guards.yml` 直接裸调用它，而 CI 干净检出里：dev 库被 .gitignore
+  排除（`.gitignore:37`）、模块 venv 也不入库 ⇒ `main()` 的存在性检查立刻
+  `[FATAL] 缺少必要文件：<repo>/jflove-db/jflove-dev.db` 退 2，整条 workflow 红。
+  **门禁脚本的运行前提必须可声明、可注入**，不能只有"开发机默认值"这一种形态；
+  报错时也要把"缺什么、怎么补"打出来，而不是只丢一个路径。
 
 覆盖的判据（全部按 LESSONS.md L17 的清单）：
   少一列 / 列定义变化 / 缺表 / 缺索引           → 必须失败
@@ -28,6 +42,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import shutil
@@ -38,9 +53,16 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEV_DB = ROOT / "jflove-db" / "jflove-dev.db"
-PROD_DB = ROOT / "jflove-db" / "jflove-prod.db"
 TOOL = ROOT / "scripts" / "check_db_schema.py"
+
+# Windows 控制台默认 GBK：本脚本会回显**被测工具的输出**（含中文与 ✓/→），
+# 不重配编码时那一行会抛 UnicodeEncodeError 把断言结果盖掉
+# （与 check_db_schema.py:84-88、sync_version.py:34-39 同一个坑，同一套处理）。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        pass
 
 #: 关卡①（代码 ↔ dev）需要 aiosqlite 等依赖 ⇒ 必须用模块 venv 的解释器
 VENV_PY = (
@@ -48,6 +70,15 @@ VENV_PY = (
     if sys.platform == "win32"
     else ROOT / "jflove-server" / "venv-linux" / "bin" / "python"
 )
+
+# ── 以下三项是**默认值**（开发机约定），由 `configure()` 依 CLI 参数覆盖 ──
+#: 基准开发库（默认：仓库里的真 dev；CI 里用 `init_db()` 现场生成的等价库）
+DEV_DB = ROOT / "jflove-db" / "jflove-dev.db"
+#: 生产库（入库，CI 里直接用仓库里那份）
+PROD_DB = ROOT / "jflove-db" / "jflove-prod.db"
+#: 用来跑 `check_db_schema.py` 的解释器（**必须装了 aiosqlite**）；
+#: 默认模块 venv，venv 不存在（如 CI）时退化为当前解释器
+TOOL_PY = VENV_PY
 
 #: 旧结构（v1.5.0 之前）的 users 建表语句：username 带**列级 UNIQUE**
 _USERS_OLD_DDL = """
@@ -69,6 +100,45 @@ _ok = 0
 _fail = 0
 
 
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    """CLI 参数（默认值＝开发机约定，见文件头「为什么要能传参」）"""
+    parser = argparse.ArgumentParser(
+        description="check_db_schema.py 的反向验证（guard 的 guard）",
+    )
+    parser.add_argument(
+        "--dev", default=str(DEV_DB),
+        help="基准开发库路径（默认：仓库 jflove-db/jflove-dev.db；CI 里传现场生成的等价库）",
+    )
+    parser.add_argument(
+        "--prod", default=str(PROD_DB),
+        help="生产库路径（默认：仓库 jflove-db/jflove-prod.db）",
+    )
+    parser.add_argument(
+        "--tool-python", default=None,
+        help="用来跑 check_db_schema.py 的解释器（**必须装了 aiosqlite**）；"
+             "默认模块 venv，venv 不存在时用当前解释器",
+    )
+    return parser.parse_args(argv)
+
+
+def configure(dev: Path, prod: Path, tool_python: Path | None) -> None:
+    """
+    把「实际生效的路径」落到模块级配置上（各 helper 都读这些名字）。
+
+    为什么要集中到一处：这些路径全是**运行前提**，散落在各函数里就没法注入，
+    也就没法在 CI（无 dev 库、无模块 venv）里跑（LESSONS.md L20：改路径不要靠猜，
+    要按真实取值方式显式注入）。
+    """
+    global DEV_DB, PROD_DB, TOOL_PY
+    DEV_DB = dev
+    PROD_DB = prod
+    if tool_python is not None:
+        TOOL_PY = tool_python
+    elif not VENV_PY.exists():
+        # CI 等环境没有模块 venv；用当前解释器（调用方需保证它有 aiosqlite）
+        TOOL_PY = Path(sys.executable)
+
+
 def check(name: str, cond: bool, extra: str = "") -> None:
     global _ok, _fail
     if cond:
@@ -80,9 +150,21 @@ def check(name: str, cond: bool, extra: str = "") -> None:
 
 
 def run_tool(dev: Path, prod: Path, python: Path | None = None) -> tuple[int, str]:
+    """
+    跑一次 `check_db_schema.py`，返回 (退出码, 合并后的输出)。
+
+    ⚠ `encoding="utf-8"` 不能省（v1.5.0 CI 复盘实测）：
+    被测工具在 `check_db_schema.py:84-88` 显式把 stdout 重配成 **UTF-8**，
+    而 `subprocess.run(text=True)` 默认按**父进程 locale** 解码 —— Windows 上是
+    cp936 ⇒ reader 线程抛 `UnicodeDecodeError`、子进程输出**整个丢失** ⇒
+    「输出里必须含 xxx」这类断言全部误报（实测本地 11 passed / 9 failed，
+    还会被误判成"工具不可信"）。**凡是自己指定了输出编码的子进程，读取端必须跟着指定**。
+    `errors="replace"` 兜住任何编码异常，保证"读不到"永远是断言失败而不是脚本崩溃。
+    """
     p = subprocess.run(
-        [str(python or VENV_PY), str(TOOL), "--dev", str(dev), "--prod", str(prod)],
-        capture_output=True, text=True, cwd=str(ROOT),
+        [str(python or TOOL_PY), str(TOOL), "--dev", str(dev), "--prod", str(prod)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=str(ROOT),
     )
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
@@ -170,7 +252,7 @@ def find_bare_python() -> Path | None:
     env = os.environ.get("JFLOVE_BARE_PYTHON")
     if env:
         candidates.append(Path(env))
-    if Path(sys.executable) != VENV_PY:
+    if Path(sys.executable) != TOOL_PY:
         candidates.append(Path(sys.executable))
     for name in ("python3", "python"):
         found = shutil.which(name)
@@ -178,7 +260,7 @@ def find_bare_python() -> Path | None:
             candidates.append(Path(found))
 
     for cand in candidates:
-        if cand == VENV_PY or not cand.exists():
+        if cand == TOOL_PY or not cand.exists():
             continue
         probe = subprocess.run(
             [str(cand), "-c", "import aiosqlite"], capture_output=True
@@ -189,15 +271,38 @@ def find_bare_python() -> Path | None:
 
 
 def main() -> int:
-    for p in (DEV_DB, PROD_DB, TOOL, VENV_PY):
+    args = parse_args(sys.argv[1:])
+    configure(
+        Path(args.dev).resolve(),
+        Path(args.prod).resolve(),
+        Path(args.tool_python).resolve() if args.tool_python else None,
+    )
+
+    # 存在性检查针对**实际生效的路径**（不是开发机默认值）：
+    # 这样 CI 里传了 --dev/--tool-python 就不会再被"仓库里没有 dev 库"卡住。
+    for p, label in (
+        (DEV_DB, "基准 dev 库"),
+        (PROD_DB, "prod 库"),
+        (TOOL, "被验证的工具 check_db_schema.py"),
+        (TOOL_PY, "跑工具用的解释器"),
+    ):
         if not p.exists():
             print(f"[FATAL] 缺少必要文件：{p}")
+            print(f"         （{label}）")
+            print("         可按需注入：--dev <路径> --prod <路径> --tool-python <解释器>")
+            print("         CI 里 dev 库与模块 venv 都不入库，须先用当前代码的 init_db()")
+            print("         现场生成一份等价 dev，再把它与装了 aiosqlite 的解释器传进来")
+            print("         （见 .github/workflows/ci-guards.yml）。")
             return 2
 
-    tmp = Path(tempfile.mkdtemp(prefix="jflove-schema-verify-"))
-    print(f"临时目录：{tmp}（全程不碰真实 dev / prod）\n")
+    print(f"基准 dev 库：{DEV_DB}")
+    print(f"prod 库    ：{PROD_DB}")
+    print(f"工具解释器 ：{TOOL_PY}")
 
-    print("=== 1. 基线：真 dev + 真 prod 必须放行 ===")
+    tmp = Path(tempfile.mkdtemp(prefix="jflove-schema-verify-"))
+    print(f"临时目录：{tmp}（变体库都是副本，不碰传入的 dev / prod 本身）\n")
+
+    print("=== 1. 基线：基准 dev + 真 prod 必须放行 ===")
     rc, _ = run_tool(DEV_DB, PROD_DB)
     check("退出码 0", rc == 0, f"实际 {rc}")
 

@@ -5,15 +5,24 @@ name: CI Guards (库结构核对 / 工具可信性)
 #   devops 技能的发布步骤里也要求执行，但此前 5 个构建 workflow 里**一次都没跑过** ——
 #   v1.5.0 就是这么漏的：dev 库陈旧（users.username 还带列级 UNIQUE）、没人拦。
 #
-# 本 workflow 只做两件事，都是秒级、纯本地校验，不构建任何产物：
-#   ① `scripts/verify_check_db_schema.py` —— 核对**工具自身**可信（喂坏数据必须拦住、
-#      喂纯格式差异必须放行）。工具不可信时先修工具，别拿它当门禁（LESSONS.md L16/L17）。
-#   ② `scripts/check_db_schema.py` —— 「代码 ↔ prod」结构核对。
+# 本 workflow 只做三件事，都是秒级、纯本地校验，不构建任何产物：
+#   ① 按**当前代码**在现场生成一份等价 dev 库（`init_db()`）—— 见下"为什么不用仓库里的 dev 库"；
+#   ② `scripts/verify_check_db_schema.py` —— 核对**工具自身**可信（喂坏数据必须拦住、
+#      喂纯格式差异必须放行）。工具不可信时先修工具，别拿它当门禁（LESSONS.md L16/L17）；
+#   ③ `scripts/check_db_schema.py` —— 「代码 ↔ prod」结构核对。
 #
 # 为什么不用仓库里的 dev 库：
 #   dev 库是**开发数据、不入库**（.gitignore 明确排除 `jflove-db/jflove-dev.db`），
-#   所以这里先用**当前代码**在现场建一份等价 dev（`init_db()`），再拿它当基准去比 prod。
-#   这样 CI 拦的正是要紧的事：prod 缺了代码要求的表 / 列 / 索引。
+#   模块 venv（`jflove-server/venv-linux/`）同样不入库 ⇒ CI 干净检出里两个都**不存在**。
+#   所以这里先用当前代码现场建一份等价 dev，再把它**显式传参**给 ② 和 ③ 当基准。
+#
+# ⚠ v1.5.0 CI 复盘（本次修的就是它）：
+#   ② 原先写作裸调用 `python scripts/verify_check_db_schema.py`，而那个脚本当时的运行
+#   前提是**开发机约定**（仓库里的真 dev 库 + 模块 venv）且**不接受任何参数** ⇒
+#   CI 上立刻 `[FATAL] 缺少必要文件：<repo>/jflove-db/jflove-dev.db` 退 2，整条 workflow 红。
+#   教训：**门禁脚本的运行前提必须可声明、可注入**（`--dev` / `--prod` / `--tool-python`），
+#   不能只有"开发机默认值"这一种形态；调用方也要按脚本的**真实前提**接线，
+#   而不是照着注释里那句"dev 库不入库"想当然。
 #
 # ⚠ 关卡①（代码 → dev）需要 `aiosqlite`：缺依赖时脚本会**非 0 退出**（不再是静默跳过），
 #   所以下面的 pip install 不是可选项。
@@ -47,14 +56,8 @@ jobs:
       - name: 安装关卡①依赖
         run: python -m pip install --upgrade pip aiosqlite
 
-      - name: ① 工具可信性（坏数据必须拦住、纯格式差异必须放行）
-        env:
-          # 指定一个「没装 aiosqlite」的解释器，让脚本能覆盖「缺依赖 ⇒ 必须失败」这组断言
-          # （脚本自身会探测；这里显式给出更稳；不存在时脚本会自行 SKIP）
-          JFLOVE_BARE_PYTHON: /usr/bin/python3
-        run: python scripts/verify_check_db_schema.py
-
-      - name: ② 按当前代码建一份等价 dev 库（dev 库不入库，故现场生成）
+      # 必须在 ② 之前生成：② 的反向验证需要一个"真 dev"当基线（CI 里只有这份现场生成的）。
+      - name: ① 按当前代码建一份等价 dev 库（dev 库不入库，故现场生成）
         env:
           TMP_DEV_DB: ${{ runner.temp }}/ci-dev.db
         run: |
@@ -70,6 +73,21 @@ jobs:
           asyncio.run(init_db())
           print("已按当前代码建好临时 dev 库：", settings.DB_PATH)
           PY
+
+      - name: ② 工具可信性（坏数据必须拦住、纯格式差异必须放行）
+        env:
+          # 指定一个「没装 aiosqlite」的解释器，让脚本能覆盖「缺依赖 ⇒ 必须失败」这组断言
+          # （脚本自身会探测；这里显式给出更稳；不存在时脚本会自行 SKIP）
+          JFLOVE_BARE_PYTHON: /usr/bin/python3
+        run: |
+          # --dev         : 用 ① 现场生成的等价 dev 当基准（仓库里没有 dev 库）
+          # --prod        : 仓库里入库的生产库
+          # --tool-python : 跑 check_db_schema.py 的解释器，**必须装了 aiosqlite**。
+          #                 模块 venv 不入库，CI 里就是 setup-python 这个解释器。
+          python scripts/verify_check_db_schema.py \
+            --dev "${{ runner.temp }}/ci-dev.db" \
+            --prod jflove-db/jflove-prod.db \
+            --tool-python "$(python -c 'import sys; print(sys.executable)')"
 
       - name: ③ 代码 ↔ prod 表结构核对（发布阻塞项，退出码非 0 即阻塞发布）
         run: |
