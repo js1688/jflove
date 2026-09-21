@@ -27,12 +27,13 @@ name: CI Guards (库结构核对 / 工具可信性)
 # ⚠ 关卡①（代码 → dev）需要 `aiosqlite`：缺依赖时脚本会**非 0 退出**（不再是静默跳过），
 #   所以下面的 pip install 不是可选项。
 
+# 触发时机：**只在真实发布（打 tag）时跑**，或手动触发。
+# 为什么不在 push main / PR 上跑：这套核对与「发布前强制关卡」是同一件事
+# （AGENTS.md §7.3 Phase 8 第 3 步），每次提交都跑属于重复调用、噪音大。
+# 需要临时验证时用 workflow_dispatch 手动跑一次即可。
 on:
   workflow_dispatch:
-  pull_request:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
