@@ -431,7 +431,9 @@ Phase 8              Phase 7              Phase 6              Phase 5
 1. 校验审查报告（Phase 5）和测试报告（Phase 6）均已通过
 2. 版本号单一来源核查：`version.json` 为唯一真相，`python scripts/sync_version.py` 同步全部位置（含移动端 versionCode 派生）
 3. **核对并对齐生产库表结构**（阻塞项）：`python scripts/check_db_schema.py`（退出码必须为 0；工具会先自动做「代码 → dev」前置检查）→ 有差异则 `python scripts/check_db_schema.py --align` 对齐 → 复验；prod 残留空的历史遗留表可用 `--prune-legacy` 清理；做法与交付物见 §5.1.1 / §5.1.2
-4. **统一打包所有已开发模块**：`python build.py -m all`（根目录统一入口，自动同步版本 + 逐模块环境检查 + desktop 切 venv）
+4. **构建**（按第 0 步的选择，二者不混用）：
+   - **仅本地构建** → `python build.py -m all` 或 `-m <模块>`（统一入口，自动同步版本 + 逐模块环境检查 + desktop 切 venv）
+   - **真实发布** → **不在本地构建**；推 tag 后由 `.github/workflows/build-*.yml` 在云端构建并挂到 Release
    - 产物：服务端/Web 端 Docker 镜像、桌面端 **onedir 目录 + 安装包**（Windows `*-setup.exe` + 便携 `*-portable.zip`、Linux/Fedora `*.rpm`）、移动端 debug+release 两个 APK
 5. 执行冒烟测试
 6. 输出 `文档记录/版本发布记录/<版本号>.md`，并同步更新根 `README.md` 的「版本变化」与「功能特性」章节
