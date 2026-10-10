@@ -95,3 +95,33 @@ jobs:
           python scripts/check_db_schema.py \
             --dev "${{ runner.temp }}/ci-dev.db" \
             --prod jflove-db/jflove-prod.db
+
+  cross-end-consistency-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      # 两个门禁都是**纯标准库、零第三方依赖**，所以这里不需要 pip install。
+      # 它们守的是"跨端一致性"这类**肉眼看不出来**的漂移：
+      #   ① 品牌资产：两端 public/logo-* 必须同字节，且源码引用的资产两端都得有；
+      #   ② 同源快照：两端同源文件（如笔记页、组件样式表）必须逐字节一致 —— v1.5.1 之前
+      #      只能靠"人工比一次 sha256"，本 job 把它变成退出码判据。
+      # 依据：LESSONS.md L12（约束要绑定到可执行的检查）、L17（门禁自身必须有反向验证）。
+
+      - name: ① 品牌资产跨端一致性（两端 logo 同字节 + 源码引用反查）
+        run: python scripts/check_logo_sync.py
+
+      - name: ①b 门禁可信性：坏数据必须被拦住（反向验证）
+        run: python scripts/check_logo_sync.py --self-test
+
+      - name: ② 同源快照一致性（两端同源文件逐字节）
+        run: python scripts/check_web_desktop_parity.py
+
+      - name: ②b 门禁可信性：篡改/缺文件/清单腐烂必须被拦住（反向验证）
+        run: python scripts/check_web_desktop_parity.py --self-test

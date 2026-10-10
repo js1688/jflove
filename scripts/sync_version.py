@@ -111,6 +111,14 @@ POSITIONS = [
      lambda p: _extract_re(p, r'APP_VERSION = "([^"]+)"'),
      lambda p, v: _replace_re(p, r'APP_VERSION = "[^"]+"', f'APP_VERSION = "{v}"'),
      False),
+    # v1.5.1 补漏：桌面端 Web UI（QtWebEngine 承载的前端工程）自己还有一处 APP_VERSION，
+    # 且**是用户可见的**（`LoginPage.tsx` 页脚 `v{APP_VERSION}`、`SettingsPage.tsx` 关于页
+    # `JFLove v{APP_VERSION}`）。此前不在本表里 ⇒ 版本号单一来源只覆盖了 Python 侧，
+    # 1.5.1 构建出来的桌面端界面仍显示 v1.5.0（正是本脚本要防的"构建了新版本、应用内还是旧版本号"）。
+    ("desktop", "jflove-desktop/ui/src/config/constants.ts",
+     lambda p: _extract_re(p, r"APP_VERSION\s*=\s*'([^']+)'"),
+     lambda p, v: _replace_re(p, r"APP_VERSION\s*=\s*'[^']+'", f"APP_VERSION = '{v}'"),
+     False),
     ("web", "jflove-web/package.json",
      _extract_pkg,
      _replace_pkg,
