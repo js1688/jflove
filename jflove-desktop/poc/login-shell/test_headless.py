@@ -218,6 +218,10 @@ window.__JF_TEST__ = {
     el.click();
     return true;
   },
+  /** 当前页面的开关（role="switch"）数量（用于断言"某个开关已不存在"） */
+  switchCount: function () {
+    return document.querySelectorAll('[role="switch"]').length;
+  },
   /** 设置数字输入框的值（走原生 setter，兼容 React 受控组件） */
   setNumberInput: function (value) {
     var el = document.querySelector('input[type="number"]');
@@ -1152,7 +1156,6 @@ def main() -> int:
     # ── 10. 管理 · 系统设置（N16） ─────────────────
     from src.services import config_service as _config_service
 
-    KEY_TRANSCODE = "media_repair_allow_transcode"
     KEY_CONCURRENT = "media_repair_max_concurrent"
 
     def server_config() -> dict:
@@ -1168,9 +1171,17 @@ def main() -> int:
 
     sys_text = run_js(page, "window.__JF_TEST__.bodyText()") or ""
     check(
-        "系统设置页渲染媒体修复配置项",
-        all(k in sys_text for k in ["离线媒体修复", "允许重编码降级", "修复并发数", "保存"]),
+        "系统设置页渲染媒体修复配置项（v1.5.1：仅「修复并发数」）",
+        all(k in sys_text for k in ["离线媒体修复", "修复并发数", "保存"]),
         sys_text.strip().replace("\n", " ")[:150],
+    )
+    # v1.5.1：桌面端「允许重编码降级」开关已删除（服务端自 v1.4.2 hotfix 起不读该键，
+    # 属失效 UI）。这里断言**页面不含**该开关，方向与服务端契约一致（避免留下相反的死门禁）。
+    check(
+        "系统设置页不含已废弃的「允许重编码降级」开关",
+        "允许重编码降级" not in sys_text
+        and run_js(page, "window.__JF_TEST__.switchCount()") == 0,
+        f"开关数={run_js(page, 'window.__JF_TEST__.switchCount()')}",
     )
     check(
         "标题栏显示「系统设置」",
@@ -1180,33 +1191,6 @@ def main() -> int:
         "侧栏激活态为「系统设置」",
         json.loads(run_js(page, "window.__JF_TEST__.activeNavItems()") or "[]") == ["系统设置"],
         f"激活项={run_js(page, 'window.__JF_TEST__.activeNavItems()')}",
-    )
-
-    # 开关初值必须与服务端一致（不是写死的假状态）
-    expect_switch = original_cfg.get(KEY_TRANSCODE) == "1"
-    actual_switch = run_js(page, "window.__JF_TEST__.switchState()")
-    check(
-        "开关初值来自服务端真实配置",
-        actual_switch is expect_switch,
-        f"UI={actual_switch} 服务端 {KEY_TRANSCODE}={original_cfg.get(KEY_TRANSCODE)!r}",
-    )
-
-    # 切换开关 → 服务端配置应真的改变
-    check("点击「允许重编码降级」开关", run_js(page, "window.__JF_TEST__.toggleSwitch()") is True)
-    deadline = time.time() + 15
-    while time.time() < deadline and server_config().get(KEY_TRANSCODE) == original_cfg.get(
-        KEY_TRANSCODE
-    ):
-        time.sleep(0.2)
-    after_toggle = server_config()
-    check(
-        "切换开关后服务端配置真的被改写",
-        after_toggle.get(KEY_TRANSCODE) != original_cfg.get(KEY_TRANSCODE),
-        f"{original_cfg.get(KEY_TRANSCODE)!r} → {after_toggle.get(KEY_TRANSCODE)!r}",
-    )
-    check(
-        "保存成功弹出提示",
-        wait_until(page, "window.__JF_TEST__.bodyText().indexOf('配置已保存') >= 0", timeout_s=8),
     )
 
     # 非法并发数应被前端拦下、且不写服务端
@@ -1239,16 +1223,13 @@ def main() -> int:
 
     info(f"系统设置页截图：{save_shot(shell, 'admin_system_page.png', page)}")
 
-    # ── 环境还原：把服务端配置改回测试前的值 ────────
-    _config_service.update_config(KEY_TRANSCODE, original_cfg.get(KEY_TRANSCODE, "0"))
+    # ── 环境还原 ────────────────────────────────────
+    # v1.5.1：本段**只还原测试真正改动过的键** —— 现在只剩 `media_repair_max_concurrent`
+    # （重编码降级开关已随失效 UI 一并删除，测试不再读写 `media_repair_allow_transcode`，
+    #   因此这里也**没有**可还原的该键；不要再加回来）。
     _config_service.update_config(KEY_CONCURRENT, "")
     time.sleep(0.5)
     restored = server_config()
-    check(
-        f"服务端 {KEY_TRANSCODE} 已还原",
-        restored.get(KEY_TRANSCODE) == original_cfg.get(KEY_TRANSCODE),
-        f"{restored.get(KEY_TRANSCODE)!r}",
-    )
     info(
         f"还原后服务端 config = {json.dumps(restored, ensure_ascii=False)}"
     )

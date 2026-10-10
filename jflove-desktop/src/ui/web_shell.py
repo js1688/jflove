@@ -32,6 +32,7 @@ from PySide6.QtCore import (
     QIODevice,
     QObject,
     Qt,
+    QTimer,
     QUrl,
     Signal,
     Slot,
@@ -229,6 +230,10 @@ class WebShell(QMainWindow):
         self._quitting = False
         #: 托盘控制器（`setup_tray()` 后可用）
         self.tray = None
+        #: 原生媒体浮层引用（`attach_overlay()` 注入；**鸭子类型**，不 import 浮层模块）
+        self._overlay = None
+        #: 浮层重贴合是否已排队（合并同一帧内的多次 move/resize，见 _schedule_overlay_refresh）
+        self._overlay_refresh_pending = False
 
         container = QWidget(self)
         layout = QVBoxLayout(container)
@@ -251,6 +256,84 @@ class WebShell(QMainWindow):
         self.view.page().setWebChannel(self.channel)
 
         self._inject_qwebchannel_js()
+
+    # ── 原生媒体浮层联动（#3） ────────────────────
+
+    def attach_overlay(self, overlay) -> None:
+        """
+        挂上原生媒体浮层，让主窗几何事件（拖动/缩放）能驱动它重新贴合。
+
+        只保存引用、**不 import 浮层模块** —— 用鸭子类型调用
+        `overlay.refresh_geometry()` / `overlay.on_shell_hidden()`，
+        保持"原生外壳不依赖浮层实现"的依赖方向（`main.py` 负责装配）。
+
+        :param overlay: 任意带 `refresh_geometry()` / `on_shell_hidden()` 的对象
+        """
+        self._overlay = overlay
+
+    def _schedule_overlay_refresh(self) -> None:
+        """
+        把一次拖动/缩放产生的**连续几何事件合并成事件循环末尾的一次重贴合**。
+
+        拖动主窗会连发大量 `moveEvent`/`resizeEvent`，逐次重算屏幕坐标既浪费又会让
+        浮层抖动；`QTimer.singleShot(0, ...)` + pending 标志只保留一次回调。
+
+        为什么延迟到当前事件循环之后：Windows 拖动期间 `moveEvent` 可能早于窗口几何
+        真正生效，此时 `mapToGlobal` 拿到的是旧坐标（表现为画面滞后一格）。
+        延后一帧再取坐标即可拿到最终几何（真机验证项见开发记录「遗留问题」）。
+
+        为什么**主窗不可见时不排队**：`hide_to_tray()` 隐藏主窗的过程中，平台仍可能
+        投递几何事件；若照常排队，回调会走到 `refresh_geometry()` 的
+        "`_shell_hidden` 恢复"分支，**立刻把刚隐藏的浮层又摆出来**，等于修复失效。
+        从托盘恢复走的是 `showEvent`（那时主窗已可见）直接调用，不受这条早退影响。
+        """
+        if (
+            self._overlay is None
+            or self._overlay_refresh_pending
+            or not self.isVisible()
+        ):
+            return
+        self._overlay_refresh_pending = True
+        QTimer.singleShot(0, self._on_overlay_refresh)
+
+    def _safe_overlay_refresh(self) -> None:
+        """
+        安全地让浮层重贴合一次（异常只记 debug）。
+
+        为什么吞异常：几何同步是**纯观感**优化 —— 浮层偏一格不会损坏数据，但如果
+        让它抛出去，一个平台相关的 `QWidget` 异常就能把主窗的拖动/缩放
+        （乃至 `showEvent`）交互打断。故只 `logger.debug` 记录后继续。
+
+        为什么抽成方法：`showEvent` 与 `_on_overlay_refresh` 两处需要**完全相同**的
+        容错口径，重复写两份容易在后续修改中漂移。
+        """
+        overlay = self._overlay
+        if overlay is None:
+            return
+        try:
+            overlay.refresh_geometry()
+        except Exception as exc:  # noqa: BLE001 - 几何同步失败不应影响主窗交互
+            logger.debug("浮层几何重贴合失败（忽略）：%s", exc)
+
+    def _on_overlay_refresh(self) -> None:
+        """合并后的延迟回调：真正执行一次浮层重贴合"""
+        self._overlay_refresh_pending = False
+        self._safe_overlay_refresh()
+
+    def moveEvent(self, event: QEvent) -> None:
+        """主窗被拖动：交回基类处理后触发浮层重贴合"""
+        super().moveEvent(event)
+        self._schedule_overlay_refresh()
+
+    def resizeEvent(self, event: QEvent) -> None:
+        """主窗被缩放：交回基类处理后触发浮层重贴合"""
+        super().resizeEvent(event)
+        self._schedule_overlay_refresh()
+
+    def showEvent(self, event: QEvent) -> None:
+        """主窗显示（含从托盘恢复）：立即按当前几何重新贴合一次"""
+        super().showEvent(event)
+        self._safe_overlay_refresh()
 
     @staticmethod
     def _harden_settings(view: QWebEngineView) -> None:
@@ -339,6 +422,11 @@ class WebShell(QMainWindow):
 
     def hide_to_tray(self) -> None:
         """隐藏到托盘并气泡提示（应用继续在后台运行）"""
+        # 浮层是独立顶层窗口，不随主窗隐藏 —— 必须显式让它一起隐藏（#3：
+        # 否则点 ✕ 关窗后画面上还留着播放器）。播放状态不在这里动（后台继续播放）。
+        overlay = self._overlay
+        if overlay is not None:
+            overlay.on_shell_hidden()
         self.hide()
         tray = getattr(self, "tray", None)
         if tray is not None:

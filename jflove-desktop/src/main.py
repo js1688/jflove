@@ -102,6 +102,8 @@ def main() -> int:
     # 原生媒体浮层（N7-b）：StreamProxy + QMediaPlayer / Qt 原生解码
     # —— 解码能力走本地（OS 解码器），不用 Chromium 的 <video>/<img>
     overlay = MediaOverlay(get_view=lambda: _shell.view, publish_event=bridge.publish_event)
+    # 把浮层挂到外壳上（#3）：主窗拖动/缩放 → 浮层重贴合；主窗隐藏到托盘 → 浮层一起隐藏
+    _shell.attach_overlay(overlay)
     from src.bridge import files as files_bridge
     from src.bridge import media as media_bridge
 

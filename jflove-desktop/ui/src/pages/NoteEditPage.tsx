@@ -11,6 +11,22 @@ import { planInsertion } from '../utils/markdown-insert';
 
 type ViewMode = 'edit' | 'preview' | 'split';
 
+/**
+ * 由笔记内容判定进入页面时的**初始**视图模式（v1.5.1 #4-b，AC-9 / AC-10）。
+ *
+ * 为什么用内容判定而不是"新建标记"：新建与打开既有笔记**共用** `notes/:noteId` 路由
+ * （新建是先建一个空文件再跳转），没有可区分的路由标记。
+ *
+ * - 有内容 → `'preview'`：已有笔记以阅读为主（用户反馈"编写的概率比较小"）；
+ * - 空 / 纯空白 → `'edit'`：新建的目的就是写。
+ *
+ * 抽成**纯函数并 export**：默认模式判定是本版本的核心行为，抽出来才能被单测直接覆盖
+ * （`.claude/skills/LESSONS.md` L25）。
+ */
+export function resolveInitialViewMode(content: string): ViewMode {
+  return content.trim() !== '' ? 'preview' : 'edit';
+}
+
 /** Markdown 工具栏按钮（v1.5.0：图标由字符/emoji 改为矢量图标，需求 AC-5） */
 interface ToolbarButton {
   label: string;
@@ -139,22 +155,48 @@ export function NoteEditPage() {
   const navigate = useNavigate();
   const store = useNoteStore();
 
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
+  // v1.5.1 #4-b：初值由 `'split'` 改为 `'edit'` —— 加载期间不闪一下空预览；
+  // 加载成功后由 `resolveInitialViewMode` 按内容改写为 `'preview'`（有内容时）。
+  const [viewMode, setViewMode] = useState<ViewMode>('edit');
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
   const [showDiagramMenu, setShowDiagramMenu] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+  // v1.5.1 #4-a（AC-8）：大纲栏折叠状态，仅组件内存（**不写 localStorage**），下次进入回到默认展开
+  const [outlineOpen, setOutlineOpen] = useState(true);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** v1.5.1 #4-b：已完成"内容驱动"默认模式判定的文件名（同一文件名只判定一次） */
+  const modeResolvedForRef = useRef<string | null>(null);
+  /**
+   * v1.5.1 #4-b（AC-11）：**手动切换过模式的那篇笔记**的文件名。
+   * ⚠ 必须按 filename 记账，不能用一个全局布尔值（Phase 5 审查 M-4）：
+   * 全局布尔的语义是"本组件实例内只要手动切过一次就永久生效"，于是之后打开**任何**有内容的
+   * 笔记都会停在 `edit`，违背 AC-9「有内容 → 预览」。按 filename 记账后：同一篇笔记内手动切换
+   * 依旧不再被自动改写（AC-11），切到另一篇笔记则重新按内容判定一次（AC-9 / AC-10）。
+   */
+  const userSwitchedModeForRef = useRef<string | null>(null);
 
   const filename = noteId ? decodeURIComponent(noteId) : null;
 
-  // 加载笔记
+  // 加载笔记（v1.5.1 #4-b：加载成功后按内容判定一次默认模式）
   useEffect(() => {
     if (!filename) return;
-    useNoteStore.getState().loadNote(filename).catch(() => {
-      navigate('/notes', { replace: true });
-    });
+    useNoteStore
+      .getState()
+      .loadNote(filename)
+      .then(() => {
+        // **本篇笔记**手动切换过模式（AC-11），或该文件名已判定过 → 不覆盖当前模式。
+        // 判定只发生在加载成功这一刻，自动保存/内容变化都不会再改写它。
+        if (userSwitchedModeForRef.current === filename) return;
+        if (modeResolvedForRef.current === filename) return;
+        modeResolvedForRef.current = filename;
+        // 必须取 store 的**实时**内容：闭包里的 store 是本次渲染的快照，可能还是上一篇笔记的
+        setViewMode(resolveInitialViewMode(useNoteStore.getState().currentContent));
+      })
+      .catch(() => {
+        navigate('/notes', { replace: true });
+      });
   }, [filename, navigate]);
 
   // 自动保存
@@ -308,6 +350,17 @@ export function NoteEditPage() {
   const showEditor = viewMode === 'edit' || viewMode === 'split';
   const showPreview = viewMode === 'preview' || viewMode === 'split';
 
+  /**
+   * v1.5.1 #4-a（AC-6 / AC-7）：大纲栏的可用条件 —— 预览 / 分屏 + 笔记含标题。
+   * 编辑模式不显示：大纲跳转依赖预览区 DOM（`document.querySelector('.markdown-body')`），
+   * 编辑模式下预览区不存在，展示一个点了没反应的栏不如不展示。
+   * 加载中（`store.isLoading`）也不显示，避免拿上一篇笔记的标题闪一下。
+   */
+  const outlineAvailable =
+    !store.isLoading && (viewMode === 'preview' || viewMode === 'split') && headings.length > 0;
+  /** 是否真的把大纲栏渲染出来（可用 + 用户未折叠） */
+  const showOutline = outlineAvailable && outlineOpen;
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -318,13 +371,30 @@ export function NoteEditPage() {
           <div className="flex items-center gap-2">
             <Segmented
               value={viewMode}
-              onChange={setViewMode}
+              onChange={(mode) => {
+                // v1.5.1 #4-b（AC-11）：按 filename 记账 —— **本篇笔记**不再被自动改写；
+                // 切到另一篇笔记时重新按内容判定（M-4 修法）
+                userSwitchedModeForRef.current = filename;
+                setViewMode(mode);
+              }}
               options={[
                 { value: 'edit', label: '编辑', icon: 'edit' },
                 { value: 'split', label: '分屏', icon: 'columns' },
                 { value: 'preview', label: '预览', icon: 'view' },
               ]}
             />
+            {/* v1.5.1 #4-a（AC-8）：大纲栏折叠开关（仅在"有标题的预览/分屏"下出现，
+                这样按钮不会变成一个点了没反应的死开关）；折叠时按钮呈激活态 `data-on` */}
+            {outlineAvailable && (
+              <IconButton
+                icon="list"
+                label={outlineOpen ? '折叠大纲' : '展开大纲'}
+                size="sm"
+                data-on={!outlineOpen}
+                aria-expanded={outlineOpen}
+                onClick={() => setOutlineOpen((v) => !v)}
+              />
+            )}
             {store.isModified ? (
               <Badge tone="warning" icon="warning">
                 未保存
@@ -459,28 +529,29 @@ export function NoteEditPage() {
                 )}
               </div>
             )}
-          </div>
 
-          {/* 大纲（预览模式） */}
-          {viewMode === 'preview' && headings.length > 0 && (
-            <details className="shrink-0 border-t border-line-subtle bg-surface">
-              <summary className="cursor-pointer px-4 py-2 text-[13px] text-muted hover:bg-hover">
-                大纲（{headings.length} 个标题）
-              </summary>
-              <div className="max-h-48 space-y-1 overflow-y-auto px-4 pb-3">
-                {headings.map((h, i) => (
-                  <div
-                    key={i}
-                    onClick={() => handleOutlineClick(h.text)}
-                    className="cursor-pointer text-[13px] text-muted transition-colors hover:text-fg-brand"
-                    style={{ paddingLeft: `${(h.level - 1) * 16}px` }}
-                  >
-                    {h.text}
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
+            {/* 大纲（v1.5.1 #4-a：由**底部折叠区**改为**右侧可折叠竖栏**，与预览区并列；
+                条目样式与跳转逻辑沿用原实现，不新增标题解析规则、不做滚动联动高亮） */}
+            {showOutline && (
+              <aside className="w-56 shrink-0 overflow-y-auto border-l border-line-subtle bg-surface">
+                <div className="px-4 py-2 text-[13px] text-muted">
+                  大纲（{headings.length} 个标题）
+                </div>
+                <div className="space-y-1 px-4 pb-3">
+                  {headings.map((h, i) => (
+                    <div
+                      key={i}
+                      onClick={() => handleOutlineClick(h.text)}
+                      className="cursor-pointer text-[13px] text-muted transition-colors hover:text-fg-brand"
+                      style={{ paddingLeft: `${(h.level - 1) * 16}px` }}
+                    >
+                      {h.text}
+                    </div>
+                  ))}
+                </div>
+              </aside>
+            )}
+          </div>
         </>
       )}
 
