@@ -104,6 +104,11 @@
     width: 28px;
     height: 28px;
   }
+  /* 激活态（开关型图标按钮，如笔记页「大纲」折叠开关）：口径与 .tb[data-on] 一致 */
+  .icon-btn[data-on='true'] {
+    background-color: var(--bg-active);
+    color: var(--fg-brand);
+  }
 
   /* ==================== 勾选框 ==================== */
   /* 权限矩阵 / 复选列表用：选中态用品牌底 + 反色对勾（对勾由 <Icon name="checked"> 渲染） */
@@ -941,15 +946,9 @@
   }
 
   /* ==================== 品牌标识 ==================== */
-  .logo-mark {
-    @apply grid shrink-0 place-items-center;
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
-    background-image: var(--grad-brand);
-    color: #fff;
-    box-shadow: 0 4px 12px rgb(99 102 241 / 0.35);
-  }
+  /* v1.5.1 #1：两端品牌位改为猫猫 logo 图片（`<img src="./logo-*.png">`），
+     `.logo-mark`（渐变方块 + 图标）已无任何使用点，故删除 —— **两端样式表同步删除**，
+     避免两份同源样式表出现无意义差异。 */
   .grad-text {
     background-image: var(--grad-brand);
     -webkit-background-clip: text;

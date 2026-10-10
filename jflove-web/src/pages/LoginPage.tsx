@@ -108,9 +108,13 @@ export function LoginPage() {
 
       {/* Header */}
       <div className="mb-6 text-center">
-        <span className="logo-mark mx-auto !h-14 !w-14 !rounded-2xl">
-          <Icon name="shield" size="xl" strokeWidth={2} />
-        </span>
+        {/* v1.5.1 #1：登录页品牌标识同样用猫猫 logo（逐属性对齐桌面端同一处） */}
+        <img
+          src="./logo-256.png"
+          alt=""
+          aria-hidden="true"
+          className="mx-auto h-14 w-14 rounded-2xl object-cover"
+        />
         <h1 className="grad-text mt-3 text-[22px] font-bold tracking-[-0.02em]">JFLove</h1>
         <p className="mt-1 text-[11.5px] text-subtle">
           所有通信均经过端到端加密，连接后自动交换临时会话密钥。

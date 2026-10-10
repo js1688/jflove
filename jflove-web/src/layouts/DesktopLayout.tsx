@@ -96,9 +96,13 @@ export function DesktopLayout() {
             title={collapsed ? '展开侧栏' : '折叠侧栏'}
             aria-label={collapsed ? '展开侧栏' : '折叠侧栏'}
           >
-            <span className="logo-mark">
-              <Icon name="shield" size="sm" strokeWidth={2.1} />
-            </span>
+            {/* v1.5.1 #1：品牌标识与桌面端一致（猫猫 logo 图片，逐属性对齐桌面端同一处） */}
+            <img
+              src="./logo-128.png"
+              alt=""
+              aria-hidden="true"
+              className="h-8 w-8 shrink-0 rounded-[10px] object-cover"
+            />
             {!collapsed && (
               <span className="min-w-0">
                 <span className="grad-text block text-[15px] leading-tight font-semibold tracking-[-0.015em]">
