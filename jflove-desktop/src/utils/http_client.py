@@ -14,6 +14,11 @@ v1.1.1 新增：ECDH 加密会话失效（服务端重启后内存 _session_stor
            静默续约。客户端收到 401 且 detail 是 "会话不存在或已过期 / 缺少 X-Session-ID"
            类时，自动重做 key-exchange 并重发原请求；JWT 类 401 仍直接抛 ApiError 让
            上层登出。最多重试 1 次，避免无限循环。
+
+v1.5.1 修复（缺陷 M-4）：响应体形状是加密信封但**解密失败**时，原先会把这个外壳
+           当明文成功返回（`{"nonce":…,"ciphertext":…}` 直接交给业务层），
+           表现为"目录是空的"这类**静默故障**。现在先由 `_is_envelope()` 判形状：
+           不是信封 → 明文直返；是信封但解不开 → 抛 `ApiError(502, "响应解密失败")`。
 """
 
 import os
@@ -43,6 +48,24 @@ def _is_ecdh_session_error(detail: str) -> bool:
     if not detail:
         return False
     return any(p in detail for p in _ECDH_401_PATTERNS)
+
+
+def _is_envelope(body) -> bool:
+    """
+    判断响应体是否为 ChaCha20-Poly1305 加密信封 —— **只判形状，不解密**。
+
+    形状判据：`dict` 且**同时**包含 `nonce` 与 `ciphertext` 两个键。
+
+    为什么要单独抽一个"只判形状"的函数（而不是看解密结果）：把"不是信封"与
+    "是信封但解不开"两种截然不同的情况混为一谈，会让调用方在**认证失败**时
+    把 `{"nonce":…,"ciphertext":…}` 外壳当成明文成功返回 —— 上层
+    `resp.get("files", [])` 于是得到空列表，界面表现为"目录是空的"，
+    不报错、不重试、不登出（v1.5.0 遗留的中等缺陷 M-4）。
+
+    :param body: `resp.json()` 解析结果（可能是任意 JSON 类型）
+    :returns: True 表示形状上是加密信封
+    """
+    return isinstance(body, dict) and "nonce" in body and "ciphertext" in body
 
 
 class ApiError(Exception):
@@ -137,10 +160,14 @@ class HttpClient:
         """
         若 body 是 {nonce, ciphertext} 加密信封，则解密返回原 dict；否则返回 None。
 
+        ⚠ 返回值 `None` 有**两种**含义（"不是信封" / "是信封但解不开"）。调用方若
+        只判 `is not None`，就会把解不开的信封当明文返回（缺陷 M-4）。需要区分时
+        请先调 `_is_envelope(body)` 判形状，再决定报错还是按明文处理。
+
         :param body: 已 json() 解析的响应字典
-        :returns: 解密后字典，或 None 表示不是加密信封
+        :returns: 解密后字典，或 None（不是信封 / 解不开）
         """
-        if isinstance(body, dict) and "nonce" in body and "ciphertext" in body:
+        if _is_envelope(body):
             try:
                 return decrypt(
                     session_manager.session_key, body["nonce"], body["ciphertext"]
@@ -151,28 +178,48 @@ class HttpClient:
         return None
 
     def _extract_error_detail(self, resp: requests.Response) -> str:
-        """从错误响应中尽力解析出 detail 文案（含加密信封识别）。"""
+        """
+        从错误响应中尽力解析出 detail 文案（含加密信封识别）。
+
+        三种情况分开处理（对齐 `_parse_response` 的口径）：
+
+        1. 信封且解得开 → 用里面的 `detail`；
+        2. 信封但**解不开**（认证失败 / 会话密钥不对）→ 给出明确文案，
+           **不**静默退化成 `resp.text`（那会把 `{"nonce":…,"ciphertext":…}` 外壳
+           当成给用户看的错误信息）；
+        3. 不是信封（明文白名单，如 `admin-exists`）→ 用 `detail` 字段，缺失才用 `resp.text`。
+        """
         detail = "请求失败"
         try:
             err_body = resp.json()
-            decrypted = self._decrypt_envelope_or_none(err_body)
-            if decrypted is not None:
-                detail = decrypted.get("detail", detail)
-            elif isinstance(err_body, dict):
-                detail = err_body.get("detail", resp.text)
-            else:
-                detail = resp.text
         except Exception:
-            detail = resp.text
-        return detail
+            return resp.text
+        if _is_envelope(err_body):
+            decrypted = self._decrypt_envelope_or_none(err_body)
+            if decrypted is None:
+                # 形状是信封但解不开：绝不回退成明文外壳
+                return "响应解密失败（会话密钥不匹配或响应被篡改）"
+            return decrypted.get("detail", detail)
+        if isinstance(err_body, dict):
+            return err_body.get("detail", resp.text)
+        return resp.text
 
     def _parse_response(self, resp: requests.Response) -> dict:
         """
         解析并解密响应体（含错误响应）。
 
+        判据顺序（**先判形状，再看解密结果**）：
+
+        - 不是信封 → 明文直返（`admin-exists` / `health` 等明文白名单接口照旧）；
+        - 是信封且解开了 → 返回解密后的 dict；
+        - 是信封但**解不开** → 抛 `ApiError(502, "响应解密失败")`，
+          **绝不**把 `{"nonce":…,"ciphertext":…}` 外壳当明文成功返回（缺陷 M-4）。
+          该 502 是**客户端合成**的状态码（服务端此刻的状态是 200），
+          表示"服务端返回了信封但本客户端解不开"，详见抛出点注释（R5-T7）。
+
         :param resp: requests 响应对象
         :returns: 解密后的原始 dict
-        :raises ApiError: HTTP 状态码 >= 400
+        :raises ApiError: HTTP 状态码 >= 400，或加密响应体解密失败（客户端合成 502）
         """
         if resp.status_code >= 400:
             detail = self._extract_error_detail(resp)
@@ -182,11 +229,20 @@ class HttpClient:
             raise ApiError(resp.status_code, detail)
 
         body = resp.json()
+        if not _is_envelope(body):
+            # 明文响应（admin-exists / health 等）
+            return body
         decrypted = self._decrypt_envelope_or_none(body)
-        if decrypted is not None:
-            return decrypted
-        # 明文响应（admin-exists / health 等）
-        return body
+        if decrypted is None:
+            logger.error("加密响应体解密失败（形状为信封但认证/解密不通过）")
+            # ⚠ 502 是**客户端合成**的状态码，**不是**服务端返回的（R5-T7）：
+            # 此刻服务端的 HTTP 状态是 200，问题出在"客户端解不开这个信封"
+            # （会话密钥不匹配 / 响应被中间人篡改）。之所以复用 502（Bad Gateway），
+            # 是为了让上层 `except ApiError` 的既有处理路径（登出/重试/提示）无需新增分支 ——
+            # 语义上它是"网关（本次会话隧道）这一侧出了故障"，与 502 的原义一致。
+            # 不要把它理解为"服务端返回了 502"。
+            raise ApiError(502, "响应解密失败（会话密钥不匹配或响应被篡改）")
+        return decrypted
 
     def _send_with_auto_resync(self, send_fn) -> "requests.Response":
         """
@@ -225,6 +281,10 @@ class HttpClient:
         """
         发送明文 GET 请求（用于 admin-exists 等不需要加密的接口）。
 
+        错误文案统一走 `_extract_error_detail()`（R5-T4）：本方法虽然只服务明文白名单，
+        但**口径必须与加密路径一致** —— 万一日后误用到加密接口上，也不会把
+        `{"nonce":…,"ciphertext":…}` 外壳当 detail 抛给用户（与 M-4 同一类缺陷）。
+
         :param endpoint: API 路径，如 /api/v1/auth/admin-exists
         :returns: 响应 dict
         :raises ApiError: 请求失败
@@ -232,12 +292,14 @@ class HttpClient:
         url = self._base_url() + endpoint
         resp = requests.get(url, timeout=10)
         if resp.status_code >= 400:
-            raise ApiError(resp.status_code, resp.json().get("detail", resp.text))
+            raise ApiError(resp.status_code, self._extract_error_detail(resp))
         return resp.json()
 
     def post_plain(self, endpoint: str, data: dict) -> dict:
         """
         发送明文 POST 请求（用于密钥交换接口）。
+
+        错误文案同样走 `_extract_error_detail()`（R5-T4，理由见 `get_plain`）。
 
         :param endpoint: API 路径
         :param data: 请求体字典（不加密）
@@ -247,7 +309,7 @@ class HttpClient:
         url = self._base_url() + endpoint
         resp = requests.post(url, json=data, timeout=15)
         if resp.status_code >= 400:
-            raise ApiError(resp.status_code, resp.json().get("detail", resp.text))
+            raise ApiError(resp.status_code, self._extract_error_detail(resp))
         return resp.json()
 
     # ── 公开接口：加密请求 ────────────────────────────
@@ -335,20 +397,26 @@ class HttpClient:
 
     def _handle_stream_error(self, resp: requests.Response) -> None:
         """
-        统一处理流式接口的错误响应（与 _parse_response 同款解密逻辑）。
+        统一处理流式接口的错误响应（与 `_parse_response` 同款解密逻辑）。
+
+        信封但解不开时同样给明确文案（不回退成密文外壳文本）。
 
         :raises ApiError: 总会抛出，携带解密后的 detail
         """
-        detail = "文件下载失败"
         try:
             err_body = resp.json()
-            decrypted = self._decrypt_envelope_or_none(err_body)
-            if decrypted is not None:
-                detail = decrypted.get("detail", detail)
-            elif isinstance(err_body, dict):
-                detail = err_body.get("detail", detail)
         except Exception:
-            pass
+            err_body = None
+        if _is_envelope(err_body):
+            decrypted = self._decrypt_envelope_or_none(err_body)
+            if decrypted is None:
+                detail = "响应解密失败（会话密钥不匹配或响应被篡改）"
+            else:
+                detail = decrypted.get("detail", "文件下载失败")
+        elif isinstance(err_body, dict):
+            detail = err_body.get("detail", "文件下载失败")
+        else:
+            detail = "文件下载失败"
         logger.error("文件流请求失败 [%d]: %s", resp.status_code, detail)
         raise ApiError(resp.status_code, detail)
 
