@@ -23,7 +23,6 @@ from tests.conftest import (
     decrypt_response,
     do_key_exchange,
     encrypted_request,
-    login,
 )
 from tests.test_security_e2e import (
     assert_encrypted_envelope,
@@ -248,21 +247,15 @@ class Test错误处理:
         assert resp.status_code == 401, f"期望 401，实际 {resp.status_code}"
         assert_encrypted_envelope(resp.json(), "无 token 401 应为加密信封")
 
-    def test_无磁盘读权限_返回403加密响应(self, client, env, test_file):
-        """对目标磁盘没有读权限的用户访问应得到 403"""
-        filename, _ = test_file
-        # 创建无权限用户
-        no_perm = do_key_exchange(client)
-        resp = encrypted_request(
-            client, env["admin"], "POST", "/api/v1/users",
-            {"username": "stream_noperm", "password": "NoPer@mPass1"},
-        )
-        # 用户可能已存在
-        if resp.status_code not in (200, 409):
-            pytest.fail(f"创建测试用户失败: {resp.status_code} {resp.text}")
-        login(client, no_perm, "stream_noperm", "NoPer@mPass1")
+    def test_无磁盘读权限_返回403加密响应(self, client, env, test_file, no_perm_session):
+        """
+        对目标磁盘没有读权限的用户访问应得到 403。
 
-        resp = _stream_req(client, no_perm, env["disk_id"], filename)
+        v1.5.1 Phase 6（缺陷 D1）：无权限用户改由 `no_perm_session` fixture 提供 ——
+        此前是**本用例顺手创建**、被同文件另一个类复用，导致那个类无法独立运行。
+        """
+        filename, _ = test_file
+        resp = _stream_req(client, no_perm_session, env["disk_id"], filename)
         assert resp.status_code == 403, f"期望 403，实际 {resp.status_code}"
         assert_encrypted_envelope(resp.json(), "无权限 403 应为加密信封")
 
@@ -380,12 +373,18 @@ class Test安全宪法流式预览:
         assert resp.status_code == 401
         assert_encrypted_envelope(resp.json(), "401 应为加密信封")
 
-    def test_错误响应403也是加密信封(self, client, env, test_file):
-        """403 Forbidden 错误响应也必须是加密信封"""
+    def test_错误响应403也是加密信封(self, client, env, test_file, no_perm_session):
+        """
+        403 Forbidden 错误响应也必须是加密信封。
+
+        v1.5.1 Phase 6（缺陷 D1 / LESSONS L18）：前置用户改由 `no_perm_session` fixture 提供，
+        并把原来"`if resp.status_code == 403:` 才断言"的**条件断言**收紧为**无条件断言** ——
+        条件断言在状态码不是 403 时会**静默跳过**（等于假通过），
+        既不满足 SKILL 纪律 3（断言要打在会静默出错的地方），也掩盖了"fixture 没提供前置"。
+        """
         filename, _ = test_file
-        no_perm = do_key_exchange(client)
-        # 使用已存在的 no_perm 用户
-        login(client, no_perm, "stream_noperm", "NoPer@mPass1")
-        resp = _stream_req(client, no_perm, env["disk_id"], filename)
-        if resp.status_code == 403:
-            assert_encrypted_envelope(resp.json(), "403 应为加密信封")
+        resp = _stream_req(client, no_perm_session, env["disk_id"], filename)
+        assert resp.status_code == 403, (
+            f"无磁盘读权限的用户访问 stream 应得 403，实际 {resp.status_code}"
+        )
+        assert_encrypted_envelope(resp.json(), "403 应为加密信封")

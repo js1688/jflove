@@ -119,6 +119,12 @@ def login(client: TestClient, session: Session, username: str, password: str) ->
     session.user_id = data.get("user_id")
 
 
+#: 「对磁盘没有任何权限」的测试用户凭据。
+#: `env` fixture **不会**给它授予任何磁盘权限，因此它对任何磁盘的操作都应得到 403。
+NO_PERM_USERNAME = "stream_noperm"
+NO_PERM_PASSWORD = "NoPer@mPass1"
+
+
 # ── module 级 fixture ────────────────────────────
 
 @pytest.fixture(scope="session")
@@ -221,3 +227,31 @@ def env(client: TestClient, disk_root: Path) -> dict[str, Any]:
         "disk_id": disk_id,
         "disk_root": disk_root,
     }
+
+
+@pytest.fixture(scope="session")
+def no_perm_session(client: TestClient, env: dict[str, Any]) -> Session:
+    """
+    一个"已登录、但对虚拟磁盘**没有任何权限**"的普通用户会话。
+
+    为什么必须抽成 fixture（v1.5.1 Phase 6 修复测试资产缺陷 D1）：
+    此前这个用户是在 `test_stream_v1_1_0.py::Test错误处理::test_无磁盘读权限_返回403加密响应`
+    里**顺手创建**的副作用，而同文件另一个类 `Test安全宪法流式预览` 直接复用它 ⇒
+    **只运行那个类时会因该用户不存在而 401 假失败**（违反 `testing/SKILL.md` 行为规范
+    "测试必须可独立、可重复运行"；该问题在 `v1.5.0` tag 上同样可复现，非 v1.5.1 引入）。
+
+    抽成 fixture 后，任何测试类都能**独立**取得该前置；创建动作保持**幂等**
+    （201/200 表示新建成功，409 表示已存在，两者都可接受，与改动前的口径一致）。
+
+    :returns: 已登录、且对 `env["disk_id"]` 无任何权限的 Session
+    """
+    no_perm = do_key_exchange(client)
+    resp = encrypted_request(
+        client, env["admin"], "POST", "/api/v1/users",
+        {"username": NO_PERM_USERNAME, "password": NO_PERM_PASSWORD},
+    )
+    # 用户可能已存在（幂等）
+    if resp.status_code not in (200, 409):
+        pytest.fail(f"创建无权限测试用户失败: {resp.status_code} {resp.text}")
+    login(client, no_perm, NO_PERM_USERNAME, NO_PERM_PASSWORD)
+    return no_perm
