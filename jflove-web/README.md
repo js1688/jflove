@@ -200,9 +200,7 @@ jflove-web/
 │   │   ├── session.ts              # 会话管理
 │   │   ├── stream-frame.ts         # 流式帧解析
 │   │   ├── stream-proxy.ts         # SW 流式代理（v1.3.1+）
-│   │   └── media-source-player.ts  # MSE 回退播放器（v1.3.1+）
-│   ├── sw/
-│   │   └── index.ts                # Service Worker 流式代理入口（构建输出 dist/sw.js）
+│   │   └── media-source-player.ts  # MSE 边下边播主路径（v1.4.0+，HTTP/HTTPS 均可用）
 │   └── types/
 │       ├── models.ts               # 数据模型
 │       └── api.ts                  # API 类型
@@ -240,6 +238,6 @@ jflove-web/
 ## 已知限制
 
 - **同步管理**：浏览器沙箱限制，不支持本地文件系统双向同步（降级为展示+引导）
-- **视频/音频预览**：Service Worker 流式代理**边下边播 + 拖动 seek**（等价桌面/移动端 StreamProxy，需 HTTPS/localhost 部署）；非安全上下文（HTTP 域名）自动回退 **MSE**（fMP4/WebM/MP3/FLAC/OGG 仍可边下边播）；MSE 不可行时才回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
+- **视频/音频预览**：**MSE 主路径**（`src/utils/media-source-player.ts` 的 `playWithMSE`）边下边播 + 拖动 seek，**HTTP 与 HTTPS 均可用**（v1.4.0 起移除 Service Worker 流式代理，不再依赖安全上下文；单入口构建、无 `dist/sw.js`）；MSE 不可行时才回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
 - **PDF 预览**：暂不支持（与桌面端/移动端一致），提示下载后使用本地程序打开
 - **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗）+ `highlight.js`（代码高亮）+ `mermaid`（图表渲染），支持标题/加粗/斜体/列表/引用/代码块等

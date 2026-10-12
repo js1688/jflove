@@ -2,9 +2,13 @@
 
 JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲染）** 的私有文档与笔记协同管理桌面应用，界面与 Web 端同一套，同时保留托盘、本地解码的媒体预览、原生文件对话框与系统拖放上传。
 
-> **当前版本：v1.4.2**（桌面端版本号定义位置：`src/config/settings.py` 的 `APP_VERSION` 与 `build.py` 的 `VERSION`，两处必须一致；推荐用 `python build.py --version x.y.z` 一键同步）
+> **当前版本：v1.5.1**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**两处**：`src/config/settings.py` 的 `APP_VERSION` 与 **`ui/src/config/constants.ts`** 的 `APP_VERSION`（后者是界面上「登录页页脚 / 设置-关于」显示的值）。**不要手改任何一处版本号字段。**）
 
-> **v1.4.2**：媒体修复改为手动离线修复——文件管理右键「修复损坏媒体」+ 新增「修复中心」页面（任务列表/验证播放/覆盖原文件）；播放路径纯净化（损坏文件弹「立即修复」引导）；修复健康文件拖拽 seek 回归（恢复原生字节 range seek）；设置页移除实时修复总开关。
+> **v1.5.1**：Web 端品牌标识与桌面端统一（猫猫 logo）；系统设置移除**已失效**的「允许重编码降级」开关（服务端自 v1.4.2 起已不读取该键）；
+> 修复原生媒体浮层「关窗后残留」与「拖动主窗画面不跟随」；笔记页大纲改为**右侧可折叠竖栏**、打开笔记默认进入预览模式（有内容时）；
+> 修复「200 响应是加密信封但解不开却被当明文成功」的静默降级；版本号同步补入界面侧常量（此前界面会显示旧版本号）。
+>
+> **v1.5.0**：界面由 Qt Widgets **整体迁移到 Web UI**（QtWebEngine 渲染 `ui/`），保留托盘、本地解码媒体预览、原生文件对话框与系统拖放上传；交付形态改为**安装包**（onedir + Inno Setup / RPM）。
 
 ---
 
@@ -30,9 +34,10 @@ UI (Page) → Signal → Service (业务逻辑) → http_client → 后端 API
 
 | 层 | 目录 | 职责 |
 |----|------|------|
-| **UI 页面** | [`src/ui/pages/`](jflove-desktop/src/ui/pages/) | 用户界面、交互事件 |
-| **原生外壳** | [`src/ui/`](jflove-desktop/src/ui/) | `web_shell.py`（无边框窗口/桥/关闭到托盘）、`tray.py`、`media_overlay.py` |
-| **组件** | [`src/components/`](jflove-desktop/src/components/) | 可复用 UI 组件（预览对话框、流式代理、文本加载器） |
+| **UI 前端工程** | [`ui/`](jflove-desktop/ui/) | 全部业务界面（React + TS + Vite + Tailwind），与 Web 端同源快照、独立演进 |
+| **原生外壳** | [`src/ui/`](jflove-desktop/src/ui/) | `web_shell.py`（无边框窗口 / 桥注入 / 关闭=最小化到托盘）、`tray.py`、`media_overlay.py`（原生媒体浮层） |
+| **渲染层桥** | [`src/bridge/`](jflove-desktop/src/bridge/) | 白名单桥（`bridge.py` + `api_gateway.py` / `files.py` / `media.py` / `sync.py` / `transfer.py`）；JS **无网络出口** |
+| **组件（原生能力）** | [`src/components/`](jflove-desktop/src/components/) | `stream_proxy.py`（本地解密 + Range 206 流代理，媒体预览的唯一通路） |
 | **服务** | [`src/services/`](jflove-desktop/src/services/) | 与后端 API 交互的业务服务层 |
 | **工具** | [`src/utils/`](jflove-desktop/src/utils/) | 加密、HTTP 客户端、会话管理、工作线程 |
 
@@ -55,7 +60,7 @@ Service Layer → http_client.py → 加密请求 → 后端 API
 - **界面**：Web UI（`ui/`，与 Web 端同源快照、独立演进）
 - **HTTP**：requests
 - **加密**：cryptography（X25519 / HKDF-SHA256 / ChaCha20-Poly1305）
-- **构建**：PyInstaller（`--onefile --windowed`）
+- **构建**：PyInstaller（**onedir**；交付形态为**安装包**，见「构建与打包」）
 
 ---
 
@@ -117,22 +122,26 @@ python src/main.py
 
 ---
 
-## 构建可执行文件
+## 构建与打包
+
+> **统一入口在仓库根**（`AGENTS.md §8`）：本地打包一律走根目录 `python build.py -m desktop`（自动同步版本号 + 逐模块环境检查 + 切换到本模块 venv）。
+> 直接调用本模块 `build.py` 只用于单步调试，**不作为交付路径**。
 
 ```bash
-cd jflove-desktop
-python build.py             # 默认 onefile + windowed（构建前校验两处版本号一致）
-python build.py --version 1.1.7   # 指定新版本号：自动同步 settings.py / build.py 后构建
-python build.py --clean     # 构建前先 rm -rf build/
+# 仓库根目录执行（唯一对外入口）
+python build.py -m desktop      # Windows：onedir + 安装包 + 便携 zip；Linux：onedir + RPM
+python build.py -m all          # 四端统一入口（缺 docker 时 server/web 会响亮跳过）
 ```
 
-### 构建产物
+### 构建产物（桌面端交付形态 = **安装包**）
 
-| 平台 | 产物路径 | 说明 |
-|------|---------|------|
-| Linux | `build/dist/JFLove` | ELF 单文件 |
-| Windows | `build/dist/JFLove.exe` | 带 icon.ico（需 Windows 主机构建） |
-| macOS | `build/dist/JFLove.app` | 建议手动 codesign（需 macOS 主机构建） |
+| 平台 | 产物 | 说明 |
+|------|------|------|
+| Windows | `build/dist/JFLove-<ver>-win64-setup.exe`、`JFLove-<ver>-win64-portable.zip`、`build/dist/JFLove/` | Inno Setup 安装包（含开始菜单/卸载器）；缺 Inno Setup 时**降级只出 zip 并响亮报警**（需 Windows 主机构建） |
+| Linux / Fedora | `jflove-desktop-<ver>-1.fc<N>.x86_64.rpm`、`build/dist/JFLove/` | 由 `packaging/build_rpm.sh` / CI 产出 |
+| 其他 | `build/dist/JFLove/` | 只出 onedir（PyInstaller 不能交叉编译） |
+
+> `--mode onefile`（单体 exe）仅为**兼容保留的显式选项**，**禁止**作为默认或交付形态：onefile 每次启动要解压数百 MB（实测「启动→首窗可见」中位 9.58s → onedir 1.31s，快约 7.3×），且 onedir 才配得上正常安装模式。
 
 ---
 
@@ -141,51 +150,44 @@ python build.py --clean     # 构建前先 rm -rf build/
 ```
 jflove-desktop/
 ├── src/
-│   ├── main.py                   # 应用入口
-│   ├── config/settings.py        # 全局配置（版本号、上传策略、加密盐值等）
+│   ├── main.py                     # 应用入口（构造 WebShell + 原生浮层 + 桥装配）
+│   ├── bridge/                     # JS↔Python 白名单桥（渲染层无网络出口）
+│   │   ├── bridge.py               # 分发入口 + 向渲染层推事件
+│   │   ├── api_gateway.py          # api.request 路径白名单（拒绝会话管理类路径）
+│   │   ├── files.py                # 原生文件对话框 / 拖放 / 下载保存
+│   │   ├── media.py                # 媒体打开/几何上报/播放控制的桥接
+│   │   ├── sync.py                 # 同步引擎信号 → 桥事件
+│   │   └── transfer.py             # 传输任务信号 → 桥事件
 │   ├── components/
-│   │   ├── stream_proxy.py       # 本地解密 + Range 206 流代理（媒体预览通路）
-│   │   ├── stream_proxy.py       # 本地流式 HTTP 代理（视频/音频）
-│   │   └── stream_text_loader.py # 文本流式加载线程
-│   ├── services/
-│   │   ├── auth_service.py       # 认证（密钥交换/登录/登出/会话持久化）
-│   │   ├── file_service.py       # 文件管理（分片上传/下载/预览）
-│   │   ├── note_service.py       # 笔记管理
-│   │   ├── user_service.py       # 用户管理（管理员）
-│   │   ├── disk_service.py       # 虚拟磁盘管理（管理员）
-│   │   ├── permission_service.py # 权限配置（管理员）
-│   │   ├── config_service.py     # 服务端配置查询
-│   │   ├── sync_service.py       # 同步配置管理（本地 JSON 文件）
-│   │   └── server_history_service.py  # 服务端地址历史
-│   ├── ui/
-│   │   ├── login_window.py       # 登录/初始化窗口
-│   │   ├── web_shell.py          # 原生外壳：承载 QtWebEngine + 桥 + 关闭到托盘
-│   │   └── pages/
-│   │       ├── file_page.py      # 文档管理
-│   │       ├── note_page.py      # 笔记管理
-│   │       ├── security_page.py  # 安全状态
-│   │       ├── settings_page.py  # 设置
-│   │       ├── sync_page.py      # 同步目录
-│   │       ├── transfer_page.py  # 传输任务
-│   │       └── admin/
-│   │           ├── user_page.py       # 用户管理
-│   │           ├── disk_page.py       # 磁盘管理
-│   │           └── permission_page.py # 权限配置
+│   │   └── stream_proxy.py         # 本地解密 + Range 206 流代理（媒体预览唯一通路）
+│   ├── config/settings.py          # 全局配置（APP_VERSION 由 version.json 同步）
+│   ├── services/                   # 业务服务层（唯一 HTTP 出口在 utils/http_client.py）
+│   │   ├── auth_service.py / file_service.py / note_service.py / user_service.py
+│   │   ├── disk_service.py / permission_service.py / repair_service.py
+│   │   └── config_service.py / sync_service.py / server_history_service.py
+│   ├── ui/                         # 原生外壳（无边框窗口 / 托盘 / 媒体浮层）
+│   │   ├── web_shell.py            # 承载 QtWebEngine、注入桥、关闭=最小化到托盘
+│   │   ├── tray.py                 # 系统托盘（显示窗口 / 主题 / 退出）
+│   │   └── media_overlay.py        # 原生媒体浮层（贴 Web 预留矩形，OS 解码器渲染）
 │   └── utils/
-│       ├── crypto.py       # X25519 + HKDF + ChaCha20-Poly1305
-│       ├── http_client.py  # 加密 HTTP 客户端
-│       ├── session.py      # 会话状态单例
-│       ├── sync_engine.py  # 同步引擎（定时器 + 工作线程）
-│       ├── transfer_manager.py  # 传输任务管理器
-│       ├── worker.py       # QThread 异步工作线程
-│       ├── icon.py         # 图标工具
-│       ├── input_method.py # 输入法兼容
-│       └── logger.py       # 日志工具
-├── tests/                  # 测试代码
-├── images/                 # 应用图标
-├── build.py                # PyInstaller 构建脚本
-├── requirements.txt        # 依赖清单
-└── README.md               # 本文件
+│       ├── crypto.py               # X25519 + HKDF + ChaCha20-Poly1305
+│       ├── http_client.py          # 加密 HTTP 客户端（含信封形状判定）
+│       ├── session.py              # 会话状态单例
+│       ├── sync_engine.py          # 同步引擎（定时器 + 工作线程）
+│       ├── transfer_manager.py     # 传输任务管理器
+│       ├── worker.py               # QThread 异步工作线程
+│       ├── icon.py / input_method.py / logger.py
+├── ui/                             # 前端工程（React + TS + Vite + Tailwind，与 Web 端同源快照）
+│   ├── src/                        # pages / components / layouts / stores / services / styles / hooks / types
+│   ├── public/                     # logo-64/128/256.png 等静态资源
+│   └── dist/                       # 前端产物（构建生成；打包时作为 webui/ 进包）
+├── packaging/                      # 打包资产（Windows Inno Setup / Linux RPM / spec / 桌面项）
+├── tests/                          # pytest（含 v1.5.1 浮层生命周期与信封用例）
+├── poc/                            # 一次性验证脚本（非交付物）
+├── images/                         # 应用图标 icon.ico / icon.png
+├── build.py                        # 模块构建脚本（onedir + 安装包；交付走仓库根 build.py）
+├── requirements.txt                # 运行时 + 打包依赖（pytest / flake8 为开发依赖，不入此文件）
+└── README.md                       # 本文件
 ```
 
 ---
@@ -238,10 +240,10 @@ JFLove/
 
 | 依赖 | 用途 |
 |------|------|
-| `PySide6==6.11.0` | Qt 绑定，UI 框架 |
-| `PySide6`（含 QtWebEngine） | 原生外壳 + 界面渲染引擎 |
-| `cryptography==47.0.0` | X25519 / ChaCha20-Poly1305 加密 |
-| `requests==2.33.1` | HTTP 客户端 |
-| `markdown==3.10.2` | Markdown→HTML 渲染 |
-| `pygments==2.20.0` | 代码语法高亮 |
+| `PySide6==6.11.0`（含 QtWebEngine / QtMultimedia） | Qt 绑定；原生外壳 + 界面渲染引擎 + 本地解码播放 |
+| `cryptography==47.0.0` | X25519 / HKDF-SHA256 / ChaCha20-Poly1305 加密 |
+| `requests==2.33.1` | HTTP 客户端（仅 `src/utils/http_client.py` 使用） |
 | `pyinstaller==6.20.0` | 应用打包 |
+
+> **更正（v1.5.1）**：本表此前还列了 `markdown` 与 `pygments` —— 那是 Qt Widgets 版 Markdown 预览的遗留依赖，
+> 界面迁移到 Web UI 后已从 `requirements.txt` 移除。实测：`requirements.txt` 只有上表 4 项，且 `src/` 下 0 处 `import markdown / pygments`。
