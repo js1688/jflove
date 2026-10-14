@@ -30,6 +30,7 @@ from typing import Any, Callable
 from PySide6.QtCore import QObject, Qt, Signal, Slot
 
 from src.bridge import api_gateway
+from src.bridge import editor as editor_bridge
 from src.bridge import files as files_bridge
 from src.bridge import media as media_bridge
 from src.bridge import sync as sync_bridge
@@ -285,6 +286,8 @@ WHITELIST: dict[str, dict[str, Callable[[dict], Any]]] = {
     **sync_bridge.HANDLERS,
     # 传输任务（N10 尾巴）：原桌面端的 TransferManager（任务真相回到 Python）
     **transfer_bridge.HANDLERS,
+    # 文本编辑器 / 退出握手 / 文件关联（v1.6.0 §7.1 #1~#16）：零远端，不碰 /api/v1
+    **editor_bridge.HANDLERS,
 }
 
 
@@ -360,6 +363,7 @@ class Bridge(QObject):
             media_bridge.MAIN_THREAD_METHODS
             | sync_bridge.MAIN_THREAD_METHODS
             | transfer_bridge.MAIN_THREAD_METHODS
+            | editor_bridge.MAIN_THREAD_METHODS
         ):
             try:
                 result = handler(params)
