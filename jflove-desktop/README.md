@@ -2,7 +2,7 @@
 
 JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲染）** 的私有文档与笔记协同管理桌面应用，界面与 Web 端同一套，同时保留托盘、本地解码的媒体预览、原生文件对话框与系统拖放上传。
 
-> **当前版本：v1.5.1**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**两处**：`src/config/settings.py` 的 `APP_VERSION` 与 **`ui/src/config/constants.ts`** 的 `APP_VERSION`（后者是界面上「登录页页脚 / 设置-关于」显示的值）。**不要手改任何一处版本号字段。**）
+> **当前版本：v1.5.1**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
 
 > **v1.5.1**：Web 端品牌标识与桌面端统一（猫猫 logo）；系统设置移除**已失效**的「允许重编码降级」开关（服务端自 v1.4.2 起已不读取该键）；
 > 修复原生媒体浮层「关窗后残留」与「拖动主窗画面不跟随」；笔记页大纲改为**右侧可折叠竖栏**、打开笔记默认进入预览模式（有内容时）；
@@ -18,9 +18,9 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 
 | 组件 | 用途 |
 |------|------|
-| **PySide6 6.11.0** | Qt 绑定，UI 框架 |
+| **PySide6 6.11.0** | Qt 绑定；原生外壳（窗口 / 托盘 / 媒体浮层）与 QtWebEngine 宿主 |
 | **QtWebEngine** | 渲染前端工程 `ui/`（React + TS + Vite + Tailwind） |
-| **QWebEngineView** | Markdown 预览渲染（GitHub 风格 CSS + highlight.js + Mermaid） |
+| **Markdown 预览** | 渲染层 React 组件 [`ui/src/components/markdown/MarkdownRenderer.tsx`](jflove-desktop/ui/src/components/markdown/MarkdownRenderer.tsx)（marked + DOMPurify + highlight.js + Mermaid）；Qt 侧旧的 `src/components/markdown_view.py` 已随 Qt Widgets 界面删除 |
 
 ### 架构模式
 
@@ -61,6 +61,17 @@ Service Layer → http_client.py → 加密请求 → 后端 API
 - **HTTP**：requests
 - **加密**：cryptography（X25519 / HKDF-SHA256 / ChaCha20-Poly1305）
 - **构建**：PyInstaller（**onedir**；交付形态为**安装包**，见「构建与打包」）
+
+> **Python 版本口径（BACKLOG BL-5 留痕，2026-10-14 实测）**
+>
+> - **要求侧**：Python **3.14+** —— 本文件上方「语言」、`AGENTS.md §2`、根 `README.md` badge、
+>   `jflove-server/Dockerfile:5`（`FROM python:3.14-slim`）、CI workflow 均为 3.14。
+> - **本地实测侧**：`venv-win/` 实际为 **3.13.14**（本机 `Programs\Python` 下**只有 `Python313`**，
+>   无 3.14、无 `py` launcher）。**v1.6.0 的全部用例在该版本下全绿**：
+>   `flake8 src/ tests/ --max-line-length=99` → 0 警告；`pytest tests/` → **133 passed**（v1.5.1 基线）。
+> - **本次决定（D14）：不升级本地环境**。差异的性质是「**本地环境低于项目要求**」，
+>   **不是文档写错**；CI 与镜像继续使用 3.14。
+> - 「把本地 venv 升到 3.14」已留在 `文档记录/项目管理记录/BACKLOG.md`，不在 v1.6.0 内做。
 
 ---
 
@@ -138,7 +149,7 @@ python build.py -m all          # 四端统一入口（缺 docker 时 server/web
 | 平台 | 产物 | 说明 |
 |------|------|------|
 | Windows | `build/dist/JFLove-<ver>-win64-setup.exe`、`JFLove-<ver>-win64-portable.zip`、`build/dist/JFLove/` | Inno Setup 安装包（含开始菜单/卸载器）；缺 Inno Setup 时**降级只出 zip 并响亮报警**（需 Windows 主机构建） |
-| Linux / Fedora | `jflove-desktop-<ver>-1.fc<N>.x86_64.rpm`、`build/dist/JFLove/` | 由 `packaging/build_rpm.sh` / CI 产出 |
+| Linux / Fedora | `jflove-desktop-<ver>-1.fc<N>.x86_64.rpm`、`build/dist/JFLove/` | 由 `packaging/linux/build_rpm.sh` / CI 产出 |
 | 其他 | `build/dist/JFLove/` | 只出 onedir（PyInstaller 不能交叉编译） |
 
 > `--mode onefile`（单体 exe）仅为**兼容保留的显式选项**，**禁止**作为默认或交付形态：onefile 每次启动要解压数百 MB（实测「启动→首窗可见」中位 9.58s → onedir 1.31s，快约 7.3×），且 onedir 才配得上正常安装模式。
@@ -176,7 +187,7 @@ jflove-desktop/
 │       ├── sync_engine.py          # 同步引擎（定时器 + 工作线程）
 │       ├── transfer_manager.py     # 传输任务管理器
 │       ├── worker.py               # QThread 异步工作线程
-│       ├── icon.py / input_method.py / logger.py
+│       └── icon.py / input_method.py / logger.py
 ├── ui/                             # 前端工程（React + TS + Vite + Tailwind，与 Web 端同源快照）
 │   ├── src/                        # pages / components / layouts / stores / services / styles / hooks / types
 │   ├── public/                     # logo-64/128/256.png 等静态资源
