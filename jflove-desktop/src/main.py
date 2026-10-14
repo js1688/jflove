@@ -50,6 +50,10 @@ from src.ui.media_overlay import MediaOverlay  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
 from src.utils.icon import get_app_icon  # noqa: E402
 
+# 启动期路径交付要用到来源常量；`bootstrap_single_instance` / `build_paths_sink`
+# 是**模块级**函数，故这里必须是模块级导入（其余单实例符号仍按文件风格延迟导入）。
+from src.utils.single_instance import SOURCE_CLI  # noqa: E402
+
 logger = get_logger(__name__)
 
 # 全局窗口引用（防止 GC 回收）
@@ -75,6 +79,56 @@ def _warn_missing_frontend() -> None:
     box.exec()
 
 
+def bootstrap_single_instance(guard, cli_paths: list[str]) -> bool:
+    """
+    单实例接入（设计 v1.6.0 §6.6.1 / §6.6.3，AC-46 / AC-48）。
+
+    为什么抽成函数：这是**启动期的分支决策**，纯逻辑（只依赖 `guard` 的两个方法与
+    `logger`），不碰 Qt ⇒ 可以在单测里用假 guard 跑全部分支（原先直接写在 `main()`
+    里，只能靠人工点界面验，M-6 就是在这种"没人测得到"的缝里漏掉的）。
+
+    :param guard: `SingleInstanceGuard`（或同接口替身）
+    :param cli_paths: 已规范化的命令行路径
+    :returns: True = 继续启动本进程；False = 路径已成功转交给运行中的实例，本进程应退出
+    """
+    if not guard.try_become_primary():
+        # 非首实例：把路径转交首实例后退出。转交失败**降级为本地启动**，
+        # 绝不静默丢弃用户"用 JFLove 打开"的意图（§6.6.1）。
+        if guard.forward(cli_paths, cwd=os.getcwd()):
+            logger.info("已转交 %d 个待打开文件给运行中的实例，本进程退出", len(cli_paths))
+            return False
+        logger.warning("单实例转交失败，本进程降级为本地启动（可能出现两个实例）")
+    # 首实例，**以及转交失败降级的第二实例**，都要把路径交给待交付队列：
+    # 为什么不能在这里直接交付：渲染层此刻还不存在，交付即丢失（§7.5）。
+    # （M-6：原先只有"首实例"一支会进这里 ⇒ 降级分支把用户双击的文件全丢了。）
+    if cli_paths:
+        guard.notify_external_paths(cli_paths, source=SOURCE_CLI)
+    return True
+
+
+def build_paths_sink(shell):
+    """
+    构造"待打开路径交付给渲染层"的接入点（设计 §6.6.3 / §7.5③）。
+
+    顺序是硬要求：**先让主窗口可见，再交付路径**。否则主实例在托盘/最小化状态下被
+    「用 JFLove 打开」唤起时，窗格确实建出来了，但窗口还藏在托盘里，用户以为没反应
+    （AC-46②；S-4）。
+
+    :param shell: `WebShell`（或同接口替身：需有 `restore_from_tray()` /
+                  `notify_external_paths(paths, source)`）
+    :returns: `(paths, source) -> None`，可直接交给 `SingleInstanceGuard.set_paths_sink`
+    """
+
+    def _sink(paths, source) -> None:
+        try:
+            shell.restore_from_tray()
+        except Exception as exc:  # noqa: BLE001 - 可见性失败不应阻断"打开文件"本身
+            logger.warning("恢复主窗口可见性失败（继续交付路径）：%s", exc)
+        shell.notify_external_paths(paths, source)
+
+    return _sink
+
+
 def main() -> int:
     """应用程序入口函数"""
     app = build_app()
@@ -87,7 +141,6 @@ def main() -> int:
     # 判定时机必须在**创建 WebShell 之前**：否则第二实例会先闪一个窗口、再建出第二个
     # 托盘图标（tray.py 每进程各建一个），然后才退出 —— 那正是单实例要消灭的现象。
     from src.utils.single_instance import (  # noqa: E402 - 与文件既有风格一致（延迟导入）
-        SOURCE_CLI,
         SingleInstanceGuard,
         build_server_name,
         normalize_paths,
@@ -95,17 +148,9 @@ def main() -> int:
 
     cli_paths = normalize_paths(sys.argv[1:])
     guard = SingleInstanceGuard(build_server_name(APP_ORG, APP_NAME))
-    if not guard.try_become_primary():
-        # 第二实例：把路径转交首实例后立刻退出（退出码 0）；
-        # 转交失败**降级为本地启动**，绝不静默丢弃用户"用 JFLove 打开"的意图（§6.6.1）
-        if guard.forward(cli_paths, cwd=os.getcwd()):
-            logger.info("已转交 %d 个待打开文件给运行中的实例，本进程退出", len(cli_paths))
-            return 0
-        logger.warning("单实例转交失败，本进程降级为本地启动（可能出现两个实例）")
-    elif cli_paths:
-        # 首实例：命令行路径先进队列，等 load_ui() 成功后由 sink 一次性交付（§6.6.3）。
-        # 为什么不在设置 sink 时直接交付：渲染层此刻还不存在，交付即丢失（§7.5）。
-        guard.notify_external_paths(cli_paths, source=SOURCE_CLI)
+    if not bootstrap_single_instance(guard, cli_paths):
+        # 路径已成功转交给运行中的实例：本进程**不**建窗口、不建托盘图标，直接退出
+        return 0
 
     # v1.1.5：执行旧版本数据迁移（QSettings → 用户目录 JSON 文件）
     from src.services.auth_service import _migrate_legacy_data
@@ -162,7 +207,8 @@ def main() -> int:
 
     # 单实例：**UI 就绪之后**才注入接入点 ⇒ 队列里（命令行 / 另一实例转交）的路径
     # 此刻按序一次性交付渲染层（设计 §6.6.3 / §7.5）。接入点只应有这一个（避免重复打开）。
-    guard.set_paths_sink(lambda paths, source: _shell.notify_external_paths(paths, source))
+    # sink 内部**先恢复窗口可见性再交付**（AC-46②；S-4）。
+    guard.set_paths_sink(build_paths_sink(_shell))
 
     _shell.show()
     logger.info("JFLove 桌面应用已启动（v%s，Web UI）", APP_VERSION)
