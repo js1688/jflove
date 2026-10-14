@@ -637,8 +637,12 @@ class R11:
             "FAIL" if (mutated and changed_on_disk) else "PASS",
             {"before": before, "after": after, "docMutatingSteps": mutated,
              "expectedDocLength": fixture_text_len(fixture_text),
-             "note": "mutating=真机上 Alt+Shift+方向键不是列选择而是改文档；"
-                     "changed_on_disk=改动已通过自动保存落盘（数据破坏面）"},
+             "note": "**本项只判「磁盘面」**（审查 L5）：FAIL 的条件是"
+                     "「内存文档被改动 **且** 磁盘 sha256 变化」；只改内存不改磁盘仍会 PASS。"
+                     "docMutatingSteps=按 Alt+Shift+方向键时被改动了文档的步骤（修复前该键位落到 "
+                     "defaultKeymap 的 copyLineDown/Up，每次 +2 行）；"
+                     "AC-13 是否真的按列扩展由 gating 的 H3（_judge_rectangle）判定；"
+                     "before/after 的 sha256 相同 ⇒ 没被自动保存写回（修复后应有的状态）"},
             gating=False,
         )
         return bool(verdict)
@@ -821,10 +825,11 @@ class R11:
              "keys": s_keys, "attempts": s_attempts, "diag": s_diag},
         )
         self.report.add(
-            "H5c", "观察：Ctrl+S 是否被渲染层 preventDefault（AC-36/37 缺口信号）",
+            "H5c", "观察：Ctrl+S 是否被渲染层 preventDefault（AC-36/37 的接管信号）",
             "PASS" if prevented else "FAIL",
             {"prevented": prevented,
-             "why": "false ⇒ file.save 没有接管方（V4 报告 P1：AC-36/AC-37 整条未实现）"},
+             "why": "true ⇒ `file.save` 已被渲染层接管（BL-33 快速修复，AC-36/AC-37）；"
+                    "false ⇒ 没有任何接管方（修复前的状态）"},
             gating=False,
         )
         self.report.say(f"       截图 {self.shot('h5-oskeys')}")

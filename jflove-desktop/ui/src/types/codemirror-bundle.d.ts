@@ -441,6 +441,19 @@ export interface JFLoveCmExtensions {
   crosshairCursor: (config?: unknown) => Extension;
   scrollPastEnd: () => Extension;
   placeholder: (content: string) => Extension;
+  /**
+   * 键位分片（`@codemirror/view` 的 `keymap`）。
+   *
+   * **写入侧**（宿主）就是普通数组：`keymap.of([...bindings])`。
+   *
+   * ⚠ **读取侧的真实形状是"数组的数组"**（2026-10-14 用真包实测，审查 M3 的副产物）：
+   * `Facet.define()` 没有 combine 函数时，facet 值就是**各扩展输入值的数组**，
+   * 而每个输入值本身又是 `KeyBinding[]` ⇒ `state.facet(keymap)` 实际得到
+   * `readonly (readonly KeyBinding[])[]`，**外层数组按扩展优先级排序**（`Prec.highest` 在前）。
+   * 读键位表必须先按该形状收窄再 `flat()`（见
+   * `components/scratch/__tests__/scratch-block-select-keymap.test.ts`）。
+   * 一个类型无法同时表达两侧，这里以**写入侧**为准（宿主代码量更大）。
+   */
   keymap: StateFacet<readonly KeyBinding[]>;
   highlightSelectionMatches: (config?: unknown) => Extension;
   bracketMatching: (config?: unknown) => Extension;

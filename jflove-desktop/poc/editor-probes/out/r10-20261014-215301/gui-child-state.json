@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "stage": "tray",
+  "tray": true,
+  "load_ui": true,
+  "draftReply": {
+    "ok": true,
+    "at": 1791985987.9895313
+  },
+  "draftExists": true,
+  "draftContent": "ROUND-tray-777-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "visibleBefore": true,
+  "visibleAfter": false,
+  "trayObject": true
+}

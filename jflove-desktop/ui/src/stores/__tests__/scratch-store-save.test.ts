@@ -14,6 +14,9 @@
  *        ③ wroteUserFile && 期间无新编辑 ⇒ dirty=false          // AC-54 的"不重写"前提
  * flushPendingSaves()                                          // scratch-store.ts:706-710
  *       = 立刻触发所有待写窗格（窗格关闭对话框的「保存」与退出前落盘都走它）
+ * savePane(id, { forceDialog })                                // scratch-store.ts 的显式保存（BL-33）
+ *       = `Ctrl+S` / `Ctrl+Shift+S` 的落点：已有路径直接写回；草稿形态先 pickSaveTarget
+ *         （取消 ⇒ 不写、仍为脏）；只读 / 未挂载 ⇒ 拒绝并给出可读错误
  * ```
  *
  * ## 判据出处（需求原文）
@@ -278,5 +281,101 @@ describe('AC-40 ② 草稿形态（path === null）：自动暂存只进草稿�
 
     expect(writeText).toHaveBeenCalledTimes(0);
     expect(paneOf(id).dirty).toBe(true);
+  });
+});
+
+describe('BL-33 显式保存（savePane）：AC-36 / AC-37 的 store 层判据 + 审查 M4 回归', () => {
+  it('已有路径：0 次对话框、恰好 1 次写回原路径、dirty 落 false 且返回 true', async () => {
+    const id = createPane({ path: 'D:/tmp/bugfix-save.txt' });
+    registerContent(id, () => 'y');
+    useScratchStore.getState().markDirty(id, true);
+
+    const ok = await useScratchStore.getState().savePane(id);
+
+    expect(ok).toBe(true);
+    expect(pickSaveTarget).toHaveBeenCalledTimes(0);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith({
+      path: 'D:/tmp/bugfix-save.txt',
+      text: 'y',
+      encoding: 'utf-8',
+      lineEnding: 'lf',
+    });
+    expect(paneOf(id).dirty).toBe(false);
+  });
+
+  it('草稿形态：必须先询问路径；取消 ⇒ 0 次写入、仍为脏、path 仍为 null、返回 false', async () => {
+    const id = createPane({ path: null });
+    registerContent(id, () => 'x');
+    useScratchStore.getState().markDirty(id, true);
+    pickSaveTarget.mockResolvedValue(null); // 用户取消对话框
+
+    const ok = await useScratchStore.getState().savePane(id);
+
+    expect(pickSaveTarget).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledTimes(0);
+    expect(paneOf(id).path).toBeNull();
+    expect(paneOf(id).dirty).toBe(true);
+    expect(ok).toBe(false);
+  });
+
+  it('草稿形态选到路径：写到选定路径、回填 path/title、dirty 落 false', async () => {
+    const id = createPane({ path: null });
+    registerContent(id, () => 'x');
+    useScratchStore.getState().markDirty(id, true);
+    pickSaveTarget.mockResolvedValue('D:/tmp/新建文档.txt');
+
+    const ok = await useScratchStore.getState().savePane(id);
+
+    expect(ok).toBe(true);
+    expect(writeText).toHaveBeenCalledWith({
+      path: 'D:/tmp/新建文档.txt',
+      text: 'x',
+      encoding: 'utf-8',
+      lineEnding: 'lf',
+    });
+    expect(paneOf(id).path).toBe('D:/tmp/新建文档.txt');
+    expect(paneOf(id).title).toBe('新建文档.txt');
+    expect(paneOf(id).dirty).toBe(false);
+  });
+
+  it('只读窗格：拒绝保存（0 次写入 / 0 次对话框、仍为脏）并给出可读错误（AC-19 / AC-52 守门）', async () => {
+    const id = createPane({ path: 'D:/tmp/bugfix-readonly.diff', readOnly: true });
+    registerContent(id, () => 'diff');
+    useScratchStore.getState().markDirty(id, true);
+
+    const ok = await useScratchStore.getState().savePane(id);
+
+    expect(ok).toBe(false);
+    expect(writeText).toHaveBeenCalledTimes(0);
+    expect(pickSaveTarget).toHaveBeenCalledTimes(0);
+    expect(paneOf(id).dirty).toBe(true);
+    expect(useScratchStore.getState().lastError).toContain('只读');
+  });
+
+  it('未挂载窗格（无正文读取器）：拒绝保存且提示编辑器未就绪（不得写空内容覆盖文件）', async () => {
+    const id = createPane({ path: 'D:/tmp/bugfix-nomount.txt' });
+    useScratchStore.getState().markDirty(id, true);
+
+    const ok = await useScratchStore.getState().savePane(id);
+
+    expect(ok).toBe(false);
+    expect(writeText).toHaveBeenCalledTimes(0);
+    expect(useScratchStore.getState().lastError).toContain('编辑器尚未就绪');
+  });
+
+  it('审查 M4 回归：保存失败不得吞掉已排队的自动暂存（失败出口要重新排上防抖）', async () => {
+    const id = createPane({ path: 'D:/tmp/bugfix-m4.txt' });
+    registerContent(id, () => 'z');
+    useScratchStore.getState().markDirty(id, true); // 排上 1500 ms 防抖
+    writeText.mockRejectedValueOnce(new Error('桥调用失败：模拟'));
+
+    const ok = await useScratchStore.getState().savePane(id);
+    expect(ok).toBe(false);
+    expect(draftSave).toHaveBeenCalledTimes(0); // 还没到防抖时刻
+
+    // 修复前：`savePane` 写盘前 clearFlushTimer 又不重排 ⇒ 这里永远等不到自动暂存（M4 的症状）
+    await advance(AUTO_SAVE_DEBOUNCE_MS);
+    expect(draftSave).toHaveBeenCalledTimes(1);
   });
 });

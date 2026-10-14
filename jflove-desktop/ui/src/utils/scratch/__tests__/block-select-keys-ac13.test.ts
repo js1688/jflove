@@ -14,6 +14,15 @@
  *
  * 无头局限（审查报告 §8 / R-5）：真机上「Shift+拖拽/按键把矩形选区横向扩一列」的**几何结果**
  * 依赖布局测量，jsdom 无布局 ⇒ 本文件只断言键位表与 `eventFilter` 契约，几何结果留**真机复核**。
+ *
+ * ## BL-32 快速修复（2026-10-14）后的定位
+ *
+ * AC-13 的键盘路径**已由宿主补上**：`ScratchEditorHost.tsx` 用
+ * `Prec.highest(keymap.of([...]))` 安装 `修饰键 + Shift + ↑/↓/←/→`（几何纯函数在
+ * `utils/scratch/block-select.ts`，用例见 `block-select-keys-host.test.ts`）。
+ * 本文件因此**只**保留"离线包自身不提供列命令"这一事实的登记（键位仍被
+ * `copyLineUp/Down` 与 `selectSyntaxLeft/Right` 占用）—— 宿主靠更高优先级抢先命中，
+ * 不需要、也不应该去改离线包。
  */
 import { describe, expect, it } from 'vitest';
 import type { KeyBinding } from '../../../types/codemirror-bundle';
@@ -148,9 +157,10 @@ describe('AC-13 列选择扩展键位（真 CM6 键位表）', () => {
     // 只做真机复核，本文件不伪造测量替身。
   });
 
-  it.fails('L-20（轻微，未修）：`Shift` + `←`/`→` 应提供矩形列移动键位（AC-13 字面要求）', () => {
-    // 需求 `:624` 要求「Shift + ←/→ 移动列区间」；实现里该组合被 selectSyntaxLeft / Right 占用，
-    // 且 bundle 内不存在矩形/列移动命令 ⇒ AC-13 的横向列移动**无热键**（L-20 的直接原因）。
+  it.fails('离线包自身不提供列命令（L-20 记录；宿主侧已由 BL-32 修复补上键位）', () => {
+    // 需求 `:624` 要求「Shift + ←/→ 移动列区间」；离线包里该组合被 selectSyntaxLeft / Right 占用，
+    // 且不存在矩形/列移动命令。**宿主侧**已用 `Prec.highest(keymap…)` 抢先命中（BL-32 快速修复），
+    // 本条只登记"离线包不提供"，不构成缺陷；保留 it.fails 以固定事实、防止离线包换版后语义漂移。
     const api = loadCmBundle();
     const flat = flatten(api);
     const left = flat.find((item) => item.chord === SHIFT_ALT_LEFT);

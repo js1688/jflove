@@ -1,6 +1,6 @@
 {
   "probe": "r11-real-gui-drive",
-  "at": "2026-10-14T20:43:44",
+  "at": "2026-10-14T21:52:20",
   "checks": [
     {
       "id": "H1",
@@ -55,22 +55,44 @@
     {
       "id": "H3",
       "desc": "AC-13 列选择真几何（矩形跨行同列）",
-      "status": "FAIL",
+      "status": "PASS",
       "gating": true,
       "detail": {
-        "rangeCount": 1,
-        "docLength": 200,
+        "rangeCount": 3,
+        "docLength": 100,
         "ranges": [
           {
-            "from": 100,
-            "to": 128,
-            "anchor": 128,
-            "head": 100,
-            "fromLine": 5,
-            "toLine": 6,
-            "fromCol": 0,
-            "toCol": 3,
-            "text": "ABCDEFGHIJKLMNOPQRSTUVWX\nabc"
+            "from": 28,
+            "to": 33,
+            "anchor": 28,
+            "head": 33,
+            "fromLine": 2,
+            "toLine": 2,
+            "fromCol": 3,
+            "toCol": 8,
+            "text": "defgh"
+          },
+          {
+            "from": 53,
+            "to": 58,
+            "anchor": 53,
+            "head": 58,
+            "fromLine": 3,
+            "toLine": 3,
+            "fromCol": 3,
+            "toCol": 8,
+            "text": "34567"
+          },
+          {
+            "from": 78,
+            "to": 83,
+            "anchor": 78,
+            "head": 83,
+            "fromLine": 4,
+            "toLine": 4,
+            "fromCol": 3,
+            "toCol": 8,
+            "text": "WVUTS"
           }
         ],
         "docLengths": [
@@ -79,19 +101,30 @@
           100,
           100,
           100,
-          150,
-          200
+          100,
+          100
         ],
         "prevented": [
           null,
           true,
-          false,
-          false,
-          false,
+          true,
+          true,
+          true,
           true,
           true
         ],
-        "why": "各行宽度不一致：[3, 24]",
+        "shape": "multi-range",
+        "colOffsets": [
+          [
+            3,
+            8
+          ]
+        ],
+        "widths": [
+          5
+        ],
+        "consecutive": true,
+        "aligned": true,
         "keymapTruth": {
           "hasCopyLineDown": true,
           "copyMoveNames": [
@@ -113,7 +146,7 @@
     {
       "id": "H3b",
       "desc": "观察：AC-13 键位是否改动了文档、并被自动保存写回磁盘",
-      "status": "FAIL",
+      "status": "PASS",
       "gating": false,
       "detail": {
         "before": {
@@ -123,30 +156,12 @@
         },
         "after": {
           "exists": true,
-          "size": 200,
-          "sha256": "c8508d3c2feba323",
-          "retriedReads": 1
+          "size": 100,
+          "sha256": "fc67e9f07bf119b2"
         },
-        "docMutatingSteps": [
-          {
-            "step": "down1",
-            "prevented": true,
-            "docLength": 150,
-            "lines": 7,
-            "head": 50,
-            "hasFocus": true
-          },
-          {
-            "step": "down2",
-            "prevented": true,
-            "docLength": 200,
-            "lines": 9,
-            "head": 100,
-            "hasFocus": true
-          }
-        ],
+        "docMutatingSteps": [],
         "expectedDocLength": 100,
-        "note": "mutating=真机上 Alt+Shift+方向键不是列选择而是改文档；changed_on_disk=改动已通过自动保存落盘（数据破坏面）"
+        "note": "**本项只判「磁盘面」**（审查 L5）：FAIL 的条件是「内存文档被改动 **且** 磁盘 sha256 变化」；只改内存不改磁盘仍会 PASS。docMutatingSteps=按 Alt+Shift+方向键时被改动了文档的步骤（修复前该键位落到 defaultKeymap 的 copyLineDown/Up，每次 +2 行）；AC-13 是否真的按列扩展由 gating 的 H3（_judge_rectangle）判定；before/after 的 sha256 相同 ⇒ 没被自动保存写回（修复后应有的状态）"
       }
     },
     {
@@ -198,14 +213,14 @@
         "scrollBefore": {
           "left": 0,
           "width": 815,
-          "client": 718
+          "client": 719
         },
         "scrollAfter": {
-          "left": 96.80000305175781,
+          "left": 96,
           "width": 815,
-          "client": 718
+          "client": 719
         },
-        "deltaLeft": 96.80000305175781,
+        "deltaLeft": 96,
         "stepOk": true,
         "maxOk": true,
         "floorOk": true
@@ -229,27 +244,11 @@
             "defaultPrevented": true
           }
         ],
-        "attempts": 2,
+        "attempts": 1,
         "diag": {
           "attempts": [
             {
               "n": 1,
-              "beforeMods": {
-                "ctrl": false,
-                "shift": false,
-                "alt": false,
-                "win": false
-              },
-              "afterMods": {
-                "ctrl": false,
-                "shift": false,
-                "alt": false,
-                "win": false
-              },
-              "all": []
-            },
-            {
-              "n": 2,
               "beforeMods": {
                 "ctrl": false,
                 "shift": false,
@@ -306,41 +305,34 @@
               ]
             }
           ],
-          "hit": 2
+          "hit": 1
         }
       }
     },
     {
       "id": "H5b",
       "desc": "R-1：OS 级 Ctrl+S 到达渲染层且宿主不自行处理（无保存对话框/下载）",
-      "status": "FAIL",
+      "status": "PASS",
       "gating": true,
       "detail": {
-        "reached": false,
-        "defaultPrevented": false,
+        "reached": true,
+        "defaultPrevented": true,
         "downloads": [],
-        "keys": [],
-        "attempts": 2,
+        "keys": [
+          {
+            "key": "s",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "phase": "capture",
+            "defaultPrevented": true
+          }
+        ],
+        "attempts": 1,
         "diag": {
           "attempts": [
             {
               "n": 1,
-              "beforeMods": {
-                "ctrl": false,
-                "shift": false,
-                "alt": false,
-                "win": false
-              },
-              "afterMods": {
-                "ctrl": false,
-                "shift": false,
-                "alt": false,
-                "win": false
-              },
-              "all": []
-            },
-            {
-              "n": 2,
               "beforeMods": {
                 "ctrl": false,
                 "shift": false,
@@ -369,22 +361,30 @@
                   "shift": false,
                   "phase": "bubble",
                   "defaultPrevented": false
+                },
+                {
+                  "key": "s",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "phase": "capture",
+                  "defaultPrevented": true
                 }
               ]
             }
           ],
-          "hit": 0
+          "hit": 1
         }
       }
     },
     {
       "id": "H5c",
-      "desc": "观察：Ctrl+S 是否被渲染层 preventDefault（AC-36/37 缺口信号）",
-      "status": "FAIL",
+      "desc": "观察：Ctrl+S 是否被渲染层 preventDefault（AC-36/37 的接管信号）",
+      "status": "PASS",
       "gating": false,
       "detail": {
-        "prevented": false,
-        "why": "false ⇒ file.save 没有接管方（V4 报告 P1：AC-36/AC-37 整条未实现）"
+        "prevented": true,
+        "why": "true ⇒ `file.save` 已被渲染层接管（BL-33 快速修复，AC-36/AC-37）；false ⇒ 没有任何接管方（修复前的状态）"
       }
     },
     {
@@ -424,23 +424,23 @@
       "gating": true,
       "detail": {
         "start": {
-          "left": 248.1875,
-          "top": 313.20001220703125,
-          "bottom": 329.20001220703125,
-          "contentLeft": 234.5,
-          "contentTop": 306.8000183105469,
-          "dpr": 1.25,
+          "left": 247.9732208251953,
+          "top": 311.14288330078125,
+          "bottom": 327.71429443359375,
+          "contentLeft": 234.27679443359375,
+          "contentTop": 305.4285888671875,
+          "dpr": 1.75,
           "lines": 3,
           "docLength": 16,
           "text": "abcdef"
         },
         "end": {
-          "left": 271.2875061035156,
-          "top": 355.20001220703125,
-          "bottom": 371.20001220703125,
-          "contentLeft": 234.5,
-          "contentTop": 306.8000183105469,
-          "dpr": 1.25,
+          "left": 271.0625,
+          "top": 353.14288330078125,
+          "bottom": 369.71429443359375,
+          "contentLeft": 234.27679443359375,
+          "contentTop": 305.4285888671875,
+          "dpr": 1.75,
           "lines": 3,
           "docLength": 16,
           "text": "ijklmn"
@@ -456,16 +456,16 @@
             0
           ],
           "start": [
-            248.1875,
-            313.20001220703125
+            247.9732208251953,
+            311.14288330078125
           ],
           "end": [
-            271.2875061035156,
-            371.20001220703125
+            271.0625,
+            369.71429443359375
           ],
           "steps": 8,
           "modifiers": "alt",
-          "dpr": 1.25
+          "dpr": 1.75
         },
         "shape": "3ranges",
         "rectOk": true,
@@ -520,7 +520,7 @@
         "clipboardExpected": "bcd\nh  \njkl",
         "clipboardMatch": true,
         "copyAttempts": 1,
-        "dpr": 1.25
+        "dpr": 1.75
       }
     },
     {
@@ -533,7 +533,7 @@
         "remote": [],
         "sample": [
           "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html",
-          "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-CMYUZU-t.js",
+          "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-D_66XVqv.js",
           "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-BFJjLa-m.css",
           "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
           "file:///D:/github/jflove/jflove-desktop/ui/dist/vendor/editor.bundle.js"
@@ -546,12 +546,12 @@
   "real_window": true,
   "requests": [
     "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html",
-    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-CMYUZU-t.js",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-D_66XVqv.js",
     "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-BFJjLa-m.css",
     "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
     "file:///D:/github/jflove/jflove-desktop/ui/dist/vendor/editor.bundle.js"
   ],
-  "user_data_sandbox": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r11-20261014-204307\\appdata",
+  "user_data_sandbox": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r11-20261014-215141\\appdata",
   "fixtures": {
     "wide.txt": {
       "exists": true,
@@ -560,8 +560,8 @@
     },
     "rect.txt": {
       "exists": true,
-      "size": 200,
-      "sha256": "c8508d3c2feba323"
+      "size": 100,
+      "sha256": "fc67e9f07bf119b2"
     },
     "long.txt": {
       "exists": true,

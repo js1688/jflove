@@ -13,6 +13,8 @@
  *    - 行号 / 自动换行 / 字号 / 只读（`pane.readOnly`：大文件降级与 `.diff` 都走它）；
  *    - 块选择 `rectangularSelection({ eventFilter })`，修饰键由
  *      `shortcut-store.blockSelectModifier` 派生；**复制口径自实现**（`block-select.ts`，AC-11）；
+ *    - 块选择的**键盘**键位（`修饰键 + Shift + 方向键`，AC-13 / BL-32）用
+ *      `Prec.highest(keymap.of(...))` 抢在默认键位（`copyLineUp/Down`、`selectSyntaxLeft/Right`）之前；
  *    - `updateListener` → `markDirty` + 状态统计广播（F10 全字段，§4.1.4）；
  *    - 正文读取器注册（`registerScratchContentAccessor`，草稿 / 自动保存读它）。
  * 4. **会话注册表**（本文件导出）：把活着的实例暴露给工具栏 / 状态栏 / diff 视图
@@ -44,9 +46,26 @@ import type { RefObject } from 'react';
 import { selectBlockSelectModifier, useShortcutStore } from '../../stores/shortcut-store';
 import { registerScratchContentAccessor, takeInitialText, useScratchStore } from '../../stores/scratch-store';
 import { useThemeStore } from '../../stores/theme-store';
-import type { EditorView, Extension, JFLoveCmApi, ViewUpdate } from '../../types/codemirror-bundle';
+import type {
+  EditorSelection,
+  EditorView,
+  Extension,
+  JFLoveCmApi,
+  SelectionRange,
+  ViewUpdate,
+} from '../../types/codemirror-bundle';
 import type { PaneCaret, ScratchPane } from '../../types/scratch';
-import { blockSelectCopy, isBlockSelection } from '../../utils/scratch/block-select';
+import {
+  BLOCK_DIRECTIONS,
+  blockCursorFromSelection,
+  blockCursorMatchesSelection,
+  blockCursorRanges,
+  blockSelectChord,
+  blockSelectCopy,
+  extendBlockCursor,
+  isBlockSelection,
+} from '../../utils/scratch/block-select';
+import type { BlockCursor, BlockDirection } from '../../utils/scratch/block-select';
 import { loadEditorBundle } from '../../utils/scratch/load-editor-bundle';
 import { stepFontSize } from '../../utils/scratch/toolbox';
 
@@ -268,6 +287,73 @@ function copyHandlerFor(api: JFLoveCmApi): Extension {
       },
     }),
   );
+}
+
+/** `modules.state` 在手写类型里是宽松的索引签名 ⇒ 多 range 选区必须取**真** `EditorSelection` */
+interface EditorSelectionStatic {
+  range(from: number, to: number): SelectionRange;
+  create(ranges: readonly SelectionRange[], mainIndex?: number): EditorSelection;
+}
+
+/** 取离线包里的 `EditorSelection`（AC-13 的多 range 选区不能用 `{from,to}` 字面量糊） */
+function editorSelectionOf(api: JFLoveCmApi): EditorSelectionStatic {
+  return (api.modules.state as unknown as { EditorSelection: EditorSelectionStatic })
+    .EditorSelection;
+}
+
+/**
+ * 键盘列选择的锚点记忆（每个 EditorView 一份）。
+ *
+ * 原因见 `blockSelectMatchesSelection`：单行块在 CM6 里只是一个普通 range，
+ * 反推不出列宽，必须把上一轮派发的锚点记下来才能连续按键。
+ * 选区一旦被别的路径改掉（鼠标、打字、粘贴），`blockCursorMatchesSelection`
+ * 就不再命中，自动以新选区重新起锚。
+ */
+const blockCursorMemory = new WeakMap<EditorView, BlockCursor>();
+
+/**
+ * 块选择的**键盘**键位（AC-13 / BL-32）。
+ *
+ * ① `修饰键 + Shift + ↑/↓` = 按列扩行；② `修饰键 + Shift + ←/→` = 移动列区间的一端。
+ * 命中后派发**每行一个 range** 的选区 —— 复制时 `blockSelectCopy` 认得出矩形，
+ * 因此键盘与鼠标两条路径的剪贴板口径完全同一条（AC-13「复制结果与 AC-11 同一拼接口径」）。
+ *
+ * ⚠ 必须 `Prec.highest`：默认键位把这四个组合占给了 `copyLineUp/Down` 与
+ * `selectSyntaxLeft/Right`（真机 r11 H3 实测：`Alt+Shift+↓` 每按一次复制 2 行，
+ * 且改动会在 1.5 s 内被自动保存写回磁盘）。
+ *
+ * **导出供测试**（审查 M3）：`block-select-keys-host.test.ts` 用**真离线包**建
+ * `EditorState`（同时装 `defaultKeymap`），断言本组键位在 `keymap` facet 里排在最前、
+ * 并且在 `{state, dispatch}` 假视图上返回 `true` 且只派发选区 —— 这两点才是
+ * "宿主的 `Prec.highest` 真的抢过了 `copyLineDown`"的判据（纯函数测试覆盖不到）。
+ */
+export function blockSelectKeymap(api: JFLoveCmApi, modifier: string): Extension {
+  const selection = editorSelectionOf(api);
+  const bindings = BLOCK_DIRECTIONS.map((direction: BlockDirection) => ({
+    key: blockSelectChord(modifier, direction),
+    run: (view: EditorView): boolean => {
+      const remembered = blockCursorMemory.get(view) ?? null;
+      const cursor = blockCursorMatchesSelection(
+        view.state.doc,
+        remembered,
+        view.state.selection.ranges,
+      )
+        ? remembered
+        : blockCursorFromSelection(view.state.doc, view.state.selection);
+      if (!cursor) return false;
+      const next = extendBlockCursor(view.state.doc, cursor, direction);
+      const ranges = blockCursorRanges(view.state.doc, next).map((item) =>
+        selection.range(item.from, item.to),
+      );
+      if (ranges.length === 0) return false;
+      // 主选区落在"被移动的那一端"，滚动与光标提示才跟手（向上扩时是首行）
+      const mainIndex = direction === 'up' ? 0 : ranges.length - 1;
+      blockCursorMemory.set(view, next);
+      view.dispatch({ selection: selection.create(ranges, mainIndex), scrollIntoView: true });
+      return true;
+    },
+  }));
+  return api.extensions.Prec.highest(api.extensions.keymap.of(bindings));
 }
 
 /** 组装基础扩展（不含 compartment 管理的那些） */
@@ -502,10 +588,13 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
         const themeExtensions = editorThemeFor(api, current.fontSize, darkRef.current);
         extensions.push(compartments.theme ? compartments.theme.of(themeExtensions) : themeExtensions);
 
-        // ⑥ 块选择（compartment：修饰键变化时重配）
-        const blockSelectExtensions = api.extensions.rectangularSelection({
-          eventFilter: blockSelectFilter(modifierRef.current),
-        });
+        // ⑥ 块选择（compartment：修饰键变化时重配；含 AC-13 的键盘键位）
+        const blockSelectExtensions: Extension = [
+          api.extensions.rectangularSelection({
+            eventFilter: blockSelectFilter(modifierRef.current),
+          }),
+          blockSelectKeymap(api, modifierRef.current),
+        ];
         extensions.push(
           compartments.blockSelect
             ? compartments.blockSelect.of(blockSelectExtensions)
@@ -579,9 +668,10 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
     }
     if (compartments.blockSelect) {
       effects.push(
-        compartments.blockSelect.reconfigure(
+        compartments.blockSelect.reconfigure([
           api.extensions.rectangularSelection({ eventFilter: blockSelectFilter(modifier) }),
-        ),
+          blockSelectKeymap(api, modifier),
+        ]),
       );
     }
     if (effects.length > 0) view.dispatch({ effects });

@@ -13,11 +13,19 @@
  *   ① **全程不出现**任何要求选择位置或文件名的对话框；② `p` 内容等于 `y`；③ 目录文件集合不变」。
  *
  * 这两条的触发入口在 `config/shortcuts.ts:161-177` 里是有定义的（`file.save` = `Ctrl+S`、
- * `file.saveAs` = `Ctrl+Shift+S`，描述文字与 AC 原文一致），但**没有任何实现**：
- * 应用级监听只接管 `ScratchPaneLayer.tsx:52-60` 列出的 7 项（不含 `file.save`），
- * CM6 宿主装的 keymap（`ScratchEditorHost.tsx:294-302`）只有内核默认键映射，
- * `scratchService.pickSaveTarget`（`scratch-service.ts:117-120`）**全仓无调用方**。
- * 因此这两条按 `it.fails` 登记（见交付说明的"按需求写但实现不符"清单）。
+ * `file.saveAs` = `Ctrl+Shift+S`，描述文字与 AC 原文一致）。
+ *
+ * ## BL-33 快速修复（2026-10-14）：本文件已从"登记缺口"转为"回归判据"
+ *
+ * 修复前：应用级监听只接管 `ScratchPaneLayer.tsx` 列出的 7 项（不含 `file.save`），
+ * CM6 宿主装的 keymap 只有内核默认键映射，`scratchService.pickSaveTarget` **全仓无调用方**
+ * ⇒ 本文件的三条曾以 `it.fails` 登记。
+ *
+ * 修复后：`ScratchPaneLayer` 接管 `file.save` / `file.saveAs`（窗格聚焦类，
+ * 必须事件落在 `[data-scratch-pane]` 内），把动作转给 `scratch-store.savePane()`：
+ * 草稿形态 / 另存为 ⇒ `pickSaveTarget()` 弹原生对话框；已有路径 ⇒ 直接写回同一路径。
+ * 因此用例改为**真断言**，并且必须在**窗格元素内**派发 keydown
+ * （在 `window` 上派发时 `event.target` 不是窗格，按设计会正确地拒绝接管）。
  *
  * ## 分层声明
  *
@@ -68,9 +76,32 @@ vi.mock('../../config/routes', async () => {
 
 import { App } from '../App';
 import { scratchService } from '../services/scratch-service';
-import { useScratchStore } from '../stores/scratch-store';
+import { registerScratchContentAccessor, useScratchStore } from '../stores/scratch-store';
 
-/** 在 `window` 上派发一次组合键（AC-36 / AC-37 的原文触发方式是 `Ctrl+S`） */
+/** 在指定窗格元素内派发一次组合键（`file.save` 属窗格聚焦类，必须落在 `[data-scratch-pane]` 内） */
+function pressKeyInPane(
+  paneId: string,
+  key: string,
+  options: { ctrlKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {},
+): void {
+  const pane = document.querySelector(`[data-scratch-pane="${paneId}"]`);
+  if (!pane) throw new Error(`窗格元素未渲染：${paneId}`);
+  act(() => {
+    pane.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key,
+        code: `Key${key.toUpperCase()}`,
+        ctrlKey: Boolean(options.ctrlKey),
+        altKey: Boolean(options.altKey),
+        shiftKey: Boolean(options.shiftKey),
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+
+/** 在 `window` 上派发一次组合键（窗口作用域的项，如阳性对照 `Ctrl+Alt+N`） */
 function pressKey(key: string, options: { ctrlKey?: boolean; altKey?: boolean } = {}): void {
   act(() => {
     window.dispatchEvent(
@@ -100,7 +131,7 @@ afterEach(() => {
 
 describe('AC-36 / AC-37 显式保存入口（Ctrl+S）', () => {
   it('阳性对照：应用级快捷键监听确实在跑（Ctrl+Alt+N → 新建窗格）', () => {
-    // 没有这条对照，下面两条 it.fails 的"没反应"就无法区分是
+    // 没有这条对照，下面用例的"没反应"就无法区分是
     // ① 保存键位没接线（真缺陷）还是 ② 整个监听环境不可用（测试自身问题）。
     // `pane.new` 的默认键位 = `Ctrl+Alt+N`（`config/shortcuts.ts:109`），在应用级监听接管名单内。
     render(<App />);
@@ -111,85 +142,151 @@ describe('AC-36 / AC-37 显式保存入口（Ctrl+S）', () => {
     expect(useScratchStore.getState().panes).toHaveLength(1);
   });
 
-  it.fails(
-    'AC-36【登记】Ctrl+S 对草稿形态窗格必须走「另存为」询问路径（pickSaveTarget 恰好一次）',
-    async () => {
-      // 需求原文：新建窗格输入 x → 触发保存 → 弹出原生文件对话框
-      const pickSaveTarget = vi.spyOn(scratchService, 'pickSaveTarget');
-      const writeText = vi.spyOn(scratchService, 'writeText');
-      render(<App />);
-      act(() => {
-        useScratchStore.getState().createPane({ path: null, title: '未命名' });
-        useScratchStore.getState().markDirty(useScratchStore.getState().panes[0].id, true);
-      });
+  it('AC-36：Ctrl+S 对草稿形态窗格必须走「另存为」询问路径并真的落盘', async () => {
+    // 需求原文：新建窗格输入 x → 触发保存 → 弹出原生文件对话框 → 选定路径后内容写盘
+    const pickSaveTarget = vi
+      .spyOn(scratchService, 'pickSaveTarget')
+      .mockResolvedValue('D:/tmp/ac36-draft.txt');
+    const writeText = vi
+      .spyOn(scratchService, 'writeText')
+      .mockResolvedValue({ ok: true, size: 1, mtime: 0, sha256: 'x' });
+    render(<App />);
+    let paneId = '';
+    act(() => {
+      paneId = useScratchStore.getState().createPane({ path: null, title: '未命名' });
+    });
+    // jsdom 里离线 CM6 包不会加载 ⇒ 手动登记正文读取器，等价于"编辑器已挂载且有正文"
+    const unregister = registerScratchContentAccessor(paneId, () => ({ text: 'x' }));
+    act(() => {
+      useScratchStore.getState().markDirty(paneId, true);
+    });
 
-      pressKey('s', { ctrlKey: true });
-      await act(async () => {
-        await Promise.resolve();
-      });
+    pressKeyInPane(paneId, 's', { ctrlKey: true });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-      // 判据：必须有"询问路径"的另存为流程；不得直接写回原路径（草稿形态本就没有路径）
-      expect(pickSaveTarget).toHaveBeenCalledTimes(1);
-      expect(writeText).toHaveBeenCalledTimes(0);
-    },
-  );
+    // 判据：草稿形态必须问路径（恰好一次），并把内容写到选定的路径
+    expect(pickSaveTarget).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0]?.[0]).toMatchObject({
+      path: 'D:/tmp/ac36-draft.txt',
+      text: 'x',
+    });
+    // AC-36 的界面口径：路径回填、标题栏换成文件名、脏标记落下
+    const pane = useScratchStore.getState().panes.find((item) => item.id === paneId);
+    expect(pane?.path).toBe('D:/tmp/ac36-draft.txt');
+    expect(pane?.title).toBe('ac36-draft.txt');
+    expect(pane?.dirty).toBe(false);
+    expect(useScratchStore.getState().lastError).toBeNull();
+    unregister();
+  });
 
-  it.fails(
-    'AC-36【登记】取消对话框 ⇒ 窗格仍为脏、不产生任何写入调用（pickSaveTarget 被问过 1 次）',
-    async () => {
-      // 需求原文（AC-36 后半）：「取消对话框 → 磁盘上不产生任何文件、窗格仍为脏」。
-      // 先决条件是"确实问了路径"：没有这一步，下面对 dirty / writeText 的断言在
-      // "整个保存通路都不存在"的今天会**假装通过**（什么也没发生），所以必须一起断言。
-      const pickSaveTarget = vi
-        .spyOn(scratchService, 'pickSaveTarget')
-        .mockResolvedValue(null); // 用户在原生对话框里点了取消
-      const writeText = vi.spyOn(scratchService, 'writeText');
-      render(<App />);
-      const paneId = useScratchStore.getState().createPane({ path: null, title: '未命名' });
-      act(() => {
-        useScratchStore.getState().markDirty(paneId, true);
-      });
+  it('AC-36：取消对话框 ⇒ 窗格仍为脏、不产生任何写入调用（pickSaveTarget 被问过 1 次）', async () => {
+    // 需求原文（AC-36 后半）：「取消对话框 → 磁盘上不产生任何文件、窗格仍为脏」。
+    // 先决条件是"确实问了路径"：没有这一步，下面对 dirty / writeText 的断言会
+    // 在"整个保存通路都不存在"时**假装通过**（什么也没发生），所以必须一起断言。
+    const pickSaveTarget = vi
+      .spyOn(scratchService, 'pickSaveTarget')
+      .mockResolvedValue(null); // 用户在原生对话框里点了取消
+    const writeText = vi.spyOn(scratchService, 'writeText');
+    render(<App />);
+    let paneId = '';
+    act(() => {
+      paneId = useScratchStore.getState().createPane({ path: null, title: '未命名' });
+    });
+    const unregister = registerScratchContentAccessor(paneId, () => ({ text: 'x' }));
+    act(() => {
+      useScratchStore.getState().markDirty(paneId, true);
+    });
 
-      pressKey('s', { ctrlKey: true });
-      await act(async () => {
-        await Promise.resolve();
-      });
+    pressKeyInPane(paneId, 's', { ctrlKey: true });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-      expect(pickSaveTarget).toHaveBeenCalledTimes(1);
-      // 取消 ⇒ 不得写盘、不得改路径，脏标记必须留着（用户还欠一次保存）
-      expect(writeText).toHaveBeenCalledTimes(0);
-      const pane = useScratchStore.getState().panes.find((item) => item.id === paneId);
-      expect(pane?.path).toBeNull();
-      expect(pane?.dirty).toBe(true);
-    },
-  );
+    expect(pickSaveTarget).toHaveBeenCalledTimes(1);
+    // 取消 ⇒ 不得写盘、不得改路径，脏标记必须留着（用户还欠一次保存）
+    expect(writeText).toHaveBeenCalledTimes(0);
+    const pane = useScratchStore.getState().panes.find((item) => item.id === paneId);
+    expect(pane?.path).toBeNull();
+    expect(pane?.dirty).toBe(true);
+    unregister();
+  });
 
-  it.fails(
-    'AC-37【登记】Ctrl+S 对已有路径窗格必须静默写回恰好一次（0 次对话框）',
-    async () => {
-      // 需求原文：已保存文档（目标 p）内容改为 y → 按 Ctrl+S → 不出现任何选择位置的对话框
-      const writeText = vi.spyOn(scratchService, 'writeText');
-      const openDialog = vi.spyOn(scratchService, 'openDialog');
-      const pickSaveTarget = vi.spyOn(scratchService, 'pickSaveTarget');
-      render(<App />);
-      act(() => {
-        const id = useScratchStore
-          .getState()
-          .createPane({ path: 'D:/tmp/ac37-ctrl-s.txt', title: 'ac37-ctrl-s.txt' });
-        useScratchStore.getState().markDirty(id, true);
-      });
+  it('AC-37：Ctrl+S 对已有路径窗格必须静默写回恰好一次（0 次对话框）', async () => {
+    // 需求原文：已保存文档（目标 p）内容改为 y → 按 Ctrl+S → 不出现任何选择位置的对话框
+    const writeText = vi
+      .spyOn(scratchService, 'writeText')
+      .mockResolvedValue({ ok: true, size: 1, mtime: 0, sha256: 'y' });
+    const openDialog = vi.spyOn(scratchService, 'openDialog');
+    const pickSaveTarget = vi.spyOn(scratchService, 'pickSaveTarget');
+    render(<App />);
+    let paneId = '';
+    act(() => {
+      paneId = useScratchStore
+        .getState()
+        .createPane({ path: 'D:/tmp/ac37-ctrl-s.txt', title: 'ac37-ctrl-s.txt' });
+    });
+    const unregister = registerScratchContentAccessor(paneId, () => ({ text: 'y' }));
+    act(() => {
+      useScratchStore.getState().markDirty(paneId, true);
+    });
 
-      pressKey('s', { ctrlKey: true });
-      await act(async () => {
-        await Promise.resolve();
-      });
+    pressKeyInPane(paneId, 's', { ctrlKey: true });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-      expect(writeText).toHaveBeenCalledTimes(1);
-      expect(writeText.mock.calls[0]?.[0]?.path).toBe('D:/tmp/ac37-ctrl-s.txt');
-      expect(openDialog).toHaveBeenCalledTimes(0);
-      expect(pickSaveTarget).toHaveBeenCalledTimes(0);
-    },
-  );
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0]?.[0]).toMatchObject({
+      path: 'D:/tmp/ac37-ctrl-s.txt',
+      text: 'y',
+    });
+    expect(openDialog).toHaveBeenCalledTimes(0);
+    expect(pickSaveTarget).toHaveBeenCalledTimes(0);
+    const pane = useScratchStore.getState().panes.find((item) => item.id === paneId);
+    expect(pane?.path).toBe('D:/tmp/ac37-ctrl-s.txt');
+    expect(pane?.dirty).toBe(false);
+    unregister();
+  });
+
+  it('AC-37：Ctrl+Shift+S（另存为）必须强制询问新路径，原路径不再出现在写盘参数里', async () => {
+    const pickSaveTarget = vi
+      .spyOn(scratchService, 'pickSaveTarget')
+      .mockResolvedValue('D:/tmp/ac37b-save-as.txt');
+    const writeText = vi
+      .spyOn(scratchService, 'writeText')
+      .mockResolvedValue({ ok: true, size: 1, mtime: 0, sha256: 'z' });
+    render(<App />);
+    let paneId = '';
+    act(() => {
+      paneId = useScratchStore
+        .getState()
+        .createPane({ path: 'D:/tmp/ac37b-origin.txt', title: 'ac37b-origin.txt' });
+    });
+    const unregister = registerScratchContentAccessor(paneId, () => ({ text: 'z' }));
+    act(() => {
+      useScratchStore.getState().markDirty(paneId, true);
+    });
+
+    pressKeyInPane(paneId, 's', { ctrlKey: true, shiftKey: true });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // 另存为：一定问路径，且只写新路径（原文件不动 —— 其内容由 Python 侧探针断言）
+    expect(pickSaveTarget).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText.mock.calls[0]?.[0]).toMatchObject({
+      path: 'D:/tmp/ac37b-save-as.txt',
+      text: 'z',
+    });
+    const pane = useScratchStore.getState().panes.find((item) => item.id === paneId);
+    expect(pane?.path).toBe('D:/tmp/ac37b-save-as.txt');
+    expect(pane?.title).toBe('ac37b-save-as.txt');
+    unregister();
+  });
 });
 
 describe('M-11 批量保存（"保存并退出" / "全部保存"）必须跳过只读窗格', () => {

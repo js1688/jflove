@@ -8,9 +8,13 @@
  *   **触发编辑器行为**，且**不弹出**宿主默认对话框 `[负向对照]`」。
  * - 设计（`设计文档/v1.6.0.md` §4.2.2 / §4.2.3）：应用级监听 = `window` **捕获阶段** `keydown`，
  *   命中即 `preventDefault() + stopPropagation()`；`document.body.dataset.jfShortcutCapture` 存在时让路；
- *   **只有窗口作用域的 7 项**由渲染层接管，其余为「窗格聚焦类」（CM6 keymap 侧）。
+ *   窗口作用域的项由渲染层接管，其余为「窗格聚焦类」（CM6 keymap 侧）。
  * - 代码审查报告 v1.6.0 **M-9 [中等]**：「仅 7 项 app-scope 快捷键会 `preventDefault`，
  *   另 12 项既无行为也不拦宿主」⇒ 缺口用 `it.fails` 逐项登记（`it.fails` 必须失败才算通过）。
+ * - **BL-33 快速修复（2026-10-14）**：`file.save` / `file.saveAs` 已由渲染层接管并真的落盘
+ *   （AC-36 / AC-37），因此接管面从 **7 项 → 9 项**、缺口从 12 项 → **11 项**；
+ *   这两项的"按下后真的写盘"由 `ui/src/__tests__/scratch-save-decision.test.tsx` 覆盖
+ *   （本文件只管拦截口径）。
  *
  * ## 本文件的 DOM 断言口径（把 r8 的静态断言升级为真 DOM）
  *
@@ -38,7 +42,7 @@ import { TOOLBOX_ITEMS } from '../../../utils/scratch/toolbox';
 // 因此把窗格外壳替成空组件，避免 `pane.new` 用例顺带把 CM6 宿主拉起来。
 vi.mock('../ScratchPane', () => ({ ScratchPane: () => null }));
 
-/** 渲染层**接管**的 7 项（与 `ScratchPaneLayer.tsx:52-60` 的 `APP_SCOPE_SHORTCUTS` 一致） */
+/** 渲染层**接管**的 9 项（与 `ScratchPaneLayer.tsx` 的 `APP_SCOPE_SHORTCUTS` 一致） */
 const APP_SCOPE_IDS: readonly ShortcutId[] = [
   'pane.new',
   'pane.close',
@@ -47,9 +51,12 @@ const APP_SCOPE_IDS: readonly ShortcutId[] = [
   'pane.tile',
   'pane.cascade',
   'file.open',
+  // BL-33 快速修复补上的两项（AC-36 / AC-37）
+  'file.save',
+  'file.saveAs',
 ];
 
-/** 非应用级（窗格聚焦类）的 13 项 = 20 项默认键位 − 7 项 */
+/** 非应用级（窗格聚焦类，仍未接管）的 11 项 = 20 项默认键位 − 9 项 */
 const PANE_SCOPE_IDS: readonly ShortcutId[] = SHORTCUT_IDS.filter(
   (id) => !APP_SCOPE_IDS.includes(id),
 );
@@ -159,7 +166,7 @@ describe('AC-10 [负向对照] 宿主占用组合键被渲染层拦下', () => {
   });
 });
 
-describe('AC-10 基线：窗口作用域的 7 项逐项被接管', () => {
+describe('AC-10 基线：窗口作用域的 9 项逐项被接管', () => {
   // 新发现 N-1（本文件实测，审查报告未记）：`pane.next` / `pane.prev` 的默认值在
   // `DEFAULT_BINDINGS` 里是**原始写法** `Ctrl+Alt+ArrowRight`（`shortcuts.ts:272-275` 直接取
   // `def.defaultKey`），而事件侧 `keyboardEventToShortcut` 归一成 `Ctrl+Alt+Right`
@@ -186,7 +193,7 @@ describe('AC-10 基线：窗口作用域的 7 项逐项被接管', () => {
   }
 });
 
-describe('AC-10 缺口（M-9）：窗格聚焦类的 13 项按下时期望同样被渲染层接管', () => {
+describe('AC-10 缺口（M-9）：窗格聚焦类的 11 项按下时期望同样被渲染层接管', () => {
   for (const id of PANE_SCOPE_IDS) {
     it.fails(
       `${id} 在窗格内按下时应被 preventDefault（实测：既不执行也不拦宿主 —— M-9）`,
@@ -210,7 +217,7 @@ describe('AC-10 缺口（M-9）：工具箱 12 项没有可被拦截的键位', 
       () => {
         // 期望口径：AC-10 要求「配给编辑器功能的组合键」在窗格内被拦。
         // 实测：`SHORTCUT_DEFS` 20 项里没有任何一项指向 12 个工具箱项
-        // （唯一相关的是容器入口 `view.toolbox = Ctrl+Alt+K`，它同样不在 7 项接管名单里）。
+        // （唯一相关的是容器入口 `view.toolbox = Ctrl+Alt+K`，它同样不在 9 项接管名单里）。
         const itemId: string = item.id;
         const carriers = SHORTCUT_DEFS.filter(
           (def) => def.id === itemId || def.id.endsWith(`.${itemId}`),

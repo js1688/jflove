@@ -15,7 +15,8 @@
  * 4. **启动期事件补投**：`onOpenPaths` + `flushOpenPaths`（§7.5 ②，化解「事件早于 UI」）；
  * 5. **关闭脏窗格的询问**：保存 / 放弃 / 取消，**文案不含完整路径**（③ / §7.4）；
  * 6. **应用级快捷键**：`window` **捕获阶段** `keydown` + `document.hasFocus() && !document.hidden`
- *    （§4.2.2「窗口激活才生效」）。**只处理窗口作用域的 7 项**，`preventDefault()+stopPropagation()`
+ *    （§4.2.2「窗口激活才生效」）。**只处理应用级清单的 9 项**（6 项窗口 + 3 项窗格聚焦：
+ *    `pane.close` / `file.save` / `file.saveAs`），`preventDefault()+stopPropagation()`
  *    后执行；不命中立刻返回，事件照常流向 CM6（§4.2.3 的协作规则）。
  *    **不注册任何系统级热键** —— 只用 DOM 事件；AC-8 的 grep 判据要求某些系统级 API 标识符 0 命中，
  *    因此本文件（含注释）刻意不出现它们。
@@ -43,11 +44,15 @@ import { ScratchPane as ScratchPaneView } from './ScratchPane';
 import '../../styles/scratch-editor.css';
 
 /**
- * 应用级监听**接管**的快捷键（其余 13 项是「窗格聚焦类」，由 CM6 keymap 侧实现，§4.2.3）。
+ * 应用级监听**接管**的快捷键（其余 11 项是「窗格聚焦类」，由 CM6 keymap 侧实现，§4.2.3）。
  *
  * 逐项对齐 §4.2.1 的「作用域」列：
  * `pane.new` / `pane.next` / `pane.prev` / `pane.tile` / `pane.cascade` / `file.open` = 窗口激活；
- * `pane.close` = 窗格聚焦（故上面额外做 `closest('[data-scratch-pane]')` 校验）。
+ * `pane.close` / `file.save` / `file.saveAs` = 窗格聚焦（故下面额外做 `closest('[data-scratch-pane]')` 校验）。
+ *
+ * 保存两项是**快速修复（AC-36 / AC-37，BL-33）**补的：此前 `file.save` / `file.saveAs`
+ * 只有声明（`config/shortcuts.ts:161-177`）与描述，没有任何接管方，
+ * `Ctrl+S` 既不落盘也不 `preventDefault`（真机 r11 的 H5c 实测 + 自动化用例双向佐证）。
  */
 const APP_SCOPE_SHORTCUTS: readonly ShortcutId[] = [
   'pane.new',
@@ -57,11 +62,23 @@ const APP_SCOPE_SHORTCUTS: readonly ShortcutId[] = [
   'pane.tile',
   'pane.cascade',
   'file.open',
+  'file.save',
+  'file.saveAs',
 ];
+
+/** 需要「事件目标位于某个窗格 DOM 内」的项（§4.2.1 作用域 = 窗格聚焦） */
+const PANE_SCOPE_SHORTCUTS: readonly ShortcutId[] = ['pane.close', 'file.save', 'file.saveAs'];
+
+/** 事件目标所在窗格的 id（不在任何窗格内 ⇒ null） */
+function paneIdOf(target: EventTarget | null): string | null {
+  if (!(target instanceof HTMLElement)) return null;
+  const host = target.closest('[data-scratch-pane]');
+  return host instanceof HTMLElement ? (host.dataset.scratchPane ?? null) : null;
+}
 
 /** 事件目标是否位于某个窗格 DOM 内（§4.2.2「窗格聚焦类」的判定口径） */
 function isInsidePane(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && target.closest('[data-scratch-pane]') !== null;
+  return paneIdOf(target) !== null;
 }
 
 /** 按层级取窗格（z 升序；末位 = 最前） */
@@ -236,7 +253,7 @@ export function ScratchPaneLayer() {
 
   // ── ⑥ 应用级快捷键（窗口捕获阶段；失焦 / 后台一律不响应）──
   const runShortcut = useCallback(
-    (id: ShortcutId) => {
+    (id: ShortcutId, paneId: string | null = null) => {
       const store = useScratchStore.getState();
       switch (id) {
         case 'pane.new':
@@ -271,6 +288,17 @@ export function ScratchPaneLayer() {
         case 'file.open':
           void pickAndOpen();
           break;
+        case 'file.save':
+        case 'file.saveAs': {
+          // `file.save` 支持"已存在的路径直接写回""草稿形态弹原生对话框"两条路径；
+          // `file.saveAs` 强制走对话框（= 重新指定路径，原文件保持不变）。
+          const target = paneId ?? store.activePaneId;
+          if (!target) break;
+          void store.savePane(target, { forceDialog: id === 'file.saveAs' }).then((saved) => {
+            if (saved) toast.success('已保存');
+          });
+          break;
+        }
         default:
           break;
       }
@@ -292,11 +320,11 @@ export function ScratchPaneLayer() {
       const bindings = useShortcutStore.getState();
       const matched = APP_SCOPE_SHORTCUTS.find((id) => bindings.getBinding(id) === chord);
       if (!matched) return; // 不接管就立刻返回，事件继续流向 CM6（§4.2.3 规则 1）
-      if (matched === 'pane.close' && !isInsidePane(event.target)) return; // 窗格聚焦类作用域
+      if (PANE_SCOPE_SHORTCUTS.includes(matched) && !isInsidePane(event.target)) return; // 窗格聚焦类作用域
       // 接管：阻止宿主默认动作与 CM6 双触发（§4.2.3 规则 2）
       event.preventDefault();
       event.stopPropagation();
-      runShortcut(matched);
+      runShortcut(matched, paneIdOf(event.target));
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);

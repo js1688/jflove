@@ -237,6 +237,18 @@ interface ScratchState {
   setViewport: (w: number, h: number) => void;
   /** 立刻落盘所有待写内容（退出握手前调用；会清空全部防抖计时器） */
   flushPendingSaves: () => Promise<void>;
+  /**
+   * **手动保存**（AC-36 / AC-37）—— `Ctrl+S` / `Ctrl+Shift+S` 与"关闭前保存"统一走它。
+   *
+   * - 窗格**从未落过盘**（`path === null`）或 `forceDialog`（= 另存为）⇒ 先弹**原生**保存对话框
+   *   （`scratchService.pickSaveTarget`）；用户取消 ⇒ **磁盘零变化**且脏标记保持（AC-36）；
+   * - 已有路径且非另存为 ⇒ **不弹任何对话框**，直接写回同一路径（AC-37）；
+   * - 只读窗格（`.diff` / `.patch` / 大文件降级，AC-19）直接拒绝，不产生任何写入；
+   * - 成功 ⇒ 路径 / 标题 / 脏标记一起更新；失败 ⇒ 只给提示（`lastError`），内容与脏标记不变（AC-41）。
+   *
+   * @returns `true` = 真的写盘成功（取消 / 只读 / 写失败都是 `false`）
+   */
+  savePane: (id: string, options?: { forceDialog?: boolean }) => Promise<boolean>;
   /** 清掉最近一次错误提示 */
   clearError: () => void;
 }
@@ -707,6 +719,108 @@ export const useScratchStore = create<ScratchState>((set, get) => {
       const pendingIds = Array.from(flushTimers.keys());
       pendingIds.forEach((paneId) => clearFlushTimer(paneId));
       await Promise.all(pendingIds.map((paneId) => flushPane(paneId)));
+    },
+
+    savePane: async (id, options) => {
+      const pane = get().panes.find((item) => item.id === id);
+      if (!pane) return false;
+
+      /**
+       * 失败 / 取消的统一收尾：把该窗格的自动保存**重新排上队**（审查 M4）。
+       *
+       * 写盘前会 `clearFlushTimer(id)`；若此后直接 `return false`，原本 1500 ms 后
+       * 会把内容落到**草稿库**的那次 flush 也随之消失 —— 用户此时关进程，
+       * 最后一次编辑既不进用户文件、也不进草稿库。仅在"仍脏且当前没有计时器"时补排。
+       */
+      const rescheduleFlush = (): false => {
+        const stillDirty = get().panes.find((item) => item.id === id)?.dirty ?? false;
+        if (stillDirty && !flushTimers.has(id)) scheduleFlush(id);
+        return false;
+      };
+
+      // 只读窗格（AC-19 / AC-52）：保存入口直接拒绝，连磁盘都不碰
+      if (pane.readOnly) {
+        set({ lastError: '只读窗格不支持保存' });
+        return rescheduleFlush();
+      }
+      const accessor = contentAccessors.get(id);
+      if (!accessor) {
+        // 未挂载 / 内核未就绪：没有真值可写（骨架态与加载失败态）
+        set({ lastError: '编辑器尚未就绪，暂时无法保存' });
+        return rescheduleFlush();
+      }
+      let snapshot: ReturnType<ScratchContentAccessor>;
+      try {
+        snapshot = accessor();
+      } catch {
+        return rescheduleFlush();
+      }
+
+      // ① 目标路径：已有路径直接写回；草稿形态或"另存为"则弹**原生**保存对话框（AC-36）
+      let target = pane.path;
+      if (options?.forceDialog === true || target === null) {
+        try {
+          target = await scratchService.pickSaveTarget(pane.title || undefined);
+        } catch (error) {
+          set({ lastError: describeError(error) });
+          return rescheduleFlush();
+        }
+        // 取消：不产生任何写入、目录条目数不变、脏标记保持（AC-36 的"取消"路径）
+        if (!target) return rescheduleFlush();
+      }
+
+      // ② 手动保存接管本轮：取消排队中的自动保存，避免同一路径写两次（AC-37 的"恰好一次"）
+      clearFlushTimer(id);
+      const seqAtStart = editSeqs.get(id) ?? 0;
+
+      // ③ 写盘。桥的壳是 `{ok: true, result}` / `{ok: false, error}`，而服务层的业务失败分两种：
+      //    只读 ⇒ **返回** `{ok: false, reason: 'read_only'}`（不抛）；冲突 ⇒ **抛**
+      //    `EditorError('conflict')`（被桥包成 `{ok: false, error}`）。
+      //    所以 TS 的 `WriteTextResult`（只声明 `ok: true`）是乐观类型，这里按运行时判。
+      //    注：`conflict` 分支目前是**防御性**的 —— `savePane` 不传 `expectedSha256`，
+      //    服务层不会报冲突（覆盖冲突检测的接线见 BACKLOG「另存为/覆盖冲突」项）。
+      let result: { ok?: boolean; reason?: string; error?: string } | null;
+      try {
+        result = (await scratchService.writeText({
+          path: target,
+          text: snapshot.text,
+          encoding: pane.encoding,
+          lineEnding: pane.lineEnding,
+        })) as unknown as { ok?: boolean; reason?: string; error?: string } | null;
+      } catch (error) {
+        set({ lastError: describeError(error) });
+        return rescheduleFlush();
+      }
+      if (result?.ok !== true) {
+        const reason = result?.reason;
+        set({
+          lastError:
+            reason === 'read_only'
+              ? '该文件被判定为只读，未写入'
+              : reason === 'conflict'
+                ? '文件已在别处被修改，未覆盖'
+                : describeError(result?.error ?? '保存失败'),
+        });
+        return rescheduleFlush();
+      }
+
+      // ④ 成功：路径 / 标题（文件名）/ 脏标记一起落地；期间若又有编辑则保持脏，等下一轮防抖
+      const stillClean = (editSeqs.get(id) ?? 0) === seqAtStart;
+      set((state) => ({
+        panes: state.panes.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                path: target,
+                title: target ? basenameOf(target) : item.title,
+                dirty: stillClean ? false : item.dirty,
+              }
+            : item,
+        ),
+        lastError: null,
+      }));
+      syncDirtyCount();
+      return true;
     },
 
     clearError: () => set({ lastError: null }),
