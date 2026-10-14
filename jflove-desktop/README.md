@@ -12,6 +12,36 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 
 ---
 
+## v1.6.0：内置文本编辑器（Scratch Editor，**纯本地**）
+
+应用内**浮动编辑窗格**：可同时开多个、互不干扰，切换路由不丢失（挂在窗口标题栏之下、路由之上）。
+**与远端零交互**（不读/不写虚拟磁盘与笔记）—— 内容只落本机草稿库或用户指定的本地文件。
+
+| 能力 | 说明 |
+|------|------|
+| 内核 | **CodeMirror 6**，以**单文件 IIFE 离线分包**在运行期从 `ui/public/vendor/editor.bundle.js` 懒加载（首次呼出窗格才加载；`npm` 侧**不**引 `@codemirror/*` 依赖） |
+| 块选择 | 修饰键（默认 `Alt`）+ 拖拽 = **矩形块选择**；复制口径为 IDE 行为（逐行取列区间、短行右侧补空格到块宽、`\n` 连接） |
+| 差异化体验 | 按类型提供 格式化 / 压缩 / JSON 树 / Markdown 预览与分屏 / CSV 表格视图 / 行级 diff / 折叠 / 括号匹配；SQL 美化可配（方言 / 关键字大小写 / 缩进） |
+| 工具箱 | 12 项：查找替换（含正则）+ 跳转行、行操作（排序/去重/去空行/去首尾空格）、大小写转换、JSON·HTML·URL 转义、Base64、JSON 树 + 格式化/压缩、Markdown 预览/分屏、CSV 表格、SQL 美化、**XML 格式化/压缩（自研，保注释与 CDATA）**、两段文本对比、字号与行号/换行开关 |
+| 类型校验先行 | 扩展名白名单 → `stat` 大小阈值（**> 50 MB 在读内容前拒绝**；> 5 MB 降级只读但内容完整）→ 一次有界读 64 KB → 前 8 KB 嗅探（BOM / NUL / **严格解码优先**）→ 编码判定（utf-8 / utf-8-bom / gbk / utf-16le / utf-16be） |
+| 保存语义 | 新建首次保存**必须**选路径；之后 `Ctrl+S` 直接更新该文件；**自动保存 1500 ms** 仅对**有保存路径**的文档生效；从未保存过的文档**永不**被静默写入磁盘（只进草稿库） |
+| 草稿与还原 | 草稿库 `USER_DATA_DIR/storage/scratch/`（`index.json` + `pane-<id>.txt`，各自原子写）；**崩溃/被杀后下次启动自动还原全部窗格**（懒挂载，几十份也不拖慢启动）；正常退出弹「保存 / 放弃 / 取消 + 是否保留下次恢复」 |
+| 快捷键 | 20 项默认键位、全部可配置（设置页「文本编辑器」+ 配置对话框，含**中文功能说明**、冲突检测、一键恢复默认）；**不注册任何全局热键**（只在窗口激活时生效） |
+| 文件关联 | 安装包注册到系统「打开方式」候选（Windows 写 **HKCU**；Linux 装 `application/x-jflove-text` MIME）；**不抢占默认程序**；应用内勾选只声明 JFLove 自己支持的范围（勾选状态落 `USER_DATA_DIR/storage/file_assoc.json`） |
+| 单实例 | 第二实例**不新开窗口/托盘**，把文件路径转交给已运行实例后退出（`QLocalServer` 行分隔 JSON 协议 + `ack` 确认；转交失败降级为本地启动，绝不静默丢弃） |
+| 安全边界 | 渲染层**无网络出口**、编辑器的远端调用 **0 个**；文件字节不进渲染层；日志不记文档内容与完整路径（`AGENTS.md §9`） |
+
+> 单一真相：类型/扩展名表只写在 [`ui/src/config/scratch-types.ts`](jflove-desktop/ui/src/config/scratch-types.ts)，
+> `ui/public/file-assoc.manifest.json` 与三处打包资产（`packaging/linux/jflove.xml`、
+> `.desktop` 的 `MimeType=` 行、`packaging/windows/file-assoc.iss`）**全部由脚本派生**，
+> 一致性判据：`python jflove-desktop/scripts/gen_file_assoc_assets.py --check`（退出码 0 = 一致）。
+
+> 构建注记：CM6 离线分包**不入库**，由 `build.py::ensure_editor_bundle()` 在缺失时**就地生成**
+> （`scripts/editor-bundle` 装依赖 + 跑 `scripts/build-codemirror-bundle.mjs`），生成失败才响亮失败
+> —— 这样无需改 CI 也能保证打包产物不缺内核。
+
+---
+
 ## 技术架构
 
 ### 框架与组件
