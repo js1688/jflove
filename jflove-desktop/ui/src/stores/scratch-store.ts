@@ -672,12 +672,15 @@ export const useScratchStore = create<ScratchState>((set, get) => {
         return null;
       }
       const info = resolveTypeForPath(item.path);
+      // M-13 / AC-45：**打开文件**（双击关联 / 打开对话框 / 拖入）一律先落编辑器视图；
+      // 类型表里的 `defaultViewMode`（如 `.csv` 的 `table`）只作为**切语言 / 切类型**时的
+      // 推荐视图（见 `setLanguage` → `getDefaultViewModeForLanguage`），不决定打开态。
       const id = get().createPane({
         title: item.name,
         path: item.path,
         language: item.language,
         detected: item.language,
-        viewMode: info.defaultViewMode,
+        viewMode: 'edit',
         encoding: item.encoding,
         lineEnding: item.lineEnding,
         // 强制只读类（diff / patch）与 F8 阈值降级都在这里合流

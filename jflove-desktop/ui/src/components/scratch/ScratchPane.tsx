@@ -22,6 +22,24 @@
  * - 状态栏的实时量走对方导出的 `useScratchEditorStats(pane.id)`（其注释明确「状态栏直接用这个」），
  *   再作为 `stats` 传给 `ScratchPaneStatusBar` ⇒ 状态栏保持**纯展示**、无模块级注册表。
  *
+ * ## 视图模式分派与工具栏（S-5 / S-6，AC-16/17/23/24/29/30/31/34/35）
+ *
+ * `pane.viewMode` 的五态在这里**真正落地**（同时写 `data-view-mode` 便于断言）：
+ *
+ * | viewMode | 渲染 |
+ * | --- | --- |
+ * | `edit` | 仅宿主 |
+ * | `split` | 宿主（左）+ Markdown 预览（右） |
+ * | `preview` | 仅 Markdown 预览 |
+ * | `table` | `CsvTableView`（只读） |
+ * | `tree` | `JsonTreeView`（只读） |
+ *
+ * 工具箱 / 查找替换 / 文本对比（diff）的入口 = 常驻的 `ScratchToolbar`（标题栏与正文之间）。
+ *
+ * ⚠ **除 `edit` 之外的模式只隐藏宿主、不卸载宿主**：正文只活在 CM6 实例里（store 不缓存正文），
+ * 卸载就等于丢编辑内容（同文件头「已挂载永不复位」的理由）。切回可见视图时派发一次合成
+ * resize 让 CM6 重新测量，避免「空白 / 行号错位」。
+ *
  * ## 安全（AGENTS.md §9.6 / §9.14）
  *
  * 只处理几何数字与 `pane` 元数据；不读文件、不打印路径与内容；DOM 属性里不出现路径。
@@ -31,10 +49,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { PANE_MIN_HEIGHT, PANE_MIN_WIDTH, useScratchStore } from '../../stores/scratch-store';
 import type { PaneGeometry, ScratchPane } from '../../types/scratch';
-import { ScratchEditorHost, useScratchEditorStats } from './ScratchEditorHost';
+import { getScratchEditorSession, ScratchEditorHost, useScratchEditorStats } from './ScratchEditorHost';
 import { ScratchPaneStatusBar } from './ScratchPaneStatusBar';
 import { ScratchPaneTitleBar } from './ScratchPaneTitleBar';
 import type { ScratchPaneDragHandlers } from './ScratchPaneTitleBar';
+import { ScratchToolbar } from './ScratchToolbar';
+import { CsvTableView } from './views/CsvTableView';
+import { JsonTreeView } from './views/JsonTreeView';
+import { MarkdownSplitView } from './views/MarkdownSplitView';
 
 /** 8 向缩放 handle（与 CSS 类名后缀一一对应） */
 type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -101,6 +123,20 @@ export function ScratchPane({ pane, active, onRequestClose }: ScratchPaneProps) 
 
   // 状态栏实时量：来自宿主的广播（`行:列` / 选中 / 总数，§4.1.4）。未挂载时返回 null ⇒ 降级显示
   const liveStats = useScratchEditorStats(pane.id);
+
+  // ── 视图模式分派（S-6）──
+  // store 不缓存正文，正文只活在 CM6 会话里 ⇒ 预览 / 表格 / 树的文本必须**现取**。
+  // 每次编辑都会广播 `liveStats`（本组件已订阅）⇒ 这些视图随输入实时刷新。
+  const viewMode = pane.viewMode;
+  const viewText = mounted ? (getScratchEditorSession(pane.id)?.getText() ?? '') : '';
+  const showHost = viewMode === 'edit' || viewMode === 'split';
+  const showMarkdown = viewMode === 'preview' || viewMode === 'split';
+
+  // 视图切换会让宿主在「真实尺寸 ↔ hidden」之间翻转：派发一次合成 resize 让 CM6 重新测量
+  // （理由同 `nudgeEditorLayout`：EditorView 的测量是 resize 事件驱动的）。
+  useEffect(() => {
+    nudgeEditorLayout();
+  }, [viewMode]);
 
   // ── 懒挂载（§4.1.3）：**两个条件取交集**才允许宿主建 CM6 实例 ──
   // ① 窗格矩形与视口相交
@@ -319,12 +355,43 @@ export function ScratchPane({ pane, active, onRequestClose }: ScratchPaneProps) 
       />
 
       {/* 最小化时整块隐藏（**组件保持挂载**，见文件头「已挂载永不复位」） */}
-      <div className="scratch-pane-main" hidden={minimized}>
+      <div className="scratch-pane-main" hidden={minimized} data-view-mode={viewMode}>
+        {/* 工具箱 12 项 / 查找替换 / 文本对比入口（S-5）。常驻在标题栏与正文之间；
+            窗格尚未挂载实例时按钮会给出「窗格未挂载」提示（不静默失败）。 */}
+        <ScratchToolbar pane={pane} />
+
         {mounted ? (
-          <ScratchEditorHost pane={pane} className="scratch-host" />
+          <div className="scratch-pane-body" data-pane-body={viewMode}>
+            {/* 宿主槽位：`edit`/`split` 可见，其余模式 `hidden` 但**保持挂载**（不丢正文） */}
+            <div className="scratch-pane-host" hidden={!showHost}>
+              <ScratchEditorHost pane={pane} className="scratch-host" />
+            </div>
+
+            {/* Markdown 预览：`split` = 与宿主并排；`preview` = 独占（宿主隐藏） */}
+            {showMarkdown ? (
+              <div className="scratch-pane-aux">
+                <MarkdownSplitView pane={pane} text={viewText} showEditor={false} />
+              </div>
+            ) : null}
+
+            {/* CSV / TSV 表格视图（只读，AC-17 / AC-31） */}
+            {viewMode === 'table' ? (
+              <div className="scratch-pane-aux">
+                <CsvTableView text={viewText} />
+              </div>
+            ) : null}
+
+            {/* JSON 树视图（只读，AC-29） */}
+            {viewMode === 'tree' ? (
+              <div className="scratch-pane-aux">
+                <JsonTreeView text={viewText} />
+              </div>
+            ) : null}
+          </div>
         ) : (
           <ScratchPaneSkeleton />
         )}
+
         <ScratchPaneStatusBar pane={pane} stats={liveStats} />
       </div>
 

@@ -3,9 +3,11 @@
  *
  * 约定：与 `components/ui/index.ts` 同风格 —— 只做**再导出**，不实现逻辑。
  *
- * ⚠ 本 barrel **不导出** `ScratchEditorHost`：它由另一位同事交付，正在同目录并行施工，
- * 这里再导出会形成第二条依赖边（其内部 API 仍可能变动）。需要它时直接从
- * `./ScratchEditorHost` import（`ScratchPane.tsx` 就是这么做的）。
+ * ⚠ 本 barrel **不导出** `ScratchEditorHost`：它的会话注册表 API 由 `ScratchPane.tsx` /
+ * `ScratchToolbar.tsx` 直接从 `./ScratchEditorHost` import；这里再导出会形成第二条依赖边。
+ *
+ * S-5 / S-6 起补导出 `ScratchToolbar` 与四个只读视图（`views/*`）：它们是窗格正文区的公开
+ * 构件，`ScratchPane` 之外（组件测试 / Phase 6）需要按名字取用。
  */
 
 export { ScratchPaneLayer } from './ScratchPaneLayer';
@@ -20,3 +22,8 @@ export {
   type PaneEditorStats,
   type ScratchPaneStatusBarProps,
 } from './ScratchPaneStatusBar';
+export { ScratchToolbar, type ScratchToolbarProps } from './ScratchToolbar';
+export { CsvTableView, type CsvTableViewProps } from './views/CsvTableView';
+export { DiffView, type DiffViewProps } from './views/DiffView';
+export { JsonTreeView, type JsonTreeViewProps } from './views/JsonTreeView';
+export { MarkdownSplitView, type MarkdownSplitViewProps } from './views/MarkdownSplitView';

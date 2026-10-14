@@ -18,6 +18,8 @@
  * 4. **会话注册表**（本文件导出）：把活着的实例暴露给工具栏 / 状态栏 / diff 视图
  *    （`getScratchEditorSession` / `subscribeScratchEditorStats` / `useScratchEditorStats`）。
  *    —— store **不持有正文**（§4.1.2），所以跨组件取正文必须经这张表。
+ * 5. **鼠标手势**（§4.2.1 第 466 行 / AC-35）：`Ctrl` + 滚轮缩放字号、`Shift` + 滚轮横向滚动
+ *    （两者都在**非 passive** 的原生 `wheel` 监听里做，见组件内的注释）。
  *
  * ## 使用约定（与同事的接口）
  *
@@ -46,6 +48,10 @@ import type { EditorView, Extension, JFLoveCmApi, ViewUpdate } from '../../types
 import type { PaneCaret, ScratchPane } from '../../types/scratch';
 import { blockSelectCopy, isBlockSelection } from '../../utils/scratch/block-select';
 import { loadEditorBundle } from '../../utils/scratch/load-editor-bundle';
+import { stepFontSize } from '../../utils/scratch/toolbox';
+
+/** `Ctrl` + 滚轮的**单次**字号步进（与工具栏 `A+` / `A−` 一致；AC-35，§4.2.1） */
+const WHEEL_FONT_STEP = 2;
 
 /* ============================================================================
  * 会话注册表（导出给工具栏 / 状态栏 / diff 视图）
@@ -383,6 +389,7 @@ interface HostCompartments {
  * <ScratchEditorHost pane={pane} />
  */
 export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const apiRef = useRef<JFLoveCmApi | null>(null);
@@ -399,6 +406,7 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
   const paneRef = useRef(pane);
   paneRef.current = pane;
   const markDirty = useScratchStore((state) => state.markDirty);
+  const setFontSize = useScratchStore((state) => state.setFontSize);
   const markDirtyRef = useRef(markDirty);
   markDirtyRef.current = markDirty;
   const modifier = useShortcutStore(selectBlockSelectModifier);
@@ -579,12 +587,45 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
     if (effects.length > 0) view.dispatch({ effects });
   }, [pane.id, pane.language, pane.readOnly, pane.showLineNumbers, pane.wordWrap, pane.fontSize, dark, modifier]);
 
+  /* ── S-8 / AC-35：鼠标手势（设计 §4.2.1 第 466 行）──
+   * ① `Ctrl` + 滚轮 → 字号 ±2（越界由 store 夹在 8~40）；
+   * ② `Shift` + 滚轮 → 横向滚动（配合"关闭自动换行"后长行的横向浏览）。
+   *
+   * ⚠ 必须用**非 passive** 的原生监听：React 17+ 的 `onWheel` 是挂在 root 上的 passive
+   * 监听，`preventDefault()` 会被忽略（后果是 WebEngine 顺手缩放整个页面）。
+   * 读 `paneRef.current` 而不是闭包里的 `pane`：监听只注册一次，值始终是最新的。 */
+  useEffect(() => {
+    const element = wrapperRef.current;
+    if (!element) return undefined;
+    const onWheel = (event: WheelEvent): void => {
+      if (event.ctrlKey) {
+        const current = paneRef.current;
+        const next = stepFontSize(
+          current.fontSize,
+          event.deltaY < 0 ? WHEEL_FONT_STEP : -WHEEL_FONT_STEP,
+        );
+        if (next !== current.fontSize) setFontSize(current.id, next);
+        event.preventDefault();
+        return;
+      }
+      if (event.shiftKey && !event.altKey && !event.metaKey) {
+        const view = viewRef.current;
+        if (view && event.deltaY !== 0) {
+          view.scrollDOM.scrollLeft += event.deltaY;
+          event.preventDefault();
+        }
+      }
+    };
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [setFontSize]);
+
   const wrapperClass = ['relative h-full w-full overflow-hidden', className]
     .filter((item): item is string => Boolean(item))
     .join(' ');
 
   return (
-    <div className={wrapperClass}>
+    <div ref={wrapperRef} className={wrapperClass}>
       {/* CM6 容器的**子节点全部由 CM6 自己管理**：React 不往里塞任何东西（避免节点打架） */}
       <div ref={containerRef} className="h-full w-full overflow-hidden" />
       {status === 'error' ? (

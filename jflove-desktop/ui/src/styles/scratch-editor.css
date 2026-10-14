@@ -76,6 +76,50 @@
   min-height: 0;
 }
 
+/* ---------- 正文区（S-5 / S-6：工具栏之下、状态栏之上） ---------- */
+
+/* 视图分派容器：`edit` = 单栏宿主；`split`/`preview` = 宿主 + 预览两栏；
+ * `table`/`tree` = 单栏只读视图。 */
+.scratch-pane-body {
+  display: flex;
+  flex: 1;
+  flex-direction: row;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 宿主槽位：**任何视图模式下都保持挂载**（切到预览 / 表格 / 树只 `hidden` 不卸载 ——
+ * 正文只活在 CM6 实例里，store 不缓存正文，卸载即丢编辑内容，见 `ScratchPane` 文件头）。 */
+.scratch-pane-host {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 只读视图槽位（Markdown 预览 / CSV 表格 / JSON 树） */
+.scratch-pane-aux {
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border-subtle);
+}
+
+/* 作者样式里的 `display` 会盖掉 UA 的 `[hidden]`（display:none），必须显式补回
+ * —— 理由同上面的 `.scratch-pane-main[hidden]`。 */
+.scratch-pane-host[hidden],
+.scratch-pane-aux[hidden] {
+  display: none;
+}
+
+/* 纯预览态没有左栏，分隔线不该贴在最左边 */
+.scratch-pane-body[data-pane-body='preview'] .scratch-pane-aux {
+  border-left: none;
+}
+
 /* ---------- 标题栏 ---------- */
 .scratch-title {
   display: flex;
