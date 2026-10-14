@@ -13,9 +13,17 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { SecurityPage } from './SecurityPage';
 import { useIsPC } from '../hooks/use-responsive';
 import { APP_VERSION } from '../config/constants';
+import { SHORTCUT_DEFS } from '../config/shortcuts';
+import { useShortcutStore } from '../stores/shortcut-store';
 import { getTokenExpiresAt, effectiveExpireAt } from '../utils/session';
 import { Button, Card, Icon, IconButton, Segmented, toast, type IconName } from '../components/ui';
 import { ServerUrlInput } from '../components/desktop/ServerUrlInput';
+import {
+  ShortcutsSettingsDialog,
+  formatBindingForDisplay,
+  isUserCustomizedShortcut,
+} from '../components/scratch/ShortcutsSettingsDialog';
+import { FileAssocSettings } from '../components/scratch/FileAssocSettings';
 import type { VirtualDisk } from '../types/models';
 
 /**
@@ -25,6 +33,11 @@ import type { VirtualDisk } from '../types/models';
  * 手写弹窗换统一 Modal / Card，配色全部改语义令牌（暗色零改动）。
  * 功能项（版本号、服务端地址、笔记目录、账号与登录凭证、管理面板入口、关于）
  * 与 v1.4.2 逐项一致；移动端 / PC 分支（isPC）保留。
+ *
+ * v1.6.0（设计 §4.3）：新增 `<Section title="文本编辑器">` —— 子块 ① 快捷键
+ * （入口 + 当前键位摘要，面板见 `components/scratch/ShortcutsSettingsDialog.tsx`）、
+ * 子块 ② 文件关联勾选（`components/scratch/FileAssocSettings.tsx`，勾选只写应用内偏好，
+ * 不改系统默认程序）。子块 ③ 草稿随「草稿 / 还原 / 退出握手」那一步交付，落点在本 Section 内。
  */
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -39,6 +52,17 @@ export function SettingsPage() {
   const [showDirBrowser, setShowDirBrowser] = useState(false);
   const [disks, setDisks] = useState<VirtualDisk[]>([]);
   const [selectedDiskId, setSelectedDiskId] = useState<number | null>(null);
+  // 快捷键配置对话框（v1.6.0：设置页内入口，不占路由）
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  // 生效键位 / 覆盖项：用于「当前键位摘要」（数据源仍是 config/shortcuts.ts 的 SHORTCUT_DEFS）
+  const shortcutBindings = useShortcutStore((s) => s.bindings);
+  const shortcutOverrides = useShortcutStore((s) => s.overrides);
+
+  // 快捷键偏好：进入设置页就预热一次（渲染层不用 localStorage，读 Python 侧 storage/shortcuts.json）
+  useEffect(() => {
+    const store = useShortcutStore.getState();
+    if (!store.loaded && !store.loading) void store.load();
+  }, []);
 
   // 加载磁盘列表（用于友好展示笔记目录当前配置）
   useEffect(() => {
@@ -108,6 +132,18 @@ export function SettingsPage() {
     { path: '/admin/permissions', label: '权限配置', icon: 'permissions' },
     { path: '/admin/system', label: '系统设置', icon: 'system' },
   ];
+
+  /** 已自定义的快捷键项（摘要用：只显示前 3 项，避免卡片被撑长） */
+  const customizedShortcuts = SHORTCUT_DEFS.filter((def) =>
+    isUserCustomizedShortcut(def, shortcutOverrides, shortcutBindings),
+  );
+  const shortcutSummary = customizedShortcuts
+    .slice(0, 3)
+    .map(
+      (def) =>
+        `${def.label} ${formatBindingForDisplay(def, shortcutBindings[def.id] ?? def.defaultKey)}`,
+    )
+    .join('、');
 
   return (
     <div>
@@ -250,6 +286,40 @@ export function SettingsPage() {
           </div>
         </Section>
 
+        {/* 文本编辑器（v1.6.0 §4.3）
+            - 子块 ① 快捷键：入口 + 当前键位摘要（面板在弹窗里，20 项逐项可改 / 可重置）
+            - 子块 ② 文件关联：勾选清单（由 config/scratch-types.ts 派生）+「设为默认」
+            - 子块 ③ 草稿：随「第 10 步 草稿 / 还原 / 退出握手」交付，落点在本 Section 内 */}
+        <Section icon={isPC ? undefined : 'edit'} title="文本编辑器">
+          <div className="flex flex-col gap-4">
+            {/* ① 快捷键 */}
+            <div>
+              <div className="mb-1 text-[13px] text-fg">快捷键</div>
+              <div className="mb-2 text-[11.5px] leading-relaxed text-subtle">
+                共 {SHORTCUT_DEFS.length} 项功能快捷键，逐项都有中文说明，可改键、可单项重置；
+                快捷键只在 JFLove 窗口激活时生效，不注册任何系统级全局热键。
+                {customizedShortcuts.length > 0
+                  ? `已自定义 ${customizedShortcuts.length} 项：${shortcutSummary}${
+                      customizedShortcuts.length > 3 ? ' …' : ''
+                    }`
+                  : '当前全部使用默认键位。'}
+              </div>
+              <Button size="sm" icon="edit" onClick={() => setShowShortcuts(true)}>
+                打开快捷键配置
+              </Button>
+            </div>
+
+            {/* ② 文件关联 */}
+            <div className="border-t border-line-subtle pt-3">
+              <div className="mb-1 text-[13px] text-fg">文件关联</div>
+              <div className="mb-2 text-[11.5px] leading-relaxed text-subtle">
+                选择 JFLove 声明支持的扩展名（应用内偏好，不修改系统默认程序）
+              </div>
+              <FileAssocSettings />
+            </div>
+          </div>
+        </Section>
+
         {/* 关于 */}
         <Section icon={isPC ? undefined : 'info'} title="关于">
           <div className="text-[13px] text-muted">
@@ -260,6 +330,10 @@ export function SettingsPage() {
           </div>
         </Section>
       </div>
+
+      {/* 快捷键配置（v1.6.0 §4.2）：常驻挂载、`open=false` 时不渲染内容，
+          这样关闭再打开不会丢掉未保存的编辑态与"已保存"基线 */}
+      <ShortcutsSettingsDialog open={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
       {/* 退出登录确认 */}
       {showLogoutConfirm && (
