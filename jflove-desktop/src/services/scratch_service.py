@@ -328,6 +328,79 @@ def _read_latest_tmp_index(scratch: str) -> Any | None:
     return _read_json_file(latest)
 
 
+def _list_pane_ids_from_dir(scratch: str) -> list[str]:
+    """
+    扫描草稿库目录，取出全部内容文件对应的 paneId（按文件名排序，结果稳定）。
+
+    只认 `pane-<id>.txt` 且 `<id>` 通过 `_is_valid_pane_id`；用于索引不可用时
+    **按目录重建条目**（内容文件与索引是两套独立文件，索引坏了不代表内容丢了）。
+
+    :param scratch: 草稿库根目录
+    :returns: paneId 列表
+    """
+    found: list[str] = []
+    pattern = os.path.join(scratch, f"{PANE_FILE_PREFIX}*{PANE_FILE_SUFFIX}")
+    for path in sorted(glob.glob(pattern)):
+        if not os.path.isfile(path):
+            continue
+        name = os.path.basename(path)
+        pane_id = name[len(PANE_FILE_PREFIX):len(name) - len(PANE_FILE_SUFFIX)]
+        if _is_valid_pane_id(pane_id):
+            found.append(pane_id)
+    return found
+
+
+def _rebuild_index_from_dir(scratch: str) -> dict[str, Any]:
+    """
+    按草稿库目录扫描**重建**索引条目（索引不可用时的兜底）。
+
+    重建只拿得到「内容文件还在」这件事，因此除 `id` 与 `updated_at`（取文件 mtime）
+    外的元信息（标题 / 来源路径 / 窗格几何 / 光标 / 编码 / 换行符）只能回默认值 ——
+    这些信息随损坏的索引一起丢失，**宁可给默认值也不能把整条草稿丢掉**。
+
+    `clean_exit` 仍按"不可信数据"处理为 `True`：只有布尔真值才说明上次是干净退出，
+    重建出来的索引不得反过来触发"异常退出 ⇒ 自动还原"分支（条目的还原由上位逻辑
+    按「索引里有条目」决定，与此标志无关）。
+
+    :param scratch: 草稿库根目录
+    :returns: v1 索引字典（目录里没有内容文件时 `panes` 为空）
+    """
+    panes: list[dict[str, Any]] = []
+    for pane_id in _list_pane_ids_from_dir(scratch):
+        try:
+            mtime = os.path.getmtime(_pane_path(scratch, pane_id))
+        except OSError:
+            mtime = 0.0
+        panes.append(_normalize_pane_meta({"id": pane_id}, pane_id, mtime))
+    index = _empty_index(clean_exit=True)
+    index["panes"] = panes
+    if panes:
+        index["updated_at"] = max(float(entry["updated_at"]) for entry in panes)
+    return index
+
+
+def _rebuild_index_entries(scratch: str, warnings: list[str]) -> dict[str, Any] | None:
+    """
+    索引不可用时尝试按目录重建；**目录里也没有内容文件**时返回 None（调用方走空索引）。
+
+    成功时把面向渲染层的提示写进 `warnings`（只报条目数，不含任何路径）。
+
+    :param scratch: 草稿库根目录
+    :param warnings: 调用方收集的 warning 列表（就地追加）
+    :returns: 重建出的索引；无可重建内容时为 None
+    """
+    rebuilt = _rebuild_index_from_dir(scratch)
+    count = len(rebuilt["panes"])
+    if not count:
+        return None
+    warnings.append(
+        f"草稿索引不可用，已按草稿库目录重建 {count} 个条目"
+        "（窗格位置与光标等元信息无法恢复）",
+    )
+    logger.warning("草稿索引不可用，已按草稿库目录重建 %d 个条目（内容仍在）", count)
+    return rebuilt
+
+
 def _normalize_stored_meta(raw: Mapping[str, Any], pane_id: str) -> dict[str, Any]:
     """把磁盘上的条目归一成 v1 结构（字段缺失 / 类型不可信时退回默认值）。"""
     return _normalize_pane_meta(raw, pane_id, _as_number(raw.get("updated_at"), 0.0))
@@ -369,12 +442,16 @@ def _load_index(
     流程（设计 §6.3.2）：
       ① 读 `index.json` 成功 ⇒ 用它；
       ② 读失败（存在但解析不了）⇒ 试 `.tmp/` 下最新 `index.json.*.tmp`；
-      ③ 仍失败 ⇒ 空索引 + warning（不阻塞、不弹窗）；
-      ④ `validate_content=True` 时逐条校验内容文件是否在位，缺的**跳过并记 warning**。
+      ③ 仍失败 ⇒ **按草稿库目录重建条目**（`pane-*.txt` 仍在 ⇒ 草稿没丢）；目录里也
+         没有内容文件才退回空索引 + warning（不阻塞、不弹窗）；
+      ④ 读成功但一条有效条目都没有 ⇒ 同样按目录重建（见下）；
+      ⑤ `validate_content=True` 时逐条校验内容文件是否在位，缺的**跳过并记 warning**。
 
     读路径（`draftList` / 崩溃检测）要过滤；写路径（保存 / 丢弃 / 置标记）**不过滤**：
     写路径读出来的索引会被**整体写回**，若在读取阶段就剔除条目，等于把磁盘上
     其它窗格的（可能只是暂时读不到的）条目静默删掉。
+    同理 ③④「丢掉全部条目」也不许发生：整体回写一个空索引会把其它窗格的条目
+    静默抹掉，而内容文件还在磁盘上成为无人认领的孤儿（S-7）。
 
     :param scratch: 草稿库根目录
     :param validate_content: 是否剔除「索引有条目但内容文件缺失」的条目
@@ -383,22 +460,32 @@ def _load_index(
     warnings: list[str] = []
     index_path = os.path.join(scratch, INDEX_NAME)
     raw = _read_json_file(index_path)
+    damaged = raw is None and os.path.exists(index_path)
 
-    if raw is None and os.path.exists(index_path):
+    if damaged:
         recovered = _read_latest_tmp_index(scratch)
         if recovered is not None:
             raw = recovered
             warnings.append("草稿索引损坏，已从临时副本恢复")
             logger.warning("草稿索引解析失败，已从 .tmp 最新副本恢复（文件名 %s）", INDEX_NAME)
-        else:
-            warnings.append("草稿索引损坏且无可用临时副本，已按空索引处理（不影响已保存文件）")
-            logger.warning("草稿索引与临时副本均不可用，按空索引继续（不阻塞启动）")
 
     if raw is None:
-        # 首次运行 / 索引不存在 / 无法恢复 ⇒ 无任何可还原内容 ⇒ 视为干净退出
+        # 首次运行 / 索引不存在 / 无法恢复：先看草稿库目录里还有没有内容文件
+        rebuilt = _rebuild_index_entries(scratch, warnings)
+        if rebuilt is not None:
+            return rebuilt, warnings
+        if damaged:
+            warnings.append("草稿索引损坏且无可用临时副本，已按空索引处理（不影响已保存文件）")
+            logger.warning("草稿索引与临时副本均不可用，按空索引继续（不阻塞启动）")
+        # 目录里也没有内容文件 ⇒ 无任何可还原内容 ⇒ 视为干净退出
         return _empty_index(clean_exit=True), warnings
 
     index = _normalize_index(raw)
+    if not index["panes"]:
+        # 索引结构完整却一条有效条目都没有：内容文件仍在 ⇒ 以目录为准重建
+        rebuilt = _rebuild_index_entries(scratch, warnings)
+        if rebuilt is not None:
+            index = rebuilt
     if not validate_content:
         return index, warnings
 
@@ -417,6 +504,19 @@ def _load_index(
         warnings.append(f"已跳过 {skipped} 个缺少内容文件的草稿条目")
         index["panes"] = kept
     return index, warnings
+
+
+def _index_needs_heal(scratch: str) -> bool:
+    """
+    `index.json` **存在但解析不了** ⇒ 需要写回一份可用的索引（S-7 自愈）。
+
+    文件不存在（首次运行）不算需要修复：不能让一个空操作把索引凭空建出来。
+
+    :param scratch: 草稿库根目录
+    :returns: True 表示磁盘上的索引文件损坏、值得覆盖修复
+    """
+    index_path = os.path.join(scratch, INDEX_NAME)
+    return os.path.exists(index_path) and _read_json_file(index_path) is None
 
 
 def _write_index(scratch: str, index: Mapping[str, Any]) -> None:
@@ -511,7 +611,9 @@ def discard_draft(pane_id: str) -> dict[str, Any]:
             # 不过滤：内容文件刚被删掉，过滤会把该条目当成"缺失"提前剔除而漏写索引
             index, _warnings = _load_index(scratch, validate_content=False)
             remaining = [p for p in index["panes"] if p.get("id") != pane_id]
-            if len(remaining) != len(index["panes"]):
+            # 条目数没变时也要落盘：索引文件本身不可解析（S-7）时，随手把它修复成
+            # 重建出的合法索引，免得损坏状态一直留到下一次写操作
+            if len(remaining) != len(index["panes"]) or _index_needs_heal(scratch):
                 index["panes"] = remaining
                 index["updated_at"] = time.time()
                 _write_index(scratch, index)
@@ -524,7 +626,8 @@ def list_drafts() -> dict[str, Any]:
     """
     列出全部可用草稿（对应 `editor.draftList`，§7.1 #8 / AC-55 / AC-60）。
 
-    **永不抛异常**：索引损坏 ⇒ 退回 `.tmp` 最新副本或空索引，问题经 `warnings` 上报
+    **永不抛异常**：索引损坏 ⇒ 退回 `.tmp` 最新副本；副本也不可用则**按草稿库目录
+    重建条目**（`pane-*.txt` 还在就说明草稿没丢），问题经 `warnings` 上报
     （渲染层只提示，**不弹阻塞对话框**）；缺内容文件的条目已被跳过。
 
     :returns: `{"ok": True, "cleanExit": bool, "entries": [PaneMeta], "warnings": [str]}`
