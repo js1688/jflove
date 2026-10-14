@@ -1,0 +1,6 @@
+PID=524 profile storageName='' offTheRecord=True persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord'
+user_data_dirs=['C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\Temp\\1\\QtWebEngine']
+C_LOAD ok=True
+C_VIEW_ALIVE_8S
+C_LOCK_LIKE=['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+C_EXIT_OK

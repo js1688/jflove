@@ -1,0 +1,108 @@
+{
+  "started_at": "2026-10-14 12:07:19",
+  "python": "D:\\github\\jflove\\jflove-desktop\\venv-win\\Scripts\\python.exe",
+  "user_data_roots": [
+    "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove",
+    "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove",
+    "C:\\Users\\admin\\AppData\\Roaming\\JFLove",
+    "C:\\Users\\admin\\AppData\\Local\\JFLove",
+    "C:\\Users\\admin\\AppData\\Local\\Temp\\1\\QtWebEngine"
+  ],
+  "steps": {
+    "baseline": {
+      "total": 164,
+      "lock_like": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+      ]
+    },
+    "a_holding": {
+      "ready": true,
+      "new_entries": [],
+      "lock_like": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+      ]
+    },
+    "b": {
+      "exit_code": 0,
+      "timed_out": false,
+      "seconds": 2.23,
+      "stdout": "PID=12696 profile storageName='' offTheRecord=True persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord'\nuser_data_dirs=['C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\JFLove\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\1\\\\QtWebEngine']\nB_APP_ONLY_READY\nB_LOCK_LIKE=['C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK']\nB_EXIT_OK\n",
+      "stderr": "Sandboxing disabled by user.\n[12696:3820:1014/120724.129:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[12696:3820:1014/120724.129:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\nGPUInfo not initialized on GpuInfoUpdate\n",
+      "new_entries_after_b": [],
+      "lock_like_after_b": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+      ]
+    },
+    "c": {
+      "exit_code": 0,
+      "timed_out": false,
+      "seconds": 9.17,
+      "stdout": "PID=524 profile storageName='' offTheRecord=True persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord'\nuser_data_dirs=['C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\JFLove\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\1\\\\QtWebEngine']\nC_LOAD ok=True\nC_VIEW_ALIVE_8S\nC_LOCK_LIKE=['C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK']\nC_EXIT_OK\n",
+      "stderr": "Sandboxing disabled by user.\n[524:9148:1014/120726.512:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[524:9148:1014/120726.512:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\nGPUInfo not initialized on GpuInfoUpdate\n[524:9148:1014/120726.527:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[524:9148:1014/120726.527:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\n[524:9148:1014/120726.527:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[524:9148:1014/120726.527:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\n",
+      "new_entries_after_c": [],
+      "lock_like_after_c": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+      ],
+      "a_ticks_before": 2,
+      "a_ticks_after": 7
+    },
+    "a_final": {
+      "exit_code": 0,
+      "ticks": 19,
+      "exit_ok": true,
+      "lock_like_final": [
+        "A_FINAL_LOCK_LIKE=['C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK']"
+      ],
+      "stderr_tail": "Sandboxing disabled by user.\n[1064:6176:1014/120720.419:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[1064:6176:1014/120720.419:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\nGPUInfo not initialized on GpuInfoUpdate\n[1064:6176:1014/120720.435:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[1064:6176:1014/120720.435:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\n[1064:6176:1014/120720.435:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[1064:6176:1014/120720.435:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\n"
+    },
+    "persistent_pair": {
+      "p1_ready": true,
+      "p2_exit_code": 0,
+      "p2_timed_out": false,
+      "p2_seconds": 7.14,
+      "p2_stdout": "PID=8996 profile storageName='' offTheRecord=True persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord'\nuser_data_dirs=['C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\JFLove\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\JFLove', 'C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Temp\\\\1\\\\QtWebEngine']\nP2_PROFILE persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/jflove-r1-probe' offTheRecord=False\nP2_VIEW_READY t=0.10s\nP2_LOCK_LIKE=['C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove::JFLove\\\\QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Local Storage\\\\leveldb\\\\LOCK', 'C:\\\\Users\\\\admin\\\\AppData\\\\Roaming\\\\JFLove\\\\JFLove::QtWebEngine\\\\jflove-r1-probe\\\\Session Storage\\\\LOCK']\nP2_LOAD ok=True\nP2_TICK n=1 t=2.15s alive=1\nP2_TICK n=2 t=4.15s alive=1\nP2_EXIT_OK ticks=2\n",
+      "p2_stderr": "Sandboxing disabled by user.\n[8996:4608:1014/120802.939:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)\n[8996:14104:1014/120802.939:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)\n[8996:2288:1014/120802.939:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)\n[8996:13820:1014/120802.950:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[8996:13820:1014/120802.950:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\nGPUInfo not initialized on GpuInfoUpdate\n[8996:11068:1014/120802.955:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/disk_cache.cc:236] Unable to create cache\n[8996:11068:1014/120802.955:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/host/gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\n[8996:11068:1014/120802.955:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/disk_cache.cc:236] Unable to create cache\n[8996:11068:1014/120802.955:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/host/gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\n[8996:11068:1014/120802.955:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/disk_cache.cc:236] Unable to create cache\n[8996:11068:1014/120802.955:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/host/gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2\n[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\n[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\nRelease of profile requested but WebEnginePage still not deleted. Expect troubles !\n",
+      "p1_ticks_before_p2": 3,
+      "lock_like_after_p1": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+      ],
+      "new_entries_after_p2": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\blob_storage\\0b176647-9a8e-4c31-ab30-325540307edf",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\blob_storage\\0b176647-9a8e-4c31-ab30-325540307edf"
+      ],
+      "lock_like_after_p2": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+      ],
+      "p1_exit_code": 0,
+      "p1_ticks_total": 12
+    },
+    "final": {
+      "total": 164,
+      "lock_like": [
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+        "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+      ]
+    }
+  },
+  "chromium_cmdline": "14192 :: \"D:\\github\\jflove\\jflove-desktop\\venv-win\\Lib\\site-packages\\PySide6\\.\\QtWebEngineProcess.exe\" --type=renderer --webengine-schemes=qrc:sV --webengine-locales-path=\"D:/github/jflove/jflove-desktop/venv-win/Lib/site-packages/PySide6/translations\\qtwebengine_locales\" --webengine-resources-path=\"D:/github/jflove/jflove-desktop/venv-win/Lib/site-packages/PySide6\\resources\" --no-sandbox --disable-speech-api --touch-events=auto --disable-gpu-compositing --disable-blink-features=EyeDropperAPI,WebOTP --video-capture-use-gpu-memory-buffer --lang=zh --device-scale-factor=1.25 --num-raster-threads=4 --enable-main-frame-before-activation --renderer-client-id=3 --time-ticks-at-unix-epoch=-1791906835887445 --launch-time-ticks=44004401723 --field-trial-handle=4680,i,10643861769939929639,1876500460514109743,262144 --enable-features=NetworkServiceInProcess2,TracingServiceInProcess --disable-features=BackgroundFetch,EyeDropper,InstalledApp,WebOTP,WebPayments,WebUSB --variations-seed-version --mojo-platform-channel-handle=4676 /prefetch:1\r\n"
+}

@@ -1,0 +1,173 @@
+[
+  {
+    "id": "a1-ac33",
+    "title": "AC-33 样例（含 <sp> </sp>）",
+    "input": "<root><!--c--><a><![CDATA[ x < y ]]></a><sp> </sp><b>hello   world</b></root>",
+    "minify": {
+      "ok": false,
+      "output": null,
+      "warnings": [
+        {
+          "path": "/root/sp",
+          "tag": "sp",
+          "content": "\" \""
+        }
+      ],
+      "reason": "XML 含\"元素内容为纯空白\"的文本节点，压缩会改变文本节点"
+    },
+    "format": {
+      "ok": false,
+      "output": null,
+      "warnings": [
+        {
+          "path": "/root/sp",
+          "tag": "sp",
+          "content": "\" \""
+        }
+      ],
+      "reason": "格式化会改动\"元素内容纯空白\"的文本节点"
+    }
+  },
+  {
+    "id": "a2-pretty",
+    "title": "正常缩进的 XML（应当允许压缩）",
+    "input": "<root>\n  <a>1</a>\n  <b>2</b>\n</root>",
+    "minify": {
+      "ok": true,
+      "output": "<root><a>1</a><b>2</b></root>",
+      "warnings": []
+    },
+    "format": {
+      "ok": true,
+      "output": "<root>\n  <a>1</a>\n  <b>2</b>\n</root>",
+      "bomRestored": false,
+      "warnings": []
+    }
+  },
+  {
+    "id": "a3-mixed-inline",
+    "title": "混合内容 <b>y</b> <c>z</c>",
+    "input": "<root><b>y</b> <c>z</c></root>",
+    "minify": {
+      "ok": true,
+      "output": "<root><b>y</b><c>z</c></root>",
+      "warnings": []
+    },
+    "format": {
+      "ok": true,
+      "output": "<root>\n  <b>y</b>\n  <c>z</c>\n</root>",
+      "bomRestored": false,
+      "warnings": []
+    }
+  },
+  {
+    "id": "a4-only-space",
+    "title": "<a> </a>（元素内容为单个空格）",
+    "input": "<root><a> </a></root>",
+    "minify": {
+      "ok": false,
+      "output": null,
+      "warnings": [
+        {
+          "path": "/root/a",
+          "tag": "a",
+          "content": "\" \""
+        }
+      ],
+      "reason": "XML 含\"元素内容为纯空白\"的文本节点，压缩会改变文本节点"
+    },
+    "format": {
+      "ok": false,
+      "output": null,
+      "warnings": [
+        {
+          "path": "/root/a",
+          "tag": "a",
+          "content": "\" \""
+        }
+      ],
+      "reason": "格式化会改动\"元素内容纯空白\"的文本节点"
+    }
+  },
+  {
+    "id": "a5-xmlspace",
+    "title": "xml:space=\"preserve\"",
+    "input": "<root xml:space=\"preserve\"><a> </a></root>",
+    "minify": {
+      "ok": true,
+      "output": "<root xml:space=\"preserve\"><a> </a></root>",
+      "warnings": []
+    },
+    "format": {
+      "ok": true,
+      "output": "<root xml:space=\"preserve\"><a> </a></root>",
+      "bomRestored": false,
+      "warnings": []
+    }
+  },
+  {
+    "id": "a6-invalid",
+    "title": "非法 XML（缺闭合标签）",
+    "input": "<root><a>1</root>",
+    "minify": {
+      "ok": false,
+      "output": null,
+      "error": "Error: Failed to parse XML",
+      "warnings": []
+    },
+    "format": {
+      "ok": false,
+      "output": null,
+      "error": "Error: Failed to parse XML",
+      "warnings": []
+    }
+  },
+  {
+    "id": "a7-bom",
+    "title": "带 BOM 的 XML",
+    "input": "﻿<?xml version=\"1.0\" encoding=\"UTF-8\"?><r><a>1</a></r>",
+    "minify": {
+      "ok": true,
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><r><a>1</a></r>",
+      "warnings": []
+    },
+    "format": {
+      "ok": true,
+      "output": "﻿<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<r>\n  <a>1</a>\n</r>",
+      "bomRestored": true,
+      "warnings": []
+    }
+  },
+  {
+    "id": "a8-ac33-plain",
+    "title": "AC-33 原文样例（无纯空白文本节点，应放行）",
+    "input": "<root><!--c--><a><![CDATA[ x < y ]]></a><b>hello   world</b></root>",
+    "minify": {
+      "ok": true,
+      "output": "<root><!--c--><a><![CDATA[ x < y ]]></a><b>hello   world</b></root>",
+      "warnings": []
+    },
+    "format": {
+      "ok": true,
+      "output": "<root>\n  <!--c-->\n  <a><![CDATA[ x < y ]]></a>\n  <b>hello   world</b>\n</root>",
+      "bomRestored": false,
+      "warnings": []
+    }
+  },
+  {
+    "id": "a9-multiline-mixed",
+    "title": "多行混合内容（粘词对抗样本，压缩必须保留 This is / content. 的空格）",
+    "input": "<root>\n  <content>\n    <p>\n        This is <b>some</b> content.\n    </p>\n  </content>\n</root>",
+    "minify": {
+      "ok": true,
+      "output": "<root><content><p>\n        This is <b>some</b> content.\n    </p></content></root>",
+      "warnings": []
+    },
+    "format": {
+      "ok": true,
+      "output": "<root>\n  <content>\n    <p>\n      This is\n      <b>some</b>\n      content.\n    </p>\n  </content>\n</root>",
+      "bomRestored": false,
+      "warnings": []
+    }
+  }
+]

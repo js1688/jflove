@@ -1,0 +1,19 @@
+基线：目录条目 164 个；观察根目录 ['C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\Temp\\1\\QtWebEngine']
+
+[stage 0] 基线（未 import PySide6）完成
+
+=== 阶段 0-基线 ===
+  目录条目总数：164（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+=== 阶段 1-QApplication 之后（Quick 路线） ===
+  目录条目总数：164（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+=== 阶段 2-import QtWebEngineQuick 之后 ===
+  目录条目总数：164（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+=== 阶段 3-QtWebEngineQuick.initialize() 之后 ===
+  目录条目总数：164（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']

@@ -1,0 +1,177 @@
+Sandboxing disabled by user.
+platform=windows（请求 windows）
+[11716:10032:1014/120959.711:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[11716:10032:1014/120959.711:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+GPUInfo not initialized on GpuInfoUpdate
+[11716:10032:1014/120959.740:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[11716:10032:1014/120959.740:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+[11716:10032:1014/120959.740:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[11716:10032:1014/120959.740:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+loadFinished ok=True focusProxy=QWidget
+激活结果：active=True focus=True activeWindow=<PySide6.QtWebEngineWidgets.QWebEngineView(0x1ca5e31e8d0) at 0x000001CA6127E8C0>
+API 形态：{"QWebEnginePage_has_actions": false, "QWebEnginePage_action_attr": true, "QWebEngineView_has_actions": true, "QWebEngineView_pageAction": true, "view_actions_len": 0, "QWebEnginePage_module": "PySide6.QtWebEngineCore", "QWebEnginePage_dir_action_names": ["WebAction", "action", "triggerAction"]}
+默认 profile：{"storage_name": "", "is_off_the_record": true, "persistent_storage_path": "C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord", "cache_path": "", "http_cache_type": "HttpCacheType.MemoryHttpCache"}
+== 动作清单（page.action(WebAction)，枚举 49 项）==
+  # 枚举名                              present enabled visible in_view shortcuts      text
+  0 NoWebAction                      None
+  1 Back                             yes     False   True    False   []             'Back'
+  2 Forward                          yes     False   True    False   []             'Forward'
+  3 Stop                             yes     False   True    False   []             'Stop'
+  4 Reload                           yes     True    True    False   []             'Reload'
+  5 Cut                              yes     False   True    False   []             'Cut'
+  6 Copy                             yes     False   True    False   []             'Copy'
+  7 Paste                            yes     True    True    False   []             'Paste'
+  8 Undo                             yes     True    True    False   []             'Undo'
+  9 Redo                             yes     True    True    False   []             'Redo'
+ 10 SelectAll                        yes     True    True    False   []             'Select all'
+ 11 ReloadAndBypassCache             yes     True    True    False   []             'Reload and Bypass Cache'
+ 12 PasteAndMatchStyle               yes     True    True    False   []             'Paste and match style'
+ 13 OpenLinkInThisWindow             yes     True    True    False   []             'Open link in this window'
+ 14 OpenLinkInNewWindow              yes     True    True    False   []             'Open link in new window'
+ 15 OpenLinkInNewTab                 yes     True    True    False   []             'Open link in new tab'
+ 16 CopyLinkToClipboard              yes     True    True    False   []             'Copy link address'
+ 17 DownloadLinkToDisk               yes     True    True    False   []             'Save link'
+ 18 CopyImageToClipboard             yes     True    True    False   []             'Copy image'
+ 19 CopyImageUrlToClipboard          yes     True    True    False   []             'Copy image address'
+ 20 DownloadImageToDisk              yes     True    True    False   []             'Save image'
+ 21 CopyMediaUrlToClipboard          yes     True    True    False   []             'Copy media address'
+ 22 ToggleMediaControls              yes     True    True    False   []             'Show controls'
+ 23 ToggleMediaLoop                  yes     True    True    False   []             'Loop'
+ 24 ToggleMediaPlayPause             yes     True    True    False   []             'Toggle Play/Pause'
+ 25 ToggleMediaMute                  yes     True    True    False   []             'Toggle Mute'
+ 26 DownloadMediaToDisk              yes     True    True    False   []             'Save media'
+ 27 InspectElement                   yes     True    True    False   []             'Inspect'
+ 28 ExitFullScreen                   yes     True    True    False   []             'Exit full screen'
+ 29 RequestClose                     yes     True    True    False   []             'Close Page'
+ 30 Unselect                         yes     False   True    False   []             'Unselect'
+ 31 SavePage                         yes     True    True    False   []             'Save page'
+ 32 OpenLinkInNewBackgroundTab       yes     True    True    False   []             'Open link in new background tab'
+ 33 ViewSource                       yes     True    True    False   []             'View page source'
+ 34 ToggleBold                       yes     True    True    False   []             '&Bold'
+ 35 ToggleItalic                     yes     True    True    False   []             '&Italic'
+ 36 ToggleUnderline                  yes     True    True    False   []             '&Underline'
+ 37 ToggleStrikethrough              yes     True    True    False   []             '&Strikethrough'
+ 38 AlignLeft                        yes     True    True    False   []             'Align &Left'
+ 39 AlignCenter                      yes     True    True    False   []             'Align &Center'
+ 40 AlignRight                       yes     True    True    False   []             'Align &Right'
+ 41 AlignJustified                   yes     True    True    False   []             'Align &Justified'
+ 42 Indent                           yes     True    True    False   []             '&Indent'
+ 43 Outdent                          yes     True    True    False   []             '&Outdent'
+ 44 InsertOrderedList                yes     True    True    False   []             'Insert &Ordered List'
+ 45 InsertUnorderedList              yes     True    True    False   []             'Insert &Unordered List'
+ 46 ChangeTextDirectionLTR           yes     True    True    False   []             'Change text direction left to right'
+ 47 ChangeTextDirectionRTL           yes     True    True    False   []             'Change text direction right to left'
+ 48 WebActionCount                   <哨兵值，跳过>
+有快捷键的 action 数：0
+在 view.actions() 里的 action 数：0
+== 默认状态下被宿主动作占用的候选组合键 ==
+  Ctrl+S           -> （无宿主动作占用）
+  Ctrl+Shift+S     -> （无宿主动作占用）
+  Ctrl+P           -> （无宿主动作占用）
+  Ctrl+O           -> （无宿主动作占用）
+  Ctrl+F           -> （无宿主动作占用）
+  Ctrl+G           -> （无宿主动作占用）
+  Ctrl+=           -> （无宿主动作占用）
+  Ctrl+-           -> （无宿主动作占用）
+  Ctrl+0           -> （无宿主动作占用）
+  F6               -> （无宿主动作占用）
+  F12              -> （无宿主动作占用）
+  Ctrl+U           -> （无宿主动作占用）
+  Ctrl+R           -> （无宿主动作占用）
+  F5               -> （无宿主动作占用）
+  F11              -> （无宿主动作占用）
+  Ctrl+D           -> （无宿主动作占用）
+  Ctrl+L           -> （无宿主动作占用）
+  Ctrl+T           -> （无宿主动作占用）
+  Ctrl+Tab         -> （无宿主动作占用）
+  Ctrl+A           -> （无宿主动作占用）
+  Ctrl+C           -> （无宿主动作占用）
+  Ctrl+V           -> （无宿主动作占用）
+  Ctrl+X           -> （无宿主动作占用）
+  Ctrl+Z           -> （无宿主动作占用）
+  Ctrl+/           -> （无宿主动作占用）
+  Alt+Z            -> （无宿主动作占用）
+  Ctrl+Alt+N       -> （无宿主动作占用）
+  Ctrl+Alt+W       -> （无宿主动作占用）
+  Ctrl+Alt+T       -> （无宿主动作占用）
+  Ctrl+Alt+O       -> （无宿主动作占用）
+  Ctrl+Alt+K       -> （无宿主动作占用）
+  Ctrl+Shift+V     -> （无宿主动作占用）
+  Ctrl+W           -> （无宿主动作占用）
+  Ctrl+N           -> （无宿主动作占用）
+  Ctrl+Alt+Left    -> （无宿主动作占用）
+  Ctrl+Alt+Right   -> （无宿主动作占用）
+已注入渲染层 keydown/click 记录器
+渲染层鼠标对照：clicks 0.0 -> 1.0
+敏感性对照：SavePage.shortcuts=['Ctrl+S']
+      [download] 收到下载请求：{'suggested_file_name': 'r5 probe.mhtml', 'url': 'file:///D:/github/jflove/jflove-desktop/poc/editor-probes/out/r5-page.html', 'state': 'DownloadState.DownloadRequested'}（已 cancel，不落盘）
+  结果 triggered={'SavePage': 1} renderer_keys=[]
+--- 按键扫描：conflict_keys_default（通道=QTest）---
+  Ctrl+S           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Shift+S     triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+P           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+O           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+F           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+G           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+=           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+-           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+0           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  F6               triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  F12              triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+--- 按键扫描：extra_keys_default（通道=QTest）---
+  Ctrl+U           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+R           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  F5               triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  F11              triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+D           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+L           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+T           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Tab         triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+A           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+C           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+V           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+X           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Z           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+/           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Alt+Z            triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Alt+N       triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Alt+W       triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Alt+T       triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Alt+O       triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Alt+K       triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Shift+V     triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+--- 手段 A：setShortcuts([])（先确认能读到清空后的值）---
+  shortcuts_after=[] triggered={}
+--- 手段 B：setEnabled(False)（快捷键恢复）---
+  enabled=False triggered={}
+--- 手段 C：view.removeAction（快捷键恢复）---
+  in_view=False triggered={}
+--- 手段 D：page.triggerAction(SavePage) 直接触发（不经键盘）---
+      [download] 收到下载请求：{'suggested_file_name': 'r5 probe.mhtml', 'url': 'file:///D:/github/jflove/jflove-desktop/poc/editor-probes/out/r5-page.html', 'state': 'DownloadState.DownloadRequested'}（已 cancel，不落盘）
+  triggered_delta=0 tops=[] downloads=1
+--- OS 级按键通道（keybd_event）：渲染层键盘可达性 ---
+  plain A  channel=os_keybd_event triggered={} renderer_keys=[]
+  Ctrl+S   channel=os_keybd_event triggered={} renderer_keys=[]
+  Ctrl+P   channel=os_keybd_event triggered={} renderer_keys=[]
+--- 施加关闭集合（setShortcuts([])+setEnabled(False)）：['SavePage', 'ViewSource', 'RequestClose', 'InspectElement', 'ExitFullScreen', 'Reload', 'ReloadAndBypassCache', 'Back', 'Forward', 'Stop'] ---
+--- 按键扫描：conflict_keys_after_mitigation（通道=QTest）---
+  Ctrl+S           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Shift+S     triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+P           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+O           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+F           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+G           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+=           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+-           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+0           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  F6               triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  F12              triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  编辑类动作 enabled 状态：{'Copy': True, 'Paste': True, 'Undo': True, 'Redo': True, 'SelectAll': True, 'Cut': True}
+--- 按键扫描：destructive_keys_default（通道=QTest）---
+  Ctrl+W           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+N           triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Alt+Left    triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+  Ctrl+Alt+Right   triggered={} tops=[] zoom=1.0->1.0 load_started=0 close=0 renderer_keys=[]
+结果已写入 D:\github\jflove\jflove-desktop\poc\editor-probes\out\r5-windows.json
+      [watcher] view received Close event
+exit 0

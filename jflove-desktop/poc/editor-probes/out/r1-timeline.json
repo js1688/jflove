@@ -1,0 +1,133 @@
+[
+  {
+    "stage": "0-基线",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "1-import QtWebEngineWidgets 之后",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "2-QApplication()+setApplicationName/Organization 之后",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "3-QWebEngineProfile.defaultProfile() 触碰之后",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "4-QWebEnginePage() 之后",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "5-QWebEngineView() 之后（未 show）",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "6-show()+loadFinished 之后",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "7-页面写 localStorage 之后",
+    "total": 160,
+    "new": [],
+    "changed": [],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "8-具名持久化 profile + view 之后",
+    "total": 162,
+    "new": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG.old",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\blob_storage\\83af622c-bd6f-4e4e-895e-60d325529584",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG.old",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\blob_storage\\83af622c-bd6f-4e4e-895e-60d325529584"
+    ],
+    "changed": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG"
+    ],
+    "lock_like_entries": [
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK",
+      "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK"
+    ]
+  },
+  {
+    "stage": "profile-paths",
+    "default": {
+      "storage_name": "",
+      "off_the_record": true,
+      "persistent": "C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord",
+      "cache": ""
+    },
+    "named": {
+      "name": "jflove-r1-probe",
+      "off_the_record": false,
+      "persistent": "C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/jflove-r1-probe",
+      "cache": "C:/Users/admin/AppData/Local/JFLove/JFLove/cache/QtWebEngine/jflove-r1-probe"
+    }
+  }
+]

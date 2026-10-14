@@ -1,0 +1,658 @@
+{
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Favicons": {
+    "size": 20480,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Favicons-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\History": {
+    "size": 159744,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\History-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Network Persistent State": {
+    "size": 111,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Trust Tokens": {
+    "size": 36864,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Trust Tokens-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\user_prefs.json": {
+    "size": 84,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Visited Links": {
+    "size": 131072,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\blob_storage": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\GPUCache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Shared Dictionary": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\blob_storage\\83af622c-bd6f-4e4e-895e-60d325529584": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_0": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_1": {
+    "size": 270336,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_2": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_3": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\index": {
+    "size": 262512,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_0": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_1": {
+    "size": 270336,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_2": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_3": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\index": {
+    "size": 262512,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\GPUCache\\data_0": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\GPUCache\\data_1": {
+    "size": 270336,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\GPUCache\\data_2": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\GPUCache\\data_3": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\GPUCache\\index": {
+    "size": 262512,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\000003.log": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\CURRENT": {
+    "size": 16,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG": {
+    "size": 356,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG.old": {
+    "size": 315,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\MANIFEST-000001": {
+    "size": 41,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\000003.log": {
+    "size": 80,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\CURRENT": {
+    "size": 16,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOG": {
+    "size": 344,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOG.old": {
+    "size": 303,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\MANIFEST-000001": {
+    "size": 41,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\db": {
+    "size": 45056,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\db-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache\\index": {
+    "size": 24,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache\\index-dir": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache\\index-dir\\the-real-index": {
+    "size": 48,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove::cache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove::cache\\qtpipelinecache-x86_64-little_endian-llp64": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove::cache\\QtWebEngine": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove::cache\\QtWebEngine\\jflove-r1-probe": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove::cache\\QtWebEngine\\jflove-r1-probe\\Cache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove::cache\\QtWebEngine\\jflove-r1-probe\\Cache\\Cache_Data": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove::cache\\QtWebEngine\\jflove-r1-probe\\Cache\\No_Vary_Search": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::preferences.json": {
+    "size": 35,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::theme.json": {
+    "size": 18,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::logs": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-render": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::storage": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Favicons": {
+    "size": 20480,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Favicons-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\History": {
+    "size": 159744,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\History-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Network Persistent State": {
+    "size": 111,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Trust Tokens": {
+    "size": 36864,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Trust Tokens-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\user_prefs.json": {
+    "size": 84,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Visited Links": {
+    "size": 131072,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\blob_storage": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\GPUCache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Shared Dictionary": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\blob_storage\\83af622c-bd6f-4e4e-895e-60d325529584": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_0": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_1": {
+    "size": 270336,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_2": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\data_3": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnGraphiteCache\\index": {
+    "size": 262512,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_0": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_1": {
+    "size": 270336,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_2": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\data_3": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\DawnWebGPUCache\\index": {
+    "size": 262512,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\GPUCache\\data_0": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\GPUCache\\data_1": {
+    "size": 270336,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\GPUCache\\data_2": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\GPUCache\\data_3": {
+    "size": 8192,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\GPUCache\\index": {
+    "size": 262512,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\000003.log": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\CURRENT": {
+    "size": 16,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG": {
+    "size": 356,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOG.old": {
+    "size": 315,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\MANIFEST-000001": {
+    "size": 41,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\000003.log": {
+    "size": 80,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\CURRENT": {
+    "size": 16,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOG": {
+    "size": 344,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOG.old": {
+    "size": 303,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\MANIFEST-000001": {
+    "size": 41,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\db": {
+    "size": 45056,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\db-journal": {
+    "size": 0,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache\\index": {
+    "size": 24,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache\\index-dir": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Shared Dictionary\\cache\\index-dir\\the-real-index": {
+    "size": 48,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::logs\\app.log": {
+    "size": 166903,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::logs\\app.log.1": {
+    "size": 5243294,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::logs\\error.log": {
+    "size": 241064,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\0515618e19ba690c.json": {
+    "size": 69316,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\0d5a49e7e8c3b2a9.json": {
+    "size": 35204,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\0e958e456e7392d1.json": {
+    "size": 52669,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\15b36c87f7009c2d.json": {
+    "size": 35194,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\20591bdfc971fcbc.json": {
+    "size": 69220,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\2bc45fed7ef5cbbc.json": {
+    "size": 35163,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\2d3df71ccd6360ed.json": {
+    "size": 41945,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\2fe61c5b212aec2c.json": {
+    "size": 35163,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\36ed6b4beb387dcc.json": {
+    "size": 35195,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\697cb979b15cb2b3.json": {
+    "size": 10711,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\712d572815a7cb87.json": {
+    "size": 40824,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\77b04c52c110074e.json": {
+    "size": 68618,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\95e3cf5b33298034.json": {
+    "size": 22344,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\9bd4a7a8de8fe975.json": {
+    "size": 68618,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\a1a9d5d5837aad67.json": {
+    "size": 35195,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\a385ffca5656a6ef.json": {
+    "size": 69316,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\ab0d64f2faa7e81c.json": {
+    "size": 35163,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\b2445b17bd8899df.json": {
+    "size": 22344,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\b3090af9ce244378.json": {
+    "size": 8134,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\b9951504de85bb18.json": {
+    "size": 41945,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\c2e929ad6e89ce58.json": {
+    "size": 10711,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\d4d9218e2fb6c045.json": {
+    "size": 35450,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\e366d2ac320a6197.json": {
+    "size": 52669,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\e80582c4b8157049.json": {
+    "size": 72598,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\e82ae98576945e57.json": {
+    "size": 72598,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\f7050cfa77674618.json": {
+    "size": 69220,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-cache\\f73920a71bbbab73.json": {
+    "size": 35085,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-render\\mermaid.bundle.js": {
+    "size": 3453765,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::mermaid-render\\render.html": {
+    "size": 34982,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::storage\\server_history.json": {
+    "size": 66,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::storage\\session.json": {
+    "size": 479,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::storage\\sync_configs_tanjun.json": {
+    "size": 343,
+    "is_dir": false
+  },
+  "C:\\Users\\admin\\AppData\\Roaming\\JFLove::storage\\downloads": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove\\cache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove\\cache\\qtpipelinecache-x86_64-little_endian-llp64": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove\\cache\\QtWebEngine": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove\\cache\\QtWebEngine\\jflove-r1-probe": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove\\cache\\QtWebEngine\\jflove-r1-probe\\Cache": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove\\cache\\QtWebEngine\\jflove-r1-probe\\Cache\\Cache_Data": {
+    "size": -1,
+    "is_dir": true
+  },
+  "C:\\Users\\admin\\AppData\\Local\\JFLove::JFLove\\cache\\QtWebEngine\\jflove-r1-probe\\Cache\\No_Vary_Search": {
+    "size": -1,
+    "is_dir": true
+  }
+}

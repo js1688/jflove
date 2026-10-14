@@ -1,0 +1,83 @@
+﻿{
+  "id": "d1-sql-parens-50",
+  "title": "SQL 50 层括号",
+  "ms": 46,
+  "ok": true,
+  "error": null,
+  "output_len": 1525,
+  "output_head": "select\n  (\n    (\n      (\n        (\n          (\n            (\n              (\n                (\n                  (\n     "
+}
+{
+  "id": "d2-sql-parens-200",
+  "title": "SQL 200 层括号",
+  "ms": 412,
+  "ok": true,
+  "error": null,
+  "output_len": 62725,
+  "output_head": "select\n  (\n    (\n      (\n        (\n          (\n            (\n              (\n                (\n                  (\n     "
+}
+{
+  "id": "d3-sql-parens-1000",
+  "title": "SQL 1000 层括号",
+  "ms": 12888,
+  "ok": true,
+  "error": null,
+  "output_len": 1909125,
+  "output_head": "select\n  (\n    (\n      (\n        (\n          (\n            (\n              (\n                (\n                  (\n     "
+}
+{
+  "id": "d4-sql-long-inlist",
+  "title": "SQL 单行 20000 个 IN 元素（超长行）",
+  "ms": 756,
+  "ok": true,
+  "error": null,
+  "output_len": 208928,
+  "output_head": "select\n  *\nfrom\n  t\nwhere\n  a in (\n    0,\n    1,\n    2,\n    3,\n    4,\n    5,\n    6,\n    7,\n    8,\n    9,\n    10,\n    11,"
+}
+{
+  "id": "d5-xml-nest-200",
+  "title": "XML 200 层嵌套（格式化）",
+  "ms": 7,
+  "ok": true,
+  "error": null,
+  "output_len": 161804,
+  "output_head": "<a>\n    <a>\n        <a>\n            <a>\n                <a>\n                    <a>\n                        <a>\n        "
+}
+{
+  "id": "d6-xml-nest-1000",
+  "title": "XML 1000 层嵌套（格式化）",
+  "ms": 21,
+  "ok": true,
+  "error": null,
+  "output_len": 4009004,
+  "output_head": "<a>\n    <a>\n        <a>\n            <a>\n                <a>\n                    <a>\n                        <a>\n        "
+}
+{
+  "id": "d7-xml-nest-5000",
+  "title": "XML 5000 层嵌套（格式化）",
+  "ms": 11,
+  "ok": false,
+  "error": "RangeError: Maximum call stack size exceeded",
+  "output_len": null,
+  "output_head": null
+}
+{
+  "id": "d8-xml-nest-200-minify",
+  "title": "XML 200 层嵌套（压缩）",
+  "ms": 1,
+  "ok": true,
+  "error": null,
+  "output_len": 1404,
+  "output_head": "<a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a><a>"
+}
+{
+  "id": "d9-xml-wide-20000",
+  "title": "XML 20000 个兄弟节点（宽输入）",
+  "ms": 48,
+  "ok": true,
+  "error": null,
+  "output_len": 540008,
+  "output_head": "<r>\n    <a>\n        1\n    </a>\n    <a>\n        1\n    </a>\n    <a>\n        1\n    </a>\n    <a>\n        1\n    </a>\n    <a>\n"
+}
+
+已写出：D:\github\jflove\jflove-desktop\poc\editor-probes\r6-deep-nesting.json

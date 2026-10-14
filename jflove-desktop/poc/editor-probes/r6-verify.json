@@ -1,0 +1,208 @@
+{
+  "rows": [
+    {
+      "id": "x8b-bom-bytes",
+      "title": "BOM 是否保留（字符与字节双重核对）",
+      "input_has_uFEFF": true,
+      "output_has_uFEFF": false,
+      "output_first4_hex": "3c3f786d",
+      "output_first4": "<?xml versio",
+      "verdict": "BOM 被丢弃"
+    },
+    {
+      "id": "x10-default-linesep-bytes",
+      "title": "默认 lineSeparator 实测（\r\n 计数 vs 裸 \n 计数）",
+      "crlf_count": 7,
+      "lf_count": 7,
+      "bare_lf_count": 0,
+      "output_hex": "3c723e0d0a202020203c613e0d0a2020202020202020310d",
+      "verdict": "默认是 \\r\\n（CRLF）"
+    },
+    {
+      "id": "x6f-minify-mixed-inline",
+      "title": "压缩（不加 collapseContent）：文本节点与内联子元素相邻时空白是否被吃",
+      "opts": {},
+      "input": "<r><p>This is <b>some</b> content.</p></r>",
+      "output": "<r><p>This is <b>some</b> content.</p></r>",
+      "error": null
+    },
+    {
+      "id": "x6g-minify-mixed-inline-collapse",
+      "title": "压缩 + collapseContent:true：同一输入",
+      "opts": {
+        "collapseContent": true
+      },
+      "input": "<r><p>This is <b>some</b> content.</p></r>",
+      "output": "<r><p>This is <b>some</b> content.</p></r>",
+      "error": null
+    },
+    {
+      "id": "x6h-minify-xmlspace",
+      "title": "压缩：xml:space=\"preserve\" 是否保住文本节点空白",
+      "opts": {},
+      "input": "<r><p xml:space=\"preserve\">This is <b>some</b> content.</p></r>",
+      "output": "<r><p xml:space=\"preserve\">This is <b>some</b> content.</p></r>",
+      "error": null
+    },
+    {
+      "id": "x6i-minify-space-textnode-ac33",
+      "title": "AC-33 直接判据：压缩前后用标准解析器读文本节点值是否相同",
+      "opts": {
+        "collapseContent": true
+      },
+      "input": "<root><a> </a><b>x</b><c>hello   world</c></root>",
+      "output": "<root><a></a><b>x</b><c>hello   world</c></root>",
+      "error": null
+    },
+    {
+      "id": "x6j-format-trailing-space",
+      "title": "格式化（非压缩）：纯文本元素的首尾空白是否被裁掉",
+      "opts": {
+        "lineSeparator": "\n",
+        "indentation": "    ",
+        "collapseContent": false,
+        "whiteSpaceAtEndOfSelfclosingTag": false,
+        "throwOnFailure": true,
+        "attributeQuotes": "double"
+      },
+      "input": "<r><v> 5 </v><w>keep  inner</w></r>",
+      "output": "<r>\n    <v>\n        5\n    </v>\n    <w>\n        keep  inner\n    </w>\n</r>",
+      "error": null
+    },
+    {
+      "id": "x6k-format-collapse-preserve",
+      "title": "格式化 + collapseContent:true：纯文本元素的首尾空白是否保住",
+      "opts": {
+        "lineSeparator": "\n",
+        "collapseContent": true,
+        "indentation": "    ",
+        "whiteSpaceAtEndOfSelfclosingTag": false,
+        "throwOnFailure": true,
+        "attributeQuotes": "double"
+      },
+      "input": "<r><v> 5 </v><w>keep  inner</w></r>",
+      "output": "<r>\n    <v> 5 </v>\n    <w>keep  inner</w>\n</r>",
+      "error": null
+    }
+  ],
+  "judgement": [
+    {
+      "id": "x6f-minify-mixed-inline",
+      "in_text_nodes": [
+        "",
+        "This is ",
+        "some",
+        " content.",
+        ""
+      ],
+      "out_text_nodes": [
+        "",
+        "This is ",
+        "some",
+        " content.",
+        ""
+      ],
+      "visible_text_equal": true,
+      "raw_text_nodes_equal": true
+    },
+    {
+      "id": "x6g-minify-mixed-inline-collapse",
+      "in_text_nodes": [
+        "",
+        "This is ",
+        "some",
+        " content.",
+        ""
+      ],
+      "out_text_nodes": [
+        "",
+        "This is ",
+        "some",
+        " content.",
+        ""
+      ],
+      "visible_text_equal": true,
+      "raw_text_nodes_equal": true
+    },
+    {
+      "id": "x6h-minify-xmlspace",
+      "in_text_nodes": [
+        "",
+        "This is ",
+        "some",
+        " content.",
+        ""
+      ],
+      "out_text_nodes": [
+        "",
+        "This is ",
+        "some",
+        " content.",
+        ""
+      ],
+      "visible_text_equal": true,
+      "raw_text_nodes_equal": true
+    },
+    {
+      "id": "x6i-minify-space-textnode-ac33",
+      "in_text_nodes": [
+        "",
+        " ",
+        "",
+        "x",
+        "",
+        "hello   world",
+        ""
+      ],
+      "out_text_nodes": [
+        "",
+        "",
+        "",
+        "x",
+        "",
+        "hello   world",
+        ""
+      ],
+      "visible_text_equal": true,
+      "raw_text_nodes_equal": false
+    },
+    {
+      "id": "x6j-format-trailing-space",
+      "in_text_nodes": [
+        "",
+        " 5 ",
+        "",
+        "keep  inner",
+        ""
+      ],
+      "out_text_nodes": [
+        "\n    ",
+        "\n        5\n    ",
+        "\n    ",
+        "\n        keep  inner\n    ",
+        "\n"
+      ],
+      "visible_text_equal": true,
+      "raw_text_nodes_equal": false
+    },
+    {
+      "id": "x6k-format-collapse-preserve",
+      "in_text_nodes": [
+        "",
+        " 5 ",
+        "",
+        "keep  inner",
+        ""
+      ],
+      "out_text_nodes": [
+        "\n    ",
+        " 5 ",
+        "\n    ",
+        "keep  inner",
+        "\n"
+      ],
+      "visible_text_equal": true,
+      "raw_text_nodes_equal": false
+    }
+  ]
+}

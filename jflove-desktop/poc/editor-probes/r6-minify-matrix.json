@@ -1,0 +1,194 @@
+{
+  "rows": [
+    {
+      "id": "m1-minify-space-default",
+      "title": "压缩默认参数",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root><a> </a><b>x</b></root>",
+      "output": "<root><a></a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m2-minify-space-collapse-true",
+      "title": "压缩 + collapseContent:true",
+      "mode": "minify",
+      "opts": {
+        "collapseContent": true
+      },
+      "input": "<root><a> </a><b>x</b></root>",
+      "output": "<root><a></a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m3-minify-space-collapse-false",
+      "title": "压缩 + collapseContent:false",
+      "mode": "minify",
+      "opts": {
+        "collapseContent": false
+      },
+      "input": "<root><a> </a><b>x</b></root>",
+      "output": "<root><a></a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m4-minify-space-xmlspace-attr",
+      "title": "压缩 + 元素上 xml:space=\"preserve\"",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root><a xml:space=\"preserve\"> </a><b>x</b></root>",
+      "output": "<root><a xml:space=\"preserve\"> </a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m5-minify-space-xmlspace-root",
+      "title": "压缩 + 根上 xml:space=\"preserve\"",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root xml:space=\"preserve\"><a> </a><b>x</b></root>",
+      "output": "<root xml:space=\"preserve\"><a> </a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m6-minify-space-filter",
+      "title": "压缩 + filter 恒真（显式声明保留全部节点）",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root><a> </a><b>x</b></root>",
+      "output": "<root><a></a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m7-minify-two-spaces",
+      "title": "压缩：<a>  </a>（两个空格）",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root><a>  </a><b>x</b></root>",
+      "output": "<root><a></a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m8-minify-nbsp",
+      "title": "压缩：<a>&#160;</a>（不换行空格实体，非 ASCII 空白）",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root><a>&#160;</a><b>x</b></root>",
+      "output": "<root><a>&#160;</a><b>x</b></root>",
+      "error": null
+    },
+    {
+      "id": "m9-minify-space-in-mixed",
+      "title": "压缩：空格文本节点夹在元素之间 <b>y</b> <c>z</c>",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root><b>y</b> <c>z</c></root>",
+      "output": "<root><b>y</b><c>z</c></root>",
+      "error": null
+    },
+    {
+      "id": "m10-minify-xmlspace-in-mixed",
+      "title": "压缩：xml:space=\"preserve\" 能否保住 <b>y</b> <c>z</c> 之间的空格",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root xml:space=\"preserve\"><b>y</b> <c>z</c></root>",
+      "output": "<root xml:space=\"preserve\"><b>y</b> <c>z</c></root>",
+      "error": null
+    },
+    {
+      "id": "v1-format-recommended",
+      "title": "推荐参数下的格式化（AC-33 样例）",
+      "mode": "format",
+      "opts": {
+        "indentation": "  ",
+        "lineSeparator": "\n",
+        "attributeQuotes": "double",
+        "collapseContent": true,
+        "strictMode": true,
+        "throwOnFailure": true,
+        "whiteSpaceAtEndOfSelfclosingTag": false
+      },
+      "input": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root><!--c--><a><![CDATA[ x < y ]]></a><br/><img src=\"x\" /><keep>hello   world</keep><sp> </sp><mix>This is <b>some</b> content.</mix></root>",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root>\n  <!--c-->\n  <a><![CDATA[ x < y ]]></a>\n  <br/>\n  <img src=\"x\"/>\n  <keep>hello   world</keep>\n  <sp></sp>\n  <mix>This is <b>some</b> content.</mix>\n</root>",
+      "error": null
+    },
+    {
+      "id": "v2-minify-recommended",
+      "title": "推荐参数下的压缩（AC-33 样例）",
+      "mode": "minify",
+      "opts": {
+        "collapseContent": true,
+        "strictMode": true,
+        "throwOnFailure": true
+      },
+      "input": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root><!--c--><a><![CDATA[ x < y ]]></a><br/><img src=\"x\" /><keep>hello   world</keep><sp> </sp><mix>This is <b>some</b> content.</mix></root>",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root><!--c--><a><![CDATA[ x < y ]]></a><br/><img src=\"x\"/><keep>hello   world</keep><sp></sp><mix>This is <b>some</b> content.</mix></root>",
+      "error": null
+    }
+  ],
+  "recommended": {
+    "indentation": "  ",
+    "lineSeparator": "\n",
+    "attributeQuotes": "double",
+    "collapseContent": true,
+    "strictMode": true,
+    "throwOnFailure": true,
+    "whiteSpaceAtEndOfSelfclosingTag": false
+  },
+  "cmp": {
+    "input_text_nodes": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "hello   world",
+      "",
+      " ",
+      "",
+      "This is ",
+      "some",
+      " content.",
+      ""
+    ],
+    "format_text_nodes": [
+      "\n  \n  ",
+      "",
+      "\n  ",
+      "\n  ",
+      "\n  ",
+      "hello   world",
+      "\n  ",
+      "",
+      "\n  ",
+      "This is ",
+      "some",
+      " content.",
+      "\n"
+    ],
+    "minify_text_nodes": [
+      "",
+      "",
+      "",
+      "",
+      "",
+      "hello   world",
+      "",
+      "",
+      "",
+      "This is ",
+      "some",
+      " content.",
+      ""
+    ],
+    "format_keeps_comment": true,
+    "format_keeps_cdata": true,
+    "minify_keeps_comment": true,
+    "minify_keeps_cdata": true,
+    "minify_keeps_space_textnode": false,
+    "format_keeps_space_textnode": false,
+    "format_keeps_double_space": true,
+    "minify_keeps_double_space": true,
+    "format_keeps_selfclosing": true,
+    "format_keeps_mixed_inline": true
+  }
+}

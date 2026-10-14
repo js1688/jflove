@@ -1,0 +1,1 @@
+select * from t where a = :name and b = @p and c = ?;

@@ -1,0 +1,158 @@
+{
+  "input": "<root>\n  <a> </a>\n  <b>y</b> <c>z</c>\n  <!--c--><d><![CDATA[q]]></d>\n</root>",
+  "output": "<root><a></a><b>y</b><c>z</c><!--c--><d><![CDATA[q]]></d></root>",
+  "filter_calls": [
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "\n  ",
+      "attributes": null
+    },
+    {
+      "type": "Element",
+      "name": "a",
+      "keys": [
+        "type",
+        "name",
+        "attributes",
+        "children"
+      ],
+      "text": null,
+      "attributes": {}
+    },
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": " ",
+      "attributes": null
+    },
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "\n  ",
+      "attributes": null
+    },
+    {
+      "type": "Element",
+      "name": "b",
+      "keys": [
+        "type",
+        "name",
+        "attributes",
+        "children"
+      ],
+      "text": null,
+      "attributes": {}
+    },
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "y",
+      "attributes": null
+    },
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": " ",
+      "attributes": null
+    },
+    {
+      "type": "Element",
+      "name": "c",
+      "keys": [
+        "type",
+        "name",
+        "attributes",
+        "children"
+      ],
+      "text": null,
+      "attributes": {}
+    },
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "z",
+      "attributes": null
+    },
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "\n  ",
+      "attributes": null
+    },
+    {
+      "type": "Comment",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "<!--c-->",
+      "attributes": null
+    },
+    {
+      "type": "Element",
+      "name": "d",
+      "keys": [
+        "type",
+        "name",
+        "attributes",
+        "children"
+      ],
+      "text": null,
+      "attributes": {}
+    },
+    {
+      "type": "CDATA",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "<![CDATA[q]]>",
+      "attributes": null
+    },
+    {
+      "type": "Text",
+      "name": null,
+      "keys": [
+        "type",
+        "content"
+      ],
+      "text": "\n",
+      "attributes": null
+    }
+  ],
+  "filter_allows_text_node_type": true,
+  "whitespace_only_text_nodes": 6,
+  "filter_returning_false_output": "<root><a></a><b></b></root>",
+  "verdict": "filter 能枚举到 Text 节点 ⇒ 可在回调里做\"含纯空白文本节点则中止\"的前置预检"
+}

@@ -1,0 +1,18 @@
+Sandboxing disabled by user.
+[8996:4608:1014/120802.939:ERROR:C:\Users\qt\work\qt\qtwebengine_build\src\core\RelWithDebInfo\AMD64\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[8996:14104:1014/120802.939:ERROR:C:\Users\qt\work\qt\qtwebengine_build\src\core\RelWithDebInfo\AMD64\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[8996:2288:1014/120802.939:ERROR:C:\Users\qt\work\qt\qtwebengine_build\src\core\RelWithDebInfo\AMD64\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)
+[8996:13820:1014/120802.950:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[8996:13820:1014/120802.950:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+GPUInfo not initialized on GpuInfoUpdate
+[8996:11068:1014/120802.955:ERROR:C:\Users\qt\work\qt\qtwebengine_build\src\core\RelWithDebInfo\AMD64\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/disk_cache.cc:236] Unable to create cache
+[8996:11068:1014/120802.955:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/host/gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2
+[8996:11068:1014/120802.955:ERROR:C:\Users\qt\work\qt\qtwebengine_build\src\core\RelWithDebInfo\AMD64\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/disk_cache.cc:236] Unable to create cache
+[8996:11068:1014/120802.955:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/host/gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2
+[8996:11068:1014/120802.955:ERROR:C:\Users\qt\work\qt\qtwebengine_build\src\core\RelWithDebInfo\AMD64\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/disk_cache.cc:236] Unable to create cache
+[8996:11068:1014/120802.955:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/host/gpu_disk_cache.cc:724] Gpu Cache Creation failed: -2
+[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[8996:13820:1014/120802.971:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+Release of profile requested but WebEnginePage still not deleted. Expect troubles !

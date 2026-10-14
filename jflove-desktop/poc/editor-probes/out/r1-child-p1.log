@@ -1,0 +1,19 @@
+PID=12520 profile storageName='' offTheRecord=True persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord'
+user_data_dirs=['C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\Temp\\1\\QtWebEngine']
+P1_PROFILE persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/jflove-r1-probe' offTheRecord=False
+P1_VIEW_READY t=0.10s
+P1_LOCK_LIKE=['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+P1_LOAD ok=True
+P1_TICK n=1 t=2.17s alive=1
+P1_TICK n=2 t=4.17s alive=1
+P1_TICK n=3 t=6.17s alive=1
+P1_TICK n=4 t=8.17s alive=1
+P1_TICK n=5 t=10.17s alive=1
+P1_TICK n=6 t=12.17s alive=1
+P1_TICK n=7 t=14.17s alive=1
+P1_TICK n=8 t=16.17s alive=1
+P1_TICK n=9 t=18.17s alive=1
+P1_TICK n=10 t=20.17s alive=1
+P1_TICK n=11 t=22.18s alive=1
+P1_TICK n=12 t=24.17s alive=1
+P1_EXIT_OK ticks=12

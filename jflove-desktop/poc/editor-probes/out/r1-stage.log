@@ -1,0 +1,62 @@
+基线：目录条目 160 个；观察根目录 ['C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\Temp\\1\\QtWebEngine']
+
+[stage 0] 基线（未 import PySide6）完成
+
+=== 阶段 0-基线 ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+=== 阶段 1-import QtWebEngineWidgets 之后 ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+=== 阶段 2-QApplication()+setApplicationName/Organization 之后 ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+Sandboxing disabled by user.
+
+默认 profile: storageName='' offTheRecord=True persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/OffTheRecord' cache=''
+
+=== 阶段 3-QWebEngineProfile.defaultProfile() 触碰之后 ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+=== 阶段 4-QWebEnginePage() 之后 ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+=== 阶段 5-QWebEngineView() 之后（未 show） ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+[11096:3212:1014/120700.351:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[11096:3212:1014/120700.351:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+GPUInfo not initialized on GpuInfoUpdate
+[11096:3212:1014/120700.623:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[11096:3212:1014/120700.623:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+[11096:3212:1014/120700.623:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.
+[11096:3212:1014/120700.623:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.
+
+=== 阶段 6-show()+loadFinished 之后 ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+  localStorage 写入结果=ok
+
+=== 阶段 7-页面写 localStorage 之后 ===
+  目录条目总数：160（新增 0，变化 0，消失 0）
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+[stage 8] 具名持久化 profile（对照组）
+  持久化 profile: offTheRecord=False persistent='C:/Users/admin/AppData/Roaming/JFLove/JFLove/QtWebEngine/jflove-r1-probe' cache='C:/Users/admin/AppData/Local/JFLove/JFLove/cache/QtWebEngine/jflove-r1-probe'
+
+=== 阶段 8-具名持久化 profile + view 之后 ===
+  目录条目总数：162（新增 4，变化 2，消失 2）
+    [新增] C:\Users\admin\AppData\Roaming\JFLove::JFLove\QtWebEngine\jflove-r1-probe\Local Storage\leveldb\LOG.old (size=315)
+    [新增] C:\Users\admin\AppData\Roaming\JFLove::JFLove\QtWebEngine\jflove-r1-probe\blob_storage\83af622c-bd6f-4e4e-895e-60d325529584 (size=-1)
+    [新增] C:\Users\admin\AppData\Roaming\JFLove\JFLove::QtWebEngine\jflove-r1-probe\Local Storage\leveldb\LOG.old (size=315)
+    [新增] C:\Users\admin\AppData\Roaming\JFLove\JFLove::QtWebEngine\jflove-r1-probe\blob_storage\83af622c-bd6f-4e4e-895e-60d325529584 (size=-1)
+    [变化] C:\Users\admin\AppData\Roaming\JFLove::JFLove\QtWebEngine\jflove-r1-probe\Local Storage\leveldb\LOG {'size': 315, 'is_dir': False} -> {'size': 356, 'is_dir': False}
+    [变化] C:\Users\admin\AppData\Roaming\JFLove\JFLove::QtWebEngine\jflove-r1-probe\Local Storage\leveldb\LOG {'size': 315, 'is_dir': False} -> {'size': 356, 'is_dir': False}
+  命中锁/singleton 命名模式的条目：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+
+时间线已写入 D:\github\jflove\jflove-desktop\poc\editor-probes\out\r1-timeline.json
+Release of profile requested but WebEnginePage still not deleted. Expect troubles !

@@ -1,0 +1,26 @@
+== R-1 编排开始 ==
+观察根目录：['C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove\\JFLove', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\JFLove', 'C:\\Users\\admin\\AppData\\Local\\Temp\\1\\QtWebEngine']
+[1] 基线目录条目 164；锁类命中 ['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+[2] 启动进程 A（QApplication + QWebEngineView，保持 40 s）
+    A 就绪：True
+    QtWebEngineProcess 命令行已写入 out/r1-chromium-cmdline.txt
+    A 持有 profile 期间新增条目 0：[]
+    锁类命中：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']
+[3] 进程 B（只建 QApplication，不建 view/page）
+    B 退出码 0，耗时 2.23s；B 之后新增条目 []
+    B stderr：'Sandboxing disabled by user.\n[12696:3820:1014/120724.129:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[12696:3820:1014/120724.129:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualizati'
+[4] 进程 C（A 运行期间创建 view）；A 当前 tick 数 2
+    C 退出码 0，耗时 9.17s
+    C stderr：'Sandboxing disabled by user.\n[524:9148:1014/120726.512:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback to GLES2.\n[524:9148:1014/120726.512:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:931] ContextResult::kFatalFailure: Failed to create shared context for virtualization.\nGPUInfo not initialized on GpuInfoUpdate\n[524:9148:1014/120726.527:ERROR:../../../qtwebengine/src/3rdparty/chromium/gpu/ipc/service/gpu_channel_manager.cc:920] Failed to create GLES3 context, fallback'
+    C 之后新增条目 []
+    A 是否存活（tick 数）：2 -> 7
+[5] 等 A 自行退出
+    A 退出码 0，tick 总数 19，正常退出=True
+[6] 持久化 profile 对照：P1 持有，P2 同时打开同一具名 profile
+    P1 就绪 True；P2 退出码 0，耗时 7.14s
+    P2 stderr：'Sandboxing disabled by user.\n[8996:4608:1014/120802.939:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)\n[8996:14104:1014/120802.939:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwebengine/src/3rdparty/chromium/net/disk_cache/cache_util_win.cc:25] Unable to move the cache: 拒绝访问。 (0x5)\n[8996:2288:1014/120802.939:ERROR:C:\\Users\\qt\\work\\qt\\qtwebengine_build\\src\\core\\RelWithDebInfo\\AMD64\\../../../../../qtwe'
+    P2 之后新增条目 ['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\blob_storage\\0b176647-9a8e-4c31-ab30-325540307edf', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\blob_storage\\0b176647-9a8e-4c31-ab30-325540307edf']
+    P1 退出码 0，tick 总数 12
+
+== 编排结束，汇总写入 D:\github\jflove\jflove-desktop\poc\editor-probes\out\r1-summary.json ==
+最终锁类命中：['C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove::JFLove\\QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Local Storage\\leveldb\\LOCK', 'C:\\Users\\admin\\AppData\\Roaming\\JFLove\\JFLove::QtWebEngine\\jflove-r1-probe\\Session Storage\\LOCK']

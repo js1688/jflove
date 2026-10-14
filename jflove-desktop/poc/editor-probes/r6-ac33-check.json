@@ -1,0 +1,182 @@
+{
+  "rows": [
+    {
+      "name": "AC-33 原样样例 · 推荐参数格式化",
+      "file": "a8-ac33-plain.safeformat.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        " x < y ",
+        "hello   world"
+      ],
+      "output_texts": [
+        "\n  \n  ",
+        " x < y ",
+        "\n  ",
+        "hello   world",
+        "\n"
+      ],
+      "texts_equal": false,
+      "has_comment": true,
+      "has_cdata_literal": true
+    },
+    {
+      "name": "AC-33 原样样例 · 推荐参数压缩",
+      "file": "a8-ac33-plain.safemin.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        " x < y ",
+        "hello   world"
+      ],
+      "output_texts": [
+        " x < y ",
+        "hello   world"
+      ],
+      "texts_equal": true,
+      "has_comment": true,
+      "has_cdata_literal": true
+    },
+    {
+      "name": "AC-33 + <sp> </sp> · 压缩被拒绝（无产物）",
+      "file": null,
+      "skipped": "该用例被安全包装拒绝，无产物（符合预期）"
+    },
+    {
+      "name": "AC-33 原文样例 · 库默认格式化（未包装）",
+      "file": "x2b-ac33-sample.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        " x < y ",
+        "hello   world"
+      ],
+      "output_texts": [
+        "\n    \n    ",
+        "\n         x < y \n    ",
+        "\n"
+      ],
+      "texts_equal": false,
+      "has_comment": true,
+      "has_cdata_literal": true
+    },
+    {
+      "name": "AC-33 原文样例 · 库默认压缩（未包装）",
+      "file": "x6e-minify-ac33.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        " x < y ",
+        "hello   world"
+      ],
+      "output_texts": [
+        " x < y ",
+        "hello   world"
+      ],
+      "texts_equal": true,
+      "has_comment": true,
+      "has_cdata_literal": true
+    },
+    {
+      "name": "含 <a> </a> · 库默认压缩（未包装，已知会坏）",
+      "file": "x6b-minify-space-textnode.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        "\n  ",
+        " ",
+        "\n  ",
+        "x",
+        "\n"
+      ],
+      "output_texts": [
+        "x"
+      ],
+      "texts_equal": false,
+      "has_comment": false,
+      "has_cdata_literal": false
+    },
+    {
+      "name": "含 <a> </a> · 库默认格式化（未包装，已知会坏）",
+      "file": "x3b-empty-tag.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        " "
+      ],
+      "output_texts": [
+        "\n    ",
+        "\n    ",
+        "\n    ",
+        "\n    ",
+        "\n"
+      ],
+      "texts_equal": false,
+      "has_comment": false,
+      "has_cdata_literal": false
+    },
+    {
+      "name": "正常缩进 · 推荐参数压缩",
+      "file": "a2-pretty.safemin.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        "\n  ",
+        "1",
+        "\n  ",
+        "2",
+        "\n"
+      ],
+      "output_texts": [
+        "1",
+        "2"
+      ],
+      "texts_equal": false,
+      "has_comment": false,
+      "has_cdata_literal": false
+    },
+    {
+      "name": "正常缩进 · 推荐参数格式化",
+      "file": "a2-pretty.safeformat.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        "\n  ",
+        "1",
+        "\n  ",
+        "2",
+        "\n"
+      ],
+      "output_texts": [
+        "\n  ",
+        "1",
+        "\n  ",
+        "2",
+        "\n"
+      ],
+      "texts_equal": true,
+      "has_comment": false,
+      "has_cdata_literal": false
+    },
+    {
+      "name": "xml:space=preserve · 推荐参数压缩",
+      "file": "a5-xmlspace.safemin.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        " "
+      ],
+      "output_texts": [
+        " "
+      ],
+      "texts_equal": true,
+      "has_comment": false,
+      "has_cdata_literal": false
+    },
+    {
+      "name": "xml:space=preserve · 推荐参数格式化",
+      "file": "a5-xmlspace.safeformat.out.xml",
+      "parse_ok": true,
+      "input_texts": [
+        " "
+      ],
+      "output_texts": [
+        " "
+      ],
+      "texts_equal": true,
+      "has_comment": false,
+      "has_cdata_literal": false
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+select Foo, count(*) from MyTable where x = 'y';

@@ -1,0 +1,135 @@
+{
+  "rows": [
+    {
+      "id": "c1-minify-multiline-default",
+      "which": "multiline",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root>\n  <content>\n    <p>\n        This is <b>some</b> content.\n    </p>\n  </content>\n</root>",
+      "output": "<root><content><p>\n        This is <b>some</b> content.\n    </p></content></root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": false
+    },
+    {
+      "id": "c2-minify-multiline-collapse-true",
+      "which": "multiline",
+      "mode": "minify",
+      "opts": {
+        "collapseContent": true
+      },
+      "input": "<root>\n  <content>\n    <p>\n        This is <b>some</b> content.\n    </p>\n  </content>\n</root>",
+      "output": "<root><content><p>This is<b>some</b>content.</p></content></root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": true
+    },
+    {
+      "id": "c3-minify-multiline-collapse-false",
+      "which": "multiline",
+      "mode": "minify",
+      "opts": {
+        "collapseContent": false
+      },
+      "input": "<root>\n  <content>\n    <p>\n        This is <b>some</b> content.\n    </p>\n  </content>\n</root>",
+      "output": "<root><content><p>\n        This is <b>some</b> content.\n    </p></content></root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": false
+    },
+    {
+      "id": "c4-format-multiline-default",
+      "which": "multiline",
+      "mode": "format",
+      "opts": {
+        "lineSeparator": "\n",
+        "indentation": "    ",
+        "collapseContent": false,
+        "whiteSpaceAtEndOfSelfclosingTag": false,
+        "throwOnFailure": true,
+        "attributeQuotes": "double"
+      },
+      "input": "<root>\n  <content>\n    <p>\n        This is <b>some</b> content.\n    </p>\n  </content>\n</root>",
+      "output": "<root>\n    <content>\n        <p>\n            This is\n            <b>\n                some\n            </b>\n            content.\n        </p>\n    </content>\n</root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": false
+    },
+    {
+      "id": "c5-format-multiline-collapse-true",
+      "which": "multiline",
+      "mode": "format",
+      "opts": {
+        "lineSeparator": "\n",
+        "collapseContent": true,
+        "indentation": "    ",
+        "whiteSpaceAtEndOfSelfclosingTag": false,
+        "throwOnFailure": true,
+        "attributeQuotes": "double"
+      },
+      "input": "<root>\n  <content>\n    <p>\n        This is <b>some</b> content.\n    </p>\n  </content>\n</root>",
+      "output": "<root>\n    <content>\n        <p>\n            This is\n            <b>some</b>\n            content.\n        </p>\n    </content>\n</root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": false
+    },
+    {
+      "id": "c6-minify-singleline-default",
+      "which": "singleline",
+      "mode": "minify",
+      "opts": {},
+      "input": "<root><p>This is <b>some</b> content.</p></root>",
+      "output": "<root><p>This is <b>some</b> content.</p></root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": false
+    },
+    {
+      "id": "c7-minify-singleline-collapse-true",
+      "which": "singleline",
+      "mode": "minify",
+      "opts": {
+        "collapseContent": true
+      },
+      "input": "<root><p>This is <b>some</b> content.</p></root>",
+      "output": "<root><p>This is <b>some</b> content.</p></root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": false
+    },
+    {
+      "id": "c8-format-singleline-collapse-true",
+      "which": "singleline",
+      "mode": "format",
+      "opts": {
+        "lineSeparator": "\n",
+        "collapseContent": true,
+        "indentation": "    ",
+        "whiteSpaceAtEndOfSelfclosingTag": false,
+        "throwOnFailure": true,
+        "attributeQuotes": "double"
+      },
+      "input": "<root><p>This is <b>some</b> content.</p></root>",
+      "output": "<root>\n    <p>This is <b>some</b> content.</p>\n</root>",
+      "error": null,
+      "visible_in": "This is some content.",
+      "visible_out": "This is some content.",
+      "visible_text_lost": false,
+      "inline_space_removed_glued": false
+    }
+  ]
+}

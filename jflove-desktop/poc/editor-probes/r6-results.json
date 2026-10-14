@@ -1,0 +1,875 @@
+{
+  "versions": {
+    "xml-formatter": "3.7.0",
+    "sql-formatter": "15.9.0",
+    "node": "v24.18.0"
+  },
+  "probe_dir": "C:\\Users\\admin\\AppData\\Local\\Temp\\1\\jflove-fmt-probe",
+  "sql_languages": [
+    "bigquery",
+    "clickhouse",
+    "db2",
+    "db2i",
+    "duckdb",
+    "hive",
+    "mariadb",
+    "mysql",
+    "n1ql",
+    "plsql",
+    "postgresql",
+    "redshift",
+    "singlestoredb",
+    "snowflake",
+    "spark",
+    "sql",
+    "sqlite",
+    "tidb",
+    "transactsql",
+    "trino"
+  ],
+  "results": [
+    {
+      "id": "x1-comment",
+      "group": "XML",
+      "title": "含注释 <!-- ... -->：格式化后是否保留",
+      "in_file": "r6-out\\x1-comment.in.xml",
+      "out_file": "r6-out\\x1-comment.out.xml",
+      "input": "<root><!--keep-me--><a>1</a><!-- second comment --><b>2</b></root>",
+      "output": "<root>\r\n    <!--keep-me-->\r\n    <a>\r\n        1\r\n    </a>\r\n    <!-- second comment -->\r\n    <b>\r\n        2\r\n    </b>\r\n</root>",
+      "error": null
+    },
+    {
+      "id": "x2-cdata",
+      "group": "XML",
+      "title": "CDATA：是否保留 + CDATA 内空白是否被改动",
+      "in_file": "r6-out\\x2-cdata.in.xml",
+      "out_file": "r6-out\\x2-cdata.out.xml",
+      "input": "<root><a><![CDATA[  x < y\n   \t spaced  ]]></a></root>",
+      "output": "<root>\r\n    <a>\r\n        <![CDATA[  x < y\r\n   \t spaced  ]]>\r\n    </a>\r\n</root>",
+      "error": null
+    },
+    {
+      "id": "x2b-ac33-sample",
+      "group": "XML",
+      "title": "AC-33 原文样例：<root><!--c--><a><![CDATA[ x < y ]]></a></root>",
+      "in_file": "r6-out\\x2b-ac33-sample.in.xml",
+      "out_file": "r6-out\\x2b-ac33-sample.out.xml",
+      "input": "<root><!--c--><a><![CDATA[ x < y ]]></a></root>",
+      "output": "<root>\r\n    <!--c-->\r\n    <a>\r\n        <![CDATA[ x < y ]]>\r\n    </a>\r\n</root>",
+      "error": null
+    },
+    {
+      "id": "x3-selfclosing",
+      "group": "XML",
+      "title": "自闭合标签 <br/> 与 <img src=\"x\" /> 是否变成 <br></br>",
+      "in_file": "r6-out\\x3-selfclosing.in.xml",
+      "out_file": "r6-out\\x3-selfclosing.out.xml",
+      "input": "<r><br/><img src=\"x\" /><hr /></r>",
+      "output": "<r>\r\n    <br/>\r\n    <img src=\"x\"/>\r\n    <hr/>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x3b-empty-tag",
+      "group": "XML",
+      "title": "空元素 <a></a> 是否被改成自闭合",
+      "in_file": "r6-out\\x3b-empty-tag.in.xml",
+      "out_file": "r6-out\\x3b-empty-tag.out.xml",
+      "input": "<r><a></a><b> </b><c/></r>",
+      "output": "<r>\r\n    <a></a>\r\n    <b>\r\n    </b>\r\n    <c/>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x4-single-quote",
+      "group": "XML",
+      "title": "单引号属性 attr='v' 是否被改写",
+      "in_file": "r6-out\\x4-single-quote.in.xml",
+      "out_file": "r6-out\\x4-single-quote.out.xml",
+      "input": "<r a='1' b='two words'><c d='3'/></r>",
+      "output": "<r a=\"1\" b=\"two words\">\r\n    <c d=\"3\"/>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x4b-unquoted-attr",
+      "group": "XML",
+      "title": "无引号属性值 b=2（非法 XML）是否报错 / 被改写",
+      "in_file": "r6-out\\x4b-unquoted-attr.in.xml",
+      "out_file": "r6-out\\x4b-unquoted-attr.out.xml",
+      "input": "<r a=2 b=x><c/></r>",
+      "output": "<r a=\"2\" b=\"x\">\r\n    <c/>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x4c-attr-entity",
+      "group": "XML",
+      "title": "属性含实体 &amp; 与内嵌引号",
+      "in_file": "r6-out\\x4c-attr-entity.in.xml",
+      "out_file": "r6-out\\x4c-attr-entity.out.xml",
+      "input": "<r a=\"x&amp;y\" b='it\"quote'/>",
+      "output": "<r a=\"x&amp;y\" b=\"it&quot;quote\"/>",
+      "error": null
+    },
+    {
+      "id": "x5-text-whitespace",
+      "group": "XML",
+      "title": "文本节点内空白 <a>hello   world</a> 是否被压缩",
+      "in_file": "r6-out\\x5-text-whitespace.in.xml",
+      "out_file": "r6-out\\x5-text-whitespace.out.xml",
+      "input": "<r><a>hello   world</a><b>  lead and trail  </b></r>",
+      "output": "<r>\r\n    <a>\r\n        hello   world\r\n    </a>\r\n    <b>\r\n        lead and trail\r\n    </b>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x5b-xml-space",
+      "group": "XML",
+      "title": "xml:space=\"preserve\" 是否被尊重（文档宣称支持）",
+      "in_file": "r6-out\\x5b-xml-space.in.xml",
+      "out_file": "r6-out\\x5b-xml-space.out.xml",
+      "input": "<r><p xml:space=\"preserve\">This is <b>some</b> content.</p></r>",
+      "output": "<r>\r\n    <p xml:space=\"preserve\">This is <b>some</b> content.</p>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x5c-collapse-content",
+      "group": "XML",
+      "title": "collapseContent:true 对文本节点空白的影响",
+      "in_file": "r6-out\\x5c-collapse-content.in.xml",
+      "out_file": "r6-out\\x5c-collapse-content.out.xml",
+      "input": "<r><a>hello   world</a><b>  lead  </b></r>",
+      "output": "<r>\n  <a>hello   world</a>\n  <b>  lead  </b>\n</r>",
+      "error": null
+    },
+    {
+      "id": "x6-minify-basic",
+      "group": "XML",
+      "title": "压缩模式 xmlFormat.minify()：元素间空白",
+      "in_file": "r6-out\\x6-minify-basic.in.xml",
+      "out_file": "r6-out\\x6-minify-basic.out.xml",
+      "input": "<r>\n  <a>1</a>\n  <b>2</b>\n</r>",
+      "output": "<r><a>1</a><b>2</b></r>",
+      "error": null
+    },
+    {
+      "id": "x6b-minify-space-textnode",
+      "group": "XML",
+      "title": "压缩：<a> </a>（有意义的一个空格文本节点）是否被吃成 <a></a>",
+      "in_file": "r6-out\\x6b-minify-space-textnode.in.xml",
+      "out_file": "r6-out\\x6b-minify-space-textnode.out.xml",
+      "input": "<r>\n  <a> </a>\n  <b>x</b>\n</r>",
+      "output": "<r><a></a><b>x</b></r>",
+      "error": null
+    },
+    {
+      "id": "x6c-minify-textnode-inner",
+      "group": "XML",
+      "title": "压缩：文本节点内部空白 \"hello   world\"（非元素间）是否被改",
+      "in_file": "r6-out\\x6c-minify-textnode-inner.in.xml",
+      "out_file": "r6-out\\x6c-minify-textnode-inner.out.xml",
+      "input": "<r>\n  <a>hello   world</a>\n</r>",
+      "output": "<r><a>hello   world</a></r>",
+      "error": null
+    },
+    {
+      "id": "x6d-minify-collapse",
+      "group": "XML",
+      "title": "压缩 + collapseContent:true（README 示例看到 \"some<b>content\" 空格消失）",
+      "in_file": "r6-out\\x6d-minify-collapse.in.xml",
+      "out_file": "r6-out\\x6d-minify-collapse.out.xml",
+      "input": "<r><p>This is <b>some</b> content.</p></r>",
+      "output": "<r><p>This is <b>some</b> content.</p></r>",
+      "error": null
+    },
+    {
+      "id": "x6e-minify-ac33",
+      "group": "XML",
+      "title": "AC-33 要求：压缩后仍可被标准 XML 解析器解析，且文本节点内容不变",
+      "in_file": "r6-out\\x6e-minify-ac33.in.xml",
+      "out_file": "r6-out\\x6e-minify-ac33.out.xml",
+      "input": "<root><!--c--><a><![CDATA[ x < y ]]></a><b>hello   world</b></root>",
+      "output": "<root><!--c--><a><![CDATA[ x < y ]]></a><b>hello   world</b></root>",
+      "error": null
+    },
+    {
+      "id": "x7-invalid-missing-close",
+      "group": "XML",
+      "title": "非法 XML（缺少闭合标签）是否抛异常",
+      "in_file": "r6-out\\x7-invalid-missing-close.in.xml",
+      "out_file": "r6-out\\x7-invalid-missing-close.out.xml",
+      "input": "<root><a>1</root>",
+      "output": "<root>\r\n    <a>\r\n        1\r\n    </a>\r\n</root>",
+      "error": null
+    },
+    {
+      "id": "x7b-invalid-throwonfailure-false",
+      "group": "XML",
+      "title": "非法 XML + throwOnFailure:false → 是否静默返回原文",
+      "in_file": "r6-out\\x7b-invalid-throwonfailure-false.in.xml",
+      "out_file": "r6-out\\x7b-invalid-throwonfailure-false.out.xml",
+      "input": "<root><a>1</root>",
+      "output": "<root>\r\n    <a>\r\n        1\r\n    </a>\r\n</root>",
+      "error": null
+    },
+    {
+      "id": "x7c-invalid-strict",
+      "group": "XML",
+      "title": "非法 XML + strictMode:true",
+      "in_file": "r6-out\\x7c-invalid-strict.in.xml",
+      "out_file": null,
+      "input": "<root><a>1</root>",
+      "output": null,
+      "error": {
+        "name": "Error",
+        "message": "Failed to parse XML"
+      }
+    },
+    {
+      "id": "x7d-plain-text",
+      "group": "XML",
+      "title": "完全不是 XML 的纯文本（应报错）",
+      "in_file": "r6-out\\x7d-plain-text.in.xml",
+      "out_file": null,
+      "input": "hello world\nnot xml at all",
+      "output": null,
+      "error": {
+        "name": "Error",
+        "message": "Failed to parse XML"
+      }
+    },
+    {
+      "id": "x8-declaration",
+      "group": "XML",
+      "title": "声明 <?xml version=\"1.0\" encoding=\"UTF-8\"?> 是否保留",
+      "in_file": "r6-out\\x8-declaration.in.xml",
+      "out_file": "r6-out\\x8-declaration.out.xml",
+      "input": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<r><a>1</a></r>",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<r>\r\n    <a>\r\n        1\r\n    </a>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x8b-bom",
+      "group": "XML",
+      "title": "BOM（\\uFEFF）是否保留、是否重复",
+      "in_file": "r6-out\\x8b-bom.in.xml",
+      "out_file": "r6-out\\x8b-bom.out.xml",
+      "input": "﻿<?xml version=\"1.0\" encoding=\"UTF-8\"?><r><a>1</a></r>",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<r>\r\n    <a>\r\n        1\r\n    </a>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x8c-no-decl",
+      "group": "XML",
+      "title": "无声明时是否被加上声明",
+      "in_file": "r6-out\\x8c-no-decl.in.xml",
+      "out_file": "r6-out\\x8c-no-decl.out.xml",
+      "input": "<r><a>1</a></r>",
+      "output": "<r>\r\n    <a>\r\n        1\r\n    </a>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "x9-recommended",
+      "group": "XML",
+      "title": "推荐参数 {indentation:\"  \", lineSeparator:\"\\n\", attributeQuotes:\"double\"} 下的格式化",
+      "in_file": "r6-out\\x9-recommended.in.xml",
+      "out_file": "r6-out\\x9-recommended.out.xml",
+      "input": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root><!--c--><a k='v'><![CDATA[ x < y ]]></a><br/><b>hello   world</b></root>",
+      "output": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root>\n  <!--c-->\n  <a k=\"v\">\n    <![CDATA[ x < y ]]>\n  </a>\n  <br/>\n  <b>\n    hello   world\n  </b>\n</root>",
+      "error": null
+    },
+    {
+      "id": "x10-default-linesep",
+      "group": "XML",
+      "title": "默认 lineSeparator 是否为 \\r\\n（跨平台一致性）",
+      "in_file": "r6-out\\x10-default-linesep.in.xml",
+      "out_file": "r6-out\\x10-default-linesep.out.xml",
+      "input": "<r><a>1</a><b>2</b></r>",
+      "output": "<r>\r\n    <a>\r\n        1\r\n    </a>\r\n    <b>\r\n        2\r\n    </b>\r\n</r>",
+      "error": null
+    },
+    {
+      "id": "s2a-keywordCase-upper",
+      "group": "SQL",
+      "title": "keywordCase:'upper'",
+      "in_file": "r6-out\\s2a-keywordCase-upper.in.sql",
+      "out_file": "r6-out\\s2a-keywordCase-upper.out.sql",
+      "input": "select id, name from users where age > 18 and city = 'Beijing' order by id;",
+      "output": "SELECT\n  id,\n  name\nFROM\n  users\nWHERE\n  age > 18\n  AND city = 'Beijing'\nORDER BY\n  id;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "keywordCase": "upper",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s2b-keywordCase-lower",
+      "group": "SQL",
+      "title": "keywordCase:'lower'",
+      "in_file": "r6-out\\s2b-keywordCase-lower.in.sql",
+      "out_file": "r6-out\\s2b-keywordCase-lower.out.sql",
+      "input": "SELECT ID FROM USERS WHERE X = 1;",
+      "output": "select\n  ID\nfrom\n  USERS\nwhere\n  X = 1;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "keywordCase": "lower",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s2c-keywordCase-preserve",
+      "group": "SQL",
+      "title": "keywordCase:'preserve'",
+      "in_file": "r6-out\\s2c-keywordCase-preserve.in.sql",
+      "out_file": "r6-out\\s2c-keywordCase-preserve.out.sql",
+      "input": "select id, name from users where age > 18 and city = 'Beijing' order by id;",
+      "output": "select\n  id,\n  name\nfrom\n  users\nwhere\n  age > 18\n  and city = 'Beijing'\norder by\n  id;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "keywordCase": "preserve",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s2d-case-scope",
+      "group": "SQL",
+      "title": "keywordCase 是否误改标识符 / 字符串字面量 / 函数名",
+      "in_file": "r6-out\\s2d-case-scope.in.sql",
+      "out_file": "r6-out\\s2d-case-scope.out.sql",
+      "input": "select Foo, 'Select Bar' as Lit, count(*) from MyTable where name = 'upper CASE';",
+      "output": "SELECT\n  Foo,\n  'Select Bar' AS Lit,\n  count(*)\nFROM\n  MyTable\nWHERE\n  name = 'upper CASE';",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "keywordCase": "upper",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s2e-identifierCase",
+      "group": "SQL",
+      "title": "identifierCase / dataTypeCase / functionCase 的独立效果",
+      "in_file": "r6-out\\s2e-identifierCase.in.sql",
+      "out_file": "r6-out\\s2e-identifierCase.out.sql",
+      "input": "select Foo, count(*) from MyTable where x = 'y';",
+      "output": "SELECT\n  foo,\n  count(*)\nFROM\n  mytable\nWHERE\n  x = 'y';",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "keywordCase": "upper",
+        "identifierCase": "lower",
+        "dataTypeCase": "upper",
+        "functionCase": "lower",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s3-comments",
+      "group": "SQL",
+      "title": "行注释 / 块注释 / 行内注释是否保留与位置漂移",
+      "in_file": "r6-out\\s3-comments.in.sql",
+      "out_file": "r6-out\\s3-comments.out.sql",
+      "input": "-- 顶部行注释\nselect a, -- 行内注释\n       /* 块注释 */ b\nfrom t /* 跨\n   行块注释 */ where a = 1; -- 末尾行注释",
+      "output": "-- 顶部行注释\nSELECT\n  a, -- 行内注释\n  /* 块注释 */\n  b\nFROM\n  t\n  /* 跨\n  行块注释 */\nWHERE\n  a = 1;\n\n-- 末尾行注释",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "keywordCase": "upper",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s3b-comment-hint",
+      "group": "SQL",
+      "title": "优化器提示 /*+ ... */ 在 select 之后的位置",
+      "in_file": "r6-out\\s3b-comment-hint.in.sql",
+      "out_file": "r6-out\\s3b-comment-hint.out.sql",
+      "input": "select /*+ INDEX(t idx1) */ a from t where a = 1;",
+      "output": "SELECT\n  /*+ INDEX(t idx1) */\n  a\nFROM\n  t\nWHERE\n  a = 1;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "keywordCase": "upper",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s3c-comment-only",
+      "group": "SQL",
+      "title": "仅含注释的文本（无语句）→ 是否报错",
+      "in_file": "r6-out\\s3c-comment-only.in.sql",
+      "out_file": "r6-out\\s3c-comment-only.out.sql",
+      "input": "-- just a comment\n/* and another */",
+      "output": "-- just a comment\n/* and another */",
+      "error": null,
+      "opts": {
+        "language": "sql"
+      }
+    },
+    {
+      "id": "s4a-tabWidth-2",
+      "group": "SQL",
+      "title": "tabWidth:2",
+      "in_file": "r6-out\\s4a-tabWidth-2.in.sql",
+      "out_file": "r6-out\\s4a-tabWidth-2.out.sql",
+      "input": "select id, name from users where age > 18 and city = 'Beijing' order by id;",
+      "output": "select\n  id,\n  name\nfrom\n  users\nwhere\n  age > 18\n  and city = 'Beijing'\norder by\n  id;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s4b-tabWidth-8",
+      "group": "SQL",
+      "title": "tabWidth:8",
+      "in_file": "r6-out\\s4b-tabWidth-8.in.sql",
+      "out_file": "r6-out\\s4b-tabWidth-8.out.sql",
+      "input": "select id, name from users where age > 18 and city = 'Beijing' order by id;",
+      "output": "select\n        id,\n        name\nfrom\n        users\nwhere\n        age > 18\n        and city = 'Beijing'\norder by\n        id;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 8
+      }
+    },
+    {
+      "id": "s4c-useTabs",
+      "group": "SQL",
+      "title": "useTabs:true 的实际字符（应是 \\t）",
+      "in_file": "r6-out\\s4c-useTabs.in.sql",
+      "out_file": "r6-out\\s4c-useTabs.out.sql",
+      "input": "select id, name from users where age > 18 and city = 'Beijing' order by id;",
+      "output": "select\n\tid,\n\tname\nfrom\n\tusers\nwhere\n\tage > 18\n\tand city = 'Beijing'\norder by\n\tid;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 4,
+        "useTabs": true
+      }
+    },
+    {
+      "id": "s4d-indentStyle",
+      "group": "SQL",
+      "title": "indentStyle:'tabularLeft' 与 'standard' 的差异",
+      "in_file": "r6-out\\s4d-indentStyle.in.sql",
+      "out_file": "r6-out\\s4d-indentStyle.out.sql",
+      "input": "select a, b, c from t where a = 1 and b = 2;",
+      "output": "select    a,\n          b,\n          c\nfrom      t\nwhere     a = 1\nand       b = 2;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2,
+        "indentStyle": "tabularLeft"
+      }
+    },
+    {
+      "id": "s4e-linesBetweenQueries",
+      "group": "SQL",
+      "title": "linesBetweenQueries 对多语句间距的影响",
+      "in_file": "r6-out\\s4e-linesBetweenQueries.in.sql",
+      "out_file": "r6-out\\s4e-linesBetweenQueries.out.sql",
+      "input": "select 1; select 2;",
+      "output": "select\n  1;\n\n\n\nselect\n  2;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "linesBetweenQueries": 3,
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s5a-string-semicolon",
+      "group": "SQL",
+      "title": "字符串里的分号 SELECT 'a;b' AS c FROM t",
+      "in_file": "r6-out\\s5a-string-semicolon.in.sql",
+      "out_file": "r6-out\\s5a-string-semicolon.out.sql",
+      "input": "SELECT 'a;b' AS c FROM t;",
+      "output": "SELECT\n  'a;b' AS c\nFROM\n  t;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s5b-string-keyword",
+      "group": "SQL",
+      "title": "字符串里的关键字与注释形文本是否被误解析",
+      "in_file": "r6-out\\s5b-string-keyword.in.sql",
+      "out_file": "r6-out\\s5b-string-keyword.out.sql",
+      "input": "SELECT 'select -- not a comment /* neither */ ; from' AS c FROM t;",
+      "output": "SELECT\n  'select -- not a comment /* neither */ ; from' AS c\nFROM\n  t;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s5c-quoted-identifier",
+      "group": "SQL",
+      "title": "双引号标识符 / 反引号标识符里的关键字",
+      "in_file": "r6-out\\s5c-quoted-identifier.in.sql",
+      "out_file": "r6-out\\s5c-quoted-identifier.out.sql",
+      "input": "SELECT \"from\" FROM `where` WHERE x = 'and';",
+      "output": "SELECT\n  \"from\"\nFROM\n  `where`\nWHERE\n  x = 'and';",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s5d-dollar-quote",
+      "group": "SQL",
+      "title": "PostgreSQL 美元引用 $$ ... $$ 里的分号与关键字",
+      "in_file": "r6-out\\s5d-dollar-quote.in.sql",
+      "out_file": "r6-out\\s5d-dollar-quote.out.sql",
+      "input": "SELECT $$a;b select$$ AS c FROM t;",
+      "output": "SELECT\n  $$a;b select$$ AS c\nFROM\n  t;",
+      "error": null,
+      "opts": {
+        "language": "postgresql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s5e-params",
+      "group": "SQL",
+      "title": "参数占位符 :name / @p / ? 是否被改写",
+      "in_file": "r6-out\\s5e-params.in.sql",
+      "out_file": null,
+      "input": "select * from t where a = :name and b = @p and c = ?;",
+      "output": null,
+      "error": {
+        "name": "Error",
+        "message": "Parse error: Unexpected \":name and \" at line 1 column 27.\nThis likely happens because you're using the default \"sql\" dialect.\nIf possible, please select a more specific dialect (like sqlite, postgresql, etc)."
+      },
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s6a-multi-statement",
+      "group": "SQL",
+      "title": "多语句（; 分隔）能否处理",
+      "in_file": "r6-out\\s6a-multi-statement.in.sql",
+      "out_file": "r6-out\\s6a-multi-statement.out.sql",
+      "input": "select 1;\nselect 2;\ndelete from t where a=1;",
+      "output": "select\n  1;\n\nselect\n  2;\n\ndelete from t\nwhere\n  a = 1;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s6b-stored-proc-pg",
+      "group": "SQL",
+      "title": "PostgreSQL 存储过程（含 $$ 体与内部分号）",
+      "in_file": "r6-out\\s6b-stored-proc-pg.in.sql",
+      "out_file": "r6-out\\s6b-stored-proc-pg.out.sql",
+      "input": "-- 存储过程示例（PostgreSQL）\nCREATE OR REPLACE FUNCTION add_one(x int) RETURNS int AS $$\nBEGIN\n  RETURN x + 1;\nEND;\n$$ LANGUAGE plpgsql;\nINSERT INTO t (a) VALUES (1);\nUPDATE t SET a = a + 1;",
+      "output": "-- 存储过程示例（PostgreSQL）\nCREATE OR REPLACE FUNCTION add_one (x int) RETURNS int AS $$\nBEGIN\n  RETURN x + 1;\nEND;\n$$ LANGUAGE plpgsql;\n\nINSERT INTO\n  t (a)\nVALUES\n  (1);\n\nUPDATE t\nSET\n  a = a + 1;",
+      "error": null,
+      "opts": {
+        "language": "postgresql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s6c-stored-proc-mysql",
+      "group": "SQL",
+      "title": "MySQL 存储过程（DELIMITER 与 BEGIN...END）",
+      "in_file": "r6-out\\s6c-stored-proc-mysql.in.sql",
+      "out_file": "r6-out\\s6c-stored-proc-mysql.out.sql",
+      "input": "DELIMITER //\nCREATE PROCEDURE p()\nBEGIN\n  SELECT 1;\nEND //\nDELIMITER ;",
+      "output": "DELIMITER / /\nCREATE PROCEDURE p () BEGIN\nSELECT\n  1;\n\nEND / / DELIMITER;",
+      "error": null,
+      "opts": {
+        "language": "mysql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s6d-transactsql",
+      "group": "SQL",
+      "title": "T-SQL 的 GO 批处理分隔符",
+      "in_file": "r6-out\\s6d-transactsql.in.sql",
+      "out_file": "r6-out\\s6d-transactsql.out.sql",
+      "input": "SELECT 1\nGO\nSELECT 2\nGO",
+      "output": "SELECT\n  1\nGO\nSELECT\n  2\nGO",
+      "error": null,
+      "opts": {
+        "language": "transactsql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s6e-missing-semicolon",
+      "group": "SQL",
+      "title": "缺少结尾分号的单条语句",
+      "in_file": "r6-out\\s6e-missing-semicolon.in.sql",
+      "out_file": "r6-out\\s6e-missing-semicolon.out.sql",
+      "input": "select a from t where b = 1",
+      "output": "select\n  a\nfrom\n  t\nwhere\n  b = 1",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s7a-invalid-truncated",
+      "group": "SQL",
+      "title": "非法 SQL：截断的语句 select from where",
+      "in_file": "r6-out\\s7a-invalid-truncated.in.sql",
+      "out_file": "r6-out\\s7a-invalid-truncated.out.sql",
+      "input": "select from where;",
+      "output": "select\nfrom\nwhere;",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s7b-invalid-unbalanced",
+      "group": "SQL",
+      "title": "非法 SQL：未闭合括号 / 引号",
+      "in_file": "r6-out\\s7b-invalid-unbalanced.in.sql",
+      "out_file": null,
+      "input": "select (a from t where b = 'unclosed;",
+      "output": null,
+      "error": {
+        "name": "Error",
+        "message": "Parse error: Unexpected \"'unclosed;\" at line 1 column 28.\nThis likely happens because you're using the default \"sql\" dialect.\nIf possible, please select a more specific dialect (like sqlite, postgresql, etc)."
+      },
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s7c-not-sql",
+      "group": "SQL",
+      "title": "完全不是 SQL 的纯文本（XML 片段）",
+      "in_file": "r6-out\\s7c-not-sql.in.sql",
+      "out_file": "r6-out\\s7c-not-sql.out.sql",
+      "input": "<root><a>1</a></root>",
+      "output": "< root > < a > 1 < / a > < / root >",
+      "error": null,
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s7d-plain-words",
+      "group": "SQL",
+      "title": "纯文字（中文散文）→ 是否抛错还是原样返回",
+      "in_file": "r6-out\\s7d-plain-words.in.sql",
+      "out_file": null,
+      "input": "这是一段中文，不是 SQL 语句。",
+      "output": null,
+      "error": {
+        "name": "Error",
+        "message": "Parse error: Unexpected \"，不是 SQL 语句\" at line 1 column 7.\nThis likely happens because you're using the default \"sql\" dialect.\nIf possible, please select a more specific dialect (like sqlite, postgresql, etc)."
+      },
+      "opts": {
+        "language": "sql",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s7e-bad-option",
+      "group": "SQL",
+      "title": "非法语言取值 / 非法 keywordCase → 是否明确抛错",
+      "in_file": "r6-out\\s7e-bad-option.in.sql",
+      "out_file": null,
+      "input": "select 1;",
+      "output": null,
+      "error": {
+        "name": "Error",
+        "message": "Unsupported SQL dialect: not-a-dialect"
+      },
+      "opts": {
+        "language": "not-a-dialect",
+        "tabWidth": 2
+      }
+    },
+    {
+      "id": "s7f-bad-keywordcase",
+      "group": "SQL",
+      "title": "非法 keywordCase 取值",
+      "in_file": "r6-out\\s7f-bad-keywordcase.in.sql",
+      "out_file": null,
+      "input": "select 1;",
+      "output": null,
+      "error": {
+        "name": "TypeError",
+        "message": "Cannot read properties of undefined (reading 'startsWith')"
+      },
+      "opts": {
+        "language": "sql",
+        "keywordCase": "shout"
+      }
+    },
+    {
+      "id": "s1-dialects",
+      "group": "SQL",
+      "title": "方言枚举与 20 个方言的实际可用性（共 20 个）",
+      "in_file": "r6-out\\s1-dialects.in.json",
+      "out_file": "r6-out\\s1-dialects.out.json",
+      "input": "select a, b from t where a = 1 order by b limit 10;",
+      "output": "{\n  \"languages\": [\n    \"bigquery\",\n    \"clickhouse\",\n    \"db2\",\n    \"db2i\",\n    \"duckdb\",\n    \"hive\",\n    \"mariadb\",\n    \"mysql\",\n    \"n1ql\",\n    \"plsql\",\n    \"postgresql\",\n    \"redshift\",\n    \"singlestoredb\",\n    \"snowflake\",\n    \"spark\",\n    \"sql\",\n    \"sqlite\",\n    \"tidb\",\n    \"transactsql\",\n    \"trino\"\n  ],\n  \"runs\": [\n    {\n      \"language\": \"bigquery\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"clickhouse\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"db2\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"db2i\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"duckdb\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"hive\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"mariadb\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"mysql\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"n1ql\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"plsql\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b LIMIT 10;\"\n    },\n    {\n      \"language\": \"postgresql\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"redshift\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"singlestoredb\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"snowflake\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"spark\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"sql\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"sqlite\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"tidb\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    },\n    {\n      \"language\": \"transactsql\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b limit 10;\"\n    },\n    {\n      \"language\": \"trino\",\n      \"ok\": true,\n      \"error\": null,\n      \"output\": \"SELECT\\n  a,\\n  b\\nFROM\\n  t\\nWHERE\\n  a = 1\\nORDER BY\\n  b\\nLIMIT\\n  10;\"\n    }\n  ]\n}",
+      "error": null,
+      "languages": [
+        "bigquery",
+        "clickhouse",
+        "db2",
+        "db2i",
+        "duckdb",
+        "hive",
+        "mariadb",
+        "mysql",
+        "n1ql",
+        "plsql",
+        "postgresql",
+        "redshift",
+        "singlestoredb",
+        "snowflake",
+        "spark",
+        "sql",
+        "sqlite",
+        "tidb",
+        "transactsql",
+        "trino"
+      ],
+      "dialect_runs": [
+        {
+          "language": "bigquery",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "clickhouse",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "db2",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "db2i",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "duckdb",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "hive",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "mariadb",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "mysql",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "n1ql",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "plsql",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b LIMIT 10;"
+        },
+        {
+          "language": "postgresql",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "redshift",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "singlestoredb",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "snowflake",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "spark",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "sql",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "sqlite",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "tidb",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        },
+        {
+          "language": "transactsql",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b limit 10;"
+        },
+        {
+          "language": "trino",
+          "ok": true,
+          "error": null,
+          "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+        }
+      ]
+    }
+  ]
+}

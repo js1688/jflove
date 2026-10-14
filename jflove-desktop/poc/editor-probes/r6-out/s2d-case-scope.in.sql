@@ -1,0 +1,1 @@
+select Foo, 'Select Bar' as Lit, count(*) from MyTable where name = 'upper CASE';

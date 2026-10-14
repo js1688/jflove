@@ -1,0 +1,146 @@
+{
+  "languages": [
+    "bigquery",
+    "clickhouse",
+    "db2",
+    "db2i",
+    "duckdb",
+    "hive",
+    "mariadb",
+    "mysql",
+    "n1ql",
+    "plsql",
+    "postgresql",
+    "redshift",
+    "singlestoredb",
+    "snowflake",
+    "spark",
+    "sql",
+    "sqlite",
+    "tidb",
+    "transactsql",
+    "trino"
+  ],
+  "runs": [
+    {
+      "language": "bigquery",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "clickhouse",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "db2",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "db2i",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "duckdb",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "hive",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "mariadb",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "mysql",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "n1ql",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "plsql",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b LIMIT 10;"
+    },
+    {
+      "language": "postgresql",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "redshift",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "singlestoredb",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "snowflake",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "spark",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "sql",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "sqlite",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "tidb",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    },
+    {
+      "language": "transactsql",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b limit 10;"
+    },
+    {
+      "language": "trino",
+      "ok": true,
+      "error": null,
+      "output": "SELECT\n  a,\n  b\nFROM\n  t\nWHERE\n  a = 1\nORDER BY\n  b\nLIMIT\n  10;"
+    }
+  ]
+}
