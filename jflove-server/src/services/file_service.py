@@ -13,8 +13,11 @@
 安全措施：所有路径操作均通过 _safe_join 限制在虚拟磁盘根目录内，防止目录遍历攻击。
 """
 
+import asyncio
 import mimetypes
 import os
+import shutil
+import time
 import uuid
 import hashlib
 import aiofiles
@@ -30,6 +33,58 @@ logger = get_logger(__name__)
 
 # 内存上传会话存储：upload_id -> 会话元数据字典
 _upload_sessions: dict[str, dict] = {}
+
+# v1.6.0（BL-8）原子替换的重试参数：
+#   Windows 上 os.replace 会因目标文件被其它进程**短暂**持有而失败
+#   （杀软实时扫描、资源管理器缩略图/预览句柄、云盘同步进程等，
+#   表现为 PermissionError WinError 5 / 32），这类占用是瞬时的，短重试即可成功。
+#   最多尝试 5 次（含首次），每次间隔 0.1s ⇒ 最长等待 0.4s，对上传请求可忽略。
+_REPLACE_MAX_ATTEMPTS = 5
+_REPLACE_RETRY_INTERVAL_SEC = 0.1
+
+
+def _remove_quietly(path: str) -> None:
+    """
+    静默删除文件（仅用于清理临时产物）。
+
+    不存在 / 被占用 / 无权限等一律忽略——清理动作绝不允许掩盖真正的异常
+    （临时文件本身已带 `.jflove-upload-*.part` 特征后缀，可被识别与审计）。
+
+    :param path: 待删除文件路径
+    """
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _replace_with_retry(src: str, dst: str) -> None:
+    """
+    原子替换目标文件（`os.replace`）并带短重试，全部失败才抛出最后一次异常。
+
+    为什么必须是 `os.replace` 而不是"先删后写"：`os.replace` 在**同一文件系统**内
+    是原子的（要么旧文件、要么新文件，不存在"半个文件"的中间态）；而"先删后写"
+    会让原文件在一个时间窗口内彻底丢失，窗口内任何失败都是不可恢复的数据损失。
+    为什么需要重试：Windows 上目标文件被其它进程短暂占用（杀软扫描 / 缩略图 /
+    同步工具）时 `os.replace` 会抛 `PermissionError`，重试通常即可成功；不重试会
+    让"覆盖同名文件"在没有任何真实错误的情况下失败。
+    本函数含 `time.sleep`，调用方必须放到线程池执行（`asyncio.to_thread`），
+    不得直接在事件循环里调用。
+
+    :param src: 源文件（同目录内的临时文件）
+    :param dst: 目标文件（可已存在，将被原子替换）
+    :raises OSError: 重试 _REPLACE_MAX_ATTEMPTS 次后仍失败，抛出最后一次异常
+    """
+    last_error: OSError = OSError("os.replace 未执行")
+    for attempt in range(_REPLACE_MAX_ATTEMPTS):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as e:
+            last_error = e
+            if attempt + 1 < _REPLACE_MAX_ATTEMPTS:
+                time.sleep(_REPLACE_RETRY_INTERVAL_SEC)
+    raise last_error
 
 
 def _safe_join(base: str, rel: str) -> str:
@@ -246,7 +301,13 @@ async def upload_chunk(upload_id: str, chunk_index: int, chunk_data: bytes) -> N
 
 async def complete_upload(upload_id: str) -> str:
     """
-    合并所有分片，校验 SHA256，写入目标路径，清理临时文件。
+    合并所有分片，校验 SHA256，**原子**写入目标路径，清理临时文件。
+
+    v1.6.0（BL-8）覆盖写原子化：合并与校验全部先落到**目标目录内**的临时文件
+    （`.<filename>.jflove-upload-<upload_id>.part`），mtime 还原也作用在临时文件上，
+    最后用 `os.replace` 一次性原子替换目标文件。因此任何失败路径（缺分片 / IO 异常 /
+    hash 不匹配 / 进程中断）都**不会破坏已存在的原文件**——原文件要么保持旧内容，
+    要么变成完整的新内容，不存在"半截内容"的中间态。
 
     :param upload_id: 上传会话 ID
     :returns: 服务端最终文件绝对路径
@@ -265,31 +326,48 @@ async def complete_upload(upload_id: str) -> str:
     os.makedirs(dest_dir, exist_ok=True)
     dest_file = os.path.join(dest_dir, session["filename"])
 
-    # 合并分片并计算 SHA256
-    sha256 = hashlib.sha256()
-    async with aiofiles.open(dest_file, "wb") as out:
-        for i in range(total):
-            chunk_path = os.path.join(session["tmp_dir"], f"{i:06d}.chunk")
-            async with aiofiles.open(chunk_path, "rb") as f:
-                data = await f.read()
-            sha256.update(data)
-            await out.write(data)
+    # v1.6.0（BL-8）：临时文件**必须与目标文件同目录**。
+    # os.replace 只在**同一文件系统**内才是原子操作；若把临时文件放在上传临时目录
+    # （UPLOAD_TEMP_DIR，可能位于 /tmp 或另一个盘符），跨设备时 os.replace 会抛
+    # OSError(EXDEV) 或退化为"复制 + 删除"的非原子实现，原子性即失效。
+    tmp_file = os.path.join(
+        dest_dir, f".{session['filename']}.jflove-upload-{upload_id}.part"
+    )
+    try:
+        # 合并分片并计算 SHA256：只写临时文件，此阶段**完全不触碰** dest_file
+        sha256 = hashlib.sha256()
+        async with aiofiles.open(tmp_file, "wb") as out:
+            for i in range(total):
+                chunk_path = os.path.join(session["tmp_dir"], f"{i:06d}.chunk")
+                async with aiofiles.open(chunk_path, "rb") as f:
+                    data = await f.read()
+                sha256.update(data)
+                await out.write(data)
 
-    # 校验文件完整性
-    if sha256.hexdigest() != session["file_hash"]:
-        os.remove(dest_file)
-        raise ValueError("文件校验失败，hash 不匹配")
+        # 校验文件完整性：失败**只删临时文件**（由 finally 完成），绝不删除/截断 dest_file
+        # （旧实现在此处 `os.remove(dest_file)`，hash 不匹配即丢失原文件）
+        if sha256.hexdigest() != session["file_hash"]:
+            raise ValueError("文件校验失败，hash 不匹配")
 
-    # 还原源文件 mtime（若客户端提供）：保证两端 mtime 一致，
-    # 避免目录同步时陷入"上传后远端时间变新→下次同步反向覆盖本地"的循环
-    src_mtime = session.get("mtime")
-    if src_mtime:
-        try:
-            os.utime(dest_file, (src_mtime, src_mtime))
-        except OSError as e:
-            logger.warning("无法还原文件 mtime（不影响上传结果）: %s -> %s", dest_file, e)
+        # 还原源文件 mtime（若客户端提供）：保证两端 mtime 一致，
+        # 避免目录同步时陷入"上传后远端时间变新→下次同步反向覆盖本地"的循环。
+        # v1.6.0：mtime 先作用在**临时文件**上，再整体替换 ⇒ 目标文件对外一次成型
+        # （内容与 mtime 同时可见，没有"内容已新、时间还是旧"的中间态）。
+        src_mtime = session.get("mtime")
+        if src_mtime:
+            try:
+                os.utime(tmp_file, (src_mtime, src_mtime))
+            except OSError as e:
+                # 日志只记异常类型，不回显完整路径（AGENTS.md §9.4.14）
+                logger.warning("无法还原文件 mtime（不影响上传结果）: %s", type(e).__name__)
 
-    import shutil
+        # 原子替换：放到线程池执行（内部含 sleep 重试，不能阻塞事件循环）
+        await asyncio.to_thread(_replace_with_retry, tmp_file, dest_file)
+    finally:
+        # 失败 / 异常路径：清理临时文件，不留半截 `.part` 残留；
+        # 成功路径下 tmp_file 已被 os.replace 移走（该删除幂等）。
+        _remove_quietly(tmp_file)
+
     shutil.rmtree(session["tmp_dir"], ignore_errors=True)
     del _upload_sessions[upload_id]
     logger.info("文件上传完成: %s", dest_file)
