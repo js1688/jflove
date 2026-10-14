@@ -1,0 +1,25 @@
+{
+  "name": "jflove-r2-probe-arbitration",
+  "python": "3.13.14",
+  "A": {
+    "listen_ok": true,
+    "is_listening": true,
+    "error_string": "",
+    "error_code": "SocketError.UnknownSocketError"
+  },
+  "B": {
+    "listen_ok": true,
+    "is_listening": true,
+    "error_string": "",
+    "error_code": "SocketError.UnknownSocketError"
+  },
+  "C": {
+    "connected": true,
+    "written": 10
+  },
+  "A_received": [
+    ""
+  ],
+  "verdict": "仲裁不成立（同名 listen 仍返回 True）",
+  "design_revision_supported": true
+}

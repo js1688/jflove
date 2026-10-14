@@ -1,0 +1,5 @@
+R2 A: {"listen_ok": true, "is_listening": true, "error_string": "", "error_code": "SocketError.UnknownSocketError"}
+R2 B: {"listen_ok": true, "is_listening": true, "error_string": "", "error_code": "SocketError.UnknownSocketError"}
+R2 C: {"connected": true, "written": 10}
+R2 A_received: ['']
+R2 结论: 仲裁不成立（同名 listen 仍返回 True）；B.listen=True B.error='' C.connected=True A_received=['']

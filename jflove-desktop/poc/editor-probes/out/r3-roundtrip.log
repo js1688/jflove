@@ -1,0 +1,4 @@
+R3 A 就绪: {'role': 'primary', 'is_primary': True}
+R3 B 结果: {'role': 'secondary', 'is_primary': False, 'forwarded': True}
+R3 A 结果: {'role': 'primary', 'is_primary': True, 'received': [[['D:\\资料\\往返 测试.txt'], 'single_instance']]}
+R3 判定: {"首实例判定正确": true, "第二实例不自认首实例": true, "转交获确认": true, "首实例收到同一路径": true}；all_passed=True

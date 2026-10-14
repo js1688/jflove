@@ -83,6 +83,30 @@ def main() -> int:
     # 任务栏 / 托盘 / 通知中心的应用图标（仓库 images/icon.png|ico）
     app.setWindowIcon(get_app_icon())
 
+    # ── v1.6.0 单实例 + 命令行路径（F7.4 / AC-46，设计 §6.6.3）──────────────
+    # 判定时机必须在**创建 WebShell 之前**：否则第二实例会先闪一个窗口、再建出第二个
+    # 托盘图标（tray.py 每进程各建一个），然后才退出 —— 那正是单实例要消灭的现象。
+    from src.utils.single_instance import (  # noqa: E402 - 与文件既有风格一致（延迟导入）
+        SOURCE_CLI,
+        SingleInstanceGuard,
+        build_server_name,
+        normalize_paths,
+    )
+
+    cli_paths = normalize_paths(sys.argv[1:])
+    guard = SingleInstanceGuard(build_server_name(APP_ORG, APP_NAME))
+    if not guard.try_become_primary():
+        # 第二实例：把路径转交首实例后立刻退出（退出码 0）；
+        # 转交失败**降级为本地启动**，绝不静默丢弃用户"用 JFLove 打开"的意图（§6.6.1）
+        if guard.forward(cli_paths, cwd=os.getcwd()):
+            logger.info("已转交 %d 个待打开文件给运行中的实例，本进程退出", len(cli_paths))
+            return 0
+        logger.warning("单实例转交失败，本进程降级为本地启动（可能出现两个实例）")
+    elif cli_paths:
+        # 首实例：命令行路径先进队列，等 load_ui() 成功后由 sink 一次性交付（§6.6.3）。
+        # 为什么不在设置 sink 时直接交付：渲染层此刻还不存在，交付即丢失（§7.5）。
+        guard.notify_external_paths(cli_paths, source=SOURCE_CLI)
+
     # v1.1.5：执行旧版本数据迁移（QSettings → 用户目录 JSON 文件）
     from src.services.auth_service import _migrate_legacy_data
     _migrate_legacy_data()
@@ -130,9 +154,17 @@ def main() -> int:
         _warn_missing_frontend()
         return 2
 
+    # 单实例：**UI 就绪之后**才注入接入点 ⇒ 队列里（命令行 / 另一实例转交）的路径
+    # 此刻按序一次性交付渲染层（设计 §6.6.3 / §7.5）。接入点只应有这一个（避免重复打开）。
+    guard.set_paths_sink(lambda paths, source: _shell.notify_external_paths(paths, source))
+
     _shell.show()
     logger.info("JFLove 桌面应用已启动（v%s，Web UI）", APP_VERSION)
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        # 退出前关掉监听，避免在磁盘上留下陈旧 socket（下次启动由 §6.6.1 的兜底清理）
+        guard.close()
 
 
 if __name__ == "__main__":
