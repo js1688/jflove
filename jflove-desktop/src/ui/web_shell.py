@@ -32,6 +32,16 @@ Qt 6.11 **没有** `QWebEnginePage.actions()`；`QWebEngineView.actions()` 实�
 且 `WebAction` 枚举共 **49 项 = 48 个真实动作 + 1 个计数哨兵 `WebActionCount`**，
 **对哨兵取 action 会崩（Windows 0xC0000005）**。
 因此本模块**只**按**名字白名单**逐项 `view.pageAction(...)`，绝不按下标遍历 `actions()`。
+
+## 导航边界（S-3 / 安全宪法 §9.6）
+
+桥（`qt.webChannelTransport`）对**同一 profile 上的任意文档**都可见，与来源无关
+（探针 `poc/editor-probes/r7-webengine-channel-origin.py` 实测：`file://` 与
+`http://127.0.0.1:*` 两个页面都调到了桥）。而本版桥含任意路径本地文件读写
+（`editor.readTextOnly` / `editor.detectAndRead` / `editor.writeText`），因此
+"渲染层只加载自家产物"必须由**导航层**强制：本模块使用 `ShellPage`
+（只放行 `about:blank` 与 `resolve_web_root()` 之内的 `file://`，外链交系统浏览器，
+不新开窗口）。
 """
 
 from __future__ import annotations
@@ -54,7 +64,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
@@ -297,6 +307,110 @@ class ShellControls(QObject):
         )
 
 
+def _url_for_log(url: QUrl, limit: int = 120) -> str:
+    """
+    生成**给日志用**的 URL 描述（超长即截断）。
+
+    为什么不原样打：外链可能带很长的查询串，日志里没必要留全（安全宪法 §9.4
+    的口径是"用户内容不明文入库/入日志"，这里按同样的克制处理）。
+    """
+    text = url.toString()
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def is_internal_url(url: QUrl) -> bool:
+    """
+    判断导航目标是否为**自家前端产物**（S-3 安全边界 / 安全宪法 §9.6）。
+
+    白名单**只有两类**：
+
+    1. `about:blank` —— 页面初始化与清空用；
+    2. `file://`，且解析后的真实路径落在 `resolve_web_root()` 之内。
+
+    为什么必须收到这么紧：探针 `poc/editor-probes/r7-webengine-channel-origin.py`
+    实测证明 `qt.webChannelTransport` 对**同一 profile 上的任意文档**都可见，
+    文档来源与"是不是自家页面"无关（`file://` 与 `http://127.0.0.1:*` 两个页面
+    都成功调到了桥）。而本版桥含 `editor.readTextOnly` / `editor.detectAndRead` /
+    `editor.writeText`（任意路径本地文件读写），所以"渲染层只加载自家产物"
+    必须由**导航层**强制，不能靠 Qt 默认行为。
+
+    其余一律拒绝：`http`/`https`（外链改走系统浏览器）、`data`/`blob`/`javascript`
+    （同样是新文档，拿到桥就等价于放开）、以及 web 根之外的 `file://`
+    （用户下载目录里的任意 html 也能拿到桥）。
+
+    :param url: 待裁决的导航目标
+    :returns: True 表示允许在本视图内加载
+    """
+    scheme = url.scheme().lower()
+    if scheme == "about":
+        return url.toString().lower() == "about:blank"
+    if scheme != "file":
+        return False
+    try:
+        target = os.path.normcase(os.path.realpath(url.toLocalFile()))
+        root = os.path.normcase(os.path.realpath(resolve_web_root()))
+    except (OSError, ValueError):
+        # 非法路径（Windows 保留字符等）：一律拒绝
+        return False
+    if not target or not root:
+        return False
+    # 分量级比较：`dist-evil/` 不能因为与 `dist/` 共享前缀而被放行
+    return target == root or target.startswith(root + os.sep)
+
+
+def _open_external_url(url: QUrl) -> bool:
+    """
+    把外链交给**系统浏览器**打开。
+
+    单独抽成函数是为了给单测留接缝：测试里替换它即可断言"确实转了浏览器"，
+    而**不必**去 patch `QDesktopServices.openUrl`——patch PySide6 类属性会在
+    `QApplication` 析构期引发进程级崩溃（见 BACKLOG BL-16 / LESSONS L-1）。
+    """
+    return QDesktopServices.openUrl(url)
+
+
+class ShellPage(QWebEnginePage):
+    """
+    只允许加载**自家前端产物**的页面（S-3 / 安全宪法 §9.6）。
+
+    三件事（本轮修复批准的最小改法）：
+
+    1. `acceptNavigationRequest`：仅 `is_internal_url()` 放行，其余拒绝；
+    2. 用户**主动点击**的外链（http/https/mailto）转交系统浏览器；
+    3. `createWindow` 显式返回 `None`：不新开窗口/标签页（Qt 默认也丢弃，这里固化）。
+
+    为什么在导航层做：见 `is_internal_url()` 的 docstring（r7 探针实测：桥对
+    任意来源文档可见）。装了本页面后，"文档来源"才真正被限制成自家产物。
+    """
+
+    def acceptNavigationRequest(  # noqa: N802 - Qt 虚函数名
+        self,
+        url: QUrl,
+        nav_type: QWebEnginePage.NavigationType,
+        is_main_frame: bool,  # noqa: ARG002 - Qt 签名固定
+    ) -> bool:
+        """导航裁决：自家产物放行，其余拒绝（外链改交系统浏览器）"""
+        if is_internal_url(url):
+            return True
+        scheme = url.scheme().lower()
+        clicked = nav_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked
+        if clicked and scheme in ("http", "https", "mailto"):
+            logger.info("外部链接交由系统浏览器打开：%s", _url_for_log(url))
+            _open_external_url(url)
+        else:
+            logger.warning(
+                "已拦截非自家产物的页面导航（scheme=%s，目标=%s）",
+                scheme,
+                _url_for_log(url),
+            )
+        return False
+
+    def createWindow(self, window_type) -> None:  # noqa: N802, ANN001 - Qt 虚函数名
+        """拒绝一切新建窗口/标签页请求（外链已由导航裁决交给系统浏览器）"""
+        logger.info("已拒绝新建窗口请求（type=%s）", window_type)
+        return None
+
+
 class DropAwareWebView(QWebEngineView):
     """
     能拿到**拖入文件的真实本地路径**的 WebEngine 视图。
@@ -427,6 +541,8 @@ class WebShell(QMainWindow):
         self.channel.registerObject("shell", self.shell_controls)
         for name, obj in (objects or {}).items():
             self.channel.registerObject(name, obj)
+        # S-3：换成自定义页面，把"文档来源"限制成自家产物（必须早于 load_ui()）
+        self.view.setPage(ShellPage(self.view))
         self.view.page().setWebChannel(self.channel)
 
         self._inject_qwebchannel_js()
