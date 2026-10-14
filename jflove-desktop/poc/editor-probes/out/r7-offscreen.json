@@ -1,0 +1,115 @@
+{
+  "platform": "offscreen",
+  "qt": "6.11.0",
+  "phases": {
+    "T1_file_control": {
+      "sync": {
+        "tag": "T1-file",
+        "url": "file:///C:/Users/admin/AppData/Local/Temp/1/r7-probe-m45u5hu1/control.html",
+        "origin": "file://",
+        "scheme": "file:",
+        "hasQt": true,
+        "hasTransport": true,
+        "hasQWebChannelClass": true,
+        "objects": [],
+        "pinged": false,
+        "err": ""
+      },
+      "async": {
+        "tag": "T1-file",
+        "url": "file:///C:/Users/admin/AppData/Local/Temp/1/r7-probe-m45u5hu1/control.html",
+        "origin": "file://",
+        "scheme": "file:",
+        "hasQt": true,
+        "hasTransport": true,
+        "hasQWebChannelClass": true,
+        "objects": [
+          "probe"
+        ],
+        "pinged": true,
+        "err": ""
+      },
+      "page_url": "file:///C:/Users/admin/AppData/Local/Temp/1/r7-probe-m45u5hu1/control.html",
+      "load_ok": true,
+      "bridge_calls": [
+        "origin=file:// scheme=file: tag=T1-file"
+      ]
+    },
+    "T2_http_direct": {
+      "sync": {
+        "tag": "T2-http",
+        "url": "http://127.0.0.1:56321/probe.html",
+        "origin": "http://127.0.0.1:56321",
+        "scheme": "http:",
+        "hasQt": true,
+        "hasTransport": true,
+        "hasQWebChannelClass": true,
+        "objects": [],
+        "pinged": false,
+        "err": ""
+      },
+      "async": {
+        "tag": "T2-http",
+        "url": "http://127.0.0.1:56321/probe.html",
+        "origin": "http://127.0.0.1:56321",
+        "scheme": "http:",
+        "hasQt": true,
+        "hasTransport": true,
+        "hasQWebChannelClass": true,
+        "objects": [
+          "probe"
+        ],
+        "pinged": true,
+        "err": ""
+      },
+      "page_url": "http://127.0.0.1:56321/probe.html",
+      "load_ok": true,
+      "bridge_calls": [
+        "origin=http://127.0.0.1:56321 scheme=http: tag=T2-http"
+      ]
+    },
+    "T3_js_top_level_nav": {
+      "before": {
+        "page_url": "file:///C:/Users/admin/AppData/Local/Temp/1/r7-probe-m45u5hu1/control.html",
+        "scheme": "file",
+        "top_level_widgets": 1
+      },
+      "after": {
+        "page_url": "http://127.0.0.1:56321/probe.html",
+        "scheme": "http",
+        "top_level_widgets": 1
+      },
+      "navigated_to_remote": true,
+      "detect": {
+        "sync": null,
+        "async": null,
+        "page_url": "http://127.0.0.1:56321/probe.html"
+      },
+      "bridge_calls": []
+    },
+    "T4_blank_link_click": {
+      "before": {
+        "page_url": "file:///C:/Users/admin/AppData/Local/Temp/1/r7-probe-m45u5hu1/control.html",
+        "scheme": "file",
+        "top_level_widgets": 1
+      },
+      "after": {
+        "page_url": "file:///C:/Users/admin/AppData/Local/Temp/1/r7-probe-m45u5hu1/control.html",
+        "scheme": "file",
+        "top_level_widgets": 1
+      },
+      "bridge_calls": [],
+      "new_top_level_widget": false,
+      "same_view_navigated": false
+    }
+  },
+  "http_url": "http://127.0.0.1:56321/probe.html",
+  "file_url": "file:///C:/Users/admin/AppData/Local/Temp/1/r7-probe-m45u5hu1/control.html",
+  "verdict": {
+    "T1_file_page_reached_bridge": true,
+    "T2_http_page_reached_bridge": true,
+    "T3_js_can_navigate_to_remote": true,
+    "T4_blank_click_new_window": false,
+    "T4_blank_click_navigated_same_view": false
+  }
+}
