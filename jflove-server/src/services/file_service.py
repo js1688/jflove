@@ -112,6 +112,42 @@ def _safe_join(base: str, rel: str) -> str:
     return str(target)
 
 
+def _validate_filename(filename: str) -> str:
+    """
+    校验上传文件名，拒绝任何可能逃出目标目录的写法（v1.6.0 BL-10，安全）。
+
+    背景：`init_upload` 曾把 `filename` 原样存入上传会话，`complete_upload` 再用
+    `os.path.join(dest_dir, filename)` 拼目标路径 ⇒ `filename = "../../evil.txt"`
+    可让写入**逃出虚拟磁盘目录**（需已认证且对该磁盘有写权限 ⇒ 认证后目录穿越）。
+    BL-8 的原子写改造沿用了同一条拼接，因此本条独立修复并保留 `complete_upload`
+    侧的第二层兜底。
+
+    口径（同时挡住 POSIX 与 Windows 语义，**不依赖运行平台**）：
+      ① `strip()` 后非空，且不是 `.` / `..`；
+      ② 不含 `/`、`\\` 与 NUL；
+      ③ Windows 盘符前缀（`C:evil.txt` 在 ntpath 下是**驱动器相对**路径，会逃出目标目录）；
+      ④ `os.path.basename(name) == name`（POSIX 侧 `a/b`、Windows 侧 `d:\\a` 一并挡住）；
+      ⑤ 不含当前平台的 `os.path.sep` / `os.path.altsep`（平台差异兜底）。
+
+    :param filename: 客户端提交的文件名
+    :returns: 去空白后的合法文件名
+    :raises ValueError: 文件名为空、含路径分隔符或为上级目录段
+    """
+    name = (filename or "").strip()
+    if not name or name in (".", ".."):
+        raise ValueError("filename 非法：不能为空或上级目录段")
+    if "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError("filename 非法：不能包含路径分隔符")
+    if len(name) >= 2 and name[1] == ":" and name[0].isalpha():
+        raise ValueError("filename 非法：不能包含盘符前缀")
+    if os.path.basename(name) != name:
+        raise ValueError("filename 非法：不能包含路径分隔符")
+    seps = [s for s in (os.path.sep, os.path.altsep) if s]
+    if any(s in name for s in seps):
+        raise ValueError("filename 非法：不能包含路径分隔符")
+    return name
+
+
 async def _get_disk_path(db: aiosqlite.Connection, disk_id: int) -> str:
     """
     获取虚拟磁盘对应的服务端真实路径。
@@ -234,12 +270,17 @@ async def init_upload(
                   避免目录同步时出现"上传后服务端时间被刷新→下次同步重新下载覆盖"的循环。
     :returns: upload_id（UUID 字符串）
     :raises PermissionError: 无写入权限
-    :raises ValueError: 路径非法
+    :raises ValueError: 路径非法 / 文件名非法（含路径分隔符或上级目录段，v1.6.0 BL-10）
     """
     if role != "admin":
         if not await check_disk_permission(db, user_id, disk_id, "write"):
             raise PermissionError("无写入权限")
     base = await _get_disk_path(db, disk_id)
+    # v1.6.0（BL-10）：`filename` 必须在这里就被限定为**纯文件名**。
+    # 会话里的 filename 会在 complete_upload 被拼进目标路径，一旦含分隔符即可穿越；
+    # 校验放在权限判定之后，与下方 `_safe_join(base, rel_path)` 的位置保持一致
+    # （无写权限者仍先得到 403，不因参数合法性改变越权可见性）。
+    filename = _validate_filename(filename)
     _safe_join(base, rel_path)  # 仅做路径合法性验证
 
     upload_id = str(uuid.uuid4())
@@ -311,7 +352,7 @@ async def complete_upload(upload_id: str) -> str:
 
     :param upload_id: 上传会话 ID
     :returns: 服务端最终文件绝对路径
-    :raises ValueError: 会话不存在、分片缺失或 SHA256 校验失败
+    :raises ValueError: 会话不存在、分片缺失、文件名非法（v1.6.0 BL-10 兜底）或 SHA256 校验失败
     """
     session = _upload_sessions.get(upload_id)
     if not session:
@@ -324,14 +365,23 @@ async def complete_upload(upload_id: str) -> str:
 
     dest_dir = _safe_join(session["base"], session["rel_path"])
     os.makedirs(dest_dir, exist_ok=True)
-    dest_file = os.path.join(dest_dir, session["filename"])
+    # v1.6.0（BL-10）第二层兜底：`filename` 已在 init_upload 校验为纯文件名，
+    # 这里再用 _safe_join 复核目标路径仍落在 dest_dir 内 —— 若会话被篡改或校验被绕过，
+    # 越界会抛 PermissionError；统一转成 ValueError，保持 complete 接口
+    # 「非法输入 ⇒ 400」的既有契约（控制器只捕获 ValueError）。
+    try:
+        dest_file = _safe_join(dest_dir, session["filename"])
+    except PermissionError:
+        raise ValueError("filename 非法：不能包含路径分隔符")
 
     # v1.6.0（BL-8）：临时文件**必须与目标文件同目录**。
     # os.replace 只在**同一文件系统**内才是原子操作；若把临时文件放在上传临时目录
     # （UPLOAD_TEMP_DIR，可能位于 /tmp 或另一个盘符），跨设备时 os.replace 会抛
     # OSError(EXDEV) 或退化为"复制 + 删除"的非原子实现，原子性即失效。
+    # v1.6.0（BL-10）：名字取 `basename(dest_file)`，与 dest_file 共用同一份校验结果。
     tmp_file = os.path.join(
-        dest_dir, f".{session['filename']}.jflove-upload-{upload_id}.part"
+        dest_dir,
+        f".{os.path.basename(dest_file)}.jflove-upload-{upload_id}.part",
     )
     try:
         # 合并分片并计算 SHA256：只写临时文件，此阶段**完全不触碰** dest_file

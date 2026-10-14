@@ -136,7 +136,7 @@
   mtime 还原作用在临时文件上。新增 **11 条**注入式用例（`tests/test_upload_atomic_v1_6_0.py`）；
   **负向对照**：换回 HEAD（截断 + 删原文件）实现 → **8 failed, 3 passed**；改回后全量 **180 passed**、`flake8` 0 警告。
   详见 `文档记录/后端开发记录/v1.6.0.md §3 / §5.2 / §5.3`
-- **⚠ 本条未消除的相邻风险已另立条目**：目标路径本身仍可被穿越（`filename` 未过滤分隔符）→ **BL-10**（严重 · 待用户裁决）
+- **⚠ 本条未消除的相邻风险已另立条目**：目标路径本身仍可被穿越（`filename` 未过滤分隔符）→ **BL-10**（严重）—— **已于 v1.6.0 闭环**（同函数两层防护 + 39 条用例）
 - **位置**：`jflove-server/src/services/file_service.py` 的 `complete_upload`
 - **缺陷**：① 直接 `open(dest_file, "wb")` **先截断目标文件** ⇒ 中途失败即"原文件变成部分内容"；
   ② hash 不匹配时 **`os.remove(dest_file)`** ⇒ **原文件被删除**；③ mtime 还原作用在已被破坏的文件上
@@ -167,17 +167,20 @@
 - **验收判据**：① 完整链路验证脚本（写 → 退出 → 重启 → 读）留下原始输出；② 若成立，迁移后复跑该脚本，
   断言偏好**跨重启保留**；③ 已有 Python 兜底的项（主题 / 服务端地址）不得回归。
 
-## BL-10（严重，**安全**）`upload/init` 的 `filename` 未过滤路径分隔符 ⇒ 可构造目录穿越目标路径
+## BL-10（严重，**安全**）`upload/init` 的 `filename` 未过滤路径分隔符 ⇒ 可构造目录穿越目标路径 —— ✅ 已闭环（v1.6.0）
 
-- **状态**：**待用户裁决**（建议 **v1.6.0 内修** —— BL-8 刚改同一函数，代价最低）｜ **来源**：v1.6.0 的 BL-8 实施期额外发现
-- **证据（源码）**：
-  - `jflove-server/src/controllers/file_controller.py:152-159`：只做 `filename.strip()` + 非空校验（空则 400），**未过滤** `/`、`\`、`..`
-  - `jflove-server/src/services/file_service.py::init_upload`：**只对 `rel_path`** 调 `_safe_join`（`:188`）；`filename` 原样存入会话
-  - `complete_upload`：**`os.path.join(dest_dir, session["filename"])`** ⇒ `filename = "../../…"` 可让 `dest_file` 逃出 `dest_dir`
+- **状态**：**已闭环（v1.6.0）**（用户 2026-10-14 裁决「修」，采纳本条「v1.6.0 内修」的建议）｜ **来源**：v1.6.0 的 BL-8 实施期额外发现
+- **闭环证据**：`jflove-server/src/services/file_service.py` 新增 `_validate_filename()`（拒绝空 / `.` / `..` / `/`、`\`、NUL / Windows 盘符前缀 / `basename != name` / 平台 `sep`·`altsep`），
+  `init_upload` 调用它把 `filename` 收窄为**纯文件名**；`complete_upload` 再用 `_safe_join(dest_dir, filename)` 兜底（越界转 `ValueError` ⇒ 400），
+  临时文件名改取 `os.path.basename(dest_file)`。新增 **39 条**用例（`tests/test_upload_filename_traversal_v1_6_0.py`：
+  服务层口径 / 接口层攻击面 / 第二层兜底 / 负向对照）；**负向对照**：把 `file_service.py` 还原为 HEAD 版本 → **33 failed, 6 passed**；
+  修复后全量 **219 passed**（180 + 39）、`flake8` 0 警告。详见 `文档记录/后端开发记录/v1.6.0.md §10`
+- **不在面内的相邻点**（只登记不顺手改）：`get_stream_range`（`file_service.py:652`）同样把 `filename` 拼进路径，但结果整体过了 `_safe_join` ⇒ 不可穿越
+- **位置**：`jflove-server/src/controllers/file_controller.py:152-159`（`filename` 只 `strip()` + 非空校验）、`file_service.py::init_upload`（只校验 `rel_path`）、`file_service.py::complete_upload`（`os.path.join(dest_dir, session["filename"])`）
 - **影响面**：**需已认证且对该磁盘有写权限**（`init_upload` 有 `check_disk_permission`）才能触发 ⇒ 属**认证后路径穿越**；一旦触发可写到虚拟磁盘根之外（受进程权限限制）
 - **为什么现在提**：BL-8 的原子写改造**沿用**了同一条 `os.path.join(dest_dir, filename)` —— 虽已修掉"失败删原文件"，但**没有**消除目标路径本身可被穿越
-- **建议做法**：在 `init_upload`（或 controller）校验 `filename` —— 拒绝含 `/`、`\`、`..` 或 `os.path.sep`/`os.path.altsep` 的值，并要求 `os.path.basename(filename) == filename`；`complete_upload` 侧再用 `_safe_join(dest_dir, filename)` 兜底
-- **验收判据**：注入式用例 —— `filename = "../../evil.txt"` → **400/403 且目标路径外无文件产生**；正常文件名（中文 / 空格 / 点号）不受影响；**负向对照**：去掉校验 → 用例**必须失败**
+- **建议做法（已实施）**：在 `init_upload`（或 controller）校验 `filename` —— 拒绝含 `/`、`\`、`..` 或 `os.path.sep`/`os.path.altsep` 的值，并要求 `os.path.basename(filename) == filename`；`complete_upload` 侧再用 `_safe_join(dest_dir, filename)` 兜底
+- **验收判据（已满足）**：注入式用例 —— `filename = "../../evil.txt"` → **400** 且目标路径外**无文件产生**（快照比对）；正常文件名（中文 / 空格 / 点号 / 隐藏文件）不受影响；**负向对照**：去掉校验 → 用例**必须失败**（实测 33 failed）
 
 ---
 
@@ -201,8 +204,9 @@
 | CL-14 | **BL-4**：覆盖率工具未接入 | v1.6.0 | web `@vitest/coverage-v8` + `test:coverage`（21.1%）；server 新建 `requirements-dev.txt`（`pytest --cov` → 180 passed / 73%）；**不设 CI 门槛** |
 | CL-15 | **BL-5**：Python 版本口径（要求 3.14+ / 实测 3.13.14） | v1.6.0 | 取 D14「记录差异」：桌面端 README 显式留痕；**不升级环境** |
 | CL-16 | 全仓过时内容清查（批次 0~7） | v1.6.0 | **65 文件 / 962 行**；源码与脚本范围死引用归零；历史文档按 L21「保留原文 + 追加更正」 |
+| CL-17 | **BL-10**：`upload/init` 的 `filename` 未过滤路径分隔符（**严重 · 安全**，认证后目录穿越） | v1.6.0 | `_validate_filename()` 收窄为纯文件名 + `complete_upload` 的 `_safe_join` 兜底；39 条新用例 + 负向对照 `33 failed, 6 passed`；全量 219 passed |
 
 > **⚠ 本台账的「未完成」项（截至 2026-10-14）**：**BL-6**（真机项，不做代码工作）· **BL-7**（历史文档中的 `设计预览/` 引用属有意保留）·
-> **BL-9**（`localStorage` 跨重启，待补「写 → 退出 → 重启 → 读」完整链路验证）·
-> **BL-10**（**严重 · 安全 · 待用户裁决**：`upload/init` 的 `filename` 未过滤路径分隔符 ⇒ 目录穿越）。
+> **BL-9**（`localStorage` 跨重启，待补「写 → 退出 → 重启 → 读」完整链路验证）。
+> **BL-10 已于 v1.6.0 闭环（CL-17）**，不再留在未完成清单。
 > **闭环状态与续接入口的单一真相在 `plans/desktop-scratch-editor-v1.6.0.md §17`。**
