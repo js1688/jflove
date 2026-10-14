@@ -91,7 +91,15 @@ mkdir -p %{buildroot}%{_datadir}/metainfo
 install -m 0644 %{_sourcedir}/jflove.metainfo.xml \
         %{buildroot}%{_datadir}/metainfo/jflove.metainfo.xml
 
-# 4) 文档
+# 4) 文件关联 MIME 包（设计 v1.6.0 §6.7.3 / AC-43）
+#    jflove.xml 是**生成物**：由 scripts/gen_file_assoc_assets.py 从
+#    ui/public/file-assoc.manifest.json（← scratch-types.ts 的 TYPES）派生，
+#    这里只登记安装位置；扩展名清单不手写（§5.1 反例禁止）。
+#    装完后由 %post / %postun 的 update-mime-database 登记/注销。
+mkdir -p %{buildroot}%{_datadir}/mime/packages
+install -m 0644 %{_sourcedir}/jflove.xml %{buildroot}%{_datadir}/mime/packages/jflove.xml
+
+# 5) 文档
 mkdir -p %{buildroot}%{jflove_docdir}
 install -m 0644 %{_sourcedir}/README.md %{buildroot}%{jflove_docdir}/README.md
 install -m 0644 %{_sourcedir}/LICENSE %{buildroot}%{jflove_docdir}/LICENSE
@@ -100,6 +108,9 @@ install -m 0644 %{_sourcedir}/LICENSE %{buildroot}%{jflove_docdir}/LICENSE
 %{_bindir}/jflove
 %{jflove_libdir}
 %{_datadir}/applications/jflove.desktop
+# 文件关联 MIME 包：**必须**在 %files 登记，否则 rpmbuild 以
+# "Installed (but unpackaged) file(s) found" 失败（设计 §6.7.3「三处登记，缺一即失败」）
+%{_datadir}/mime/packages/jflove.xml
 %{_datadir}/icons/hicolor/256x256/apps/jflove.png
 %{_datadir}/metainfo/jflove.metainfo.xml
 %{jflove_docdir}/README.md
@@ -108,13 +119,21 @@ install -m 0644 %{_sourcedir}/LICENSE %{buildroot}%{jflove_docdir}/LICENSE
 %post
 # 末尾的 `|| :` 不可省略：最小化 Fedora 上这些命令可能不存在，
 # 不能因为它们缺失就让安装失败。
+# update-mime-database 把 jflove.xml 的 glob 编进 MIME 数据库（JFLove 自有类型
+# application/x-jflove-text）；**不调** xdg-mime default、不写 mimeapps.list（不改默认程序）。
+update-mime-database %{_datadir}/mime &> /dev/null || :
 update-desktop-database &> /dev/null || :
 gtk-update-icon-cache -q -t -f %{_datadir}/icons/hicolor &> /dev/null || :
 
 %postun
+# 卸载同样重建 MIME 数据库（同 %post 的理由：命令可能不存在，不能因此失败）
+update-mime-database %{_datadir}/mime &> /dev/null || :
 update-desktop-database &> /dev/null || :
 gtk-update-icon-cache -q -t -f %{_datadir}/icons/hicolor &> /dev/null || :
 
 %changelog
+* Wed Oct 14 2026 js1688 <js1688@users.noreply.github.com> - %{version}-1
+- 新增文本编辑器（v1.6.0）：登记文件关联 MIME 包 jflove.xml
+  （application/x-jflove-text + 按 manifest 派生的 glob）与 .desktop 的 MimeType 行
 * Mon Sep 14 2026 js1688 <js1688@users.noreply.github.com> - %{version}-1
 - 首个 Fedora RPM 包：PyInstaller onedir 载荷 + FHS 布局 + 桌面集成

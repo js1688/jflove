@@ -392,6 +392,56 @@ def ensure_editor_bundle() -> None:
     log(f"CM6 离线分包就绪 → {vendor_dir}")
 
 
+def ensure_file_assoc_assets() -> None:
+    """
+    派生「文件关联」单一真相产物（设计 v1.6.0 §5.1 单一真相机制 / §6.7 打包注册）。
+
+    两步，顺序固定，缺一不可：
+
+      ① `node scripts/gen_file_assoc_manifest.mjs`
+         —— `ui/src/config/scratch-types.ts`（**唯一手写真相**）→ `ui/public/file-assoc.manifest.json`。
+         放 `ui/public/` 是为了让 Vite 把它复制进 `dist/`，从而随既有的
+         `--add-data "{UI_DIST_DIR}{sep}webui"` 一起进包；Python 侧冻结态从
+         `resolve_web_root()/file-assoc.manifest.json` 读它（§6.7.1）。
+      ② `python scripts/gen_file_assoc_assets.py --write`
+         —— 由 manifest 渲染三处打包资产：`packaging/linux/jflove.xml`、
+         `packaging/linux/jflove.desktop` 的 `MimeType=` 行、`packaging/windows/file-assoc.iss`
+         （`[Registry]` 段 + 卸载清理用的扩展名 define）。
+
+    ⚠ 产物**入库但由脚本生成**：设计 §5.1 的「反例禁止」要求任何地方都不得手打扩展名清单
+    （新增格式时只改 `scratch-types.ts` 一处，其余全部自动跟随）。一致性判据是
+    `python scripts/gen_file_assoc_assets.py --check`（退出码 0 = 一致），由测试/评审守门。
+    """
+    node = shutil.which("node") or shutil.which("node.exe")
+    if node is None:
+        fail(
+            "找不到 node：文件关联清单（file-assoc.manifest.json）由 TS 类型表派生，"
+            "缺它则打包资产无法生成、冻结态读不到清单"
+        )
+
+    manifest_script = ROOT / "scripts" / "gen_file_assoc_manifest.mjs"
+    assets_script = ROOT / "scripts" / "gen_file_assoc_assets.py"
+    for path in (manifest_script, assets_script):
+        if not path.exists():
+            fail(f"缺少文件关联派生脚本：{path}")
+
+    steps = (
+        [node, str(manifest_script)],
+        [sys.executable, str(assets_script), "--write"],
+    )
+    for cmd_args in steps:
+        proc = subprocess.run(cmd_args, cwd=str(ROOT), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", shell=False)
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "")[-1500:]
+            fail(f"文件关联派生失败（{' '.join(cmd_args[1:])}）：\n{tail}")
+
+    manifest = UI_DIR / "public" / "file-assoc.manifest.json"
+    if not manifest.exists():
+        fail(f"文件关联派生后仍找不到 {manifest}（请检查 gen_file_assoc_manifest.mjs 的产出路径）")
+    log(f"文件关联清单就绪：{manifest}")
+
+
 def build_frontend() -> None:
     """
     构建前端产物（`ui/dist`）。
@@ -412,6 +462,9 @@ def build_frontend() -> None:
     ensure_mermaid_bundle()
     # CM6 离线分包（文本编辑器内核）：前端构建期会 import 它的 version.json ⇒ 必须先就位
     ensure_editor_bundle()
+    # 文件关联派生链：manifest 落在 ui/public/ ⇒ 必须**在前端构建之前**生成，
+    # 否则 Vite 不会把它复制进 dist/，冻结态就找不到 webui/file-assoc.manifest.json
+    ensure_file_assoc_assets()
 
     log("构建前端（npm ci + build）…")
     install_cmd = ["ci"] if (UI_DIR / "package-lock.json").exists() else ["install"]

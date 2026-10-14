@@ -200,6 +200,11 @@ cp -a "$PAYLOAD/." "$RPMBUILD_ROOT/SOURCES/JFLove/"
 cp "$SCRIPT_DIR/jflove-desktop.spec" "$RPMBUILD_ROOT/SPECS/"
 cp "$SCRIPT_DIR/jflove.wrapper" "$RPMBUILD_ROOT/SOURCES/"
 cp "$SCRIPT_DIR/jflove.desktop" "$RPMBUILD_ROOT/SOURCES/"
+# 文件关联 MIME 包（生成物，设计 §6.7.3）：必须在 SOURCES 组装段拷进来，
+# 否则 spec 的 %install 找不到 %{_sourcedir}/jflove.xml，RPM 构建直接失败。
+# 生成命令（工作目录 jflove-desktop）：node scripts/gen_file_assoc_manifest.mjs
+#   && python scripts/gen_file_assoc_assets.py
+cp "$SCRIPT_DIR/jflove.xml" "$RPMBUILD_ROOT/SOURCES/"
 cp "$SCRIPT_DIR/icons/jflove-256.png" "$RPMBUILD_ROOT/SOURCES/"
 cp "$DESKTOP_DIR/README.md" "$RPMBUILD_ROOT/SOURCES/README.md"
 cp "$PROJECT_ROOT/LICENSE" "$RPMBUILD_ROOT/SOURCES/LICENSE"

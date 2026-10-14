@@ -121,12 +121,68 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
+[Registry]
+; ── 文件关联注册（设计 v1.6.0 §6.7.2 / AC-43）────────────────────────────────
+; **写什么**：只有 HKCU\Software\Classes\Applications\JFLove.exe（默认值 / DefaultIcon /
+;   shell\open\command / SupportedTypes 逐扩展名空值）——「打开方式 → 选择其他应用」
+;   列表识别应用的标准位置。
+; **不写什么**（D18 / AC-43 ②）：Software\Classes\.<ext>、FileExts\.<ext>\UserChoice、
+;   ChangesAssociations=yes / 任何「设为默认程序」的 API —— 装了 JFLove 也不抢默认程序。
+; **为什么是 HKCU 而非 HKLM**：见 §6.7.2 的裁决表（每用户生效即可 / 卸载清理不需要管理员
+;   权限 / PrivilegesRequiredOverridesAllowed=dialog 下 HKLM 可能无权限）。
+;
+; 逐扩展名的注册行**不手写**：由 scripts/gen_file_assoc_assets.py 从
+; ui/public/file-assoc.manifest.json（← ui/src/config/scratch-types.ts 的 TYPES，唯一真相）
+; 生成，构建前跑一次即可；下面的 #include 是**段内片段**（文件里没有 [Registry] 段头）。
+; 重新生成：python scripts/gen_file_assoc_assets.py
+; 一致性判据：python scripts/gen_file_assoc_assets.py --check（退出码 0 = 与 manifest 一致）
+#if FileExists(AddBackslash(SourcePath) + "file-assoc.iss")
+  #include "file-assoc.iss"
+#else
+  #error 缺少生成片段 file-assoc.iss —— 请先在 jflove-desktop 下运行：python scripts/gen_file_assoc_assets.py
+#endif
+
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 const
   UserDataDirName = 'JFLove';
+
+{ 文件关联注册表清理（设计 §6.7.2 / AC-43 ③）。
+
+  按**同一 manifest** 派生的扩展名清单逐项删除 SupportedTypes 子键，最后删
+  Applications\JFLove.exe 整键 —— 清单来自构建期生成的 file-assoc.iss 里的
+  `#define FILE_ASSOC_EXTS`（逗号分隔），因此永远不会与注册项漂移。
+
+  为什么在 usUninstall（而不是 usPostUninstall）：注册表清理应在删除文件之前完成。
+  ⚠ 本过程不弹任何交互，保证 /VERYSILENT 静默卸载能跑完（消息框只在下面 usPostUninstall
+  的"是否删除用户数据"里用 SuppressibleMsgBox）。 }
+procedure RemoveFileAssocKeys();
+var
+  Exts: String;
+  Ext: String;
+  P: Integer;
+begin
+  Exts := '{#FILE_ASSOC_EXTS}';
+  while Length(Exts) > 0 do
+  begin
+    P := Pos(',', Exts);
+    if P = 0 then
+    begin
+      Ext := Exts;
+      Exts := '';
+    end
+    else
+    begin
+      Ext := Copy(Exts, 1, P - 1);
+      Delete(Exts, 1, P);
+    end;
+    if Ext <> '' then
+      RegDeleteKeyIncludingSubkeys(HKCU, '{#FILE_ASSOC_APP_KEY}\SupportedTypes\' + Ext);
+  end;
+  RegDeleteKeyIncludingSubkeys(HKCU, '{#FILE_ASSOC_APP_KEY}');
+end;
 
 { 用户数据目录（配置 / 登录会话 / 日志 / 本地存储），与安装目录完全分离 }
 function GetUserDataDir(): String;
@@ -138,7 +194,11 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir: String;
 begin
-  { 卸载完成后才询问；默认按钮为「否」→ 默认保留用户数据 }
+  { ① 先清文件关联注册项（usUninstall：早于文件删除；见 RemoveFileAssocKeys 的说明） }
+  if CurUninstallStep = usUninstall then
+    RemoveFileAssocKeys();
+
+  { ② 卸载完成后才询问；默认按钮为「否」→ 默认保留用户数据 }
   if CurUninstallStep = usPostUninstall then
   begin
     DataDir := GetUserDataDir();

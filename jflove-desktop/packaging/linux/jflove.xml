@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  JFLove 文件关联 MIME 包（生成物，请勿手改）。
+  生成：python scripts/gen_file_assoc_assets.py
+  一致性判据：再跑一次生成脚本的 check 模式（退出码 0 = 与 manifest 一致；详见脚本用法）
+  唯一真相：ui/src/config/scratch-types.ts 的 TYPES → ui/public/file-assoc.manifest.json
+  设计依据：v1.6.0 第 6.7.3 节（Linux RPM：MIME 包 + .desktop MimeType + update-mime-database）。
+  落地方式：安装到 share/mime/packages/jflove.xml，由 RPM 的 post/postun 跑 update-mime-database。
+  注意：本包不用 xdg-mime default、不写 ~/.config/mimeapps.list（不改默认程序，D18）。
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-jflove-text">
+      <comment>JFLove text file</comment>
+      <comment xml:lang="zh_CN">JFLove 文本文件</comment>
+      <icon name="jflove"/>
+      <glob pattern="*.json"/>
+      <glob pattern="*.jsonc"/>
+      <glob pattern="*.md"/>
+      <glob pattern="*.markdown"/>
+      <glob pattern="*.csv"/>
+      <glob pattern="*.tsv"/>
+      <glob pattern="*.sql"/>
+      <glob pattern="*.xml"/>
+      <glob pattern="*.html"/>
+      <glob pattern="*.svg"/>
+      <glob pattern="*.yaml"/>
+      <glob pattern="*.yml"/>
+      <glob pattern="*.toml"/>
+      <glob pattern="*.ini"/>
+      <glob pattern="*.conf"/>
+      <glob pattern="*.properties"/>
+      <glob pattern="*.css"/>
+      <glob pattern="*.py"/>
+      <glob pattern="*.js"/>
+      <glob pattern="*.ts"/>
+      <glob pattern="*.tsx"/>
+      <glob pattern="*.jsx"/>
+      <glob pattern="*.sh"/>
+      <glob pattern="*.bat"/>
+      <glob pattern="*.ps1"/>
+      <glob pattern="*.java"/>
+      <glob pattern="*.go"/>
+      <glob pattern="*.rs"/>
+      <glob pattern="*.c"/>
+      <glob pattern="*.cpp"/>
+      <glob pattern="*.log"/>
+      <glob pattern="*.txt"/>
+      <glob pattern="*.diff"/>
+      <glob pattern="*.patch"/>
+  </mime-type>
+</mime-info>
