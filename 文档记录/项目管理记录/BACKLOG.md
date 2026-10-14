@@ -213,14 +213,19 @@
 | CL-23 | **S-5 + S-6 + S-8 + M-13**：工具栏无挂载点 / `viewMode` 无消费者 / 无 wheel 监听 / 打开先落类型默认视图（**严重 ×3 + 中等**） | v1.6.0（`a3c7f18`） | `ScratchPane` 常挂工具栏 + 五态分派 + 宿主"只隐藏不卸载"；`ScratchEditorHost` 非 passive wheel（Ctrl 缩放 / Shift 横滚）；barrel 补导出；`applyReadResult` 一律 `viewMode:'edit'`；lint/build exit 0 + 真 CM6 校验 |
 | CL-24 | **S-9**：AC-11 期望串自相矛盾（1 基第 2~4 列 vs `…ijk`） | v1.6.0（`a961d09`） | 用户裁决"以实现为准"：需求文本 + 常量 + 注释三处一致为 `bcd\nh  \njkl`；真跑 CM6 `Text` 校验一致 |
 | CL-25 | 审查要求的"工具栏已挂载"断言（`ui/` 无测试运行器，见 BL-14） | v1.6.0（`4b3ccb7`） | 新增 `poc/editor-probes/r8-ui-wiring.py`：9 项接线锚点 + 2 项反向判据，退出码即判据；负向对照 `1 项 FAIL / exit 1` → 还原后 11 项全过 |
+| CL-26 | **BL-14 + BL-31**：`ui/` 无测试运行器 ⇒ 渲染行为只有静态接线判据兜底 | v1.6.0（Phase 6） | 引入 vitest + jsdom + @testing-library/react（devDeps，`npm i -D` 65 包）+ `ui/vitest.config.ts` + `src/test/setup.ts`；**20 个用例文件 / 196 例（153 passed + 43 expected fail）**覆盖 AC-8/10/11/12/13/25~35/54 与 S-5/S-6/S-8/M-13 回归；AC-10 已从 r8 的静态断言升级为**真 DOM 断言**（真 `KeyboardEvent` + `defaultPrevented` + `stopPropagation`），r8 降级为辅助 | `npm run test` exit 0（`Test Files 20 passed (20)` / `Tests 153 passed \| 43 expected fail (196)`）；lint 0 / build 0 |
 
 > **⚠ 本台账的「未完成」项（截至 2026-10-14）**：**BL-6**（真机项，不做代码工作）· **BL-7**（历史文档中的 `设计预览/` 引用属有意保留）·
 > **BL-9**（`localStorage` 跨重启，待补「写 → 退出 → 重启 → 读」完整链路验证）·
 > **BL-11 ~ BL-16**（v1.6.0 Phase 4a 新增登记，见下节）。
 > **BL-10 已于 v1.6.0 闭环（CL-17）**，不再留在未完成清单。
-> **2026-10-15 更新（代码审查回修轮后）**：Phase 5 定级的 **9 条严重项已全部闭环**（CL-18 ~ CL-24；S-1~S-8 为缺陷修复，S-9 为产品裁决后同步），
+> **2026-10-14 更新（代码审查回修轮后）**：Phase 5 定级的 **9 条严重项已全部闭环**（CL-18 ~ CL-24；S-1~S-8 为缺陷修复，S-9 为产品裁决后同步），
 > 中等项 M-5 / M-6 / M-13 亦随批闭环；**未完成清单新增 BL-18 ~ BL-31**（回修轮未覆盖的中等/轻微项 + 2 条观察项 + r8 探针的过渡性质）。
 > **闭环状态与续接入口的单一真相在 `plans/desktop-scratch-editor-v1.6.0.md §17`。**
+> **2026-10-14 更新（Phase 6 测试轮后）**：**BL-14 / BL-31 已闭环（CL-26）** —— `ui/` 已引入 vitest 与真 DOM 断言；
+> 本轮**未改任何生产代码**，故 BL-18 ~ BL-30 状态不变（其中 M-4 / M-9 / M-10 / M-11 / M-12 已被新用例咬住并留 `it.fails` / `xfail` 证据）；
+> **新增 BL-32 ~ BL-43**：2 条严重缺陷（AC-13 未实现且现绑定有破坏性、AC-36/37 整条未实现）+ 新发现 N-1/N-2/N-3 + 未覆盖面登记。
+> 详见 `文档记录/测试报告/v1.6.0.md §7`。
 
 ---
 
@@ -247,7 +252,7 @@
 
 ---
 
-## BL-18 ~ BL-31：v1.6.0 代码审查回修轮新增登记（2026-10-15，**回修后仍未修**）
+## BL-18 ~ BL-31：v1.6.0 代码审查回修轮新增登记（2026-10-14，**回修后仍未修**）
 
 > 来源：`文档记录/代码审查报告/v1.6.0.md`（§13 回修台账记录了已闭环的 S-1~S-9 与 M-5/M-6/M-13）。
 > 本节收录**回修轮未覆盖**的中等项（M-1 ~ M-4、M-7 ~ M-12）、轻微项批量（L-3 ~ L-21）与 2 条新观察项。
@@ -268,4 +273,28 @@
 | **BL-28** | 轻（批量） | **L-3 ~ L-21**（L-1 已随 S-3 闭环：外链交系统浏览器） | 审查报告 §5 表 + §11.3（去重后清单） | 逐条按建议处理；其中 L-11 / L-14 并入 **BL-23** | 各条对应判据见审查报告 §5 与 §11.3 |
 | **BL-29** | 观察 | **无 BOM 的 UTF-16LE `.txt` 仍被判为 `utf-8`** ⇒ B3 救援分支对白名单扩展名不可达 | 回修轮 M-5 修复时实测（`文档记录/桌面端开发记录/v1.6.0.md §10.2`）：AC-49 让白名单扩展名跳过嗅探，而 NUL 是合法 UTF-8 | 二选一：① 对白名单扩展名补"零字节密度"轻量嗅探；② 在需求里明确"无 BOM UTF-16 不在支持范围" | 二者取一后该场景行为明确且写入文档 |
 | **BL-30** | 观察 | **Qt 无头析构期崩溃 `0xC0000409`** 在回修轮全量跑中复现 1 次（QML `Object … destroyed while one of its QML signal handlers is in progress`） | `文档记录/桌面端开发记录/v1.6.0.md §10.1`；同族 BL-16 / L-1 | Phase 6 连续多次全量跑留证；若稳定复现则定位到具体用例并照 BL-16 口径"patch 薄接缝、不 patch Qt 类" | 连续 5 次全量 `pytest` exit 0（无 `0xC0000409`） |
-| **BL-31** | 中 | **r8 静态探针是过渡措施**（根因同 BL-14）：S-5/S-6/S-8 的**渲染行为**目前只有静态接线判据兜底 | 回修轮提交 `4b3ccb7`；`ui/` 无测试运行器 ⇒ 无法断言"菜单恰好 12 项""五态分派真实生效" | Phase 6 决定引入 vitest / 组件测试，或把纯函数（`block-select` / `toolbox`）移到可测侧 | 工具栏 12 项、五态分派、Ctrl+滚轮缩放均有**真实渲染/行为**用例，r8 降级为辅助 |
+| **BL-31** | 中 | **r8 静态探针是过渡措施**（根因同 BL-14）：S-5/S-6/S-8 的**渲染行为**目前只有静态接线判据兜底 | 回修轮提交 `4b3ccb7`；`ui/` 无测试运行器 ⇒ 无法断言"菜单恰好 12 项""五态分派真实生效" | Phase 6 决定引入 vitest / 组件测试，或把纯函数（`block-select` / `toolbox`）移到可测侧 | 工具栏 12 项、五态分派、Ctrl+滚轮缩放均有**真实渲染/行为**用例，r8 降级为辅助 | **（本轮已闭环：见 CL-26 / BL-14）** |
+
+---
+
+## BL-32 ~ BL-43：v1.6.0 Phase 6 测试轮新增登记（2026-10-14）
+
+> 来源：`文档记录/测试报告/v1.6.0.md`（§7 逐条取证；真机证据在 `jflove-desktop/poc/editor-probes/out/r11-20261014-204307/r11-result.json`、
+> `out/r10-20261014-204345/r10-result.json`，门禁记录 `out/v1.6.0-phase6-gates.txt`）。
+> 本轮**未改任何生产代码**（测试角色边界），故这里只登记"事实 + 建议 + 验收判据"，交由 Phase 7 裁决。
+> **其中 BL-32 / BL-33 建议走 `AGENTS.md §7.5` 快速修复通道，在 v1.6.0 发布前处理。**
+
+| 编号 | 级别 | 项 | 事实（含证据） | 建议做法 | 验收判据 |
+| --- | --- | --- | --- | --- | --- |
+| **BL-32** | **严重** | **AC-13（Shift 列选择）未实现，且现绑定有破坏性**：真机 `Alt+Shift+↓` 每按一次**复制 2 行**（+50 字节/+2 行），最终是**单区间**选区而非跨行矩形；改动在 1.5~4 s 内被 1500 ms 自动保存**写回原文件** | r11 H3 `detail`：`docLengths [100,100,100,100,100,150,200]`、`prevented [null,true,false,false,false,true,true]`、最终 `{from:100,to:128,anchor:128,head:100,fromLine:5,toLine:6,text:'ABCDEFGHIJKLMNOPQRSTUVWX\nabc'}`、判定串「各行宽度不一致：[3, 24]」；`keymapTruth`：`copyMoveNames=[copyLineDown,copyLineUp,moveLineDown,moveLineUp]`、`rectColumnNames` 只有 `blockComment` 系 4 项、`hasRectSelectionExtension=true`；H3b：`fixtures/rect.txt` 100 B → 200 B（sha `fc67e9f0…` → `c8508d3c…`）+ 日志 `已保存文件: rect.txt#… size=200` + 草稿 `pane-*.txt (200 字节)`。**措辞更正**：审查报告 L-20 写"bundle 缺 `Shift-Alt-Arrow{Left,Right}`"不准确 —— 绑定存在（语义是 `selectSyntaxLeft/Right`），整包**无任何 rect/column 命令** | 两步：① 先让 `Alt+Shift+↑/↓` 不再命中 `copyLineUp/copyLineDown`（改绑无冲突键位，或先禁用）；② 再实现按列扩展（裁决 `ui/src/components/scratch/ScratchEditorHost.tsx:294-295` 的 keymap 与 `:506-512` 的 `rectangularSelection` 优先级）。**在 ① 之前不得发布**（数据破坏面） | r11 的 H3（gating）转 PASS：真机 `Alt+Shift+↓` 不改变 `doc.length`，各 range 宽度按"行尾补空格"口径判定；H3b 的磁盘 sha 前后一致 |
+| **BL-33** | **严重** | **AC-36 / AC-37（保存 / 另存为）整条未实现**：快捷键有定义、无应用级接管、`pickSaveTarget` 全仓无调用方 | `ui/src/config/shortcuts.ts:104-177` 定义 `file.save`(Ctrl+S) / `file.saveAs`(Ctrl+Shift+S)（描述与 AC 原文一致）；`ui/src/components/scratch/ScratchPaneLayer.tsx:52-60` 的 app-scope 只接管 7 项（**不含** `file.save`）；`grep -rn pickSaveTarget ui/src` 只命中 `ui/src/services/scratch-service.ts:117-120` 的定义与测试替身；真机 r11 H5c：OS 级 `Ctrl+S` 到达渲染层、`defaultPrevented=false`、`downloads []`、无对话框（与 `src/__tests__/scratch-save-decision.test.tsx` 的 4 条 it.fails 互为独立证据） | 在 app-scope 接入 `file.save`（有 `path` ⇒ `writeText` 写回；无 `path` ⇒ 先 `pickSaveTarget` 再写）与 `file.saveAs`；保留 `flushPendingSaves()` 作为兜底 | r11 H5c 变 PASS（`defaultPrevented=true` 且磁盘 sha 变化）；`scratch-save-decision.test.tsx` 的 4 条 it.fails 全部转正 |
+| **BL-34** | 轻（文档口径） | AC-29 树视图数组节点文案不一致 | `ui/src/components/scratch/views/JsonTreeView.tsx:87` 渲染「[…] N 项」；需求/设计写「数组(N 个元素)」；`scratch-views-markdown-json.test.tsx` 1 条 it.fails | 择一改口径（推荐改实现，向需求对齐） | 该 it.fails 转正 |
+| **BL-35** | 中 | **N-1 死键**：默认状态下 `pane.next` / `pane.prev` **完全按不出来**；并牵连 M-9 的计数口径 | `ui/src/config/shortcuts.ts:272-275` 的 `DEFAULT_BINDINGS` 取原始 `def.defaultKey`（`Ctrl+Alt+ArrowRight/Left`），而事件侧 `keyboardEventToShortcut` 归一成 `Ctrl+Alt+Right/Left` ⇒ `ScratchPaneLayer.tsx:293` 的 `getBinding(id) === chord` 永不成立；**实际接管 5 项**（`pane.new/close/tile/cascade/file.open`）、待接管 **13** 项（`ScratchPaneLayer.tsx:46` 注释即写 13），审查报告写的"7 项 / 另 12 项"不准；2 条 it.fails 留证 | `DEFAULT_BINDINGS` 统一走 `normalizeShortcut`；同步更正审查报告与 BL-24 的计数 | 2 条 it.fails 转正；文档计数改为 5 项生效 / 13 项待接管 |
+| **BL-36** | 轻 | **N-2**：`parseShortcut` 丢弃空片段 ⇒ `'Ctrl+'` 被当"仅修饰键"接受 | `ui/src/config/shortcuts.ts:352-355`；`shortcut-normalize.test.ts` 1 条 it.fails | 空片段即判非法 | it.fails 转正 |
+| **BL-37** | 轻 | **N-3**：块选择修饰键白名单允许 `Shift`/`Meta`，但判定只认 `Ctrl`，其余静默回退 `Alt`（界面接受却无效果） | `ui/src/stores/shortcut-store.ts:129-132` + `resolveBlockSelectModifier`（只认 `Ctrl`） | 白名单收敛为 `Ctrl`，或真正实现 Shift/Meta | 用例：所选修饰键真实生效（非静默降级） |
+| **BL-38** | 轻 | `xmlSafeMinify` 实为"安全预检空操作"：删除分支不可达 ⇒ `ok:true` 时等价原样回写，与"压缩"承诺不符（安全向正确） | `ui/src/utils/scratch/toolbox.ts:795/799`（删除条件用 `!meaningful`）与 `:779-784`（预检已把该情形整体拒绝）；`toolbox-xml.test.ts` 2 条 it.fails | 实现真实压缩，或把 capability 文案改为"安全预检" | AC-33 的压缩判据有**真实输出**（非原样回写） |
+| **BL-39** | 轻 | `tryParseJson` 的 `position` 正则在 Node v24.18.0 上**永不命中** ⇒ 恒报"未知位置" | `ui/src/utils/scratch/toolbox.ts:309-310` 的 `/position\s+(\d+)/i`；V8 报错文案（`Unexpected token '}', {'a':} is not valid JSON`）不含 position | 适配 V8 新文案或多模式匹配 | 非法 JSON 的行列定位可测 |
+| **BL-40** | 观察（非缺陷） | `editor_service.write_text()` 的 `read_only` / `bom` 形参**无任何生产调用方**，且 docstring 与实现不符 | `src/bridge/editor.py:305-330` 入参表仅 `path/text/encoding/lineEnding/expectedSha256`；`src/services/editor_service.py:238-239` 形参、`:250` docstring（称"桥层把 `pane.readOnly` 传进来兜一层"）；只读保护实际由 `READ_ONLY_EXTS` + `> TEXT_READONLY_BYTES` 承担 ⇒ **不构成安全缺口** | 删参数或改 docstring（二者择一） | 文档与实现一致；只读两条来源仍有自动化用例 |
+| **BL-41** | 中（未覆盖面） | 本轮**未做**的 AC：**AC-18**（计划落点 `toolbox-comment-toggle.test.ts` 未落地）、**AC-50③**（"500 MB 仍 ≤1 s"未实测）、**AC-43**（注册表项与卸载清理）、**AC-44**（真机重启后关联仍生效）、**AC-46③**（单实例第二实例推路径 ⇒ 出现对应窗格） | 测试报告 §5 的 ⏸ 行与本条一一对应；AC-43/AC-44 属"会改本机注册表/程序目录"，需**用户明确授权**后再做 | Phase 7 排期；AC-43/AC-44 先取得授权 | 每条各有可判定的自动化或真机判据 |
+| **BL-42** | 观察（降级中） | **BL-30 的 `0xC0000409` 本轮 3 次全量 `pytest` 均未复现** | `505 passed, 1 xfailed` ×3（6.02 / 6.02 / 6.29 s），记录见 `out/v1.6.0-phase6-gates.txt`；xfail 即 BL-21 的只读残留留证 | 继续观察；若复现照 BL-16 口径"patch 本模块薄接缝、不 patch Qt 类"排查 | 连续 5 次全量 `pytest` exit 0（当前 3 次） |
+| **BL-43** | 观察 | **覆盖率仍未测量**（不是"跑不起来"，是工程没配置） | `jflove-server/requirements-dev.txt` 只有 `pytest-cov==7.1.0`，但无 `pytest.ini`/`pyproject.toml` 的 `--cov` 配置与 CI 采集；`jflove-desktop/venv-win` 未装 `pytest-cov`；`ui/` 未装 `@vitest/coverage-v8`（Phase 6 的硬约束是"不新增依赖"）；测试报告 §8 因此**不给任何覆盖率数字** | 单独立项：三端装工具 + 阈值写进 CI（与 CL-14 的 web 侧覆盖率口径统一） | 三端均能产出覆盖率报告，且阈值纳入门禁 |

@@ -432,7 +432,10 @@ class TestEdgeCasesAndIsolation:
         path.write_bytes(b"\x00\x01\x02" * 32)
         failed = tds.probe(str(path))
         assert failed.ok is False
-        with pytest.raises(ValueError):
+        # 必须命中「probe 未通过」这一条**专属**原因：只断言 ValueError 会被
+        # 「编码未经确认」等其它 ValueError 顶替，判据就变成空转（r9 的
+        # PROBE-GUARD 变异曾实测到这一点）。
+        with pytest.raises(ValueError, match=r"probe\(\) 未通过"):
             tds.read_text(str(path), failed)
         with pytest.raises(TypeError):
             tds.read_text(str(path), "not-a-probe")  # type: ignore[arg-type]

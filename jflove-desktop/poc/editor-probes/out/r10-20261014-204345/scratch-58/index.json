@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "clean_exit": true,
+  "updated_at": 1791981832.8682566,
+  "panes": [
+    {
+      "id": "r10tray01",
+      "title": "r10-keep.txt",
+      "path": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r10-20261014-204345\\fixtures\\r10-keep.txt",
+      "language": "text",
+      "encoding": "utf-8",
+      "line_end": "lf",
+      "read_only": false,
+      "dirty": true,
+      "geometry": {
+        "x": 40,
+        "y": 40,
+        "w": 900,
+        "h": 600,
+        "z": 0,
+        "min": false,
+        "maxed": false
+      },
+      "caret": {
+        "line": 1,
+        "col": 1
+      },
+      "scroll_top": 0,
+      "font_size": 14,
+      "show_line_numbers": true,
+      "word_wrap": false,
+      "updated_at": 1791981832.1464996
+    }
+  ]
+}

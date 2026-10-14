@@ -1,0 +1,572 @@
+{
+  "probe": "r11-real-gui-drive",
+  "at": "2026-10-14T20:43:44",
+  "checks": [
+    {
+      "id": "H1",
+      "desc": "真外壳加载前端产物并渲染出 DOM（预置：无窗格、未登录）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "state": {
+          "paneCount": 0,
+          "modes": [],
+          "bodies": [],
+          "titles": [],
+          "hostHidden": null,
+          "auxCount": 0,
+          "cmEditor": false,
+          "cmContent": false,
+          "bundleLoaded": false,
+          "focused": true,
+          "hidden": false,
+          "bodyText": "登录\nJFLove\n\n所有通信均经过端到端加密，连接后自动交换临时会话密钥。\n\n服务端地址\n\n需填写完整的服务端地址（含协议与端口），例如 http://127.0.0.1:8989\n\n连接服务端\nv1.5.1"
+        },
+        "renderer_ready": true
+      }
+    },
+    {
+      "id": "H2",
+      "desc": "notify_external_paths → 窗格出现且 viewMode=edit（M-13）+ 真 CM6 挂载",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "paneCount": 1,
+        "modes": [
+          "edit"
+        ],
+        "bodies": [
+          "edit"
+        ],
+        "titles": [
+          "wide.txt"
+        ],
+        "hostHidden": false,
+        "auxCount": 0,
+        "cmEditor": true,
+        "cmContent": true,
+        "bundleLoaded": true,
+        "focused": true,
+        "hidden": false,
+        "bodyText": "登录\nwide.txt\n语言\nJSON\nMarkdown\nCSV\nSQL\nXML\nHTML\nYAML\nCSS\nPython\nJavaScript\nTypeScript\nShell 脚本\n批处理 (bat)\nPowerShell\nJava\nGo\nRust\nC\nC++\nDiff\n编辑\n预览\n分屏\n表格\n树形\n工具箱（12 "
+      }
+    },
+    {
+      "id": "H3",
+      "desc": "AC-13 列选择真几何（矩形跨行同列）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "rangeCount": 1,
+        "docLength": 200,
+        "ranges": [
+          {
+            "from": 100,
+            "to": 128,
+            "anchor": 128,
+            "head": 100,
+            "fromLine": 5,
+            "toLine": 6,
+            "fromCol": 0,
+            "toCol": 3,
+            "text": "ABCDEFGHIJKLMNOPQRSTUVWX\nabc"
+          }
+        ],
+        "docLengths": [
+          100,
+          100,
+          100,
+          100,
+          100,
+          150,
+          200
+        ],
+        "prevented": [
+          null,
+          true,
+          false,
+          false,
+          false,
+          true,
+          true
+        ],
+        "why": "各行宽度不一致：[3, 24]",
+        "keymapTruth": {
+          "hasCopyLineDown": true,
+          "copyMoveNames": [
+            "copyLineDown",
+            "copyLineUp",
+            "moveLineDown",
+            "moveLineUp"
+          ],
+          "rectColumnNames": [
+            "blockComment",
+            "blockUncomment",
+            "toggleBlockComment",
+            "toggleBlockCommentByLine"
+          ],
+          "hasRectSelectionExtension": true
+        }
+      }
+    },
+    {
+      "id": "H3b",
+      "desc": "观察：AC-13 键位是否改动了文档、并被自动保存写回磁盘",
+      "status": "FAIL",
+      "gating": false,
+      "detail": {
+        "before": {
+          "exists": true,
+          "size": 100,
+          "sha256": "fc67e9f07bf119b2"
+        },
+        "after": {
+          "exists": true,
+          "size": 200,
+          "sha256": "c8508d3c2feba323",
+          "retriedReads": 1
+        },
+        "docMutatingSteps": [
+          {
+            "step": "down1",
+            "prevented": true,
+            "docLength": 150,
+            "lines": 7,
+            "head": 50,
+            "hasFocus": true
+          },
+          {
+            "step": "down2",
+            "prevented": true,
+            "docLength": 200,
+            "lines": 9,
+            "head": 100,
+            "hasFocus": true
+          }
+        ],
+        "expectedDocLength": 100,
+        "note": "mutating=真机上 Alt+Shift+方向键不是列选择而是改文档；changed_on_disk=改动已通过自动保存落盘（数据破坏面）"
+      }
+    },
+    {
+      "id": "H4",
+      "desc": "AC-35 Ctrl+滚轮步进 2 且夹取 [8,40]；Shift+滚轮横向滚动",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "base": 14,
+        "afterOneUp": 16,
+        "traceUp": [
+          16,
+          18,
+          20,
+          22,
+          24,
+          26,
+          28,
+          30,
+          32,
+          34,
+          36,
+          38,
+          40
+        ],
+        "afterOvershoot": 40,
+        "traceDown": [
+          40,
+          38,
+          36,
+          34,
+          32,
+          30,
+          28,
+          26,
+          24,
+          22,
+          20,
+          18,
+          16,
+          14,
+          12,
+          10,
+          8
+        ],
+        "floor": 8,
+        "ctrlPrevented": true,
+        "shiftPrevented": true,
+        "scrollBefore": {
+          "left": 0,
+          "width": 815,
+          "client": 718
+        },
+        "scrollAfter": {
+          "left": 96.80000305175781,
+          "width": 815,
+          "client": 718
+        },
+        "deltaLeft": 96.80000305175781,
+        "stepOk": true,
+        "maxOk": true,
+        "floorOk": true
+      }
+    },
+    {
+      "id": "H5a",
+      "desc": "OS 级 Ctrl+Alt+N → 渲染层收到并 preventDefault，且新建窗格（阳性对照）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "paneBefore": 3,
+        "paneAfter": 4,
+        "keys": [
+          {
+            "key": "N",
+            "ctrl": true,
+            "alt": true,
+            "shift": false,
+            "phase": "capture",
+            "defaultPrevented": true
+          }
+        ],
+        "attempts": 2,
+        "diag": {
+          "attempts": [
+            {
+              "n": 1,
+              "beforeMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "afterMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "all": []
+            },
+            {
+              "n": 2,
+              "beforeMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "afterMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "all": [
+                {
+                  "key": "Control",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "phase": "capture",
+                  "defaultPrevented": false
+                },
+                {
+                  "key": "Control",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "phase": "bubble",
+                  "defaultPrevented": false
+                },
+                {
+                  "key": "Alt",
+                  "ctrl": true,
+                  "alt": true,
+                  "shift": false,
+                  "phase": "capture",
+                  "defaultPrevented": false
+                },
+                {
+                  "key": "Alt",
+                  "ctrl": true,
+                  "alt": true,
+                  "shift": false,
+                  "phase": "bubble",
+                  "defaultPrevented": false
+                },
+                {
+                  "key": "N",
+                  "ctrl": true,
+                  "alt": true,
+                  "shift": false,
+                  "phase": "capture",
+                  "defaultPrevented": true
+                }
+              ]
+            }
+          ],
+          "hit": 2
+        }
+      }
+    },
+    {
+      "id": "H5b",
+      "desc": "R-1：OS 级 Ctrl+S 到达渲染层且宿主不自行处理（无保存对话框/下载）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "reached": false,
+        "defaultPrevented": false,
+        "downloads": [],
+        "keys": [],
+        "attempts": 2,
+        "diag": {
+          "attempts": [
+            {
+              "n": 1,
+              "beforeMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "afterMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "all": []
+            },
+            {
+              "n": 2,
+              "beforeMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "afterMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "all": [
+                {
+                  "key": "Control",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "phase": "capture",
+                  "defaultPrevented": false
+                },
+                {
+                  "key": "Control",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "phase": "bubble",
+                  "defaultPrevented": false
+                }
+              ]
+            }
+          ],
+          "hit": 0
+        }
+      }
+    },
+    {
+      "id": "H5c",
+      "desc": "观察：Ctrl+S 是否被渲染层 preventDefault（AC-36/37 缺口信号）",
+      "status": "FAIL",
+      "gating": false,
+      "detail": {
+        "prevented": false,
+        "why": "false ⇒ file.save 没有接管方（V4 报告 P1：AC-36/AC-37 整条未实现）"
+      }
+    },
+    {
+      "id": "H5x",
+      "desc": "记录（不判）：合成 keydown（window 派发）Ctrl+Alt+N 的接管情况（环境原样）",
+      "status": "PASS",
+      "gating": false,
+      "detail": {
+        "documentHasFocus": true,
+        "raw": {
+          "defaultPrevented": true,
+          "paneCount": 4
+        }
+      }
+    },
+    {
+      "id": "H5y",
+      "desc": "遮蔽 hasFocus 后合成 Ctrl+Alt+N 被应用级监听接管（AC-10 接线控制变量）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "shadow": {
+          "ok": true
+        },
+        "before": 5,
+        "after": 6,
+        "raw": {
+          "defaultPrevented": true,
+          "paneCount": 5
+        }
+      }
+    },
+    {
+      "id": "H6",
+      "desc": "AC-11 真机端到端（真拖拽 + 真剪贴板）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "start": {
+          "left": 248.1875,
+          "top": 313.20001220703125,
+          "bottom": 329.20001220703125,
+          "contentLeft": 234.5,
+          "contentTop": 306.8000183105469,
+          "dpr": 1.25,
+          "lines": 3,
+          "docLength": 16,
+          "text": "abcdef"
+        },
+        "end": {
+          "left": 271.2875061035156,
+          "top": 355.20001220703125,
+          "bottom": 371.20001220703125,
+          "contentLeft": 234.5,
+          "contentTop": 306.8000183105469,
+          "dpr": 1.25,
+          "lines": 3,
+          "docLength": 16,
+          "text": "ijklmn"
+        },
+        "drag": {
+          "target": "QWidget",
+          "widgetSize": [
+            1180,
+            760
+          ],
+          "widgetOriginGlobal": [
+            0,
+            0
+          ],
+          "start": [
+            248.1875,
+            313.20001220703125
+          ],
+          "end": [
+            271.2875061035156,
+            371.20001220703125
+          ],
+          "steps": 8,
+          "modifiers": "alt",
+          "dpr": 1.25
+        },
+        "shape": "3ranges",
+        "rectOk": true,
+        "widths": [
+          3,
+          1,
+          3
+        ],
+        "rangeLines": [
+          1,
+          2,
+          3
+        ],
+        "rowSpan": 3,
+        "ranges": [
+          {
+            "from": 1,
+            "to": 4,
+            "anchor": 1,
+            "head": 4,
+            "fromLine": 1,
+            "toLine": 1,
+            "fromCol": 1,
+            "toCol": 4,
+            "text": "bcd"
+          },
+          {
+            "from": 8,
+            "to": 9,
+            "anchor": 8,
+            "head": 9,
+            "fromLine": 2,
+            "toLine": 2,
+            "fromCol": 1,
+            "toCol": 2,
+            "text": "h"
+          },
+          {
+            "from": 11,
+            "to": 14,
+            "anchor": 11,
+            "head": 14,
+            "fromLine": 3,
+            "toLine": 3,
+            "fromCol": 1,
+            "toCol": 4,
+            "text": "jkl"
+          }
+        ],
+        "docLength": 16,
+        "clipboard": "bcd\nh  \njkl",
+        "clipboardExpected": "bcd\nh  \njkl",
+        "clipboardMatch": true,
+        "copyAttempts": 1,
+        "dpr": 1.25
+      }
+    },
+    {
+      "id": "H7",
+      "desc": "AC-42 ②：真机整轮运行零 http(s) 请求（渲染层无网络出口）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "total": 5,
+        "remote": [],
+        "sample": [
+          "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html",
+          "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-CMYUZU-t.js",
+          "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-BFJjLa-m.css",
+          "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
+          "file:///D:/github/jflove/jflove-desktop/ui/dist/vendor/editor.bundle.js"
+        ]
+      }
+    }
+  ],
+  "notes": [],
+  "platform": "",
+  "real_window": true,
+  "requests": [
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-CMYUZU-t.js",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-BFJjLa-m.css",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/vendor/editor.bundle.js"
+  ],
+  "user_data_sandbox": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r11-20261014-204307\\appdata",
+  "fixtures": {
+    "wide.txt": {
+      "exists": true,
+      "size": 100,
+      "sha256": "fc67e9f07bf119b2"
+    },
+    "rect.txt": {
+      "exists": true,
+      "size": 200,
+      "sha256": "c8508d3c2feba323"
+    },
+    "long.txt": {
+      "exists": true,
+      "size": 306,
+      "sha256": "a3e067f91b6aaacd"
+    }
+  }
+}

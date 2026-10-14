@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "clean_exit": false,
+  "updated_at": 1791981794.8619769,
+  "panes": [
+    {
+      "id": "90939e03-c545-4564-90a0-fe532e7b491d",
+      "title": "rect.txt",
+      "path": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r11-20261014-204307\\fixtures\\rect.txt",
+      "language": "text",
+      "encoding": "utf-8",
+      "line_end": "lf",
+      "read_only": false,
+      "dirty": true,
+      "geometry": {
+        "x": 84,
+        "y": 64,
+        "w": 720,
+        "h": 480,
+        "z": 2,
+        "min": false,
+        "maxed": false
+      },
+      "caret": {
+        "line": 5,
+        "col": 1
+      },
+      "scroll_top": 0,
+      "font_size": 14,
+      "show_line_numbers": true,
+      "word_wrap": false,
+      "updated_at": 1791981794.8619769
+    }
+  ]
+}

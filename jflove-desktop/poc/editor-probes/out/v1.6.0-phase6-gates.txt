@@ -1,0 +1,33 @@
+v1.6.0 Phase 6 全量门禁记录（2026-10-14 20:41–20:46，Windows 本机）
+命令：pwsh -File %TEMP%\jf-v160-gates.ps1（脚本逐条 push 到对应模块目录执行；本文件为逐行输出摘要）
+格式：[退出码] 门禁名 (耗时) 输出尾部
+
+[0] desktop-flake8 (1.6s)                       jflove-desktop: python -m flake8 src/ tests/ --max-line-length=99
+[0] desktop-pytest-1 (6.7s)                     505 passed, 1 xfailed in 6.02s
+[0] desktop-pytest-2 (6.7s)                     505 passed, 1 xfailed in 6.02s
+[0] desktop-pytest-3 (7.0s)                     505 passed, 1 xfailed in 6.29s
+[0] server-flake8 (1.2s)                        jflove-server: python -m flake8 src/ tests/ --max-line-length=99
+[0] server-pytest (27.1s)                       259 passed in 26.08s
+[0] r9-negative-matrix (18.8s)                  被抓：10/10；未抓：0；错误：0
+                                                [文件完整性] 6 个变异目标文件的 git 状态与开局逐行一致（变异全部还原）
+[0] r8-ui-wiring (0.1s)                         r8：11 项接线断言全部通过（含 S-9 需求 AC-11 期望串、M-13 回潮、S-9 回潮）
+[1] r11-real-gui (37.8s)                        真机自动化；H3（AC-13 列选择）为唯一 gating 失败 ⇒ 退出码 1（判据如实报告缺陷）
+                                                证据：out/r11-20261014-204307/r11-result.json + 5 张截图
+[0] r10-kill-restart (7.5s)                     R-1/R-3/R-2a/R-2b/R-2c 全过
+                                                证据：out/r10-20261014-204345/r10-result.json
+[0] parity (0.3s)                               [parity][OK] 清单内文件两端逐字节一致
+[0] parity-self-test (0.2s)                     工具可信（反向验证 ①~⑤b 全部符合预期）
+[0] sync-version-check (0.1s)                   [sync] 版本一致性校验通过：全部 = v1.5.1（Phase 8 才改 version.json）
+[0] check-db-schema (0.2s)                      dev/prod 结构一致；历史遗留表 notes_permissions 不参与比对
+[0] verify-db-schema (2.2s)                     === 结果：20 passed / 0 failed ===（坏数据被拦住、格式差异被放行）
+[0] ui-lint (3.7s)                              jflove-desktop/ui: eslint src/
+[0] ui-test (9.4s)                              Test Files 18 passed (18) / Tests 139 passed | 16 expected fail (155) / Duration 8.96s
+[0] ui-build (10.4s)                            tsc --noEmit && vite build ✓ built in 4.60s
+                                                产物：dist/assets/index-CMYUZU-t.js 754,526 B；dist/assets/index-BFJjLa-m.css 69,463 B
+[0] web-test-coverage (14.5s)                   jflove-web: npm run test:coverage（含覆盖率报告）
+
+# 下方为脚本路径写错后单独补跑的条目（脚本里误写成 <repo>/scripts/gen_file_assoc_assets.py，
+# 实际在 jflove-desktop/scripts/ 下；这是**脚本自身的路径笔误**，不是门禁失败）：
+[0] gen-file-assoc                              cd jflove-desktop && python scripts/gen_file_assoc_assets.py --check
+                                                [gen-file-assoc-assets] 一致：manifest（34 项）+ 生成物三份
+                                                （jflove.xml / jflove.desktop / file-assoc.iss）

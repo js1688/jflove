@@ -1,0 +1,218 @@
+{
+  "probe": "r10-kill-restart",
+  "at": "2026-10-14T20:43:52",
+  "checks": [
+    {
+      "id": "R-1 AC-S2：5 次强杀的可重复判定",
+      "desc": "强杀后草稿完整、最多丢最后一个窗口",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "rounds": [
+          {
+            "round": 1,
+            "attempted": 5,
+            "writtenIndex": 5,
+            "written": "完整 marker（77 字节）",
+            "lostWindows": 0,
+            "cleanExit": false,
+            "warnings": [],
+            "entries": 1,
+            "listedError": null,
+            "abnormalExit": true,
+            "tmp": {
+              "count": 0,
+              "names": [],
+              "brokenIndexCopies": []
+            },
+            "indexParses": true,
+            "leftoverPaneFiles": [],
+            "staleTmpAfterClear": 0,
+            "abnormalAfterClean": false
+          },
+          {
+            "round": 2,
+            "attempted": 6,
+            "writtenIndex": 6,
+            "written": "完整 marker（77 字节）",
+            "lostWindows": 0,
+            "cleanExit": false,
+            "warnings": [],
+            "entries": 1,
+            "listedError": null,
+            "abnormalExit": true,
+            "tmp": {
+              "count": 0,
+              "names": [],
+              "brokenIndexCopies": []
+            },
+            "indexParses": true,
+            "leftoverPaneFiles": [],
+            "staleTmpAfterClear": 0,
+            "abnormalAfterClean": false
+          },
+          {
+            "round": 3,
+            "attempted": 8,
+            "writtenIndex": 8,
+            "written": "完整 marker（77 字节）",
+            "lostWindows": 0,
+            "cleanExit": false,
+            "warnings": [],
+            "entries": 1,
+            "listedError": null,
+            "abnormalExit": true,
+            "tmp": {
+              "count": 0,
+              "names": [],
+              "brokenIndexCopies": []
+            },
+            "indexParses": true,
+            "leftoverPaneFiles": [],
+            "staleTmpAfterClear": 0,
+            "abnormalAfterClean": false
+          },
+          {
+            "round": 4,
+            "attempted": 10,
+            "writtenIndex": 10,
+            "written": "完整 marker（77 字节）",
+            "lostWindows": 0,
+            "cleanExit": false,
+            "warnings": [],
+            "entries": 1,
+            "listedError": null,
+            "abnormalExit": true,
+            "tmp": {
+              "count": 0,
+              "names": [],
+              "brokenIndexCopies": []
+            },
+            "indexParses": true,
+            "leftoverPaneFiles": [],
+            "staleTmpAfterClear": 0,
+            "abnormalAfterClean": false
+          },
+          {
+            "round": 5,
+            "attempted": 11,
+            "writtenIndex": 11,
+            "written": "完整 marker（77 字节）",
+            "lostWindows": 0,
+            "cleanExit": false,
+            "warnings": [],
+            "entries": 1,
+            "listedError": null,
+            "abnormalExit": true,
+            "tmp": {
+              "count": 0,
+              "names": [],
+              "brokenIndexCopies": []
+            },
+            "indexParses": true,
+            "leftoverPaneFiles": [],
+            "staleTmpAfterClear": 0,
+            "abnormalAfterClean": false
+          }
+        ],
+        "checks": {
+          "① 索引可加载且不抛异常": true,
+          "② 无半截草稿（内容=完整 marker）": true,
+          "③ 最多丢最后一个窗口": true,
+          "④ 崩溃检测成立（clean_exit=false）": true,
+          "⑤ .tmp 残留副本仍是合法 JSON": true,
+          "⑥ 清空后无残留 + 干净标记生效": true
+        }
+      }
+    },
+    {
+      "id": "R-3 AC-S2①：半截状态注入（确定性）",
+      "desc": "半截索引/半截临时文件都能容错，草稿内容始终完整",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "checks": {
+          "(a) 半截 .tmp 残留不影响草稿完整性": true,
+          "(b) 索引半截 ⇒ 从 .tmp 最新副本恢复": true,
+          "(c) 索引消失 ⇒ 按草稿库目录重建": true
+        },
+        "a": {
+          "entries": 1,
+          "cleanExit": false,
+          "warnings": [],
+          "contentComplete": true,
+          "contentLen": 79
+        },
+        "b": {
+          "entries": 1,
+          "cleanExit": false,
+          "warnings": [
+            "草稿索引损坏，已从临时副本恢复"
+          ],
+          "contentComplete": true,
+          "contentLen": 79
+        },
+        "c": {
+          "entries": 1,
+          "cleanExit": true,
+          "warnings": [
+            "草稿索引不可用，已按草稿库目录重建 1 个条目（窗格位置与光标等元信息无法恢复）"
+          ],
+          "contentComplete": true,
+          "contentLen": 79
+        }
+      }
+    },
+    {
+      "id": "R-2a AC-58：托盘后草稿未清",
+      "desc": "hide_to_tray 后草稿仍在磁盘且索引条目可列出",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "childStage": "tray",
+        "childError": null,
+        "childLoadUi": true,
+        "trayObject": true,
+        "visibleBefore": true,
+        "visibleAfter": false,
+        "draftOnDiskAfterTray": true,
+        "draftContentMatches": true,
+        "entries": 1,
+        "cleanExit": false,
+        "listedError": null
+      }
+    },
+    {
+      "id": "R-2b AC-58：强杀后重启仍还原",
+      "desc": "强杀后新进程读到同一份完整草稿且判定为异常退出",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "draftContentMatches": true,
+        "entries": 1,
+        "abnormalExit": true,
+        "listedError": null,
+        "tmp": {
+          "count": 0,
+          "names": [],
+          "brokenIndexCopies": []
+        },
+        "childExited": true
+      }
+    },
+    {
+      "id": "R-2c AC-58：干净退出标记不影响草稿",
+      "desc": "mark_clean_exit 后不再报异常退出、草稿保留",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "abnormalAfterClean": false,
+        "draftKeptAfterClean": true,
+        "fixtureUnchanged": true
+      }
+    }
+  ],
+  "notes": [],
+  "rounds": 5,
+  "platform": ""
+}
