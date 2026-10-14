@@ -252,4 +252,60 @@ describe('http-client 加密请求', () => {
     expect(parsed.token).toBe('test-jwt-token');
     expect(parsed.path).toBe('a.txt');
   });
+
+  // ── BL-3：响应解密失败不得被误报为「网络错误」 ──
+
+  /**
+   * 用一份**不属于当前会话**的密钥造信封：
+   * 形状是合法信封（有 nonce / ciphertext），但本会话的 session_key 解不开。
+   */
+  async function makeUndecryptableEnvelope(): Promise<Response> {
+    const foreignKey = await makeSessionKey();
+    const plaintext = new TextEncoder().encode(JSON.stringify({ files: [] }));
+    const { nonce, ciphertext } = encryptEnvelope(foreignKey, plaintext);
+    return new Response(JSON.stringify({ nonce, ciphertext }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  it('BL-3 POST：200 + 解不开的信封 → ApiError(502)，文案不含 nonce/ciphertext', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(await makeUndecryptableEnvelope());
+
+    const err = await httpClient
+      .post('/api/v1/files/list', { disk_id: 1, path: '' })
+      .then(() => null, (e: unknown) => e as { status: number; detail: string });
+
+    expect(err).not.toBeNull();
+    // 修复前此处是 ApiError(0, '网络错误：…')，把「解密失败」误导成网络问题
+    expect(err!.status).toBe(502);
+    expect(err!.detail).toContain('响应解密失败');
+    // 不暴露信封细节（安全宪法 §9.4）
+    expect(err!.detail).not.toContain('nonce');
+    expect(err!.detail).not.toContain('ciphertext');
+  });
+
+  it('BL-3 GET：200 + 解不开的信封 → ApiError(502)（URL query 信封路径同判定）', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(await makeUndecryptableEnvelope());
+
+    await expect(httpClient.get('/api/v1/files/disks')).rejects.toMatchObject({
+      status: 502,
+      detail: '响应解密失败（会话密钥不匹配或响应被篡改）',
+    });
+  });
+
+  it('BL-3 边界：200 + 明文 body（非信封形状）→ 直返成功，不误伤明文白名单路径', async () => {
+    const mockResponse = new Response(
+      JSON.stringify({ exists: true }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse);
+
+    const result = await httpClient.post<{ exists: boolean }>(
+      '/api/v1/auth/admin-exists',
+      {},
+    );
+    // 形状不是信封 ⇒ 按明文直返（对齐桌面端 _is_envelope 口径），不得抛 502
+    expect(result.exists).toBe(true);
+  });
 });

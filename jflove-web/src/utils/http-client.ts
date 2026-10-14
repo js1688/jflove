@@ -33,6 +33,46 @@ function baseUrl(): string {
   return getServerUrl();
 }
 
+// ── 响应信封判定与解密（BL-3） ──
+
+/**
+ * 判断响应体是否为**加密信封**（只判形状，不尝试解密）。
+ *
+ * 与桌面端 `src/utils/http_client.py::_is_envelope`（v1.5.1 修复 M-4 时引入）保持同一口径：
+ * 不是信封 → 按明文处理；是信封 → 必须能解开。
+ */
+function isEnvelope(body: unknown): body is { nonce: string; ciphertext: string } {
+  if (typeof body !== 'object' || body === null) return false;
+  const { nonce, ciphertext } = body as Record<string, unknown>;
+  return typeof nonce === 'string' && typeof ciphertext === 'string';
+}
+
+/**
+ * 解密成功响应体（BACKLOG BL-3）。
+ *
+ * - 形状不是信封：明文白名单路径（`/health`、`key-exchange`、`admin-exists`）→ 原样返回，不误伤；
+ * - 形状是信封但解密失败 → 抛 `ApiError(502, '响应解密失败（会话密钥不匹配或响应被篡改）')`。
+ *
+ * ⚠ `502` 是**客户端合成**的状态码（服务端此刻的状态是 `200`），语义是"本次会话隧道这一侧
+ * 出了故障"（会话密钥不匹配 / 响应被中间人篡改），**不要**理解为"服务端返回了 502"。
+ *
+ * 修复前该失败会落进外层 `catch` 被包成 `ApiError(0, '网络错误：…')`，
+ * 把"解密失败"误导成"网络问题"（排查方向被带偏）。文案**不含** `nonce` / `ciphertext`
+ * 等信封细节（安全宪法 §9.4：错误 detail 不暴露内容与元数据）。
+ */
+function decryptResponse<T>(sessionKey: Uint8Array, body: unknown): T {
+  if (!isEnvelope(body)) {
+    return body as T;
+  }
+  let plain: Uint8Array;
+  try {
+    plain = decryptEnvelope(sessionKey, body.nonce, body.ciphertext);
+  } catch {
+    throw new ApiError(502, '响应解密失败（会话密钥不匹配或响应被篡改）');
+  }
+  return JSON.parse(new TextDecoder().decode(plain)) as T;
+}
+
 // ── 加密请求 ──
 
 async function encryptedRequest<T>(
@@ -96,9 +136,8 @@ async function encryptedRequest<T>(
       throw new ApiError(response.status, errorBody?.detail || `HTTP ${response.status}`);
     }
 
-    const respJson: { nonce: string; ciphertext: string } = await response.json();
-    const decrypted = decryptEnvelope(sessionKey, respJson.nonce, respJson.ciphertext);
-    return JSON.parse(new TextDecoder().decode(decrypted)) as T;
+    // 解密失败单独判定：形状是信封但解不开 → 合成 502（BL-3），不落入下方「网络错误」
+    return decryptResponse<T>(sessionKey, await response.json());
   } catch (e) {
     clearTimeout(timeoutId);
     if (e instanceof ApiError) throw e;
@@ -166,9 +205,8 @@ async function getQueryEncrypted<T>(
       throw new ApiError(response.status, errorBody?.detail || `HTTP ${response.status}`);
     }
 
-    const respJson: { nonce: string; ciphertext: string } = await response.json();
-    const decrypted = decryptEnvelope(sessionKey, respJson.nonce, respJson.ciphertext);
-    return JSON.parse(new TextDecoder().decode(decrypted)) as T;
+    // 解密失败单独判定：形状是信封但解不开 → 合成 502（BL-3），不落入下方「网络错误」
+    return decryptResponse<T>(sessionKey, await response.json());
   } catch (e) {
     clearTimeout(timeoutId);
     if (e instanceof ApiError) throw e;
