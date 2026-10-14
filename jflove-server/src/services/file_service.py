@@ -22,12 +22,13 @@ import uuid
 import hashlib
 import aiofiles
 import aiosqlite
-from pathlib import Path
 
 from src.config.settings import REPAIR_DIR_NAME, UPLOAD_TEMP_DIR
 from src.repositories import virtual_disk_repository, permission_repository
 from src.services.permission_service import check_disk_permission
 from src.utils.logger import get_logger
+from src.utils.path_safety import safe_join as _safe_join_impl
+from src.utils.path_safety import validate_filename
 
 logger = get_logger(__name__)
 
@@ -96,20 +97,17 @@ def _safe_join(base: str, rel: str) -> str:
     客户端无法通过下载/删除/预览等接口直接触达修复产物（产物仅经
     /stream 的 repair_task_id 验证播放通道输出）。
 
+    v1.6.0（Phase 5 审查 S-1）：实现已下沉到 ``src.utils.path_safety.safe_join``。
+    原实现用 ``str(target).startswith(str(base_path))`` 判定越界，会把
+    ``base=D:\\disks\\alice`` + ``rel=../alice2/evil.txt`` 判为"在目录内"
+    （同名前缀的兄弟目录），使下游全部路径操作失去防护。
+
     :param base: 根目录绝对路径
     :param rel: 相对路径（可含前置 /）
     :returns: 限定后的绝对路径字符串
     :raises PermissionError: 路径越界 / 含隐藏目录段
     """
-    base_path = Path(base).resolve()
-    target = (base_path / rel.lstrip("/")).resolve()
-    if not str(target).startswith(str(base_path)):
-        raise PermissionError("非法路径访问")
-    # v1.4.2：隐藏目录段访问一律拒绝（下载/删除/重命名/移动等全部生效）
-    rel_norm = rel.replace("\\", "/").lstrip("/")
-    if any(part == REPAIR_DIR_NAME for part in rel_norm.split("/") if part):
-        raise PermissionError("非法路径访问")
-    return str(target)
+    return _safe_join_impl(base, rel, forbidden_parts=(REPAIR_DIR_NAME,))
 
 
 def _validate_filename(filename: str) -> str:
@@ -122,30 +120,16 @@ def _validate_filename(filename: str) -> str:
     BL-8 的原子写改造沿用了同一条拼接，因此本条独立修复并保留 `complete_upload`
     侧的第二层兜底。
 
-    口径（同时挡住 POSIX 与 Windows 语义，**不依赖运行平台**）：
-      ① `strip()` 后非空，且不是 `.` / `..`；
-      ② 不含 `/`、`\\` 与 NUL；
-      ③ Windows 盘符前缀（`C:evil.txt` 在 ntpath 下是**驱动器相对**路径，会逃出目标目录）；
-      ④ `os.path.basename(name) == name`（POSIX 侧 `a/b`、Windows 侧 `d:\\a` 一并挡住）；
-      ⑤ 不含当前平台的 `os.path.sep` / `os.path.altsep`（平台差异兜底）。
+    v1.6.0（Phase 5 审查 S-2）：实现已下沉到
+    ``src.utils.path_safety.validate_filename``，本函数保留为兼容别名；
+    同时 ``get_stream_range``（流式预览的文件名）与 ``rename_file``（新名称）
+    也改为走同一份校验，不再只依赖 `_safe_join` 兜底。
 
     :param filename: 客户端提交的文件名
     :returns: 去空白后的合法文件名
     :raises ValueError: 文件名为空、含路径分隔符或为上级目录段
     """
-    name = (filename or "").strip()
-    if not name or name in (".", ".."):
-        raise ValueError("filename 非法：不能为空或上级目录段")
-    if "/" in name or "\\" in name or "\x00" in name:
-        raise ValueError("filename 非法：不能包含路径分隔符")
-    if len(name) >= 2 and name[1] == ":" and name[0].isalpha():
-        raise ValueError("filename 非法：不能包含盘符前缀")
-    if os.path.basename(name) != name:
-        raise ValueError("filename 非法：不能包含路径分隔符")
-    seps = [s for s in (os.path.sep, os.path.altsep) if s]
-    if any(s in name for s in seps):
-        raise ValueError("filename 非法：不能包含路径分隔符")
-    return name
+    return validate_filename(filename)
 
 
 async def _get_disk_path(db: aiosqlite.Connection, disk_id: int) -> str:
@@ -586,6 +570,12 @@ async def rename_file(
         raise ValueError("名称包含非法字符")
     if new_name in (".", ".."):
         raise ValueError("名称包含非法字符")
+    # v1.6.0（Phase 5 审查 S-2）：新名称走与上传文件名同一份口径（NUL / 盘符前缀 /
+    # 平台分隔符兜底），错误信息仍按"名称"措辞，避免暴露内部校验函数的措辞。
+    try:
+        new_name = validate_filename(new_name)
+    except ValueError:
+        raise ValueError("名称包含非法字符")
 
     base = await _get_disk_path(db, disk_id)
     target = _safe_join(base, path)
@@ -698,6 +688,10 @@ async def get_stream_range(
             raise PermissionError("无读取权限")
 
     base = await _get_disk_path(db, disk_id)
+    # v1.6.0（Phase 5 审查 S-2）：`filename` 是接口契约里的**纯文件名**，必须过同一份
+    # 文件名校验（否则含分隔符/上级段的名字只能靠 _safe_join 兜底，错误码会从 400
+    # 漂成 403）。`path` 是目录相对路径，允许含合法子目录分量，只由 _safe_join 判定。
+    filename = _validate_filename(filename)
     # 将目录路径与文件名拼接后整体做安全校验，防目录遍历
     rel_full = os.path.join(path.lstrip("/"), filename)
     file_path = _safe_join(base, rel_full)

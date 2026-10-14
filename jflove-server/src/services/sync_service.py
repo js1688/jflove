@@ -12,13 +12,13 @@ v1.1.6 变更：
 """
 
 import os
-from pathlib import Path
 
 import aiosqlite
 
 from src.repositories import virtual_disk_repository
 from src.services.permission_service import check_disk_permission
 from src.utils.logger import get_logger
+from src.utils.path_safety import safe_join as _safe_join_impl
 
 logger = get_logger(__name__)
 
@@ -27,16 +27,16 @@ def _safe_join(base: str, rel: str) -> str:
     """
     将相对路径 rel 限定在 base 内，防止目录遍历攻击。
 
+    v1.6.0（Phase 5 审查 S-1）：原实现是 ``file_service._safe_join`` 的同写法副本
+    （``str(target).startswith(str(base_path))``），会放行到**同名前缀的兄弟目录**。
+    现下沉到 ``src.utils.path_safety.safe_join``，两处共用同一实现。
+
     :param base: 根目录绝对路径
     :param rel: 相对路径
     :returns: 限定后的绝对路径
     :raises PermissionError: 路径越界
     """
-    base_path = Path(base).resolve()
-    target = (base_path / rel.lstrip("/")).resolve()
-    if not str(target).startswith(str(base_path)):
-        raise PermissionError("非法路径访问")
-    return str(target)
+    return _safe_join_impl(base, rel)
 
 
 async def list_remote_snapshot(
