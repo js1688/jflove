@@ -207,6 +207,30 @@
 | CL-17 | **BL-10**：`upload/init` 的 `filename` 未过滤路径分隔符（**严重 · 安全**，认证后目录穿越） | v1.6.0 | `_validate_filename()` 收窄为纯文件名 + `complete_upload` 的 `_safe_join` 兜底；39 条新用例 + 负向对照 `33 failed, 6 passed`；全量 219 passed |
 
 > **⚠ 本台账的「未完成」项（截至 2026-10-14）**：**BL-6**（真机项，不做代码工作）· **BL-7**（历史文档中的 `设计预览/` 引用属有意保留）·
-> **BL-9**（`localStorage` 跨重启，待补「写 → 退出 → 重启 → 读」完整链路验证）。
+> **BL-9**（`localStorage` 跨重启，待补「写 → 退出 → 重启 → 读」完整链路验证）·
+> **BL-11 ~ BL-16**（v1.6.0 Phase 4a 新增登记，见下节）。
 > **BL-10 已于 v1.6.0 闭环（CL-17）**，不再留在未完成清单。
 > **闭环状态与续接入口的单一真相在 `plans/desktop-scratch-editor-v1.6.0.md §17`。**
+
+---
+
+## BL-11 ~ BL-16：v1.6.0 Phase 4a 新增登记（2026-10-14，交 **Phase 5 复核** / Phase 7 落账）
+
+> 来源：`文档记录/桌面端开发记录/v1.6.0.md §7.1 / §8 / §9`，以及计划 §17.10 D 表。
+> 这些**不是缺陷**，而是「本版本做了取舍、需要复核或后续排期」的项——按 `AGENTS.md §8` 逐条留痕。
+
+| 编号 | 级别 | 项 | 事实（含证据） | 建议做法 | 验收判据 |
+| --- | --- | --- | --- | --- | --- |
+| **BL-11** | 中 | **设计偏离 D-1**：`ensure_editor_bundle()` 改为「缺失时**就地生成**、生成失败才 fail」 | 设计 §6.1.1 原文是「缺失即 `fail()`」；但 `build-desktop.yml:46-51` 只生成 Mermaid 分包、`:80` 直接跑模块 build.py，而 **D16 未授权改 `.github`** ⇒ 按原文 **CI 必红**（Phase 8 阻塞）。证据：移走产物后调用 → 重新生成成功且**逐字节一致**（1,438,477 B / sha256 相同） | 二选一：① 保留本偏离（无需改 CI）；② 用户授权改 `.github` 加一步 `node scripts/build-codemirror-bundle.mjs`，回到设计原文口径 | 桌面端 CI（Windows onedir + Linux RPM）**两个作业都绿**；本地 `python build.py -m desktop` 在**干净 clone** 上能一次跑通 |
+| **BL-12** | 中 | **文档张力 T-1**：`.iss` 的 `[Registry]` 由谁写 | §6.7.2 的裁决列要求「**构建期生成静态段**」，§5.1 消费方 ③ 写「由 **Python 侧安装后写入**」——两者互斥。实现按 §6.7.2（自洽性依据：卸载清理必须在 Inno `[Code]` 里遍历同一清单，Python 在卸载阶段不运行） | Phase 5 复核该选择；若认定应以 §5.1 为准，则需改回**运行时注册**并同步 AC-43 ① 的「安装后键存在」措辞 | 设计与实现**说法一致**（二者只留一个）；`file-assoc.iss` 的 `[Registry]` 与 `[Code]` 清理清单**同源**（同一 manifest 派生） |
+| **BL-13** | 中 | **顺序依赖 T-2**：`ui` 构建期 import `public/vendor/editor.version.json` | 全新 clone / 未跑过分包时 `tsc --noEmit` 会失败（AC-R2 判据在**干净环境**下不成立）。这是设计 §6.1.1 的有意取舍（用构建期失败换取"内核一定在包里"） | 发布/CI 文档中写明顺序：先 `build.py::ensure_editor_bundle()` 再前端构建；BL-11 的自动生成即兜底 | 干净 clone 上 `python build.py -m desktop` 一次通过；`npm run build` 单独跑失败时有**明确指引**（不是晦涩的模块找不到） |
+| **BL-14** | 轻-中 | **覆盖缺口 T-3**：`ui/` 无测试运行器 | §6.1.2 要求把 `blockSelectCopy` 抽成纯函数「以便单测」，但 `ui/package.json` 只有 lint/build/dev（加 vitest 超出 §3.1 的 35 项文件清单）。当前只有注释里的 AC-11 手算样例 | Phase 6 决定是否引入 vitest（或把纯函数搬到 Python 侧测）；至少为 `block-select.ts` / `toolbox.ts` 补真实用例 | `blockSelectCopy` 的 AC-11 样例（`abcdef\ngh\nijklmn` 选 2~4 列 ⇒ `bcd\nh  \nijk`）与工具箱 12 项**有自动化用例**且纳入自测命令 |
+| **BL-15** | 轻 | **生成物归属 T-5**：`ui/public/file-assoc.manifest.json` 入库 | 设计 §5.1 写它是「生成物，git **忽略**」，但 `.gitignore` 只忽略 `ui/public/vendor/`，且本版本**未授权改 `.gitignore`** ⇒ 改为**入库 + `--check` 守门**（与 `jflove.xml` / `file-assoc.iss` 同模式） | 保持现状（入库 + 判据）或在授权后加 `.gitignore` 规则并改为构建期生成 | `python jflove-desktop/scripts/gen_file_assoc_assets.py --check` → exit 0；**反向验证**（夹具加 `.zzz`）→ exit 1 |
+| **BL-16** | 轻 | **方法学 L-1**：测试里 patch PySide6 **类属性**会让 pytest 在 `QApplication` 析构期崩 `0xC0000409` | `monkeypatch.setattr(QFileDialog, "getOpenFileNames", …)` 导致整套 pytest 崩（同命令 3/3 复现；去掉该文件 3/3 exit 0）。已改为 `editor.py` 内的模块级接缝 `_open_file_names()` / `_save_file_name()` | 后续写 Qt 桥测试一律照此：**patch 本模块的薄接缝，不 patch Qt 类**；在 SKILL/测试约定里写明 | 含 Qt 用例的文件单独跑与全量跑都 exit 0（无 `0xC0000409`） |
+| **BL-17** | 中 | **设计缺口**：快捷键偏好的**桥方法在 §7.1 的表里不存在** | §4.2.4 规定了存储位置与结构（`USER_DATA_DIR/storage/shortcuts.json`）并禁止渲染层碰文件系统 / localStorage（R-1：默认 profile off-the-record），但方法表**漏列读写方法** ⇒ 界面存不进去（桥回「未登记的方法」）。已在 `src/bridge/editor.py` 按命名空间一致性补齐 `editor.shortcutsLoad` / `editor.shortcutsSave`（工作线程、原子写、读取容错、写入校验），并加了 24 条用例 | ① 认可补齐（推荐，无需改设计）；② 或在设计文档补上这两个方法（Phase 5 定） | 设置页改键 → 保存 → 重启后键位仍在（`shortcuts.json` 落地）；`tests/test_bridge_editor_shortcuts_v1_6_0.py` 全通过 |
+
+> **⚠ 另有一条已修的真缺陷（不留在未完成清单，仅留痕）**：`ui/src/config/shortcuts.ts::formatShortcut`
+> 对「仅修饰键」chord 会把修饰位与键名各输出一次 ⇒ `normalizeShortcut('Alt') === 'Alt+Alt'`，导致
+> 第 14 项「块选择修饰键」**永远改不了键**且会写伪 override。已于 `52f75f1` 修复并实测
+> （`normalizeShortcut('Alt') === 'Alt'`、`defaultNormalizationConsistent() === true`）。
+> 另有一条并行集成点（`ScratchPaneLayer` 的捕获监听在改键时重复触发窗格动作）同批修复。
