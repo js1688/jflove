@@ -22,6 +22,7 @@ import random
 import pytest
 
 from src.config.settings import TEXT_MAX_BYTES, TEXT_READONLY_BYTES
+from src.services import editor_service
 from src.services import text_detect_service as tds
 
 # ── 测试数据 ────────────────────────────────────────────────────────
@@ -274,6 +275,74 @@ class TestEncodingDetection:
         assert tds.detect_encoding(_UTF8_BODY.encode("utf-8")) == "utf-8"
         assert tds.detect_encoding(_GBK_BODY.encode("gb18030")) == "gbk"
         assert tds.detect_encoding(b"\x80\xff") is None
+
+
+# ── ①' UTF-16 换行符判定（S-4 回归：判定不得按原始字节数换行） ───────
+
+_UTF16_VARIANTS = [("utf-16-le", b"\xff\xfe"), ("utf-16-be", b"\xfe\xff")]
+
+
+class TestUtf16LineEnd:
+    """UTF-16 家族的 CRLF 在字节流里是 ``0d 00 0a 00`` —— 必须先解码再数换行（S-4）。"""
+
+    @pytest.mark.parametrize("encoding,prefix", _UTF16_VARIANTS)
+    def test_utf16_crlf_detected_as_crlf(self, tmp_path, encoding, prefix):
+        path = tmp_path / "dos16.txt"
+        path.write_bytes(prefix + "第一行\r\n第二行\r\n第三行".encode(encoding))
+
+        result = tds.probe(str(path))
+        assert result.ok is True
+        assert result.line_end == "crlf"
+
+    @pytest.mark.parametrize("encoding,prefix", _UTF16_VARIANTS)
+    def test_utf16_lf_stays_lf(self, tmp_path, encoding, prefix):
+        path = tmp_path / "unix16.txt"
+        path.write_bytes(prefix + "第一行\n第二行\n第三行".encode(encoding))
+
+        result = tds.probe(str(path))
+        assert result.ok is True
+        assert result.line_end == "lf"
+
+    def test_detect_line_end_unit(self):
+        """纯函数口径：同一份字节，给定编码与否会得出不同结论（字节口径是历史行为）。"""
+        raw = "a\r\nb\r\nc".encode("utf-16-le")
+        assert tds._detect_line_end(raw) == "lf"
+        assert tds._detect_line_end(raw, "utf-16le") == "crlf"
+        assert tds._detect_line_end(raw, "le") == "crlf"
+        assert tds._detect_line_end("a\r\nb".encode("utf-16-be"), "be") == "crlf"
+        # 单字节编码继续走字节口径（utf-8 / gbk 的统计等价）
+        assert tds._detect_line_end(b"a\r\nb\r\nc", "utf-8") == "crlf"
+        assert tds._detect_line_end(b"a\nb\nc", "utf-8") == "lf"
+        assert tds._detect_line_end(b"a\r\nb\nc\nd", "gbk") == "lf"
+
+    @pytest.mark.parametrize("encoding,prefix", _UTF16_VARIANTS)
+    def test_utf16_roundtrip_bytes_identical(self, tmp_path, encoding, prefix):
+        """端到端判据（AC-20 / AC-S4③）：probe → read_text → encode_text 逐字节回到原文。"""
+        path = tmp_path / "roundtrip16.txt"
+        original = prefix + "Alpha\r\nBeta\r\nGamma\r\n".encode(encoding)
+        path.write_bytes(original)
+
+        probe = tds.probe(str(path))
+        read = tds.read_text(str(path), probe)
+        rebuilt = editor_service.encode_text(
+            read.text, probe.encoding, probe.line_end, bom=probe.bom,
+        )
+        assert read.text == "Alpha\r\nBeta\r\nGamma\r\n"
+        assert rebuilt == original
+
+    def test_utf16_without_bom_line_end_uses_detected_byte_order(self, tmp_path):
+        """B3 救回的「无 BOM UTF-16」：编码仍不猜，但换行符按嗅探出的字节序判定。
+
+        注意扩展名要**不在白名单**内：白名单命中会按 AC-49 跳过嗅探 ⇒ 走不到 B3。
+        """
+        path = tmp_path / "nobom16.xyz"
+        body = "alpha line\r\nbeta line\r\ngamma line\r\n"
+        path.write_bytes(body.encode("utf-16-le"))  # 无 BOM，ASCII 为主 ⇒ B3 命中
+
+        result = tds.probe(str(path))
+        assert result.ok is True
+        assert result.encoding_uncertain is True
+        assert result.line_end == "crlf"
 
 
 # ── ② 大小阈值（AC-52 / AC-53） ─────────────────────────────────────

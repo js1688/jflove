@@ -418,10 +418,41 @@ def detect_encoding(sample: bytes) -> str | None:
     return None
 
 
-def _detect_line_end(sample: bytes) -> str:
+# 换行符判定用的多字节编码（**只有 UTF-16 家族需要「先解码再数换行」**）：
+# 键同时接受编码标识（`ENC_*`）与 B3 嗅探给出的字节序标识（`"le"` / `"be"`）
+_LINE_END_CODECS = {
+    ENC_UTF16_LE: "utf-16le",
+    ENC_UTF16_BE: "utf-16be",
+    "le": "utf-16le",
+    "be": "utf-16be",
+}
+
+
+def _detect_line_end(sample: bytes, encoding: str | None = None) -> str:
     """
     换行符判定（§5.2.3 硬约束 4）：统计 ``\\r\\n`` 与裸 ``\\n``，前者更多 ⇒ crlf。
+
+    UTF-16 家族每个字符占 2 字节，CRLF 在字节流里是 ``0d 00 0a 00`` / ``00 0d 00 0a``，
+    直接按字节统计会把 UTF-16 的 CRLF 数成 0 个而误判成 ``lf``（保存后即把整篇
+    换行改成 LF，S-4）。因此**已知编码时先解码成文本再统计**。
+
+    单字节编码（utf-8 / gbk）两种统计等价，继续走字节口径：GBK 尾字节与 UTF-8 续字节
+    都不可能等于 0x0A。
+
+    :param sample: 有界读到的样本
+    :param encoding: 已判定的编码标识，或 B3 给出的 ``"le"`` / ``"be"``；未知时传 None
+    :returns: ``"crlf"`` 或 ``"lf"``
     """
+    codec = _LINE_END_CODECS.get(encoding or "")
+    if codec:
+        try:
+            text = sample.decode(codec, errors="ignore")
+        except LookupError:  # pragma: no cover - 表内编解码器由标准库提供
+            text = None
+        if text is not None:
+            crlf = text.count("\r\n")
+            lone_lf = text.count("\n") - crlf
+            return "crlf" if crlf > lone_lf else "lf"
     crlf = sample.count(b"\r\n")
     lone_lf = sample.count(b"\n") - crlf
     return "crlf" if crlf > lone_lf else "lf"
@@ -526,7 +557,8 @@ def probe(path: str) -> ProbeResult:
             # B3 救回的"无 BOM UTF-16（ASCII 为主）"：**不静默猜编码**（§5.2.3 硬约束 3），
             # 交由调用方让用户显式选择 utf-16le / utf-16be 后再调 read_text(encoding=...)
             result.encoding_uncertain = True
-            result.line_end = _detect_line_end(sample)
+            # 编码仍不猜（硬约束 3），但字节序由 B3 的 NUL 分布给出 ⇒ 换行符可按它判定
+            result.line_end = _detect_line_end(sample, verdict.utf16_pattern)
             result.ok = True
             result.warnings.append(
                 "疑似无 BOM 的 UTF-16 文本，编码无法安全推断，请手动选择 utf-16le / utf-16be"
@@ -544,7 +576,7 @@ def probe(path: str) -> ProbeResult:
         return result
     result.encoding = encoding
     result.bom = _bom_length(sample) > 0
-    result.line_end = _detect_line_end(sample)
+    result.line_end = _detect_line_end(sample, encoding)
     result.ok = True
     return result
 
