@@ -678,6 +678,29 @@ def test_file_assoc_missing_interface_raises(monkeypatch):
     assert "open_system_defaults" in str(excinfo.value)
 
 
+def test_file_assoc_integration_with_real_service():
+    """与**真实** `file_assoc_service` 的接口契约（惰性 import 的实际落点）。
+
+    只做**读操作**与一次"必然被拒绝"的写：不触碰用户真实关联配置（禁令口径同草稿用例）。
+    """
+    pytest.importorskip("src.services.file_assoc_service")
+    before = _call("file_assoc", "get")
+    assert set(before) == {"selected", "supported", "platform", "osRegistered", "note"}
+    assert before["platform"] in ("win32", "linux", "other")
+    assert isinstance(before["supported"], list)
+    assert isinstance(before["note"], str)
+
+    # 含不支持的扩展名 ⇒ 抛错（**不静默过滤**），且不改变既有选择
+    with pytest.raises(ValueError):
+        _call("file_assoc", "set", {"selected": ["definitely-not-a-supported-ext"]})
+    assert _call("file_assoc", "get")["selected"] == before["selected"]
+
+    opened = _call("file_assoc", "openSystemDefaults")
+    assert set(opened) == {"ok", "hint"}
+    assert isinstance(opened["ok"], bool)
+    assert isinstance(opened["hint"], str)
+
+
 # ── 10. AC-42：zero remote ───────────────────────────────────────
 
 

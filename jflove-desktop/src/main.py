@@ -135,6 +135,12 @@ def main() -> int:
     media_bridge.setup(overlay)
     files_bridge.set_main_window(_shell)
 
+    # 文本编辑器桥（v1.6.0 §7.1 依赖注入）：QFileDialog 需要主窗口作 parent，
+    # 故与 files_bridge 同样注入；缺它会直接抛 RuntimeError（不静默降级为无 parent 对话框）。
+    from src.bridge import editor as editor_bridge
+
+    editor_bridge.set_main_window(_shell)
+
     # 同步引擎（N9）：把引擎信号转成桥事件推给渲染层
     from src.bridge import sync as sync_bridge
 
