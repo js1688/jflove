@@ -39,11 +39,12 @@ async def _require_admin(request: Request, db: aiosqlite.Connection) -> tuple:
     "",
     summary="获取所有系统配置",
     description=(
-        "获取系统中所有配置项的键值对列表。\n\n"
+        "获取系统中所有配置项。\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：管理员 JWT 令牌\n\n"
         "响应体（加密后）字段：\n"
-        "- `config`：配置项列表，每项含 `key`、`value`"
+        "- `config`：配置项键值对映射（`{key: value}`），"
+        "键为配置项名称、值为其字符串值（实现见 `config_service.get_all`）"
     ),
 )
 async def get_config(request: Request, db: aiosqlite.Connection = Depends(get_db)):
@@ -58,13 +59,15 @@ async def get_config(request: Request, db: aiosqlite.Connection = Depends(get_db
     "",
     summary="更新系统配置项",
     description=(
-        "新增或更新指定配置项的值（键不存在时自动创建）。\n\n"
+        "新增或更新指定配置项的值（键不存在时自动创建，upsert）。\n\n"
         "常用配置键：\n"
         "- `notes_disk_id`：笔记目录对应的虚拟磁盘 ID\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：管理员 JWT 令牌\n"
-        "- `key`：配置项键名\n"
-        "- `value`：配置项值"
+        "- `key`：配置项键名（不可为空）\n"
+        "- `value`：配置项值（字符串，原样保存）\n\n"
+        "响应体（加密后）字段：\n"
+        "- `message`：操作结果描述"
     ),
 )
 async def update_config(request: Request, db: aiosqlite.Connection = Depends(get_db)):
