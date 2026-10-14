@@ -4,6 +4,9 @@ import { router } from './config/routes';
 import { useThemeStore, type ThemeMode } from './stores/theme-store';
 import { ToastHost } from './components/ui';
 import { TitleBar } from './components/desktop/TitleBar';
+// 浮动窗格层：与 TitleBar 同级、在 RouterProvider **之外** ⇒ 任意路由页都能呼出窗格，
+// 且切换路由不会销毁窗格（设计 v1.6.0 §4.1.1 / AC-47）。
+import { ScratchPaneLayer } from './components/scratch';
 import { callBridge, callShell, onBridgeEvent } from './utils/desktop-bridge';
 
 /**
@@ -65,6 +68,8 @@ export function App() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas">
       <TitleBar />
+      {/* 浮动窗格层（绝对定位，不占 flex 流；router 之外 ⇒ 换页不销毁窗格） */}
+      <ScratchPaneLayer />
       {/* 内容区：高度由 flex 分配，页面内部自己滚动 */}
       <div className="relative min-h-0 flex-1">
         <RouterProvider router={router} />

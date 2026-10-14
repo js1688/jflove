@@ -1,0 +1,343 @@
+/* ============================================================
+ * 浮动窗格层样式（设计 v1.6.0 §4.1.1 / §4.1.3 / §4.1.4）
+ *
+ * 归属：`ui/src/components/scratch/**` 专用。**不写进 components.css / tokens.css**
+ * （前者是跨端门禁文件：`scripts/check_web_desktop_parity.py` 逐字节锁定）。
+ *
+ * ## 为什么这里允许「裸 CSS」（不用 `@layer` / 不用 Tailwind 工具类）
+ *
+ * 1. Tailwind 4 的工具类在 `@layer utilities` 内；按 CSS 级联层规则，**未分层的普通声明
+ *    优先级高于任何分层声明** ⇒ 本文件的规则不会被 `.dark` 主题覆盖之外的任何东西意外压住；
+ *    同时它也不会污染别处（选择器全部以 `.scratch-` 前缀限定）；
+ * 2. 颜色 / 圆角 / 阴影 / 动效一律引用 `tokens.css` 的语义变量 ⇒ 暗色主题零改动（AC-3）。
+ * ============================================================ */
+
+/* ---------- 浮动层根（pointer-events: none，只有窗格与工具条恢复 auto）---------- */
+.scratch-layer {
+  position: absolute;
+  /* 顶部让出窗口标题栏（与 App.tsx 的 flex 列布局共存：绝对定位不占流） */
+  top: var(--header-h);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+/* ---------- 单个窗格 ---------- */
+.scratch-pane {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 320px; /* = PANE_MIN_WIDTH（store 侧同样钳制，这里兜视觉） */
+  min-height: 200px; /* = PANE_MIN_HEIGHT */
+  overflow: hidden;
+  pointer-events: auto;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  box-shadow: var(--e3);
+}
+
+.scratch-pane-active {
+  border-color: var(--brand-400);
+  box-shadow: var(--e4);
+}
+
+/* 最小化：整窗收成标题栏高度（正文区与状态栏随之隐藏） */
+.scratch-pane-min {
+  height: auto;
+  min-height: 0;
+}
+
+.scratch-pane-max {
+  border-radius: 0;
+}
+
+/* 正文 + 状态栏的外壳：最小化时用 hidden 属性整块收起 */
+.scratch-pane-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 作者样式会盖掉 UA 的 [hidden]（display:none），必须显式补回 */
+.scratch-pane-main[hidden] {
+  display: none;
+}
+
+/* CM6 宿主（`ScratchEditorHost` 的外层）：占满正文区剩余高度。
+ * `flex: 1` = `1 1 0%`，用 flex-basis 覆盖宿主自带的 `h-full`（在列向 flex 里 basis 优先），
+ * 从而给状态栏留出固定 24px —— 不依赖对方任何内部类名。 */
+.scratch-host {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- 标题栏 ---------- */
+.scratch-title {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 6px 0 10px;
+  background-color: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: default;
+  user-select: none;
+  /* 触屏 / 触控板拖动交给 Pointer Events，禁用浏览器手势抢占 */
+  touch-action: none;
+}
+
+.scratch-title-active {
+  background-image: var(--grad-brand-soft);
+}
+
+.scratch-title-name {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg-default);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scratch-title-chip {
+  flex-shrink: 0;
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--fg-muted);
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-xs);
+}
+
+.scratch-title-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  background-color: var(--accent-500);
+  border-radius: var(--r-full);
+}
+
+.scratch-title-grow {
+  flex: 1;
+  align-self: stretch;
+}
+
+.scratch-title-btn {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 26px;
+  height: 100%;
+  padding: 0;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-xs);
+  transition: background-color var(--dur-fast) var(--ease-out-quint);
+}
+
+.scratch-title-btn:hover {
+  color: var(--fg-default);
+  background-color: var(--bg-hover);
+}
+
+.scratch-title-btn-close:hover {
+  color: #fff;
+  background-color: var(--danger-500);
+}
+
+/* ---------- 内容区（未挂载时的骨架；已挂载时为 CM6 宿主）---------- */
+.scratch-skeleton {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.scratch-skeleton-line {
+  display: block;
+  height: 10px;
+  background-color: var(--bg-sunken);
+  border-radius: var(--r-xs);
+}
+
+.scratch-skeleton-line-short {
+  width: 45%;
+}
+
+/* ---------- 状态栏（§4.1.4 的 F10 全字段）---------- */
+.scratch-status {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+  padding: 0 10px;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  background-color: var(--bg-sunken);
+  border-top: 1px solid var(--border-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.scratch-status-item {
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scratch-status-grow {
+  flex: 1;
+}
+
+.scratch-status-readonly {
+  padding: 0 5px;
+  color: var(--warning-700);
+  background-color: var(--warning-50);
+  border-radius: var(--r-xs);
+}
+
+.scratch-status-dirty {
+  color: var(--accent-600);
+}
+
+.scratch-status-clean {
+  color: var(--fg-subtle);
+}
+
+/* ---------- 8 向缩放 handle ---------- */
+.scratch-resize {
+  position: absolute;
+  z-index: 2;
+}
+
+.scratch-resize-n,
+.scratch-resize-s {
+  right: 8px;
+  left: 8px;
+  height: 5px;
+  cursor: ns-resize;
+}
+
+.scratch-resize-n {
+  top: 0;
+}
+
+.scratch-resize-s {
+  bottom: 0;
+}
+
+.scratch-resize-e,
+.scratch-resize-w {
+  top: 8px;
+  bottom: 8px;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.scratch-resize-e {
+  right: 0;
+}
+
+.scratch-resize-w {
+  left: 0;
+}
+
+.scratch-resize-ne,
+.scratch-resize-nw,
+.scratch-resize-se,
+.scratch-resize-sw {
+  width: 12px;
+  height: 12px;
+}
+
+.scratch-resize-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.scratch-resize-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
+
+.scratch-resize-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.scratch-resize-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+/* ---------- 层内工具条（新建 / 打开 / 平铺 / 层叠）----------
+ * 刻意用远高于窗格 z（store 的 zCounter 从 1 递增）的层级，
+ * 保证被最大化窗格覆盖时仍可点击；位置固定在右下角，代价是与最大化窗格的
+ * 状态栏右端有少量重叠（已用毛玻璃 + 半透明弱化）。
+ */
+.scratch-toolbar {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  pointer-events: auto;
+  background-color: var(--bg-glass);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-full);
+  box-shadow: var(--e2);
+  backdrop-filter: blur(10px);
+}
+
+.scratch-tool-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-full);
+  transition:
+    background-color var(--dur-fast) var(--ease-out-quint),
+    color var(--dur-fast) var(--ease-out-quint);
+}
+
+.scratch-tool-btn:hover {
+  color: var(--fg-default);
+  background-color: var(--bg-hover);
+}
+
+.scratch-tool-sep {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background-color: var(--border-default);
+}
+
+/* ---------- 层内确认弹窗（关闭脏窗格的询问）----------
+ * `components.css` 的 `.overlay` 是 `position:absolute; z-index:50`，而本层
+ * ① 是 `pointer-events:none`（子元素会继承 none ⇒ 弹窗不可点），
+ * ② 是独立层叠上下文（工具条的 z=9999 会盖住 z=50 的遮罩）。
+ * 两处都必须在这里显式纠正 —— 这也是「不动 components.css」的代价，已注释备案。
+ */
+.scratch-layer .overlay {
+  z-index: 10000;
+  pointer-events: auto;
+}
