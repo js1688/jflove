@@ -43,7 +43,7 @@ from tests.conftest import (  # noqa: F401  (client/env 供其它文件使用)
 
 # ── 这里自己实现一份轻量结构解析，**故意不 import 门禁脚本** ──
 # 理由：测试要用独立的第二实现来核对，直接复用被测代码的解析函数会"同错同对"。
-# （门禁脚本本身有 `设计预览/verify_schema_guard.py` 做反向验证。）
+# （门禁脚本本身有 `scripts/verify_check_db_schema.py` 做反向验证。）
 
 
 def _split_top_level(body: str) -> list[str]:

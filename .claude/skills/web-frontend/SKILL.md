@@ -25,7 +25,7 @@ description: 前端工程师，负责 jflove-web 浏览器端应用开发（Reac
 | 框架 | React | 18+ | 函数式组件 + Hooks，禁止 class 组件 |
 | 构建工具 | Vite | 6+ | 开发 HMR + 生产构建 |
 | 样式方案 | Tailwind CSS | 4+ | PC / 移动端双布局通过 responsive prefix 切换，禁止 CSS-in-JS |
-| 状态管理 | Zustand | 5+ | 对标桌面端 Redux 模式（信号槽）、移动端 Riverpod |
+| 状态管理 | Zustand | 5+ | 对标桌面端 `ui/src/stores/*`（同为 zustand）、移动端 Riverpod |
 | 路由 | React Router | v7（latest） | 支持布局路由、路由守卫、懒加载 |
 | HTTP 客户端 | 自研 `src/utils/http-client.ts`（fetch 封装） | — | 对标桌面端 `http_client.py`、移动端 `http_service.dart`，UI 层和 services 层禁止直接 `fetch()` |
 | 加密—ECDH | Web Crypto API（`SubtleCrypto`）主路径 + `@noble/curves` 纯 JS 回退 | — | X25519 密钥交换 + HKDF-SHA256 派生 session_key；**非安全上下文（HTTP 域名）时 `crypto.subtle` 不可用，自动回退纯 JS 实现（协议不变）** |
@@ -52,18 +52,19 @@ description: 前端工程师，负责 jflove-web 浏览器端应用开发（Reac
 
 ## 项目结构约定
 
-参见 `AGENTS.md §3` jflove-web 目录结构。关键分层（v1.3.1 实际结构）：
+参见 `AGENTS.md §3` jflove-web 目录结构。关键分层（当前实际结构）：
 
-- `src/utils/` — 加密（crypto / hash / hash-fallback）、HTTP（http-client）、会话（session）、流式帧解析（stream-frame）、**MSE 播放（media-source-player，边下边播主路径）**、Markdown（markdown / markdown-insert）、展示辅助（file-visual / format）
+- `src/utils/` — 加密（crypto / hash / hash-fallback）、HTTP（http-client）、会话（session）、流式帧解析（stream-frame）、**MSE 播放（media-source-player，边下边播主路径）**、Markdown（markdown / markdown-insert）、展示辅助（file-visual / format）、**mermaid 渲染子模块（`utils/mermaid/`，8 个文件：cache / config / loader / matrix / renderer / sanitize / tokens / types）**
 - （v1.4.0 起**不存在** `src/sw/` 与 `dist/sw.js`：流式预览统一走 MSE，见上）
-- `src/services/` — **9 个业务 service**（auth / config / disk / file / note / permission / server_history / sync / user），对标桌面端 `services/`，统一通过 http-client 通信
-- `src/stores/` — Zustand 状态管理（5 个 store：auth / file / note / settings / transfer），按功能域拆分
-- `src/pages/` — 按路由组织页面（login / files / notes / sync / transfer / security / settings / admin；首页已移除，`/` 重定向 `/files`）
+- `src/styles/` — 全局样式（`tokens.css` 设计令牌 / `theme.css` 亮暗主题 / `components.css` 组件样式）；其中 `src/styles/components.css` 与 `src/styles/tokens.css` 与桌面端 `jflove-desktop/ui/src/styles/` 下的同名文件**必须逐字节一致**（见 §边界约束）
+- `src/services/` — **10 个业务 service**（auth / config / disk / file / note / permission / repair / server_history / sync / user），对标桌面端 `services/`，统一通过 http-client 通信
+- `src/stores/` — Zustand 状态管理（6 个 store：auth / file / note / settings / theme / transfer），按功能域拆分
+- `src/pages/` — 按路由组织页面（login / files / notes / sync / transfer / security / settings / admin，实际文件为 FileListPage / NoteEditPage / NoteListPage / SyncPage / TransferPage / TransferTabsPage / SecurityPage / SettingsPage / LoginPage / RepairCenterPage / DiskBrowserPage / FilePreviewPage；首页已移除，`/` 重定向 `/files`；**清单以实际目录为准**）
 - `src/layouts/` — 布局组件（AppLayout / DesktopLayout / MobileLayout / AuthLayout）
 - `src/hooks/` — 自定义 Hooks（含 `use-responsive.ts` 的 `useIsPC` / `useBreakpoint`）
 - `src/types/` — TypeScript 类型定义，对标后端 Pydantic models
 - `src/components/` — 可复用 UI 组件
-- `tests/` — 单元测试 + 组件测试（Vitest，当前 54 用例）
+- `tests/` — 单元测试 + 组件测试（Vitest，当前 **208 用例** / 20 个文件）
 
 ## 行为规范
 
@@ -88,7 +89,7 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 
 ### 响应式布局规范
 
-- **PC 端**（`≥1024px`）：侧边栏导航 + 主内容区，对标桌面端 PySide6 的侧边栏布局。
+- **PC 端**（`≥1024px`）：侧边栏导航 + 主内容区，对标桌面端 `ui/src/layouts/` 的侧边栏布局。
 - **移动端**（`<1024px`）：底部 TabBar 导航 + 全屏内容区，对标移动端 Flutter 的 TabBar 布局。
 - 通过 Tailwind `lg:` / `md:` / `sm:` prefix 控制断点切换，使用 `useMediaQuery` Hook 做 JS 侧逻辑判断。
 - 布局组件通过 `layouts/DesktopLayout.tsx` 和 `layouts/MobileLayout.tsx` 分离，`App.tsx` 根据视口宽度自动切换。
@@ -106,11 +107,20 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 ## 边界约束（禁止越界）
 
 - 只在 `jflove-web/` 下编码，不可触碰 jflove-server / jflove-desktop / jflove-app。
-- **桌面端 `jflove-desktop/webui/` 是另一套独立前端工程**（Vite + React + Tailwind + TypeScript），
-  **与 `jflove-web` 各自独立、互不干扰**：不共享源码 / 组件 / 构建配置，`jflove-web` 也**不得**引用它。
-  两边观感对齐靠「同一套设计令牌 +  校验」，
-  **不要"顺手共享组件"**去破坏独立性；本模块的发布流程与 CI **不因桌面端而改动**
-  （依据：`plans/desktop-hybrid-shell-v1.5.0.md` §四.2、`文档记录/桌面端开发记录/v1.5.0.md` §16.5）。
+- **桌面端前端工程是 `jflove-desktop/ui/`**（Vite + React + Tailwind + TypeScript），由 QtWebEngine 承载；
+  `jflove-desktop/webui/` **只是构建产物里的包内资源目录名**（`jflove-desktop/build.py` 的
+  `--add-data "ui/dist;webui"`），**源码树里不存在这个目录**，排查问题时不要去找它。
+- **两端各自独立演进**：不共享构建配置，`jflove-web` **不得**引用 `jflove-desktop/ui/`，
+  两边也不要"顺手共享组件"；
+  但 `scripts/check_web_desktop_parity.py` 的 **`PARITY_MANIFEST`** 清单内文件必须**逐字节一致**
+  （当前含 `src/pages/NoteEditPage.tsx`、`src/styles/components.css`、`src/styles/tokens.css`；
+  以脚本里的 `PARITY_MANIFEST` 为准）—— 改一端必须两端同改，
+  否则 CI job `cross-end-consistency-guard` 变红。
+- 观感对齐靠「同一套设计令牌 + `scripts/check_web_desktop_parity.py` 的逐字节校验」：
+  令牌本体在两端各自的 `src/styles/tokens.css`（品牌资产另有 `scripts/check_logo_sync.py` 守两端 `public/logo-*` 同字节）。
+  本模块的发布流程与 CI **不因桌面端而改动**
+  （依据：`plans/desktop-webui-migration-v1.5.0.md` §2.1、`文档记录/桌面端开发记录/v1.5.0.md` §3.3；
+  注意 `plans/` **未纳入版本控制**，本地可能不存在）。
 - 不修改 `.github`、`.vscode`、`.gitignore`、`.git`、`.idea`，除非用户明确要求。
 - 不做产品设计、不做技术设计，仅按现有设计文档实现。
 - 不引入新的加密算法 / 模式 / KDF，必须复用已有加密原语（见 §技术栈约束 加密部分）。
@@ -166,7 +176,8 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
    实测逐条对照：**只留 `transition-duration` 照样坏**，只留 `animation-duration` 或整条去掉即正常。
    - 正确写法：全局冻结只作用于 HTML UI，**SVG 子树豁免**（`:not(svg):not(svg *)`）；
    - 同类高危属性：`transition` / `animation` / `transform` / `will-change` / `contain`；
-   - 依据与复现：`.claude/skills/LESSONS.md` L23、。
+   - 依据与复现：`.claude/skills/LESSONS.md` L23、`jflove-web/tests/utils/mermaid-geometry.test.ts`
+     （`describe('reduced-motion 与引擎几何…')` 一条条锁死"只留 transition / 只留 animation / 整条去掉"的三种取值）。
 
 10. **媒体/系统偏好类结论必须显式枚举，不能吃环境默认值**
     无头浏览器**默认报告 `prefers-reduced-motion: reduce`** —— 上面那条 CSS 只在 reduce 下生效，
@@ -203,7 +214,9 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
     模板常量完全正确，坏在插入逻辑。正确做法是**真的点按钮、读编辑区、看预览**，
     并加**负向对照**（把修复前行为注入回去，确认用例会失败且失败信息与用户报的现象一致）。
     桩后端 + 伪造登录态的配方按版本需要临时编写、跑完即弃。
-    、。
+    回归用例见 `jflove-web/tests/utils/markdown-insert.test.ts`；负向对照的留档见
+    `文档记录/Web端开发记录/v1.5.0.md`（「同一脚本的**负向对照**」：把修复前行为注回去后精确复现用户截图里的
+    `Parse error on line 2: erDiagram 用户 \|--o{ 会话`）。
 
 
 ## 文档更新范围
@@ -214,9 +227,16 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 
 ## 版本号管理（发布阻塞项）
 
-- Web 端共 **3 处版本号**，必须一致：`package.json` `version`、`src/config/constants.ts` `APP_VERSION`（设置页「关于」显示）、`build.py` `VERSION`。
-- 推荐发布时用 `python build.py --version x.y.z` 一键同步（构建前自动校验一致性，不一致中止构建——防止「构建了新版本但设置页还是旧版本号」）。
-- 日常开发手动改版本号时，3 处必须同步修改。
+- **唯一真相 = 仓库根 `version.json`**，Web 端由 `python scripts/sync_version.py` 同步**2 处**
+  （全仓总处数**以 `scripts/sync_version.py::POSITIONS` 为准**）：
+  `package.json` `version`、`src/config/constants.ts` `APP_VERSION`（设置页「关于」显示）。
+  `jflove-web/build.py` **不再硬编码版本号**（它只读 `version.json`，并在构建前用
+  `sync_version.check_consistency("web")` 校验，不一致直接中止构建）。
+- **禁止手动改任何版本号字段**。改版本只有一个动作：
+  `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`
+  （只校验：`python scripts/sync_version.py --check`，不一致非 0 退出）。
+- 模块 `jflove-web/build.py` 的参数只有 `--tag` / `--no-cache` / `--save`，**没有 `--version`**；
+  发布走仓库根统一入口 `python build.py -m web`（见 `AGENTS.md §8`）。
 
 ## 构建与验收
 

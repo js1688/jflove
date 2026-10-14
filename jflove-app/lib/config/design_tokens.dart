@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// JFLove 设计令牌（三端统一）
 ///
 /// 与 Web 端 `jflove-web/src/styles/tokens.css`、桌面端
-/// `jflove-desktop/src/ui/theme/tokens.py` 是同一套语义名的投影。
+/// `jflove-desktop/ui/src/styles/tokens.css` 是同一套语义名的投影。
 ///
 /// 约定（需求 AC-3）：**本文件是移动端唯一允许出现颜色字面量的地方**；
 /// 页面与组件一律通过 `Theme.of(context).extension<AppTokens>()!`

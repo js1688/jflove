@@ -9,7 +9,7 @@ import '../../widgets/app_card.dart';
 
 /// 登录页
 ///
-/// 对标桌面端 login_window.py。
+/// 对标桌面端 `jflove-desktop/ui/src/pages/LoginPage.tsx`。
 /// 功能：服务器地址 + 历史记录 + 密钥交换 + 管理员初始化 + 用户登录 + TTL 选择。
 ///
 /// v1.5.0：唯一的「品牌时刻」页面 —— 背景改品牌光晕 + 极淡网格

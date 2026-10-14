@@ -68,6 +68,9 @@ SRC_DIRNAME = "src"
 PARITY_MANIFEST: tuple[str, ...] = (
     "src/pages/NoteEditPage.tsx",
     "src/styles/components.css",
+    # 令牌唯一真相（tokens.css 头部注释自述"两端逐字节一致"）——此前不在清单里，
+    # 属"自述的约束没有可执行判据"（LESSONS.md L12/L18）。实测两端一致，纳入判据。
+    "src/styles/tokens.css",
 )
 
 #: 统计"未参与比对"时跳过的目录（构建产物 / 依赖，不属源码树）

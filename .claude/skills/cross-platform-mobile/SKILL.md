@@ -17,15 +17,16 @@ description: 移动端工程师，负责 jflove-app 跨平台移动应用开发�
 
 ## 技术栈约束
 
-- 语言：**Dart 3.6+**
-- 框架：**Flutter 3.27+**；路由：**go_router**
+- 语言：**Dart 3.12+**（下限取自 `jflove-app/pubspec.yaml` 的 `sdk: ^3.12.2`）
+- 框架：**Flutter 3.44+**（`AGENTS.md §3.1`：`FLUTTER_HOME=D:\flutter\flutter_3.44.6-stable`）；路由：**go_router**
 - 状态管理：**Riverpod**（`flutter_riverpod`，支持异步/自动释放）
 - HTTP：**dio** + 自研 `lib/utils/http_service.dart`（加密信封 + 流式帧解析，对齐桌面端 http_client.py）
 - 安全存储：**flutter_secure_storage**（token 等敏感字段存 Keychain / Keystore）
 - 本地文件：**path_provider**（同步配置 JSON、文件下载缓存）
 - 加密：`pointycastle` 纯 Dart（X25519 + ChaCha20-Poly1305 + HKDF-SHA256），**禁止 `dart:ffi` / libSodium / 任何原生加密库**
-- 测试：`flutter_test`（当前仅 `test/` 目录，22 个用例；无 `integration_test` 目录）；静态分析：`dart analyze lib/` 必须零错误
-- 构建：`flutter build apk --debug`（Android）；预留 iOS/鸿蒙构建入口
+- 测试：`flutter_test`（当前仅 `test/` 目录，**160 个用例**、19 个测试文件；无 `integration_test` 目录）；静态分析：`dart analyze lib/` 必须零错误
+- 构建：日常自测用 `flutter build apk --debug`（Android）；**正式打包一律走仓库根
+  `python build.py -m app`**（`AGENTS.md §8` 统一打包入口；模块内**没有** `build.py`）；预留 iOS/鸿蒙构建入口
 - 日志/异常/性能：Dart `logging`，release 模式全静默；大文件 Isolate 解密
 - **首版 Android-only**：保留 `android/`，删除 ios/macos/windows/linux/web
 - **加密实现陷阱**：见下方「⚠️ 加密实现陷阱」节
@@ -35,12 +36,12 @@ description: 移动端工程师，负责 jflove-app 跨平台移动应用开发�
 参见 `AGENTS.md §3` jflove-app 目录结构。关键分层：
 
 - `lib/utils/` — 加密（crypto）、HTTP（http_service）、会话（session）、流式帧解析（stream_frame）、流式代理（stream_proxy）
-- `lib/services/` — **11 个业务 service**（auth / config / disk / file / note / permission / server_history / sync / sync_engine / transfer / user），对标桌面端 `services/`，构造注入 HttpService
-- `lib/providers/` — Riverpod 状态管理（6 个文件），按功能域拆分
-- `lib/pages/` — 按路由组织页面（login / files / notes / sync / transfer / settings / admin；首页已移除，`/` 重定向 `/files`）
+- `lib/services/` — **12 个业务 service**（auth / config / disk / file / note / permission / repair / server_history / sync / sync_engine / transfer / user）+ `mermaid/` 渲染子模块（mermaid_render_service / mermaid_types），对标桌面端 `services/`，构造注入 HttpService
+- `lib/providers/` — Riverpod 状态管理（7 个文件：admin / file / note / session / sync / theme / transfer），按功能域拆分
+- `lib/pages/` — 按路由组织页面（login / files / notes / repair / sync / transfer / settings / admin；首页已移除，`/` 重定向 `/files`；**清单以实际目录为准**）
 - `lib/models/` — 不可变数据模型（7 个文件）
-- `lib/widgets/` — 可复用 UI 组件（6 个，含 transfer_floating_card）
-- `test/` — 单元/widget 测试（当前 22 个用例，无 integration_test 目录）
+- `lib/widgets/` — 可复用 UI 组件（9 个，含 transfer_floating_card）
+- `test/` — 单元/widget 测试（当前 **160 个用例** / 19 个测试文件，无 integration_test 目录）
 
 ## 行为规范（启用后）
 
@@ -84,7 +85,13 @@ description: 移动端工程师，负责 jflove-app 跨平台移动应用开发�
 - **HKDF 正确用法**：pointycastle 的 `HKDFKeyDerivator.process()` 会将参数**追加到 info 字段**，导致派生密钥与服务端不一致。必须使用 `deriveKey(null, 0, out, 0)` 替代 `process()`。
 - **登录响应字段名**：服务器返回 `expires_in`（有效期秒数），不是 `expires_at`。需要从当前时间 + `expires_in` 计算过期时间戳。
 - **错误响应需解密**：加密错误响应的 body 是密文信封，需 `_decryptEnvelope` 解密后才能看到真实 detail，不能直接显示原始 `DioException.message`。
-- **版本号**：仅 `pubspec.yaml` 的 `version: x.y.z+n` 一处（`+n` 为 build number），发布时手动修改；无 build.py 同步脚本。
+- **版本号（单一来源，禁止手改）**：唯一真相是仓库根 **`version.json`**，移动端由
+  `python scripts/sync_version.py` 同步**两处**（全仓总处数**以 `scripts/sync_version.py::POSITIONS` 为准**）
+  —— `jflove-app/pubspec.yaml` 的
+  `version: x.y.z+<code>` 与 `jflove-app/lib/pages/settings/settings_page.dart`（设置页「关于」显示）。
+  `+<code>`（Android versionCode）由版本号**派生**：`major*1e6 + minor*1e3 + patch`
+  （如 `1.5.0 → 1005000`），不允许单独维护。改版本只改 `version.json` + 跑同步脚本；
+  `sync_version.py --check` 不一致时非 0 退出（CI / 构建会拦住）。
 
 ## 边界约束（禁止越界）
 

@@ -1,7 +1,11 @@
 /**
  * 设计令牌 —— 语义层（唯一改色点）
  *
- * 来源：`设计预览/assets/design-system.css`（设计令牌唯一真相）
+ * 来源：**本文件自身即设计令牌的唯一真相**。历史注释曾把一份原型样式目录（仓库早期存在、
+ *   现已删除）当作来源，该依据已失效、不可再引用。
+ *   本文件在 Web 端与桌面端（`jflove-desktop/ui/src/styles/tokens.css`）**逐字节一致**，由
+ *   `scripts/check_web_desktop_parity.py` 的 `PARITY_MANIFEST` 以 sha256 实时守住；
+ *   哈希不写进文件头 —— 自引用哈希无法自洽，一律以门禁脚本的实时比对为准。
  * 规则（AGENTS.md 要求 + 需求 AC-3）：
  *   - 本文件是 Web 端**唯一**允许出现十六进制颜色字面量的地方（唯一例外见 theme.css 的
  *     Tailwind 色阶映射）；
@@ -9,7 +13,8 @@
  *     工具类（`bg-surface` / `text-muted` 等），不得直接写颜色值；
  *   - 亮/暗两套只覆盖语义层，组件样式零改动。
  *
- * 由脚本核对：见 文档记录/设计文档/v1.5.0.md §6.2
+ * 由脚本核对：`scripts/check_web_desktop_parity.py`（跨端逐字节一致）；
+ *   设计口径见 文档记录/设计文档/v1.5.0.md §6.2
  */
 
 :root {

@@ -10,14 +10,15 @@ JFLove 桌面应用入口（Web UI 版）
 
 ## 与旧入口的关系
 
-旧的 Qt/Fluent 界面（`ui/login_window.py`、`ui/main_window.py`、`ui/pages/*`、
-`components/preview_dialog.py`、`components/markdown_view.py`）**已不再被本入口使用**，
-它们会在 N20 节点统一清理。当前保留在树上是为了让迁移期的 diff 可读。
+v1.5.0 起桌面端界面换轨为 Web UI。旧的 Qt/Fluent 界面（登录窗口 / 主窗口 / `ui/pages/*` /
+`ui/theme/*` / `ui/kit/*` / 预览对话框 / Markdown 视图等）**已从仓库物理删除**（提交 962062f），
+磁盘上不再有这些文件，不必也不能再按旧路径去找它们；需要查阅当时的实现请走 git 历史
+（`git show 962062f^:<旧路径>`，路径可从 `git show --stat 962062f` 里取）。
 
 ## Linux 为什么强制 XWayland
 
 QtWebEngine 在 Wayland 下有崩溃前科（PySide6 6.11 + Qt 6.10 + Wayland 的
-PYSIDE-2700 系列；详见 `components/markdown_view.py` 历史注释与计划 §10）。
+PYSIDE-2700 系列；原始排查记录随已删除的原生界面留在 git 历史里，另见计划 §10）。
 用户已确认接受"Linux 强制走 XWayland"这一取舍。
 """
 

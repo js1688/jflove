@@ -13,25 +13,33 @@
 
 ---
 
-## BL-1（中）桌面端徽标色调表与设计系统在 brand / neutral 两档取值不一致
+## BL-1（中）桌面端徽标色调表与设计系统在 brand / neutral 两档取值不一致 —— ✅ 已闭环（前提失效）
 
-- **状态**：待排期 ｜ **来源**：`文档记录/代码审查报告/v1.5.0.md` 的 M-3（v1.5.0 遗留中等，v1.5.1 未触碰）
-- **影响面**：**全端状态徽标**（用户管理/磁盘/权限等页面的状态与角色徽标）
-- **证据**：见 `代码审查报告/v1.5.0.md:458`（问题详情）与 `:726`（处置登记「本轮未改，保留在待决口径里」）
-- **问题实质**：`tokens.py` 的 `BADGE_TONE_ATTRS`（自称**单一真相**）与设计系统的 `.badge-*`
-  在 **brand / neutral** 两档上取值不同；**现有探针发现不了**（审计探针拿 tokens 值当期望，不是对着 `design-system.css` 比）
-- **两条可选做法（需 product / designer 先定口径）**：
-  1. **改代码对齐设计系统**：`BADGE_TONE_ATTRS` 指向设计系统同名字段（brand→`--brand-700` / 暗 `#C7D2FE`；
-     neutral→亮 `--n-600` / 暗 `rgba(255,255,255,.08)`），并把暗色浅底的 `.16` 与设计系统的 `.18` 对齐。
-     ⚠ 会**牵动全部桌面探针**（几何/颜色按 `代码审查报告/v1.5.0.md §9.5` 的耦合纪律处理，改完重跑全部探针）。
-  2. **在 tokens 注释里写明确偏离理由**（例：`# 有意偏离设计系统 neutral 档：<原因>`）——
-     只碰注释、不牵动探针；但要保证「不再两处各留一个值」的语义清晰。
-- **附带项**：`BADGE_TONE_ATTRS` 的 `info` 档在设计系统里不存在（`.badge` 只有 5 档）——建议注释里注明为**扩展档**。
-- **验收判据**：① 两档取值要么一致、要么有显式偏离说明；② 桌面探针全绿（改代码路线）；③ 徽标像素抽查（不只看代码）。
+- **状态**：已闭环（v1.6.0，**前提失效，未改任何代码**）｜ **来源**：`文档记录/代码审查报告/v1.5.0.md` 的 M-3
+- **闭环依据（实测）**：BL-1 点名的 `tokens.py` 与符号 `BADGE_TONE_ATTRS` 在**整个仓库历史 0 命中**；
+  `设计预览/` 目录（含 `assets/design-system.css`）**全历史不存在**。取证命令：
+  `git log --all --oneline -- "*tokens.py"`（空）／`Test-Path jflove-desktop/src/config/tokens.py`（False）／
+  `Test-Path 设计预览`（False）／全仓 grep `BADGE_TONE_ATTRS` → 仅命中 `文档记录/` 内 8 处
+- **现状**：徽标色调只在**一处**定义 ——
+  [`jflove-desktop/ui/src/styles/components.css:227-271`](../../jflove-desktop/ui/src/styles/components.css)
+  （与 `jflove-web/` 侧**同名同行、逐字节一致**），
+  取值正好等于原报告所述的「设计系统值」（brand 暗 `rgb(99 102 241 / 0.18)`/`#c7d2fe`；
+  neutral 暗 `rgb(255 255 255 / 0.08)`/`#94a3b8`）
+  ⇒ **代码无偏离，不存在「两处各留一个值」的问题**
+- **实际处置**：纠正**文档指向**（把「令牌唯一真相 = `设计预览/assets/design-system.css`」改为指向两份 `tokens.css`），
+  并把 `src/styles/tokens.css` 纳入 [`scripts/check_web_desktop_parity.py`](../../scripts/check_web_desktop_parity.py)
+  的 `PARITY_MANIFEST`
+- **附带项复核**：`BADGE_TONE_ATTRS` 的 `info` 档**同样不存在**（全仓 0 命中）；
+  `.badge` 只 **5 档**（`brand/success/warning/danger/neutral`，`components.css:227-271`）⇒ 无「扩展档」需要注明
+- **原条目前提说明（留痕）**：BL-1 是从 v1.5.0 报告**直接抄录**的条目，抄录时未复核被引用文件是否存在；
+  报告自己在 `代码审查报告/v1.5.0.md` 的附录 **C-2 / C-2b** 已承认过 `设计预览/` 与那些探针
+  「全历史 0 命中」，且 C-2b 明确指出 M-3 这类**带行号的源码引用**所指向的 `src/ui/kit/*`、`src/ui/theme/*`、
+  `src/ui/widgets/*` **从未入库** ⇒ 该结论**不可用仓库复现，不得当作既成事实**
 
-## BL-2（轻）`GET /api/v1/config` 的 OpenAPI 描述与实现不符（列表 vs 字典）
+## BL-2（轻）`GET /api/v1/config` 的 OpenAPI 描述与实现不符（列表 vs 字典） —— ✅ 已闭环（v1.6.0）
 
-- **状态**：待排期 ｜ **来源**：v1.5.1 测试报告 D3
+- **状态**：**已闭环（v1.6.0）** ｜ **来源**：v1.5.1 测试报告 D3
+- **闭环证据**：`jflove-server/src/controllers/config_controller.py:42` / `:46-47` 改为「配置项**键值对映射**（`{key: value}`）」并补齐 PUT 的响应字段说明；实测 `app.openapi()` 路径数 = **42**（与 v1.5.1 一致）、`_PLAIN_PATHS` 仍 **3** 条。详见 `文档记录/后端开发记录/v1.6.0.md §2`
 - **证据**：`jflove-server/src/controllers/config_controller.py:41-47` —— description 写
   「响应体（加密后）字段：`config`：配置项**列表**，每项含 `key`、`value`」；
   而实现返回的是 **`{key: value}` 字典**（`config_service.get_all()`）。
@@ -40,9 +48,16 @@
   顺手核对同文件其它接口的 description 是否也有同类措辞问题。
 - **验收判据**：description 与实现一致；`/docs`（OpenAPI）描述可读；接口行为不变（回归用例应保持全绿）。
 
-## BL-3（轻）Web 端把「响应解密失败」归为网络错误，措辞误导排查
+## BL-3（轻）Web 端把「响应解密失败」归为网络错误，措辞误导排查 —— ✅ 已闭环（v1.6.0）
 
-- **状态**：待排期 ｜ **来源**：v1.5.1 测试报告 D5 + 复审（`代码审查报告/v1.5.1.md` R5 相关）
+- **状态**：**已闭环（v1.6.0）** ｜ **来源**：v1.5.1 测试报告 D5 + 复审（`代码审查报告/v1.5.1.md` R5 相关）
+- **闭环证据**：`jflove-web/src/utils/http-client.ts` 新增 `isEnvelope()` + `decryptResponse()`，
+  **两处**解密点（POST/PUT/DELETE 与 GET query 信封）均改为：形状不是信封 → 明文直返；是信封但解不开 →
+  `ApiError(502, '响应解密失败（会话密钥不匹配或响应被篡改）')`（对齐桌面端 `_is_envelope()` 口径）。
+  新增 **3 条**用例（含「明文不误伤」判据 + GET 路径），`npm run test:coverage` → **211 passed**。
+  详见 `文档记录/Web端开发记录/v1.6.0.md §1`
+- **遗留**：错误响应体的解密（`tryDecryptError()`）在信封解不开时退化为 `HTTP <状态码>` —— 已带真实状态码、**不误导**，
+  故不在本条范围；如需对齐桌面端 `_decrypt_error` 应另立条目（见 Web 记录 §4 W-1）
 - **证据**：`jflove-web/src/utils/http-client.ts:102-109`（POST/PUT/DELETE 的 catch）——
   任何非 `ApiError` 异常都被包成 `ApiError(0, '网络错误：…')`，而**解密失败**（`decryptEnvelope` 抛）也走这里；
   加密 GET 路径（同文件约 `:165-171` 一带）同型。
@@ -54,9 +69,17 @@
 - **验收判据**：用例 —— 喂「200 + 解不开的信封」→ 断言抛 `ApiError(502)` 且文案**不含** `nonce`/`ciphertext`；
   喂「200 + 明文 body」→ 直返成功（明文白名单路径不误伤）。
 
-## BL-4（中）覆盖率工具未接入，SKILL 的「核心逻辑 ≥ 90%」无从验证
+## BL-4（中）覆盖率工具未接入，SKILL 的「核心逻辑 ≥ 90%」无从验证 —— ✅ 已闭环（v1.6.0，不含 CI 门槛）
 
-- **状态**：待排期 ｜ **来源**：v1.5.1 测试报告「覆盖率：未测量」
+- **状态**：**已闭环（v1.6.0）** ｜ **来源**：v1.5.1 测试报告「覆盖率：未测量」
+- **闭环证据**：
+  - **Web 侧**：`jflove-web/package.json` 加 `@vitest/coverage-v8@2.1.9` + `"test:coverage"`；
+    实测 `npm run test:coverage` → **Test Files 20 passed / Tests 211 passed**，`All files` 覆盖率 **21.1%**，**exit 0**
+  - **服务端**：**新建** `jflove-server/requirements-dev.txt`（`pytest-cov==7.1.0`，**不入运行时 `requirements.txt`**）；
+    实测 `pytest tests/ -q --cov=src --cov-report=term-missing` → **180 passed / TOTAL 73%**，**exit 0**
+  - **不设 CI 门槛**（D16 未授权改 `.github`）—— 两个数字是**首次可测量基线**，不作为通过判据
+  - 详见 `文档记录/Web端开发记录/v1.6.0.md §2` 与 `文档记录/后端开发记录/v1.6.0.md §8`
+- **新登记**：`pytest` 本身从未在任何 requirements 中声明（预装在 venv 的既有事实），本次按范围纪律**未顺手补**，见后端记录 §8.3
 - **现状证据（实测）**：全仓未配置任何覆盖率工具 ——
   `jflove-web/package.json` 无 coverage 脚本、devDeps 无 `@vitest/coverage-*`；
   `jflove-server/requirements.txt` 无 `pytest-cov`；无 `pytest.ini`/`pyproject.toml`/`setup.cfg`/`tox.ini`；
@@ -68,9 +91,13 @@
 - **验收判据**：一条命令能生成报告（`npm run test:coverage` / `pytest --cov`）；
   报告数字来自仓库内可执行命令；若设门槛，CI 退出码即判据。
 
-## BL-5（轻-中）Python 版本口径：要求 3.14+，本机 venv 实测 3.13.14
+## BL-5（轻-中）Python 版本口径：要求 3.14+，本机 venv 实测 3.13.14 —— ✅ 已闭环（v1.6.0，取「记录差异」）
 
-- **状态**：待排期（需先定「升级环境」还是「记录差异」）｜ **来源**：v1.5.1 测试报告环境一节 + PMO §5
+- **状态**：**已闭环（v1.6.0）** —— 按 **D14 取「记录差异」**，**不升级本地环境** ｜ **来源**：v1.5.1 测试报告环境一节 + PMO §5
+- **闭环证据**：`jflove-desktop/README.md`「运行环境」下方新增「Python 版本口径」块，
+  显式记录「要求 3.14+ / `venv-win` 实测 **3.13.14**（本机只有 `Python313`）/ v1.6.0 用例全绿 / **不升级环境**」；
+  服务端侧证据见 `文档记录/后端开发记录/v1.6.0.md §9`；实测 `python -V` = **3.13.14**（未变）
+- **⚠ 仍留在台账的事**：「把本地两个 venv 升到 3.14」尚未做 —— 如需做，应作为**独立条目**排期（重建 venv + 重装 PySide6/cryptography/requests/pyinstaller）
 - **证据**：要求侧 —— `jflove-server/Dockerfile:5` `FROM python:3.14-slim`、
   `AGENTS.md:45-46`（Python 3.14+）、根 `README.md:3` badge；
   实测侧 —— `jflove-server/venv-win` 与 `jflove-desktop/venv-win` 均为 **3.13.14**，
@@ -91,6 +118,67 @@
 - **处置**：无头环境（`QT_QPA_PLATFORM=offscreen`）**无法验证**，已明确不伪造通过（`LESSONS.md` L27/L40）。
   若后续使用中发现异常 → 按 `AGENTS.md §7.5.3` 快速修复通道或 hotfix 处理；否则无需动作。
 
+## BL-7（轻）`设计预览/` 的失效引用（源码与脚本范围已在 v1.6.0 清理；历史文档保留原文 + 更正）
+
+- **状态**：**部分闭环（v1.6.0）** ｜ **来源**：v1.6.0 全仓过时内容清查
+- **背景**：仓库根 `设计预览/` 目录**全历史不存在**，但曾散落 **30+ 处**引用（技能 / README / 设计文档 / 源码注释）
+- **v1.6.0 已做**：源码与脚本范围（`jflove-*/src`、`jflove-*/ui/src`、`tests`、`scripts/`、`build.py`）**死引用归零**；
+  活文档（`.claude/skills/**`、`AGENTS.md`、各模块 README）**就地改对**
+- **仍保留**：`文档记录/` 下历史快照按 `LESSONS.md` **条目 L21** 采用「保留原文 + 追加更正」⇒ 仍能看到 `设计预览/` 字样，**这是有意为之，不是漏改**
+- **验收判据**：`grep` 源码/脚本范围 **0 命中**；历史文档中的引用必须**同段带更正标注**
+
+## BL-8（严重，数据安全）`complete_upload` 覆盖写非原子：先截断再写、hash 失败即删原文件 —— ✅ 已闭环（v1.6.0）
+
+- **状态**：**已闭环（v1.6.0）** ｜ **来源**：v1.6.0 前期调研（P-5）
+- **闭环证据**：`jflove-server/src/services/file_service.py` 的 `complete_upload` 改为
+  「**同目录临时文件**（保证 `os.replace` 同文件系统原子）→ 合并 + 校验都只写临时文件 →
+  校验通过后 `os.replace()` 原子替换」；**`os.remove(dest_file)` 从代码中消失**；失败只删临时文件；
+  mtime 还原作用在临时文件上。新增 **11 条**注入式用例（`tests/test_upload_atomic_v1_6_0.py`）；
+  **负向对照**：换回 HEAD（截断 + 删原文件）实现 → **8 failed, 3 passed**；改回后全量 **180 passed**、`flake8` 0 警告。
+  详见 `文档记录/后端开发记录/v1.6.0.md §3 / §5.2 / §5.3`
+- **⚠ 本条未消除的相邻风险已另立条目**：目标路径本身仍可被穿越（`filename` 未过滤分隔符）→ **BL-10**（严重 · 待用户裁决）
+- **位置**：`jflove-server/src/services/file_service.py` 的 `complete_upload`
+- **缺陷**：① 直接 `open(dest_file, "wb")` **先截断目标文件** ⇒ 中途失败即"原文件变成部分内容"；
+  ② hash 不匹配时 **`os.remove(dest_file)`** ⇒ **原文件被删除**；③ mtime 还原作用在已被破坏的文件上
+- **触发面**：**任何上传覆盖同名文件** —— Web / 桌面 / 移动**三端共用**，文件管理与目录同步都会走到
+- **建议做法**：临时文件**放在目标目录内**（保证 `os.replace` 同文件系统原子）→ 合并 + 校验都写临时文件 →
+  校验通过后 `os.replace()` 原子替换；失败**只删临时文件**，**绝不触碰原文件**；mtime 还原作用在临时文件上
+- **验收判据**：注入式用例 —— 让 `complete` 中途失败 / hash 不匹配 → 断言**原文件内容与 sha256 不变**；
+  **负向对照**：改回截断写法 → 用例**必须失败**
+- **归属**：Phase 3 后端 + Phase 6 补负向对照用例；**回归三端上传与目录同步**
+
+## BL-9（中）桌面端渲染层的 `localStorage` 偏好可能不跨重启（默认 profile 是 off-the-record）
+
+- **状态**：**待验证**（验证后决定是否排期）｜ **来源**：v1.6.0 的 R-1 前置实测（`jflove-desktop/poc/editor-probes/R1-结论.md`）
+- **证据（已实测）**：QtWebEngine 的**默认 profile 是 off-the-record** —— `storageName=''`、`isOffTheRecord=True`、
+  `persistent=…\QtWebEngine\OffTheRecord`、HTTP 缓存**在内存**。从 `import` → `QApplication` →
+  `QtWebEngineQuick.initialize()` → `defaultProfile()` → `QWebEnginePage()` → `QWebEngineView()` → `show` + `loadFinished`
+  → **写 `localStorage`**，全程 **user-data 目录新增文件数 = 0**；`%LOCALAPPDATA%\…\QtWebEngine\Default\` **不存在**。
+- **影响面**：桌面端渲染层在用的 `localStorage` 键 ——
+  `ui/src/utils/session.ts` 的 `serverUrl` / `localSessionMaxSeconds` / `notesDiskId` / `notesPath`，
+  以及 `ui/src/stores/theme-store.ts` 的主题模式。
+  若确实不跨重启，则这些**纯渲染层偏好每次启动都会丢失**（主题有 Python 侧 `theme.json` 兜底、
+  `serverUrl` 有 `session.json` 兜底，**但 `notesDiskId` / `notesPath` / `localSessionMaxSeconds` 是否另有落盘未查证**）。
+- **⚠ 本条的判定前提（未验证）**：R-1 只证了"**写入时不落盘**"，**未做**「写 → 退出 → 重启 → 读」的完整链路验证。
+  **必须先补这个验证**：能读回来 ⇒ 本条不成立（降级为"无问题"）；读不回来 ⇒ 本条成立。
+- **建议做法**（与 v1.6.0 既有决策一致）：纯渲染层偏好改为 **Python 侧持久化** ——
+  v1.6.0 的快捷键（`USER_DATA_DIR/storage/shortcuts.json`）与文件关联（`file_assoc.json`）**已经这么做**，
+  正是为避开这个坑；可照同一模式迁移 `session.ts` 的偏好。
+- **验收判据**：① 完整链路验证脚本（写 → 退出 → 重启 → 读）留下原始输出；② 若成立，迁移后复跑该脚本，
+  断言偏好**跨重启保留**；③ 已有 Python 兜底的项（主题 / 服务端地址）不得回归。
+
+## BL-10（严重，**安全**）`upload/init` 的 `filename` 未过滤路径分隔符 ⇒ 可构造目录穿越目标路径
+
+- **状态**：**待用户裁决**（建议 **v1.6.0 内修** —— BL-8 刚改同一函数，代价最低）｜ **来源**：v1.6.0 的 BL-8 实施期额外发现
+- **证据（源码）**：
+  - `jflove-server/src/controllers/file_controller.py:152-159`：只做 `filename.strip()` + 非空校验（空则 400），**未过滤** `/`、`\`、`..`
+  - `jflove-server/src/services/file_service.py::init_upload`：**只对 `rel_path`** 调 `_safe_join`（`:188`）；`filename` 原样存入会话
+  - `complete_upload`：**`os.path.join(dest_dir, session["filename"])`** ⇒ `filename = "../../…"` 可让 `dest_file` 逃出 `dest_dir`
+- **影响面**：**需已认证且对该磁盘有写权限**（`init_upload` 有 `check_disk_permission`）才能触发 ⇒ 属**认证后路径穿越**；一旦触发可写到虚拟磁盘根之外（受进程权限限制）
+- **为什么现在提**：BL-8 的原子写改造**沿用**了同一条 `os.path.join(dest_dir, filename)` —— 虽已修掉"失败删原文件"，但**没有**消除目标路径本身可被穿越
+- **建议做法**：在 `init_upload`（或 controller）校验 `filename` —— 拒绝含 `/`、`\`、`..` 或 `os.path.sep`/`os.path.altsep` 的值，并要求 `os.path.basename(filename) == filename`；`complete_upload` 侧再用 `_safe_join(dest_dir, filename)` 兜底
+- **验收判据**：注入式用例 —— `filename = "../../evil.txt"` → **400/403 且目标路径外无文件产生**；正常文件名（中文 / 空格 / 点号）不受影响；**负向对照**：去掉校验 → 用例**必须失败**
+
 ---
 
 ## 已闭环（本轮做掉的，留痕便于追溯）
@@ -106,3 +194,15 @@
 | CL-7 | **Service Worker 文档过期**（web-frontend/code-review SKILL、jflove-web README） | v1.5.1（提交 `bab4e4a`） | 改为 MSE 主路径口径；历史版本文档按 `LESSONS.md` L21 保留原样 |
 | CL-8 | **v1.5.0 文档失实**（声称 M-4 已修、引用的用例/探针文件在仓库全历史 0 命中） | v1.5.1 | 两份 v1.5.0 报告末尾追加事后更正 C-1~C-4 + 流程改进（测试数字必须来自仓库可执行命令或 CI 日志） |
 | CL-9 | **移动端同型缺陷复核**（是否存在与 M-4 同型的信封静默降级） | v1.5.1 复核 | **不存在**：`jflove-app/lib/utils/http_service.dart:166-168` 解不开即抛 `AppException` |
+| CL-10 | **BL-1**：徽标色调前提失效（`tokens.py` / `BADGE_TONE_ATTRS` **全历史 0 命中**） | v1.6.0 | 改为「已闭环（前提失效）」；纠正「令牌唯一真相」指向两份 `tokens.css`；`tokens.css` 纳入 `PARITY_MANIFEST`（门禁清单 2 → 3 条） |
+| CL-11 | **BL-2**：config OpenAPI 描述「列表 vs 字典」 | v1.6.0（Phase 3） | 描述改「键值对映射」+ 补齐 PUT 响应字段；路径数 42 / 白名单 3 条未变 |
+| CL-12 | **BL-8**：`complete_upload` 覆盖写非原子（**数据安全**） | v1.6.0（Phase 3） | 同目录临时文件 + `os.replace` 原子替换；`os.remove(dest_file)` 消失；11 条新用例 + 负向对照 `8 failed, 3 passed` |
+| CL-13 | **BL-3**：Web 端解密失败被误报「网络错误」 | v1.6.0 | 两处解密点单独判定 → 合成 `ApiError(502)`；+3 用例（211 passed）；明文形状不误伤 |
+| CL-14 | **BL-4**：覆盖率工具未接入 | v1.6.0 | web `@vitest/coverage-v8` + `test:coverage`（21.1%）；server 新建 `requirements-dev.txt`（`pytest --cov` → 180 passed / 73%）；**不设 CI 门槛** |
+| CL-15 | **BL-5**：Python 版本口径（要求 3.14+ / 实测 3.13.14） | v1.6.0 | 取 D14「记录差异」：桌面端 README 显式留痕；**不升级环境** |
+| CL-16 | 全仓过时内容清查（批次 0~7） | v1.6.0 | **65 文件 / 962 行**；源码与脚本范围死引用归零；历史文档按 L21「保留原文 + 追加更正」 |
+
+> **⚠ 本台账的「未完成」项（截至 2026-10-14）**：**BL-6**（真机项，不做代码工作）· **BL-7**（历史文档中的 `设计预览/` 引用属有意保留）·
+> **BL-9**（`localStorage` 跨重启，待补「写 → 退出 → 重启 → 读」完整链路验证）·
+> **BL-10**（**严重 · 安全 · 待用户裁决**：`upload/init` 的 `filename` 未过滤路径分隔符 ⇒ 目录穿越）。
+> **闭环状态与续接入口的单一真相在 `plans/desktop-scratch-editor-v1.6.0.md §17`。**

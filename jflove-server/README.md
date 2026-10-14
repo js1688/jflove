@@ -55,16 +55,20 @@ Client ← Encrypted Response
 ## 快速开始
 
 ```bash
-# 1. 创建虚拟环境
+# 1. 创建虚拟环境（路径约定见 AGENTS.md §3.1：Windows=venv-win，Linux=venv-linux）
 cd jflove-server
-python3 -m venv venv
+python -m venv venv-win            # Windows
+python3 -m venv venv-linux         # Linux
 
 # 2. 安装依赖（首次需先安装 pydantic-core 预编译包）
-venv/bin/pip install pydantic-core --pre
-venv/bin/pip install -r requirements.txt
+venv-win\Scripts\pip install pydantic-core --pre              # Windows
+venv-win\Scripts\pip install -r requirements.txt
+venv-linux/bin/pip install pydantic-core --pre                # Linux
+venv-linux/bin/pip install -r requirements.txt
 
 # 3. 启动开发服务
-venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload
+venv-win\Scripts\uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload      # Windows
+venv-linux/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload        # Linux
 ```
 
 启动后访问 API 文档：`http://localhost:8989/docs`
@@ -91,8 +95,8 @@ venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8989 --reload
 > 代码已不再创建的历史遗留表（当前为 `notes_permissions`）登记在
 > `scripts/check_db_schema.py::_LEGACY_TABLES`，**不参与比对、不会被复制进 prod**；
 > prod 上若残留空表可用 `--prune-legacy` 清理（非空会拒绝删除）。
-> 改动本工具后必须跑通反向验证：`设计预览\verify_schema_guard.py`、
-> `设计预览\verify_align_preserves_data.py`（两者退出码都要为 0）。
+> 改动本工具后必须跑通反向验证：`python scripts/verify_check_db_schema.py`（退出码 0 = 工具可信、
+> 1 = 有断言失败；它用坏数据证明门禁拦得住、用纯格式差异证明不误报）。
 
 ### 表结构
 
@@ -125,9 +129,9 @@ v1.4.2 起废弃「播放时实时修复」：播放路径零 ffmpeg，只输出
 - **权限门槛**：发起修复/覆盖/删除产物均要求磁盘**写+删权限并存**；任务列表
   全平台共享（所有登录用户可见，只读账号可看不可操作）
 - **服务端配置（config 表）**：
-  - `media_repair_allow_transcode`：重编码子开关，默认 `"0"`（关闭，仅 `-c copy`）
   - `media_repair_max_concurrent`：离线修复队列并发上限，未设置时按 CPU 核数自动推导，硬上限 8
-  - `media_repair_enabled`：**已废弃**（键保留不再读取）
+  - `media_repair_enabled`、`media_repair_allow_transcode`：**均已废弃**（自 v1.4.2 起服务端任何代码都不再读取，
+    见 `src/services/media_repair_service.py:11-13`；键保留在库中不删，`init_db()` 只写入默认值 `"0"`）
 - **安全**：修复只读源文件；产物路径由服务端任务记录推导（客户端不可传路径）；
   ffmpeg 参数列表（无 shell）；日志不记路径/文件名明文
 - **接口**：`/api/v1/files/repair/create|tasks|cancel|override|delete-artifact|delete-record`
@@ -154,7 +158,7 @@ docker run -d \
     -v /opt/jflove/data:/data \
     -v /mnt/big-disk:/storage \
     --restart=always \
-    jflove-server:1.3.1
+    jflove-server:1.5.1
 ```
 
 ### 多盘挂载
@@ -167,7 +171,7 @@ docker run -d \
     -v /mnt/disk-a:/storage/disk-a \
     -v /mnt/disk-b:/storage/disk-b \
     --restart=always \
-    jflove-server:1.3.1
+    jflove-server:1.5.1
 ```
 
 ### SELinux / Podman
@@ -189,18 +193,17 @@ Fedora / RHEL 系系统需加 `:Z` 后缀：
 ### 镜像构建
 
 ```bash
-# 构建并打 tag（版本号与 build.py VERSION 一致；构建前自动校验三处版本号一致性）
-cd jflove-server
-venv/bin/python build.py
-
-# 指定新版本号：自动同步 main.py / build.py / Dockerfile 三处后构建
-venv/bin/python build.py --version 1.3.2
-
-# 构建后导出离线包
-venv/bin/python build.py --save
+# 仓库根目录执行（唯一对外入口）
+python build.py -m server          # 构建并打 tag jflove-server:<version> / latest
+python build.py -m all             # 四端统一入口（缺 docker 时 server/web 会响亮跳过）
 ```
 
-构建脚本会自检：`jflove-prod.db` 必须不含业务数据（防止数据泄漏到镜像）——**仅放行** `config` 表里 `init_db()` 写入的默认键 `media_repair_enabled=0` / `media_repair_allow_transcode=0`，其余任何表非空、或 `config` 出现白名单外的键 / 被改过的值都会中止构建；版本号三处（`main.py` / `build.py` / `Dockerfile`）不一致时中止构建。
+> 模块脚本 `jflove-server/build.py` 的 `--tag <tag>` / `--no-cache` / `--save`（导出
+> `build/jflove-server-<version>.tar` 离线包）仅供单步调试，**不作为交付路径**；
+> 版本号只从仓库根 `version.json` 读取、由 `python scripts/sync_version.py` 同步，
+> **不存在 `--version` 选项**（也不自动同步模块内版本号）。
+
+构建脚本会自检：`jflove-prod.db` 必须不含业务数据（防止数据泄漏到镜像）——**仅放行** `config` 表里 `init_db()` 写入的默认键 `media_repair_enabled=0` / `media_repair_allow_transcode=0`，其余任何表非空、或 `config` 出现白名单外的键 / 被改过的值都会中止构建；模块内版本号（`main.py` / `Dockerfile`）与 `version.json` 不一致时同样中止构建。
 
 ---
 
@@ -236,6 +239,8 @@ venv/bin/python build.py --save
 | `bcrypt==4.3.0` | 密码哈希 |
 | `python-multipart==0.0.20` | 文件上传支持 |
 | `pydantic>=2.0` | 请求体验证 |
+| `pydantic-settings>=2.0` | 配置项加载（环境变量 / `.env`） |
+| `imageio-ffmpeg>=0.5.1` | 内置静态 FFmpeg/ffprobe 二进制（媒体修复用，无需系统安装 FFmpeg） |
 
 ---
 

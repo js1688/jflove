@@ -1,9 +1,12 @@
 """
 JFLove 版本号分发器（单一来源 version.json）
 
-读取仓库根 version.json 的 version 字段，同步到全部 7 处版本号位置：
+读取仓库根 version.json 的 version 字段，同步到各模块的**全部**版本号位置
+（权威清单就是下方 `POSITIONS`，当前 9 处；本文件头不再单独维护数字，避免再次说少）：
   - server:   src/main.py(FastAPI version) + Dockerfile(LABEL version)
   - desktop:  src/config/settings.py(APP_VERSION)
+              + ui/src/config/constants.ts(APP_VERSION，桌面端 Web UI 登录页页脚/关于页显示)
+              + ui/package.json(version，桌面端前端工程自身的包版本)
   - web:      package.json(version) + src/config/constants.ts(APP_VERSION)
   - app:      pubspec.yaml(version: X.Y.Z+code，code 由版本号派生)
                + lib/pages/settings/settings_page.dart(「关于」页显示，带 v 前缀)
@@ -14,7 +17,7 @@ JFLove 版本号分发器（单一来源 version.json）
   - 1.10.0 -> 1010000
 
 用法：
-    python scripts/sync_version.py                 # 同步全部 7 处
+    python scripts/sync_version.py                 # 同步全部位置（当前 9 处）
     python scripts/sync_version.py --scope server  # 只同步指定模块
     python scripts/sync_version.py --dry-run       # 只预览改动，不写盘
     python scripts/sync_version.py --check         # 校验一致性，不一致返回非 0（供 CI / build.py）
@@ -118,6 +121,14 @@ POSITIONS = [
     ("desktop", "jflove-desktop/ui/src/config/constants.ts",
      lambda p: _extract_re(p, r"APP_VERSION\s*=\s*'([^']+)'"),
      lambda p, v: _replace_re(p, r"APP_VERSION\s*=\s*'[^']+'", f"APP_VERSION = '{v}'"),
+     False),
+    # v1.5.1 补漏：桌面端 Web UI 工程自己的 package.json 此前**不在本表里**，
+    # 与 jflove-web/package.json 一样是"包版本"这一路，长期停在 1.5.0
+    # ⇒ 同一工程出现两个版本号（version.json=1.5.1 而 ui/package.json=1.5.0），
+    # 且 `--check` 因为不覆盖它仍然放行。纳入后与 web 端 package.json 对齐。
+    ("desktop", "jflove-desktop/ui/package.json",
+     _extract_pkg,
+     _replace_pkg,
      False),
     ("web", "jflove-web/package.json",
      _extract_pkg,

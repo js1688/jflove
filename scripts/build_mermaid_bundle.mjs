@@ -13,9 +13,14 @@
  *
  * 产物：
  *     jflove-web/public/vendor/mermaid.bundle.js         Web 端（静态资源，独立 chunk）
- *     jflove-desktop/resources/mermaid/mermaid.bundle.js 桌面端（离屏 QWebEnginePage 加载）
- *     jflove-app/assets/mermaid/mermaid.bundle.js        移动端（构建期内联进 HTML 模板）
- *     jflove-web/public/vendor/mermaid.version.json      版本 + 校验信息
+ *     jflove-app/assets/mermaid/mermaid.bundle.js       移动端（构建期内联进 HTML 模板）
+ *     jflove-web/public/vendor/mermaid.version.json     版本 + 校验信息（web 与 desktop 共用）
+ *
+ * 桌面端**不单独产出**：打包前由 `jflove-desktop/build.py::ensure_mermaid_bundle()`
+ * 从 `jflove-web/public/vendor/` 复制到 `jflove-desktop/ui/public/vendor/`
+ * （`ui/src/utils/mermaid/loader.ts` 只认 `./vendor/mermaid.bundle.js`）。
+ * 早期本脚本还写过一个 `jflove-desktop/resources/mermaid/` 目标，但该目录在仓库里
+ * 从未存在（0 历史命中）、也无任何消费方，每跑一次只会留下一个未跟踪目录，故已移除。
  *
  * 版本锁定：设计文档 §4.1 规定三端必须使用同一大版本。脚本会校验
  * `node_modules/mermaid/package.json` 的版本与 LOCKED_MAJOR_MINOR 一致，不一致直接失败，
@@ -36,7 +41,6 @@ const LOCKED_MAJOR_MINOR = '11.16';
 
 const TARGETS = [
   { name: 'web', out: join(WEB_DIR, 'public', 'vendor', 'mermaid.bundle.js') },
-  { name: 'desktop', out: join(REPO_ROOT, 'jflove-desktop', 'resources', 'mermaid', 'mermaid.bundle.js') },
   { name: 'app', out: join(REPO_ROOT, 'jflove-app', 'assets', 'mermaid', 'mermaid.bundle.js') },
 ];
 
@@ -116,7 +120,7 @@ if (!head.includes('use strict') && !head.includes('(()=>')) {
   fail('产物不是预期的 IIFE 格式');
 }
 
-/* ---------- 3. 分发到三端 ---------- */
+/* ---------- 3. 分发到各端（web / app；桌面端复用 web 产物，见文件头说明） ---------- */
 const written = [];
 for (const t of TARGETS) {
   mkdirSync(dirname(t.out), { recursive: true });

@@ -31,20 +31,21 @@ export function buildMermaidConfig(theme: ThemeName) {
     /**
      * `htmlLabels` 必须是 **false**，且**必须写在配置顶层**（写在 `flowchart: {}` 里不生效）。
      *
-     * mermaid 11.16.0 实测（`设计预览/verify_mermaid_labels.mjs`）：
+     * mermaid 11.16.0 实测（当时的验证脚本已不在仓库，以下为当时的记录）：
      *   - 只写 `flowchart:{htmlLabels:false}`：flowchart / state / class / ER 的标签仍落在
      *     `<foreignObject>` 里（flow fo=4、er fo=10）；
      *   - 顶层再写一次 `htmlLabels:false`：七类图 **foreignObject 全为 0**，文字都在 `<text>` 内。
      *
      * 为什么必须没有 `foreignObject`：里面是 HTML 而不是 SVG。
      * (a) 我们为了安全必须把它删掉 → 图变成空框加连线；
-     * (b) 桌面端 `QSvgRenderer` 直接丢弃其内容 → 同样丢字；
+     * (b) 历史上的桌面端原生通路 `QSvgRenderer` 直接丢弃其内容 → 同样丢字
+     *     （该通路已随 v1.5.0 换轨 Web UI 删除，桌面端改由 QtWebEngine 渲染）；
      * (c) 导出成独立 SVG 文件后在别的软件里打开也画不出来。
      *
      * ⚠ v1.5.0 一度想改成 `true`（因为当时以为类图在 false 下排版是引擎缺陷）。
      * **那个结论是错的**：真实原因是本项目 `index.css` 里一条
      * `*{transition-duration:.01ms!important}` 在 `prefers-reduced-motion: reduce` 生效时
-     * 改变了引擎的几何（详见 `index.css` 的注释与 `设计预览/probe_reduced_rule_which.mjs`）。
+     * 改变了引擎的几何（详见 `index.css` 的注释；当时的探针脚本已不在仓库）。
      * 修掉那条 CSS 之后，`false` 在七类图上排版全部正确（0 处裁切、0 个节点框装不下文字），
      * 因此**不需要**"HTML 标签 + 事后转 SVG"的那套机制（它还会让引擎的 viewBox 膨胀约 10 倍）。
      */

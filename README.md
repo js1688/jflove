@@ -1,6 +1,6 @@
 # JFLove — 私有文档与笔记协同管理系统
 
-![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.11.0-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.27%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.6%2B-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Vite](https://img.shields.io/badge/Vite-6-purple) ![License](https://img.shields.io/badge/License-Proprietary-red)
+![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.11.0-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.44%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.12%2B-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Vite](https://img.shields.io/badge/Vite-6-purple) ![License](https://img.shields.io/badge/License-Proprietary-red)
 
 JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统，提供服务端 + 桌面客户端 + 移动端 + Web 端四端架构。所有通信经过端到端加密（X25519 ECDH + ChaCha20-Poly1305），保障用户数据隐私。
 
@@ -31,7 +31,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | **Product** | 需求挖掘、编写需求文档 |
 | **Designer** | 系统架构、数据库、API 设计 |
 | **Backend** | 后端业务代码实现（FastAPI） |
-| **Desktop** | 桌面端 UI 与交互实现（PySide6） |
+| **Desktop** | 桌面端 UI 与交互实现（界面为 **Web UI**：React + TS 渲染于 QtWebEngine；Python 侧仅原生外壳） |
 | **Mobile** | 移动端 UI 与交互实现（Flutter + Dart） |
 | **Web** | Web 端 UI 与交互实现（React + TypeScript） |
 | **Code Review** | 代码规范、质量、安全审查 |
@@ -48,7 +48,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | 模块 | 路径 | 说明 | 当前状态 |
 |------|------|------|---------|
 | **jflove-server** | [`jflove-server/`](jflove-server/) | 后端服务（FastAPI + SQLite） | ✅ 在研 |
-| **jflove-desktop** | [`jflove-desktop/`](jflove-desktop/) | 跨平台桌面客户端（PySide6） | ✅ 在研 |
+| **jflove-desktop** | [`jflove-desktop/`](jflove-desktop/) | 跨平台桌面客户端（PySide6 原生外壳 + **Web UI**：React + TypeScript 渲染于 QtWebEngine） | ✅ 在研 |
 | **jflove-app** | [`jflove-app/`](jflove-app/) | 跨平台移动端 App（Flutter + Dart），首版 Android-only，iOS/鸿蒙预留 | ✅ 在研 |
 | **jflove-web** | [`jflove-web/`](jflove-web/) | 浏览器 Web 端（React + TypeScript），支持 PC 端与移动端浏览器双布局 | ✅ 在研 |
 
@@ -150,23 +150,23 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 
 ```json
 // version.json
-{ "version": "1.4.2" }
+{ "version": "1.5.1" }
 ```
 
 | 模块 | 版本号位置（由脚本自动同步） |
 |------|--------------------------|
 | jflove-server | `src/main.py`（/docs 显示）+ `Dockerfile LABEL` |
-| jflove-desktop | `src/config/settings.py` `APP_VERSION`（窗口/关于显示） |
+| jflove-desktop | `src/config/settings.py` `APP_VERSION`（原生外壳）+ **`ui/src/config/constants.ts`** `APP_VERSION`（界面「登录页页脚 / 设置-关于」显示） |
 | jflove-app | `pubspec.yaml` `version: x.y.z+code`（versionCode 由版本号派生）+ `lib/pages/settings/settings_page.dart`（「关于」页显示） |
 | jflove-web | `package.json` + `src/config/constants.ts` `APP_VERSION`（设置页「关于」显示） |
 
-> 移动端 versionCode 派生规则：`major*1000000 + minor*1000 + patch`（如 `1.4.2 → 1004002`），无需单独维护 build number。
-> 三个 `build.py` 构建前校验模块内版本号与 `version.json` 一致，不一致直接中止。
+> 移动端 versionCode 派生规则：`major*1000000 + minor*1000 + patch`（如 `1.5.1 → 1005001`），无需单独维护 build number。
+> 共 **4 个构建脚本**：仓库根编排器构建前**自动同步**全部位置；server / desktop / web 三个模块 `build.py` 则在构建前**校验**模块内版本号与 `version.json` 一致，不一致直接中止；移动端**没有**模块 `build.py`（由根编排器直接调 `flutter build`）。
 
 ### 改版本号（一条命令）
 
 ```bash
-echo '{"version":"1.4.3"}' > version.json   # 或手动编辑
+echo '{"version":"1.5.1"}' > version.json   # 或手动编辑
 python scripts/sync_version.py               # 同步全部位置（含 pubspec 派生 versionCode）
 ```
 
@@ -207,12 +207,12 @@ python build.py --skip-env-check   # 跳过环境检查强行构建
 
 ```bash
 # 1. 改版本（唯一真相）
-echo '{"version":"1.4.3"}' > version.json
+echo '{"version":"1.5.1"}' > version.json
 # 2. 统一打包（自动同步版本 + 环境检查 + 打包）
 python build.py -m all
 # 3. 提交发版（打 tag 触发 CI 线上构建）
-git add -A && git commit -m "chore: bump 1.4.3"
-git tag v1.4.3 && git push origin main --tags
+git add -A && git commit -m "chore: bump 1.5.1"
+git tag v1.5.1 && git push origin main --tags
 ```
 
 ---
@@ -220,12 +220,12 @@ git tag v1.4.3 && git push origin main --tags
 ## GitHub Actions 线上打包（CI）
 
 > 各端构建已迁移到 GitHub Actions 云端，解决「本地切机器」的强环境依赖（Docker / PySide6 / Flutter+Android SDK / Node）。
-> **本地构建方式完整保留**（`python build.py` / `flutter build apk`），二者互不影响。
+> **本地构建方式完整保留**（统一走仓库根 `python build.py`，移动端也由它直接调 `flutter build apk`；**禁止**直接调各模块 `build.py` / `flutter build`），二者互不影响。
 
 ### 触发方式
 
 - **手动触发**：仓库页 Actions → 选择对应 workflow → Run workflow
-- **自动触发**：推送 `v*` 开头的 tag（如 `v1.4.2`）
+- **自动触发**：推送 `v*` 开头的 tag（如 `v1.5.1`）
 
 ### 各端 workflow 与产物
 
@@ -240,21 +240,21 @@ git tag v1.4.3 && git push origin main --tags
 
 - **Docker 镜像**：CI 推送到 GitHub Container Registry，本地拉取：
   ```bash
-  docker pull ghcr.io/<你的用户名>/jflove-server:1.4.2
-  docker pull ghcr.io/<你的用户名>/jflove-web:1.4.2
+  docker pull ghcr.io/<你的用户名>/jflove-server:1.5.1
+  docker pull ghcr.io/<你的用户名>/jflove-web:1.5.1
   ```
   也可在仓库的 **Packages** 页查看已发布镜像。
 - **桌面端 / 移动端产物**：进入对应 workflow 本次运行页，底部 **Artifacts** 区下载 zip。
 
 ### 版本号校验（CI 防呆）
 
-CI 从 tag 提取版本号，校验 `tag == version.json` 与模块内 7 处版本号，任一不一致直接失败。发版前只需：
+CI 从 tag 提取版本号，校验 `tag == version.json` 与模块内 9 处版本号（以 `scripts/sync_version.py::POSITIONS` 为准），任一不一致直接失败。发版前只需：
 
 ```bash
-echo '{"version":"1.4.3"}' > version.json
+echo '{"version":"1.5.1"}' > version.json
 python scripts/sync_version.py
-git add -A && git commit -m "chore: bump 1.4.3"
-git tag v1.4.3 && git push origin main --tags
+git add -A && git commit -m "chore: bump 1.5.1"
+git tag v1.5.1 && git push origin main --tags
 ```
 
 ---
@@ -279,7 +279,7 @@ git tag v1.4.3 && git push origin main --tags
 **同时修复的既有缺陷**：
 
 - 🔐 **桌面端信封解密静默降级**（v1.5.0 遗留、安全相关）：200 响应"是加密信封但解不开"时原先被当成**明文成功**返回（界面表现为"目录是空的"、不报错）；现改为判定信封形状后**一律抛 `ApiError(502)`**，绝不回退明文，并补 24 条用例与负向对照。
-- 🏷 **版本号单一来源违规**：桌面端 Web UI 的版本号常量此前不在同步清单里（登录页/关于页会显示旧版本号），已纳入 `sync_version.py`（同步清单 7 → 8 处），今后由构建前的 `--check` 拦住漂移。
+- 🏷 **版本号单一来源违规**：桌面端 Web UI 的版本号常量此前不在同步清单里（登录页/关于页会显示旧版本号），已纳入 `sync_version.py`（同步清单 7 → 8 处；其后又纳入桌面端 `ui/package.json`，**现为 9 处，以 `scripts/sync_version.py::POSITIONS` 为准**），今后由构建前的 `--check` 拦住漂移。
 
 **发布质量**：服务端 169 / 桌面端 133 / Web 端 208 用例全通过；15 组负向对照全部被用例抓住；
 安全宪法 §9 **未破坏**（后端源码零改动，`_PLAIN_PATHS` 仍 3 条）；

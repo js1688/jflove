@@ -35,7 +35,12 @@ description: 后端工程师，负责 jflove-server 后端业务代码开发（F
 - 分层架构：`controllers/` → `services/` → `repositories/` → `models/`，不跨层调用。
 - 接口、方法、参数、字段必须有**中文注释**，遵守 OpenAPI 规范。
 - 代码必须自测通过（flake8 0 警告 + pytest 全通过）。
-- 版本迭代时必须同步更新**服务端 3 处版本号**：`src/main.py` 的 `FastAPI(version="x.x.x")`、`build.py` 的 `VERSION`、`Dockerfile` 的 `LABEL version`。推荐在发布时用 `python build.py --version x.y.z` 一键同步（构建前自动校验一致性，不一致中止构建）。
+- 版本号**单一来源 = 仓库根 `version.json`**，**禁止手改**任何模块内的版本号字段。服务端占其中 **2 处**
+  （`src/main.py` 的 `FastAPI(version="x.x.x")`、`Dockerfile` 的 `LABEL version`），
+  由 `python scripts/sync_version.py` 同步（全仓位置数以该脚本的 `POSITIONS` 为准，当前 9 处）。改版本只有一个动作：
+  `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`；
+  `jflove-server/build.py` 构建前会校验一致性，不一致直接中止构建。
+  ⚠️ 模块 `jflove-server/build.py` **没有 `--version` 参数**（只有 `--tag` / `--no-cache` / `--save`）。
 - 耗时操作异步化（asyncio / 多线程）。
 
 > **版本迭代前置**：见 `AGENTS.md §7.6`。

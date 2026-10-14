@@ -12,9 +12,14 @@ description: 测试工程师，负责编写并维护自动化测试，输出测�
 ## 技术约束
 
 - 测试框架：pytest（后端/桌面端）；`flutter_test`（移动端，**无 mockito**——pubspec 仅 flutter_test + flutter_lints）；Vitest + React Testing Library（Web 端）
-- 桌面端 UI 测试可用 PySide6 `QtTest`；移动端 widget 测试用 `flutter_test`
-- 风格检查：flake8（后端/桌面端）；`dart analyze lib/`（移动端，必须零错误）；ESLint（Web 端，零警告）
-- 模块目录：`jflove-server/tests/`、`jflove-desktop/tests/`、`jflove-app/test/`（当前无 integration_test 目录）、`jflove-web/tests/`
+- **桌面端 UI 测试**：v1.5.0 换轨为 Web UI（QtWebEngine 渲染 `jflove-desktop/ui/`）后，**原生 UI 探针
+  （PySide6 `QtTest` 驱动的页面/控件测试）已随换轨删除**，`jflove-desktop/tests/` 现只覆盖 Python 侧
+  （服务层 / 桥 / 流代理 / 会话 / 打包脚本）。前端工程 `ui/` **未接入测试**：
+  `jflove-desktop/ui/package.json` 只有 `dev` / `build` / `preview` / `lint`，**没有 `test` 脚本**，
+  `jflove-desktop/ui/tests/` 也**不存在** ⇒ 桌面端界面回归目前靠 `npm run lint && npm run build`
+  + 人工/真机冒烟，**不要**再写"用 `QtTest` 测桌面端页面"的用例。
+- 风格检查：flake8（后端/桌面端）；`dart analyze lib/`（移动端，必须零错误）；ESLint（Web 端，零警告）；`jflove-desktop/ui` 的 ESLint（`npm run lint`）
+- 模块目录：`jflove-server/tests/`、`jflove-desktop/tests/`、`jflove-app/test/`（当前无 integration_test 目录）、`jflove-web/tests/`（20 个文件 / 208 用例）
 - 覆盖率目标：核心业务逻辑 ≥ 90%
 - 命名与编码规范：见 `AGENTS.md §4`；禁止越界规则：见 `AGENTS.md §1`
 
@@ -38,8 +43,12 @@ description: 测试工程师，负责编写并维护自动化测试，输出测�
 
 2. **静态扫描类用例要保留**
    "新写的页面又忘了 try/catch""颜色又硬编码了""页面 objectName 又重名了"这类回归，
-   只有**扫全量源码**才拦得住。已建立的扫描用例（Web 错误可见性、Flutter 设计令牌、
-   桌面端导航/令牌）不要为了省时间跳过。
+   只有**扫全量源码**才拦得住。已建立的扫描用例（Web 端 `tests/error-visibility.test.ts` 错误可见性、
+   移动端 `test/design_tokens_test.dart` 设计令牌）不要为了省时间跳过。
+   ⚠️ **桌面端当前没有 UI 扫描用例**：原生 UI 时代的导航/令牌扫描探针已随 v1.5.0 换轨删除
+   （实测 `jflove-desktop/tests/` 下无导航/令牌扫描，`jflove-desktop/ui/package.json` 也没有 `test` 脚本、
+   `ui/tests/` 不存在）。桌面端前端的同源一致性改由 `scripts/check_web_desktop_parity.py` /
+   `scripts/check_logo_sync.py` 两个门禁脚本守（退出码 0 为判据，见 `devops` / `cross-platform-desktop` 技能）。
 
 3. **断言要打在"会静默出错"的地方**
    优先级：产物尺寸/几何 > 像素色值 > 存在性。

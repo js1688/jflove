@@ -7,7 +7,7 @@
 | 模块 | 路径 | 说明 | 当前状态 |
 | --- | --- | --- | --- |
 | jflove-server | `jflove-server/` | 后端服务（FastAPI） | 在研 |
-| jflove-desktop | `jflove-desktop/` | 跨平台桌面应用（PySide6） | 在研 |
+| jflove-desktop | `jflove-desktop/` | 跨平台桌面应用（PySide6 外壳）；界面为 **Web UI**（React + TS 渲染于 QtWebEngine，Python 侧仅原生外壳） | 在研 |
 | jflove-web | `jflove-web/` | 浏览器 Web 端（React + TypeScript），支持 PC 端与移动端浏览器双布局 | 在研 |
 | jflove-app | `jflove-app/` | 移动端（Flutter + Dart）首版 Android-only，iOS/鸿蒙预留 | 在研 |
 
@@ -44,7 +44,8 @@
 |------|------|-------------|-----------|
 | jflove-server | Python 3.14+ | FastAPI + SQLite3 + PyJWT(ES256) + cryptography | `backend/SKILL.md` |
 | jflove-desktop | Python 3.14+ | PySide6 6.11 + QtWebEngine（界面为 Web UI：React + TS + Vite + Tailwind，与 Web 端同源快照、独立演进） + requests | `cross-platform-desktop/SKILL.md` |
-| jflove-app | Dart 3.6+ | Flutter 3.27 + Riverpod + dio + pointycastle | `cross-platform-mobile/SKILL.md` |
+| jflove-web | TypeScript 5.7+ | React 18 + Vite 6 + Tailwind CSS 4 + Zustand 5（浏览器 Web 端；加密走 Web Crypto API + @noble/ciphers） | `web-frontend/SKILL.md` |
+| jflove-app | Dart 3.12+ | Flutter 3.44 + Riverpod + dio + pointycastle | `cross-platform-mobile/SKILL.md` |
 
 > **加密协议三端统一**：X25519 ECDH + ChaCha20-Poly1305 + HKDF-SHA256（盐 `b"jflove-v1"`，32B）。
 
@@ -62,7 +63,7 @@
 │   ├── config/         # 配置项
 │   └── main.py         # 入口
 ├── tests/              # 测试代码
-├── venv/               # 虚拟环境
+├── venv-win/           # 虚拟环境（Windows；Linux 下为 venv-linux/）
 ├── build/              # 构建输出
 ├── build.py            # 构建脚本
 ├── requirements.txt
@@ -108,20 +109,20 @@
 │   ├── config/                           # 应用配置（常量、主题）
 │   ├── models/                           # 数据模型（不可变类）
 │   ├── providers/                        # Riverpod 状态管理
-│   ├── services/                         # 业务服务层（9 个 service）
+│   ├── services/                         # 业务服务层（12 个 service + mermaid/ 渲染子模块）
 │   ├── pages/                            # 页面（按路由组织）
 │   ├── widgets/                          # 可复用 UI 组件
 │   └── utils/                            # 工具模块（crypto / http / session）
-├── test/                                 # 单元 + Widget 测试
-├── integration_test/                     # 集成测试
+├── test/                                 # 单元 + Widget 测试（19 个测试文件）
 ├── android/                              # Android 原生壳
-├── ios/                                  # iOS 原生壳（预留）
-├── ohos/                                 # 鸿蒙原生壳（预留，flutter_ohos）
+├── assets/                               # 离线资源（mermaid 渲染页与 bundle）
 ├── pubspec.yaml                          # 依赖声明
 ├── analysis_options.yaml                 # 静态分析规则
-├── build.py                              # 构建脚本
 └── README.md
 ```
+
+> 移动端构建入口在**仓库根**：`python build.py -m app`（根编排器直接调 flutter，模块内**没有** `build.py`）。
+> `integration_test/`、`ios/`、`ohos/` 为**预留**方向，仓库内**暂无**这些目录（首版 Android-only）。
 
 ### jflove-web
 
@@ -134,21 +135,22 @@
 │   ├── pages/                      # 页面组件（按路由组织）
 │   ├── components/                 # 可复用 UI 组件
 │   ├── hooks/                      # 自定义 Hooks
-│   ├── services/                   # 业务服务层（8 个 service）
+│   ├── services/                   # 业务服务层（10 个 service）
 │   ├── stores/                     # Zustand 状态管理
-│   ├── utils/                      # 工具模块（crypto / http-client / session / stream-frame / responsive）
+│   ├── utils/                      # 工具模块（crypto / http-client / session / stream-frame / mermaid/ …）
 │   └── types/                      # TypeScript 类型定义
 ├── tests/                          # 单元测试 + 组件测试
 ├── index.html                      # Vite HTML 入口
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
-├── tailwind.config.ts
 ├── eslint.config.ts
 ├── Dockerfile                      # 多阶段 Docker 构建
 ├── nginx.conf                      # Nginx SPA 配置
 └── README.md
 ```
+
+> Tailwind CSS 4 为 **CSS-first**：工程内**没有** `tailwind.config.ts`，主题与工具类由 `@tailwindcss/vite` 插件 + `src/index.css` 承担。
 
 ## 3.1 开发环境变量约定
 
@@ -186,8 +188,7 @@
 ├── 代码审查报告/           # code-review 输出
 ├── 测试报告/              # testing 输出
 ├── 项目管理记录/           # pmo 输出（含跨版本台账 BACKLOG.md）
-├── 版本发布记录/           # devops 输出
-└── 版本文档更新记录/        # 各版本文档变更汇总
+└── 版本发布记录/           # devops 输出
 ```
 
 > **⚠ 开工新版本前先读**：`文档记录/项目管理记录/BACKLOG.md`（技术债 / 下个版本候选台账）。
@@ -552,7 +553,7 @@ Step 5：发布（devops）
 
 - 每个版本号对应一份独立文件；新版本必须列出与上一版本的差异。
 - 版本号策略：主版本号代表重大变更，次版本号代表小迭代。
-- **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余位置（server `main.py`/`Dockerfile`、desktop `settings.py`、web `package.json`/`constants.ts`、app `pubspec.yaml`/`settings_page.dart`）全部由 `python scripts/sync_version.py` 派生/同步，各角色**禁止手动改版本号字段**。改版本只改 `version.json` + 跑同步脚本；移动端 versionCode 由版本号派生（`major*1e6+minor*1e3+patch`），无需单独维护。
+- **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余**共 9 处（以 `scripts/sync_version.py::POSITIONS` 为准）**（server `main.py`/`Dockerfile`、desktop `settings.py` + **`ui/src/config/constants.ts`**（登录页页脚 / 关于页显示的界面版本号）+ `ui/package.json`、web `package.json`/`constants.ts`、app `pubspec.yaml`/`settings_page.dart`）全部由 `python scripts/sync_version.py` 派生/同步，各角色**禁止手动改版本号字段**。改版本只改 `version.json` + 跑同步脚本；移动端 versionCode 由版本号派生（`major*1e6+minor*1e3+patch`），无需单独维护。
 - **统一打包入口（强制）**：本地打包一律走根 `python build.py`（`-m` 参数或交互多选），禁止直接调用各模块 build.py / flutter build。
 - **桌面端交付形态 = 安装包（强制，2026-07-14 用户定）**：任何触发路径（根入口 / 模块 `build.py` / 交互式多选 / GitHub Actions）都必须以安装包为标准产出，**不得以单体 exe 交付**：
   - Windows：`JFLove-<ver>-win64-setup.exe`（Inno Setup；另附便携 `*-portable.zip` 与 onedir 目录）

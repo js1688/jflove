@@ -1,7 +1,7 @@
 /**
  * Mermaid 几何修正单元测试（v1.5.0 反馈修复）
  *
- * 背景（实测数据见 `设计预览/find_clipped_text.mjs`、`probe_reduced_rule_which.mjs`）：
+ * 背景（实测数据取自当时的取证脚本；那些脚本已不在仓库，结论无法在仓库内复现）：
  * mermaid 给的 `viewBox` 有时**装不下它自己画的内容**，而 SVG 默认 `overflow:hidden`
  * ⇒ 文字被裁；更糟的是**导出/下载的 SVG 就是这同一份字符串**，于是"显示不全"必然
  * 意味着"下载的图片也不全"。
@@ -13,9 +13,9 @@
  *   3. 调用方必须**先把 SVG 插进 DOM** 再量 —— 初版把空容器丢进来量，
  *      于是"重新测量"从未生效、成了死代码（这是当时真正的根因，必须锁死）。
  *
- * jsdom 没有 `getBBox`/`getCTM`，所以用真实的 jsdom 元素 + 打桩几何来测；
- * 真浏览器的端到端验证由 `设计预览/find_clipped_text.mjs` 与
- * `设计预览/verify_web_export_complete.mjs` 负责。
+ * jsdom 没有 `getBBox`/`getCTM`，所以用真实的 jsdom 元素 + 打桩几何来测。
+ * ⚠ 当前**没有**真浏览器 e2e：jsdom + 打桩几何就是几何修正的**唯一**自动化覆盖
+ * （历史上那两个浏览器侧脚本已不在仓库），别因为"另有 e2e 兜底"而放松这里的断言。
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

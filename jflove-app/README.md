@@ -2,7 +2,7 @@
 
 JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的私有文档与笔记协同管理应用。
 
-> **当前版本：v1.5.0（`pubspec.yaml` 中 `version: 1.5.0+1005000`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
+> **当前版本：v1.5.1（`pubspec.yaml` 中 `version: 1.5.1+1005001`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
 
 > **v1.5.0** — UI 现代化改版 + Markdown Mermaid 图表渲染：新增**设计令牌体系**（`AppTokens` ThemeExtension，亮暗两套）与**三态主题**（跟随系统/亮色/暗色，设置页可切换并持久化）；13 个页面全部令牌化（硬编码 `Colors.*` 清零，加载态统一改骨架屏）；底部导航 **6 → 5**（修复中心并入传输页第二个页签，`/repair` 旧路径保留）；Markdown 中的 ` ```mermaid ` 代码块用离线 WebView **真渲染为图形**（零网络依赖，支持缓存与点击放大）。
 
@@ -22,7 +22,7 @@ JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构�
 | 流式代理 | `lib/utils/stream_proxy.dart`（本地 HTTP 代理，ExoPlayer 边下边播 + Range） |
 | 图表渲染 | webview_flutter（本地 HTML 页 + 内联离线 mermaid bundle，零网络依赖） |
 | Markdown | flutter_markdown + markdown（自定义 `MermaidBuilder`） |
-| 测试 | flutter_test（54 个用例） |
+| 测试 | flutter_test（160 个用例，19 个测试文件） |
 
 ### 设计令牌体系（v1.5.0）
 
@@ -124,12 +124,12 @@ jflove-app/
 │   ├── config/                # 应用配置 + 设计令牌（design_tokens）/ 主题 / 图表主题
 │   ├── models/                # 数据模型（7 个文件）
 │   ├── providers/             # Riverpod 状态管理（7 个文件，含 theme_provider）
-│   ├── services/              # 业务逻辑层（11 个 service + mermaid 渲染）
+│   ├── services/              # 业务逻辑层（12 个 service + mermaid/ 渲染子模块）
 │   ├── pages/                 # 13 个页面（files/notes/sync/transfer/repair/settings/admin/login）
 │   ├── widgets/               # 公共 UI 组件（app_card 统一卡片 / mermaid_block / empty_state …）
 │   └── utils/                 # crypto/http_service/session/stream_frame/stream_proxy/markdown/…
 ├── assets/mermaid/            # 离线图表渲染资源（renderer.html + mermaid.bundle.js）
-├── test/                      # 54 个测试用例（设计令牌/主题/导航/异步失败态/加密/模型/Widget）
+├── test/                      # 160 个测试用例（19 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget）
 ├── android/                   # Android 原生壳
 ├── pubspec.yaml
 └── README.md
@@ -146,7 +146,7 @@ jflove-app/
 | 身份认证 | JWT（ES256，通过加密 Body 传递） |
 | 文件流加密 | 64 KB 分片独立加密帧 [4B长度][12B nonce][密文+16B tag] |
 
-三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test` 54/54 通过）。
+三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 160 个用例）。
 
 ---
 

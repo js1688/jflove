@@ -11,8 +11,14 @@ Web 端的 `file-service` 在**客户端**做分片、算 SHA256、加解密（`
 ## 对话框为什么必须走 GUI 线程
 
 `QFileDialog` 只能在 GUI 线程创建。桥的默认分发是工作线程（`Worker`），
-因此 `dialogs.*` 被登记进 `bridge.MAIN_THREAD_METHODS`，由桥在 GUI 线程内联执行
+因此 `dialogs.*` 被登记进 GUI 线程方法集合，由桥在 GUI 线程内联执行
 （模态对话框本来就会阻塞界面，语义正确）。
+
+登记处：各桥模块各自定义 `MAIN_THREAD_METHODS` —— `src/bridge/media.py:185`
+（`dialogs.open_files` / `save_file` / `select_directory` / `message` 在 `media.py:187-190`
+连同媒体方法一起登记）、`src/bridge/sync.py:184`、`src/bridge/transfer.py:151`；
+`src/bridge/bridge.py:359-363` 把三者求并集后判定是否走 GUI 线程。
+（`bridge.MAIN_THREAD_METHODS` 这个名字**不存在** —— 集合由桥按模块并集组装。）
 """
 
 from __future__ import annotations

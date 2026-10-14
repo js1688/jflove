@@ -86,12 +86,12 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
         —— 少了它 `assert_mermaid_assets()` 会让构建直接失败（CI 两个 job 都已内置这一步）
     - app     → APK `build/app/outputs/flutter-apk/app-debug.apk` + `app-release.apk`（**两个 APK 都必须真机安装验证**）
     - web     → Docker 镜像 `jflove-web:<version>`（可选 `--save` 导出 tar）
-- **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余位置由 `python scripts/sync_version.py` 派生/同步：
+- **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余共 **9 处**（**以 `scripts/sync_version.py` 的 `POSITIONS` 条目为准**，当前 9 条）由 `python scripts/sync_version.py` 派生/同步：
   - 服务端：`main.py` + `Dockerfile LABEL`
-  - 桌面端：`settings.py APP_VERSION`
+  - 桌面端：`src/config/settings.py APP_VERSION`（Python 侧）+ **`ui/src/config/constants.ts APP_VERSION`**（QtWebEngine 承载的前端工程，**用户可见**：`LoginPage.tsx` 登录页页脚、`SettingsPage.tsx` 设置-关于）+ `ui/package.json version`（桌面端前端工程自身的包版本）
   - 移动端：`pubspec.yaml`（versionCode 由版本号派生 `major*1e6+minor*1e3+patch`）+ `settings_page.dart`（「关于」页显示）
   - Web 端：`package.json` + `constants.ts`
-  - 三个 `build.py` 不再硬编码版本号，构建前校验模块内版本号与 `version.json` 一致，**不一致直接中止构建**（防「应用内版本号未更新」）
+  - 三个 `build.py`（server / web / desktop；移动端没有模块 `build.py`）不再硬编码版本号，构建前校验模块内版本号与 `version.json` 一致，**不一致直接中止构建**（防「应用内版本号未更新」）
   - 改版本号：`echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`
 - 生产库 DDL 变更必须有**升级 + 回滚**两个脚本，并先按「生产库表结构同步（发布阻塞项，强制）」章节核对 / 对齐 prod 结构；Docker 镜像内置空表结构 DB，支持 `-v /data` 挂载持久化
 
@@ -106,6 +106,7 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
 | jflove-web | `build-web.yml` | 同上 | GHCR `ghcr.io/<owner>/jflove-web:<ver>` + `latest` |
 | jflove-desktop | `build-desktop.yml` | 同上 | Artifact（Windows `*-setup.exe` + `*-portable.zip`；Linux/Fedora `*.rpm`） |
 | jflove-app | `build-app.yml` | 同上 | Artifact（`app-release.apk`） |
+| 跨端 / 库结构门禁 | `ci-guards.yml` | `workflow_dispatch` / 打 tag `v*` | 无产物；**退出码判据**：`db-schema-guard`（①现场建 dev → ②`verify_check_db_schema.py` 工具可信性 → ③`check_db_schema.py` 代码↔prod，**非 0 即阻塞发布**）、`cross-end-consistency-guard`（`check_logo_sync.py` + `check_web_desktop_parity.py`，各含 `--self-test`） |
 
 **使用要点**：
 - CI 从 tag 提取版本并校验 `tag == version.json` 与模块内版本号，不一致直接失败；发版前本地 `python scripts/sync_version.py` 同步后再打 tag。
@@ -128,7 +129,7 @@ description: 运维工程师，负责构建、打包、部署、发布与生产�
 > 触发线上构建的唯一方式是用 `git push` 推送 `v*` tag；GitHub 网页「Create release」自动生成的 tag **不会**触发 `on: push: tags`，必须手动 `git push origin <tag>`。
 
 ```bash
-# 1. 版本号定稿并同步（同步后的 7 处版本号文件要随发布一起提交）
+# 1. 版本号定稿并同步（同步后的 9 处版本号文件要随发布一起提交）
 python scripts/sync_version.py --check   # 先确认一致，不一致先同步
 
 # 2. 提交并推送 main（先推 main，再推 tag，顺序不可颠倒）
@@ -148,7 +149,7 @@ git push origin v<version>
 **硬约束**：
 - **顺序不可颠倒**：必须先 `push origin main`，再 `git tag` + `push tag`（tag 要指向已上远程的 commit）。
 - **tag 名 = `v` + `version.json` 版本号**，去掉 `v` 后必须与 `version.json` 严格相等，否则 CI 版本校验直接 fail。
-- 打 tag 前 `python scripts/sync_version.py --check` 必须通过；改了版本号却没同步 7 处，CI 照样挂。
+- 打 tag 前 `python scripts/sync_version.py --check` 必须通过；改了版本号却没同步 `POSITIONS` 里的全部位置（当前 9 处），CI 照样挂。
 - 命令中的 `<version>` 替换为实际版本号（如 `1.4.2`）。
 - commit message 统一用约定式：`chore: 发布 v<version>`。
 
@@ -177,7 +178,21 @@ git push origin v<version>
 
 ### 核对（必做，不可省略）
 
-> ⚠️ 这一步**没有任何自动化兜底**：根 / 模块 `build.py` 与 `.github/workflows/` 都不会调用 `scripts/check_db_schema.py`（CI 只复用 `jflove-server/build.py` 的"prod 库空校验"—— 那只看有没有业务数据，**不看结构**），而 prod 库 `jflove-db/jflove-prod.db` 是随仓库提交的（CI 打镜像用的就是仓库里这份）。**结构核对只能在发布时人工执行**，这正是 v1.5.0 差点漏掉的地方。
+> ⚠️ 这一步**不能只靠人工**：根 / 模块 `build.py` **确实不会**调用 `scripts/check_db_schema.py`
+> （CI 里各 `build-*.yml` 也只复用 `jflove-server/build.py` 的"prod 库空校验"—— 那只看有没有业务数据，
+> **不看结构**），而 prod 库 `jflove-db/jflove-prod.db` 是随仓库提交的（CI 打镜像用的就是仓库里这份）。
+> **但 CI 已经在打 tag 时替你跑了一遍**：`.github/workflows/ci-guards.yml`（`on: push: tags: ['v*']`
+> + `workflow_dispatch`）在发布时按「①现场建 dev → ②工具可信性 → ③代码↔prod」顺序执行：
+>
+> | 步骤 | 命令 | 判据 |
+> | --- | --- | --- |
+> | ① 按当前代码现场建等价 dev | `ci-guards.yml:61-76`（`init_db()` 写到 `runner.temp/ci-dev.db`） | 建库失败即红 |
+> | ② 工具可信性（guard 的 guard） | `ci-guards.yml:88-91` `scripts/verify_check_db_schema.py --dev … --prod jflove-db/jflove-prod.db --tool-python …` | 反向验证全过 = `0` |
+> | ③ 代码 ↔ prod 结构核对（**发布阻塞项**） | `ci-guards.yml:93-97` `scripts/check_db_schema.py --dev … --prod …` | 退出码非 0 **即阻塞发布** |
+>
+> 也就是说：**人工核对仍是发布步骤中不可或缺的一环（本地要先跑通，且对齐结果要写进发布记录），
+> 但它不再是唯一关卡 —— CI 在打 tag 时会独立复核一遍，CI 红就是发布红。**
+> 这正是 v1.5.0 差点漏掉的地方（当时 5 个构建 workflow 一次都没跑过结构核对）。
 
 ```bash
 python scripts/check_db_schema.py

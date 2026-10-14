@@ -164,7 +164,7 @@ describe('Mermaid 主题配置', () => {
 
   it('htmlLabels:false 必须在配置**顶层**（否则四类图的文字会落在 foreignObject 里被清洗掉）', () => {
     // 回归锁：这条是 v1.5.0 的严重缺陷根因。
-    // mermaid 11.16.0 实测（设计预览/verify_mermaid_labels.mjs）：只写
+    // mermaid 11.16.0 实测（取证脚本已不在仓库）：只写
     // `flowchart:{htmlLabels:false}` 时，flowchart / state / class / ER 的节点与
     // 边标签仍然输出为 <foreignObject>（flow fo=4、er fo=10）；把 htmlLabels:false
     // 同时写到配置顶层后，七类图的 foreignObject 全部为 0、文字全部在 <text> 内。

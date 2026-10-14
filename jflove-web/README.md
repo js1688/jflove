@@ -4,7 +4,9 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 
 支持 PC 端（侧边栏导航）和移动端（底部 TabBar 导航）双布局自适应。
 
-> **当前版本：v1.3.1**（版本号 3 处必须一致：`package.json`、`src/config/constants.ts` 的 `APP_VERSION`、`build.py`；推荐用 `python build.py --version x.y.z` 一键同步）
+> **当前版本：v1.5.1**（版本号唯一真相 = 仓库根 `version.json`；本模块由 `python scripts/sync_version.py`
+> 同步两处：`package.json` 的 `version` 与 `src/config/constants.ts` 的 `APP_VERSION`。
+> 改版本只改 `version.json` + 跑同步脚本，**不要手改任何一处版本号字段**；不存在 `build.py --version` 选项）
 
 ---
 
@@ -105,23 +107,23 @@ npm run preview
 ### Docker 部署
 
 ```bash
-# 方式一：一键构建脚本（推荐，对标服务端 build.py）
-python build.py                      # 构建 jflove-web:1.4.1 本地镜像（构建前校验三处版本号一致）
-python build.py --version 1.3.2      # 指定新版本号：自动同步 package.json / constants.ts / build.py 后构建
-python build.py --save               # 构建后导出 build/jflove-web-1.4.1.tar 离线包
-python build.py --tag 1.4.1-rc1      # 自定义 tag
-python build.py --no-cache           # 不使用 Docker 缓存
+# 方式一：统一入口（推荐，AGENTS.md §8）
+# 仓库根目录执行，构建 jflove-web:<version> 本地镜像（先自动同步版本号）
+python build.py -m web
 
 # 方式二：直接 docker 构建
-docker build -t jflove-web:1.4.0 .
+docker build -t jflove-web:1.5.1 .
 
 # 运行容器
-docker run -d --name jflove-web -p 8080:80 --restart=always jflove-web:1.4.0
+docker run -d --name jflove-web -p 8080:80 --restart=always jflove-web:1.5.1
 
 # 访问 http://localhost:8080
 ```
 
-> 镜像仅构建到本地，推送到镜像仓库由人工执行（如 `docker push registry/jflove-web:1.4.0`）。
+> **镜像去向**：真实发布走 CI —— 推 `v*` tag 后由 `.github/workflows/build-web.yml` 构建并推送到
+> `ghcr.io/<owner>/jflove-web:<ver>`（同时打 `latest`）；本地 `python build.py -m web` 只产出本地镜像。
+> 模块脚本 `jflove-web/build.py` 的 `--tag` / `--no-cache` / `--save`（导出 `build/jflove-web-<version>.tar`）
+> 仅供单步调试，**不作为交付路径**；版本号来自 `version.json`，**不存在 `--version` 选项**。
 
 ---
 
@@ -134,6 +136,7 @@ jflove-web/
 ├── tsconfig.json                   # TypeScript 配置
 ├── vite.config.ts                  # Vite 配置
 ├── eslint.config.ts                # ESLint 配置
+├── build.py                        # Docker 镜像构建脚本（交付走仓库根 build.py）
 ├── Dockerfile                      # 多阶段 Docker 构建
 ├── nginx.conf                      # Nginx SPA 配置
 ├── README.md
@@ -141,6 +144,7 @@ jflove-web/
 │   ├── main.tsx                    # 入口
 │   ├── App.tsx                     # 根组件
 │   ├── index.css                   # 全局样式
+│   ├── styles/                     # 样式分层（tokens / theme / components）
 │   ├── config/
 │   │   ├── constants.ts            # 全局常量
 │   │   └── routes.tsx              # 路由配置
@@ -157,7 +161,9 @@ jflove-web/
 │   │   ├── NoteListPage.tsx        # 笔记列表
 │   │   ├── NoteEditPage.tsx        # 笔记编辑/预览
 │   │   ├── SyncPage.tsx            # 同步说明+引导
-│   │   ├── TransferPage.tsx        # 传输任务
+│   │   ├── TransferTabsPage.tsx    # 传输/修复合并页（/transfer 与 /repair 的页签容器）
+│   │   ├── TransferPage.tsx        # 传输任务视图（由 TransferTabsPage 引用）
+│   │   ├── RepairCenterPage.tsx    # 修复中心视图（由 TransferTabsPage 引用）
 │   │   ├── SecurityPage.tsx        # 安全状态
 │   │   ├── SettingsPage.tsx        # 设置
 │   │   └── admin/
@@ -172,7 +178,9 @@ jflove-web/
 │   │   ├── ConfirmDialog.tsx       # 确认对话框
 │   │   ├── LoadingSpinner.tsx      # 加载指示器
 │   │   ├── EmptyState.tsx          # 空状态
-│   │   └── ErrorBanner.tsx         # 错误提示
+│   │   ├── ErrorBanner.tsx         # 错误提示
+│   │   ├── markdown/               # MarkdownRenderer / MermaidBlock / MermaidViewer
+│   │   └── ui/                     # Button / Feedback / Icon / Overlay
 │   ├── hooks/
 │   │   ├── use-auth.ts             # 认证 Hook
 │   │   ├── use-files.ts            # 文件操作 Hook
@@ -183,6 +191,7 @@ jflove-web/
 │   │   ├── file-service.ts         # 文件管理
 │   │   ├── note-service.ts         # 笔记管理
 │   │   ├── sync-service.ts         # 同步（降级）
+│   │   ├── repair-service.ts       # 媒体离线修复任务
 │   │   ├── user-service.ts         # 用户管理
 │   │   ├── disk-service.ts         # 磁盘管理
 │   │   ├── permission-service.ts   # 权限管理
@@ -193,14 +202,21 @@ jflove-web/
 │   │   ├── file-store.ts           # 文件浏览状态
 │   │   ├── note-store.ts           # 笔记状态
 │   │   ├── transfer-store.ts       # 传输任务状态
-│   │   └── settings-store.ts       # 设置状态
+│   │   ├── settings-store.ts       # 设置状态
+│   │   └── theme-store.ts          # 主题状态
 │   ├── utils/
 │   │   ├── crypto.ts               # 加密工具（Web Crypto + 纯 JS 回退）
+│   │   ├── hash.ts                 # 哈希（Web Crypto）
+│   │   ├── hash-fallback.ts        # 哈希纯 JS 回退
 │   │   ├── http-client.ts          # 加密 HTTP 客户端
 │   │   ├── session.ts              # 会话管理
 │   │   ├── stream-frame.ts         # 流式帧解析
-│   │   ├── stream-proxy.ts         # SW 流式代理（v1.3.1+）
-│   │   └── media-source-player.ts  # MSE 边下边播主路径（v1.4.0+，HTTP/HTTPS 均可用）
+│   │   ├── media-source-player.ts  # MSE 边下边播主路径（v1.4.0+，HTTP/HTTPS 均可用）
+│   │   ├── file-visual.ts          # 图片/媒体可视化辅助
+│   │   ├── format.ts               # 格式化工具
+│   │   ├── markdown.ts             # Markdown 解析辅助
+│   │   ├── markdown-insert.ts      # Markdown 工具栏插入
+│   │   └── mermaid/                # 离线 Mermaid 渲染（loader / renderer / cache / sanitize）
 │   └── types/
 │       ├── models.ts               # 数据模型
 │       └── api.ts                  # API 类型
@@ -226,12 +242,14 @@ jflove-web/
 | `/notes` | NoteListPage | JWT | AppLayout |
 | `/notes/:noteId` | NoteEditPage | JWT | AppLayout |
 | `/sync` | SyncPage | JWT | AppLayout |
-| `/transfer` | TransferPage | JWT | AppLayout |
+| `/transfer` | TransferTabsPage（页签一：传输任务） | JWT | AppLayout |
+| `/repair` | TransferTabsPage（页签二：修复中心） | JWT | AppLayout |
 | `/security` | SecurityPage | JWT | AppLayout |
 | `/settings` | SettingsPage | JWT | AppLayout |
 | `/admin/users` | AdminUsersPage | admin | AppLayout |
 | `/admin/disks` | AdminDisksPage | admin | AppLayout |
 | `/admin/permissions` | AdminPermissionsPage | admin | AppLayout |
+| `/admin/system` | AdminSystemPage（系统设置 / 媒体修复） | admin | AppLayout |
 
 ---
 

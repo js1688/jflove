@@ -69,7 +69,7 @@ textarea.code-editor {
  *
  * 原写法是
  *     *, *::before, *::after { animation-duration:.01ms!important; transition-duration:.01ms!important; }
- * 实测（`设计预览/probe_reduced_rule_which.mjs`，逐条对照）：
+ * 实测（逐条对照当时的探针脚本；该脚本已不在仓库，结论无法在仓库内复现）：
  * **`transition-duration` 这一条会把 mermaid 的几何算错** —— 当
  * `prefers-reduced-motion: reduce` 生效时（Windows"关闭动画效果"、无头浏览器默认值
  * 都会命中），同一份笔记会渲染成：

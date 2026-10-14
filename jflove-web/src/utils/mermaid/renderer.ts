@@ -33,7 +33,7 @@ const PIPELINE_VERSION = '2';
 /**
  * 判定"故意画超长、靠视口裁掉"的辅助图形时的最小容差（viewBox 单位）。
  *
- * 实测（`设计预览/probe_overflow_elements.mjs`）：真实内容最多超出 viewBox ~80px，
+ * 实测（当时的探针脚本已不在仓库）：真实内容最多超出 viewBox ~80px，
  * 而辅助线超出 1800px（时序图生命线）到 28000px（甘特图今日线）——
  * 两类差了一个数量级，48px 的下限足够把极小 viewBox 也照顾到。
  */
@@ -240,8 +240,8 @@ function measureSvg(svg: string): { width: number; height: number } {
  * mermaid 11.16.0 给的 `viewBox` 两头都不可信：
  *   - `htmlLabels: false` 时它**自己量 SVG 文字，量得比画的窄** ⇒ viewBox 装不下内容，
  *     SVG 默认 `overflow: hidden` 直接把内容裁掉。实测 7 类图 **5 类文字被裁**
- *     （流程图右裁 50px、饼图上裁 2px、类图下裁 26.5px、ER 下裁 40px… 见
- *     `设计预览/find_clipped_text.mjs`）。用户说的「显示不全」就是它；
+ *     （流程图右裁 50px、饼图上裁 2px、类图下裁 26.5px、ER 下裁 40px… 取证脚本已不在
+ *     仓库）。用户说的「显示不全」就是它；
  *     而**导出/下载的 SVG 是同一份字符串**，所以下载的图片同样不全。
  *   - `htmlLabels: true`（当前采用，理由见 `config.ts`）排版正确，但引擎算出的
  *     viewBox 会**膨胀约 10 倍**（实测 class 2788×2788、ER 2736×2070），
@@ -358,7 +358,7 @@ function serializeSvg(el: SVGSVGElement): string {
  * 而 `<svg>` 自身的 `getCTM()` 同样含 viewBox 变换，因此
  * `svg.getCTM().inverse() × element.getCTM()` 才是"元素坐标 → svg 用户空间"。
  * 实测与"按视口像素 × 缩放比"两条独立路径的结果**一致到 0.03px**
- * （`设计预览/probe_coord_method.mjs`），两种写法都可靠；这里用矩阵法，
+ * （当时的取证脚本已不在仓库），两种写法都可靠；这里用矩阵法，
  * 因为它不依赖"preserveAspectRatio 是等比"这个前提。
  */
 function measureContentBounds(

@@ -13,7 +13,7 @@ JFLove 统一打包入口（顶层编排器）
 
 流程：
     1. 读 version.json（唯一版本真相）
-    2. 自动同步版本号到全部 6 处（调 scripts/sync_version.py）
+    2. 自动同步版本号到各模块全部位置（调 scripts/sync_version.py）
     3. 确定要打包的模块（交互多选 或 -m 参数）
     4. 逐模块环境检查：满足→入队；不满足→打印原因并跳过
     5. 依次打包（desktop 自动切到模块 venv）

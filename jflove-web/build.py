@@ -10,7 +10,7 @@ jflove-web Docker 镜像构建脚本
 用法：
     python build.py                       # 构建并打 tag jflove-web:<version>
     python build.py --no-cache            # 不使用 docker 缓存
-    python build.py --tag 1.4.2-rc1       # 自定义 tag（默认与 version.json 版本一致）
+    python build.py --tag <version>-rc1    # 自定义 tag（默认与 version.json 版本一致）
     python build.py --save                # 构建后 docker save 成 tar 离线包
 
 版本号管理：
