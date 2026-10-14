@@ -137,7 +137,6 @@ export function FilePreviewPage() {
       void callBridge('media', 'close', {}).catch(() => {});
     };
     // 依赖只取真正影响"打开什么"的字段
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [diskId, filename, path, isText, isImage, isVideo, isAudio, numDiskId, previewTarget]);
 
   /** 下载到本地（原生「另存为」对话框 + Python 解密落盘） */
