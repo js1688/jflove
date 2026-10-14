@@ -379,11 +379,17 @@ export function parseShortcut(raw: string): ShortcutChord | null {
 
 /** 归一化输出：修饰键顺序固定为 Ctrl+Alt+Shift+Meta，键名已归一 */
 export function formatShortcut(chord: ShortcutChord): string {
+  // **仅修饰键**的 chord（块选择修饰键专用，形如 `{alt:true, key:'Alt'}`）：
+  // 它的键名本身就是那个修饰键，若再按修饰键输出一次就会得到 `Alt+Alt` —— 那既让
+  // `normalizeShortcut` 不幂等（`normalizeShortcut('Alt') !== 'Alt'`），又会被 store 的
+  // 修饰键白名单拒收，导致第 14 项**永远改不了键**并把伪 override 写进 shortcuts.json。
+  // 故此处对"与 key 同名的那个修饰位"去重（非修饰键的 key 永不等于修饰名，故无副作用）。
+  const keyIsModifier = (MODIFIER_KEYS as readonly string[]).includes(chord.key);
   const parts: string[] = [];
-  if (chord.ctrl) parts.push('Ctrl');
-  if (chord.alt) parts.push('Alt');
-  if (chord.shift) parts.push('Shift');
-  if (chord.meta) parts.push('Meta');
+  if (chord.ctrl && !(keyIsModifier && chord.key === 'Ctrl')) parts.push('Ctrl');
+  if (chord.alt && !(keyIsModifier && chord.key === 'Alt')) parts.push('Alt');
+  if (chord.shift && !(keyIsModifier && chord.key === 'Shift')) parts.push('Shift');
+  if (chord.meta && !(keyIsModifier && chord.key === 'Meta')) parts.push('Meta');
   parts.push(chord.key);
   return parts.join('+');
 }

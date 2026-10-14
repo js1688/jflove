@@ -282,6 +282,11 @@ export function ScratchPaneLayer() {
     const onKeyDown = (event: KeyboardEvent) => {
       // AC-8 / §4.2.2：窗口失焦或文档不可见时，keydown 不产生任何编辑器行为
       if (!document.hasFocus() || document.hidden) return;
+      // 快捷键配置对话框正在录制键位 ⇒ 让路。否则用户按下某个**已生效**的窗格键
+      // （如 Ctrl+Alt+N）时，窗格动作会额外触发一次（本监听在捕获阶段注册更早，且
+      // stopPropagation 拦不住同一 target 上的其它监听器）。
+      // 录制期间由 ShortcutsSettingsDialog 设置 document.body.dataset.jfShortcutCapture。
+      if (document.body.dataset.jfShortcutCapture) return;
       const chord = keyboardEventToShortcut(event);
       if (!chord) return;
       const bindings = useShortcutStore.getState();

@@ -42,6 +42,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import threading
 from typing import Any, Callable
 
@@ -527,6 +528,115 @@ def _h_file_assoc_open_system_defaults(_p: dict) -> dict:
     return _call_file_assoc("open_system_defaults")
 
 
+# ── 快捷键偏好（§4.2.4；**设计缺口补齐**）────────────────────────
+# 为什么由 Python 侧读写：渲染层禁止直接访问文件系统，也禁止用 localStorage
+# （R-1 已实测默认 profile 是 off-the-record，localStorage 不跨重启）。
+# §7.1 的桥方法表**没有**列这两个方法（§4.2.4 只规定了存储位置 `USER_DATA_DIR/storage/
+# shortcuts.json` 与结构）⇒ 按命名空间一致性补 `editor.shortcutsLoad` / `editor.shortcutsSave`。
+# 已登记为设计缺口（开发记录 §9.5 / BACKLOG BL-17）。
+
+#: 绑定表规模上限（默认表 20 项；放宽到 200 只为防异常对端撑爆文件）
+MAX_SHORTCUT_BINDINGS = 200
+#: 单个绑定 id 的字符上限
+MAX_SHORTCUT_ID_CHARS = 64
+#: 单个键位字符串的字符上限
+MAX_SHORTCUT_KEY_CHARS = 64
+
+
+def _shortcuts_file_path() -> str:
+    """快捷键偏好文件路径（`settings.SHORTCUTS_FILE` = `USER_DATA_DIR/storage/shortcuts.json`）"""
+    from src.config.settings import SHORTCUTS_FILE
+
+    return SHORTCUTS_FILE
+
+
+def _h_editor_shortcuts_load(_p: dict) -> dict:
+    """
+    `editor.shortcutsLoad`（**工作线程**）—— 读快捷键偏好。
+
+    **容错口径（不阻塞启动）**：文件不存在 / JSON 损坏 / 结构不合法 ⇒ 返回
+    `{"version": 0, "bindings": {}}`，让渲染层回落默认键位（§4.2.4 的 `load` 语义）。
+
+    :returns: `{version: int, bindings: {id: keys}, blockSelectModifier?: str}`
+    """
+    empty: dict = {"version": 0, "bindings": {}}
+    try:
+        with open(_shortcuts_file_path(), "r", encoding="utf-8") as fp:
+            raw = json.load(fp)
+    except FileNotFoundError:
+        return dict(empty)
+    except (OSError, ValueError) as exc:
+        # 只记异常类型：文件内容属用户偏好，不入日志
+        logger.warning("读取快捷键偏好失败，回落默认键位（%s）", type(exc).__name__)
+        return dict(empty)
+    if not isinstance(raw, dict):
+        return dict(empty)
+
+    version = raw.get("version")
+    bindings_raw = raw.get("bindings")
+    if isinstance(version, bool) or not isinstance(version, int):
+        return dict(empty)
+    if not isinstance(bindings_raw, dict):
+        return dict(empty)
+
+    bindings: dict[str, str] = {}
+    for key, value in bindings_raw.items():
+        if len(bindings) >= MAX_SHORTCUT_BINDINGS:
+            break
+        if not isinstance(key, str) or not isinstance(value, str):
+            continue
+        if not key or len(key) > MAX_SHORTCUT_ID_CHARS or len(value) > MAX_SHORTCUT_KEY_CHARS:
+            continue
+        bindings[key] = value
+
+    result: dict = {"version": int(version), "bindings": bindings}
+    modifier = raw.get("blockSelectModifier")
+    if isinstance(modifier, str) and 0 < len(modifier) <= MAX_SHORTCUT_KEY_CHARS:
+        result["blockSelectModifier"] = modifier
+    return result
+
+
+def _h_editor_shortcuts_save(p: dict) -> dict:
+    """
+    `editor.shortcutsSave`（**工作线程**）—— 写快捷键偏好（**原子写**）。
+
+    §4.2.4：只在用户点「保存」/「一键重置」时调用（渲染层不做防抖自动写）。
+    结构非法一律**抛错**（渲染层会保留内存状态并提示，不静默丢弃用户改动）。
+
+    :param p: `{version: int, bindings: {id: keys}, blockSelectModifier?: str}`
+    :returns: `{ok: true, saved: int}`
+    :raises ValueError: version 非整数 / bindings 非对象或超限 / 键值非字符串或超长
+    """
+    version = p.get("version")
+    if isinstance(version, bool) or not isinstance(version, int):
+        raise ValueError("shortcutsSave 的 version 必须是整数")
+    bindings_raw = p.get("bindings")
+    if not isinstance(bindings_raw, dict):
+        raise ValueError("shortcutsSave 的 bindings 必须是对象")
+    if len(bindings_raw) > MAX_SHORTCUT_BINDINGS:
+        raise ValueError(f"shortcutsSave 的 bindings 超过上限 {MAX_SHORTCUT_BINDINGS}")
+
+    bindings: dict[str, str] = {}
+    for key, value in bindings_raw.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise ValueError("shortcutsSave 的 bindings 键与值都必须是字符串")
+        if not key or len(key) > MAX_SHORTCUT_ID_CHARS:
+            raise ValueError("shortcutsSave 的绑定 id 非法")
+        if len(value) > MAX_SHORTCUT_KEY_CHARS:
+            raise ValueError("shortcutsSave 的键位字符串过长")
+        bindings[key] = value
+
+    payload: dict = {"version": int(version), "bindings": bindings}
+    modifier = p.get("blockSelectModifier")
+    if isinstance(modifier, str) and 0 < len(modifier) <= MAX_SHORTCUT_KEY_CHARS:
+        payload["blockSelectModifier"] = modifier
+
+    data = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    editor_service.atomic_write(_shortcuts_file_path(), data)
+    logger.info("快捷键偏好已写入（%d 条绑定）", len(bindings))
+    return {"ok": True, "saved": len(bindings)}
+
+
 # ── 登记表 ────────────────────────────────────────
 
 #: 白名单登记表：{service: {method: 处理函数}}（照 `bridge/files.py:235` 的既有模式）
@@ -544,6 +654,9 @@ HANDLERS: dict[str, dict[str, Callable[[dict], Any]]] = {
         "reportDirty": _h_editor_report_dirty,
         "confirmQuit": _h_editor_confirm_quit,
         "cancelQuit": _h_editor_cancel_quit,
+        # 快捷键偏好（§4.2.4 的存储位置 + 命名空间一致性补齐，见本文件上方的缺口说明）
+        "shortcutsLoad": _h_editor_shortcuts_load,
+        "shortcutsSave": _h_editor_shortcuts_save,
     },
     "quit": {
         "pending": _h_quit_pending,

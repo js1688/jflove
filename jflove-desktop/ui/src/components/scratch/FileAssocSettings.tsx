@@ -173,7 +173,9 @@ export function FileAssocSettings() {
       <div className="grid max-h-56 grid-cols-1 gap-x-3 gap-y-0.5 overflow-y-auto rounded-lg border border-line-subtle p-2 sm:grid-cols-2 lg:grid-cols-3">
         {EXTENSIONS.map((info) => {
           const checked = selectedSet.has(info.ext);
-          const notInManifest = !manifestMissing && !supportedSet.has(info.ext);
+          // 只在真的读到了系统清单、且该项不在清单里时才标注（读不到状态时不要满屏误导）
+          const notInManifest =
+            state !== null && !manifestMissing && !supportedSet.has(info.ext);
           return (
             <label
               key={info.ext}

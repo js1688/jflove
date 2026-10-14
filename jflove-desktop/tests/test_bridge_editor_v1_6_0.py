@@ -47,6 +47,11 @@ EXPECTED_HANDLERS: dict[str, set[str]] = {
         "reportDirty",
         "confirmQuit",
         "cancelQuit",
+        # ⚠ **不在 §7.1 的表内**：快捷键偏好的读写属**设计缺口**（§4.2.4 只规定了存储位置
+        # 与结构，方法表漏列）。按命名空间一致性补齐，见 `editor.py` 的缺口说明与
+        # `tests/test_bridge_editor_shortcuts_v1_6_0.py`；已登记 BACKLOG BL-17。
+        "shortcutsLoad",
+        "shortcutsSave",
     },
     "quit": {"pending"},
     "file_assoc": {"get", "set", "openSystemDefaults"},
@@ -151,7 +156,8 @@ def test_handlers_namespaces_and_method_names():
     for service, methods in EXPECTED_HANDLERS.items():
         assert set(editor_bridge.HANDLERS[service]) == methods
     total = sum(len(methods) for methods in editor_bridge.HANDLERS.values())
-    assert total == 16
+    # 16（§7.1 表内）+ 2（快捷键偏好：设计缺口补齐，见上方的 EXPECTED_HANDLERS 注释）
+    assert total == 18
     assert all(callable(fn) for group in editor_bridge.HANDLERS.values() for fn in group.values())
 
 
