@@ -332,6 +332,66 @@ def ensure_mermaid_bundle() -> None:
     log(f"已从 web 端复制 Mermaid 离线包 → {vendor_dir}")
 
 
+def ensure_editor_bundle() -> None:
+    """
+    确保前端工程里有 CM6 离线分包（文本编辑器内核）。
+
+    **为什么必须显式处理**：`ui/src/utils/scratch/load-editor-bundle.ts` 会
+    **构建期 import** `public/vendor/editor.version.json`，缺了这两个文件
+    `vite build` 会直接失败（全新 clone / CI 上就是这样）。
+
+    与 Mermaid **不同**：CM6 分包**只有桌面端消费**（设计文档 §6.1.1），没有可复制的
+    第二份产物，因此这里**就地生成**：`scripts/editor-bundle` 里装一次构建依赖（钉版本，
+    有 lockfile 走 `npm ci`），再跑 `node scripts/build-codemirror-bundle.mjs`。
+    产物落 `ui/public/vendor/`，**不被 git 跟踪**（`.gitignore` 的 `ui/public/vendor/` 规则）。
+
+    ⚠ **与设计 §6.1.1 的一处已登记偏离（2026-10-14）**：设计原文是"缺失即 `fail()` 并提示
+    去跑本地脚本"。但本版本 **D16 未授权改 `.github`**，而 `build-desktop.yml` 只生成 Mermaid
+    分包、**没有** CM6 步骤 ⇒ 按"缺失即 fail"**CI 必然红**（Phase 8 阻塞）。
+    故改为「先尝试自动生成 → 生成失败才 `fail()`」：既不静默交付残缺产物（产物仍不进 git、
+    缺了就报错），又不必改 CI。取舍与证据见 `文档记录/桌面端开发记录/v1.6.0.md`。
+    """
+    vendor_dir = UI_DIR / "public" / "vendor"
+    required = ("editor.bundle.js", "editor.version.json")
+    if all((vendor_dir / name).exists() for name in required):
+        return
+
+    script = ROOT / "scripts" / "build-codemirror-bundle.mjs"
+    deps_dir = ROOT / "scripts" / "editor-bundle"
+    node = shutil.which("node") or shutil.which("node.exe")
+    npm = shutil.which("npm") or shutil.which("npm.cmd")
+    missing = [n for n in required if not (vendor_dir / n).exists()]
+    deps_manifest = deps_dir / "package.json"
+    if node is None or npm is None or not script.exists() or not deps_manifest.exists():
+        fail(
+            "缺少 CM6 离线分包（文本编辑器内核），且构建机无法就地生成："
+            f"{', '.join(missing)}\n"
+            f"  node={'OK' if node else '缺失'}  npm={'OK' if npm else '缺失'}  "
+            f"脚本={script}  依赖清单={deps_manifest}\n"
+            "  请手动执行（工作目录 jflove-desktop）：\n"
+            "    cd scripts/editor-bundle && npm ci && cd ../.. && "
+            "node scripts/build-codemirror-bundle.mjs"
+        )
+
+    log("缺少 CM6 离线分包，就地生成（首次需联网安装构建依赖，约 1-2 分钟）…")
+    install_cmd = ["ci"] if (deps_dir / "package-lock.json").exists() else ["install"]
+    for cmd_args in ([npm, *install_cmd], [node, str(script)]):
+        proc = subprocess.run(cmd_args, cwd=str(deps_dir if cmd_args[0] == npm else ROOT),
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", shell=False)
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "")[-1500:]
+            fail(f"CM6 离线分包生成失败（{' '.join(cmd_args[1:])}）：\n{tail}")
+
+    still_missing = [n for n in required if not (vendor_dir / n).exists()]
+    if still_missing:
+        fail(
+            f"CM6 离线分包生成后仍缺文件：{', '.join(still_missing)}"
+            "（请检查 scripts/build-codemirror-bundle.mjs 的产出路径）"
+        )
+    log(f"CM6 离线分包就绪 → {vendor_dir}")
+
+
 def build_frontend() -> None:
     """
     构建前端产物（`ui/dist`）。
@@ -350,6 +410,8 @@ def build_frontend() -> None:
         fail(f"前端工程不存在：{UI_DIR}")
 
     ensure_mermaid_bundle()
+    # CM6 离线分包（文本编辑器内核）：前端构建期会 import 它的 version.json ⇒ 必须先就位
+    ensure_editor_bundle()
 
     log("构建前端（npm ci + build）…")
     install_cmd = ["ci"] if (UI_DIR / "package-lock.json").exists() else ["install"]
