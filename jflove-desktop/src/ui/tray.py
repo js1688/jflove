@@ -18,6 +18,12 @@ Python 不持有它。所以托盘只负责**发意图**：
 按计划 §2.3 / N17：标题栏的 ✕ 与窗口关闭事件都**不退出应用**，
 而是隐藏到托盘 + 气泡提示；真正退出只能走托盘菜单的「退出」。
 （Qt 侧需配合 `app.setQuitOnLastWindowClosed(False)`，否则隐藏唯一窗口会直接退出。）
+
+## 退出为什么走 `request_quit()`（v1.6.0 §6.4）
+
+「退出」不再直接调 `quit_application()`：有未保存内容时要先让渲染层裁决
+（`shell.quitRequested` → `editor.confirmQuit` / `editor.cancelQuit`），
+超时或桥不可用才由 GUI 线程弹原生确认框兜底。托盘只负责**发起请求**。
 """
 
 from __future__ import annotations
@@ -43,7 +49,7 @@ class TrayController:
     """
     托盘图标与菜单。
 
-    :param window: 主窗口（需提供 restore_from_tray / quit_application）
+    :param window: 主窗口（需提供 restore_from_tray / request_quit）
     :param publish_event: 向渲染层推事件的回调（通常是 `bridge.publish_event`）
     """
 
@@ -88,7 +94,9 @@ class TrayController:
 
         menu.addSeparator()
         quit_action = menu.addAction("退出")
-        quit_action.triggered.connect(self._window.quit_application)
+        # v1.6.0 §6.4：退出**不再**直接 `quit_application()`（那会绕过退出握手），
+        # 改走 `request_quit()` —— 有未保存内容时先由渲染层裁决，超时走原生兜底确认框。
+        quit_action.triggered.connect(self._window.request_quit)
 
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._on_activated)
