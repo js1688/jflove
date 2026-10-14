@@ -1,0 +1,15 @@
+# JFLove 服务端 —— 开发 / 测试专用依赖
+#
+# ⚠ 本文件**不进入运行时**：运行时依赖一律只放 requirements.txt
+#   （Dockerfile 只安装 requirements.txt；依据 v1.6.0 设计 §3.1 #31 / AC-B8）
+#
+# 安装：
+#   .\venv-win\Scripts\python.exe -m pip install -r requirements-dev.txt
+#
+# 覆盖率报告（BACKLOG BL-4；**不设 CI 门槛** —— D16 未授权改 .github）：
+#   .\venv-win\Scripts\python.exe -m pytest tests/ --cov=src --cov-report=term-missing
+#
+# 留痕：`pytest` 本身在本仓库一直是「预装在 venv 中、未在任何 requirements 中声明」的
+#       既有事实；本次（BL-4）按「只改点名文件」范围纪律**不顺手补**，仅在开发记录中登记。
+
+pytest-cov==7.1.0
