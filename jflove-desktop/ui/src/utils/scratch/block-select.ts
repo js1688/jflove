@@ -20,12 +20,15 @@
  * 文档 `abcdef\ngh\nijklmn`（无末尾换行），选第 2~4 列：
  *
  * ```
- * 行1 `abcdef`  列1..3（0 基 [1,4)）⇒ `bcd`
- * 行2 `gh`      列1..3 越界，短行右侧补空格到块宽 3 ⇒ `h` + `  ` = `h  `
- * 行3 `ijklmn`  列1..3 ⇒ `ijk`
+ * 行1 `abcdef`  1 基第 2~4 列（0 基 [1,4)）⇒ `bcd`
+ * 行2 `gh`      同上区间越界，短行右侧补空格到块宽 3 ⇒ `h` + `  ` = `h  `
+ * 行3 `ijklmn`  1 基第 2~4 列 ⇒ `jkl`
  * 块宽 = 4 − 1 = 3
- * 剪贴板 = `bcd` + `\n` + `h  ` + `\n` + `ijk` = "bcd\nh  \nijk"
+ * 剪贴板 = `bcd` + `\n` + `h  ` + `\n` + `jkl` = "bcd\nh  \njkl"
  * ```
+ *
+ * > 期望串以**实现与列口径**为准（S-9 裁决）：0 基 `[1,4)` = 1 基第 2~4 列，`ijklmn` 取到
+ * > `jkl`；需求文档 AC-11 原文写 `ijk` 是"取第 1~3 列"的口径，属文档笔误，已同步改正。
  *
  * ## 列的口径（诚实说明）
  *
@@ -131,7 +134,7 @@ export function blockSelectCopy(doc: Text, ranges: readonly SelectionRange[]): s
 /**
  * AC-11 的手算样例（供 Phase 6 单测与人工复核直接引用，避免各处重抄）。
  *
- * `expected` 的第二行末尾是**两个空格**：`"bcd\nh  \nijk"`。
+ * `expected` 的第二行末尾是**两个空格**：`"bcd\nh  \njkl"`。
  */
 export const BLOCK_SELECT_AC11 = {
   /** 文档（无末尾换行） */
@@ -139,7 +142,7 @@ export const BLOCK_SELECT_AC11 = {
   /** 各行被选中的矩形列区间（0 基、左闭右开），对应设计的"第 2~4 列" */
   columns: [1, 4] as const,
   /** 期望剪贴板内容（逐字符） */
-  expected: 'bcd\nh  \nijk',
+  expected: 'bcd\nh  \njkl',
   /** 期望的块宽 */
   width: 3,
 } as const;
