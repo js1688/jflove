@@ -33,31 +33,25 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 
 ### 启动图标（`ic_launcher`）规范
 
-**母版是 `jflove-desktop/images/icon.png`（2048×2048）**，Android 各密度目录里的 `ic_launcher.png`
-必须是**按密度降采样后的对应尺寸**，不能把母版原样复制过去：
+**母版 = `jflove-desktop/images/icon.png`（2048×2048，不要改它）**；各密度目录的 `ic_launcher.png`
+必须是**按密度降采样后的尺寸**，不能原样复制母版：
 
-| 密度目录 | 应为尺寸 | 参考体积 |
-| --- | --- | --- |
-| `mipmap-mdpi` | 48×48 | ~4 KB |
-| `mipmap-hdpi` | 72×72 | ~8 KB |
-| `mipmap-xhdpi` | 96×96 | ~13 KB |
-| `mipmap-xxhdpi` | 144×144 | ~26 KB |
-| `mipmap-xxxhdpi` | 192×192 | ~43 KB |
+| `mipmap-mdpi` | `mipmap-hdpi` | `mipmap-xhdpi` | `mipmap-xxhdpi` | `mipmap-xxxhdpi` |
+| --- | --- | --- | --- | --- |
+| 48×48 | 72×72 | 96×96 | 144×144 | 192×192 |
 
-- **反面案例（实测）**：这 5 个目录曾全部是 **2048×2048 的同一份母版**（各自 2.7 MB，合计 13.5 MB）
-  ⇒ APK 白胖约 13 MB，且 mdpi 设备要运行时下采样。改后**五档合计 93 KB**。
-- 重新生成（用带 Pillow 的解释器；**不要去改母版**）：
+- **判据**：每个文件的**像素尺寸等于上表**（`Image.open(p).size`），不是"文件存在"。
+  尺寸错了没有门禁会拦（`scripts/check_logo_sync.py` 只管两端 `public/logo-*`），必须自查。
+- **反面案例**：5 个目录若放同一份 2048×2048 母版（各 2.7 MB）⇒ **APK 白胖约 13 MB** 且低密度设备要运行时下采样。
+- 重生成（母版不动）：
   ```python
   from PIL import Image
   im = Image.open('jflove-desktop/images/icon.png').convert('RGB')
-  for dens, size in {'mdpi':48,'hdpi':72,'xhdpi':96,'xxhdpi':144,'xxxhdpi':192}.items():
+  for dens, size in {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}.items():
       im.resize((size, size), Image.LANCZOS).save(
-          f'jflove-app/android/app/src/main/res/mipmap-{dens}/ic_launcher.png',
+          'jflove-app/android/app/src/main/res/mipmap-%s/ic_launcher.png' % dens,
           'PNG', optimize=True, compress_level=9)
   ```
-- 校验判据：每个文件的**像素尺寸等于上表**（`Image.open(p).size`），而不是"文件存在"。
-  **注意**：`scripts/check_logo_sync.py` 只管两端 `public/logo-*`（品牌图），**不覆盖**这两个图标 ——
-  改图标不会被任何现有门禁拦住，只能靠本节的尺寸判据自查。
 
 ## 项目结构约定
 
