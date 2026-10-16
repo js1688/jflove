@@ -60,5 +60,5 @@ description: "子 agent 委派契约（父 agent 派活 / 子 agent 接活前必
 
 - 项目技能在会话技能目录中的名字 = `<角色名>`（如 `backend`、`code-review`），另有一个 `lessons`。
 - 优先级：**项目技能 > 内置技能**（rank 200/300 vs 600）；同名时项目技能胜出。
-- 项目技能不可见时（换机器/没跑 `scripts/enable_dsh_skills.py`），退化为
-  `read .agents/skills/<role>/SKILL.md` —— **约束照样成立，不许因此跳过角色技能**。
+- 项目技能不可见时（换机器 / 新克隆 / 技能目录未刷新），退化为
+  `read .agents/skills/<role>/SKILL.md` —— **约束照样成立，不许因此跳过角色技能**（`AGENTS.md` §6.2 第 3 条）。

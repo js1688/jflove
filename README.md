@@ -163,7 +163,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 
 ```json
 // version.json
-{ "version": "1.6.1" }
+{ "version": "x.y.z" }
 ```
 
 | 模块 | 版本号位置（由脚本自动同步） |
@@ -173,13 +173,13 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | jflove-app | `pubspec.yaml` `version: x.y.z+code`（versionCode 由版本号派生）+ `lib/pages/settings/settings_page.dart`（「关于」页显示） |
 | jflove-web | `package.json` + `src/config/constants.ts` `APP_VERSION`（设置页「关于」显示） |
 
-> 移动端 versionCode 派生规则：`major*1000000 + minor*1000 + patch`（如 `1.6.1 → 1005001`），无需单独维护 build number。
+> 移动端 versionCode 派生规则：`major*1e6 + minor*1e3 + patch`（versionCode 无需单独维护 build number）。
 > 共 **4 个构建脚本**：仓库根编排器构建前**自动同步**全部位置；server / desktop / web 三个模块 `build.py` 则在构建前**校验**模块内版本号与 `version.json` 一致，不一致直接中止；移动端**没有**模块 `build.py`（由根编排器直接调 `flutter build`）。
 
 ### 改版本号（一条命令）
 
 ```bash
-echo '{"version":"1.6.1"}' > version.json   # 或手动编辑
+echo '{"version":"x.y.z"}' > version.json   # 或手动编辑
 python scripts/sync_version.py               # 同步全部位置（含 pubspec 派生 versionCode）
 ```
 
@@ -220,12 +220,12 @@ python build.py --skip-env-check   # 跳过环境检查强行构建
 
 ```bash
 # 1. 改版本（唯一真相）
-echo '{"version":"1.6.1"}' > version.json
+echo '{"version":"x.y.z"}' > version.json
 # 2. 统一打包（自动同步版本 + 环境检查 + 打包）
 python build.py -m all
 # 3. 提交发版（打 tag 触发 CI 线上构建）
-git add -A && git commit -m "chore: bump 1.6.1"
-git tag v1.6.1 && git push origin main --tags
+git add -A && git commit -m "chore: bump x.y.z"
+git tag vx.y.z && git push origin main --tags
 ```
 
 ---
@@ -238,7 +238,7 @@ git tag v1.6.1 && git push origin main --tags
 ### 触发方式
 
 - **手动触发**：仓库页 Actions → 选择对应 workflow → Run workflow
-- **自动触发**：推送 `v*` 开头的 tag（如 `v1.6.1`）
+- **自动触发**：推送 `v*` 开头的 tag（如 `vx.y.z`）
 
 ### 各端 workflow 与产物
 
@@ -253,8 +253,8 @@ git tag v1.6.1 && git push origin main --tags
 
 - **Docker 镜像**：CI 推送到 GitHub Container Registry，本地拉取：
   ```bash
-  docker pull ghcr.io/<你的用户名>/jflove-server:1.6.1
-  docker pull ghcr.io/<你的用户名>/jflove-web:1.6.1
+  docker pull ghcr.io/<你的用户名>/jflove-server:<版本号>
+  docker pull ghcr.io/<你的用户名>/jflove-web:<版本号>
   ```
   也可在仓库的 **Packages** 页查看已发布镜像。
 - **桌面端 / 移动端产物**：进入对应 workflow 本次运行页，底部 **Artifacts** 区下载 zip。
@@ -264,194 +264,11 @@ git tag v1.6.1 && git push origin main --tags
 CI 从 tag 提取版本号，校验 `tag == version.json` 与模块内 9 处版本号（以 `scripts/sync_version.py::POSITIONS` 为准），任一不一致直接失败。发版前只需：
 
 ```bash
-echo '{"version":"1.6.1"}' > version.json
+echo '{"version":"x.y.z"}' > version.json
 python scripts/sync_version.py
-git add -A && git commit -m "chore: bump 1.6.1"
-git tag v1.6.1 && git push origin main --tags
+git add -A && git commit -m "chore: bump x.y.z"
+git tag vx.y.z && git push origin main --tags
 ```
-
----
-
-## 版本变化
-
-[点击查看构建产物发布记录](https://github.com/js1688/jflove/releases)
-
-> 以下记录从 v1.1.6 开始的版本变化。更早版本参见 `文档记录/需求文档/`。
-
-### v1.6.1（当前版本）— 桌面端「文本编辑器」形态改造 + 7 条实测反馈修复
-
-> 本版是 v1.5.1 之后**第一个对外发布的版本**：v1.6.0（桌面端新增文本编辑器）**未单独发版**，
-> 其发布一并并入本版 ⇒ 从用户视角，**1.6.1 = 文本编辑器首次对外交付 + 形态改造 + 7 条实测反馈修复**。
-
-**① 桌面端「文本编辑器」：登录门 + 整页工作区 / 顶部标签页**
-
-- **登录门**：编辑器**只在登录后存在** —— 未登录时左侧菜单**没有**「文本编辑器」项、快捷键不响应、工作区不渲染；
-  从文件管理器用「打开方式 → JFLove」唤起文件时**先出现登录面板**，登录完成后**自动**切到编辑器并把该文件打开为标签页。
-- **整页工作区 + 顶部标签条**：容器由**应用内浮动窗格**改为**左侧菜单里的整页工作区**（顶部固定标签条 + 编辑面板），
-  **一个文档一个标签页**；支持关闭（脏标签先询问）、**拖拽排序**、**溢出可及**（12 个标签也不丢激活项）、
-  关闭最后一个标签页**留在空态**（含「新建」「打开」入口）；拖动 / 缩放 / 最小化 / 最大化 / 平铺 / 层叠 / 层级**整体退役**。
-- **快捷键 20 → 18 项**：平铺 / 层叠作废，新增「下一个 / 上一个标签页」与「关闭当前标签页 `Ctrl+W`」（宿主占用时由应用接管）。
-- **草稿与离线**：草稿还原改为**登录后**还原为标签页（含视图模式与标签顺序、激活项）；登出 / 会话失效时入口消失、
-  内容留在草稿库，**重新登录可还原**；**已登录后断网 / 服务端未启动照常可用**（登录只管准入）。
-- **内核一项不减**：块选择、类型差异化、12 项工具箱、标准保存语义、类型校验先行、文件关联、单实例、状态栏、
-  数据安全专项全部不变（术语由"窗格"改为"标签页"）。
-- **安全边界不变**：编辑器与远端**零交互**、渲染层**无网络出口**、文件字节与密钥不进渲染层、原子写；
-  **不新增**任何后端接口 / 路径参数 / 加密原语，**数据库无结构变更**（无 migrate / rollback 脚本）。
-
-**② 2026-10-16 用户实测反馈 7 条修复**
-
-| # | 反馈 | 修复 |
-|---|------|------|
-| ⑤ | 切左侧菜单再回来**正文丢失**（tab 还在） | 编辑器宿主在销毁实例**之前**把正文 + 光标 + 滚动位置快照下来，并把工作区重建门收窄 ⇒ 往返后**每个标签的正文逐字符不变**（含自动暂存防抖窗口内切走） |
-| ⑥ | IDEA 复制的代码**贴不进来** | 真凶实测 = 剪贴板存在 `text/uri-list`（Java/AWT 必然写入）时 QtWebEngine 的 `Ctrl+V` 贴出 0 字符 ⇒ 改在**外壳侧粘贴时归一化剪贴板**，撤掉此前基于错误假设的渲染层粘贴接管 |
-| ② | 工具箱 / 编辑器里有英文（如查找替换） | 查找替换等编辑器面板经 `EditorState.phrases` **本地化**（31 键），状态栏语言名、类型表英文 label、SQL 方言下拉 21 项显示名一并**全部中文** |
-| ① | md 预览要支持 **mermaid** | 编辑器预览 / 分屏改用与笔记端**同一套渲染栈**：```` ```mermaid ```` 渲染为**矢量图**、主题切换重渲、语法错误给**中文提示**且不白屏 |
-| ④ | 工具箱**选完不关**弹框 | 工具箱 **10 项选完即关**（含查找替换），仅「SQL 美化」与「字号 / 行号 / 自动换行」两组保持打开；**`Esc`** 与**点弹框外部**都能关 |
-| ③ | 快捷键默认值**抢系统键** | **6 项换键**：`Ctrl+N` / `Ctrl+O` / `Ctrl+PageDown` / `Ctrl+PageUp` / `Ctrl+K` / `Ctrl+Shift+D`；默认键列 **0 项** `Ctrl+Alt+*`，其余 12 项不变，**未自定义过的用户自动生效**；并修好此前 `Ctrl+K` **打不开工具箱**的问题 |
-| ⑦ | 文件关联**只支持 Windows 吗？** | 设置页「文件关联」写清**平台范围**：Windows ✓ / Linux ✓（需自行在桌面环境选默认程序）/ **macOS 暂不支持**，并**诚实登记「Linux 侧尚未真机验证」** |
-
-**发布质量**：桌面端 `ui` 的 `tsc` / `lint` / `vitest`（**42 files / 453 tests：441 passed + 12 expected fail**）/ `vite build` **全 0**；
-桌面端 `pytest` **574 passed, 1 xfailed**、`flake8` 0；负向对照（把修复前行为注回去）**13/13 全部被抓**；
-服务端 259 / Web 端 211（**本版零改动，只跑不写**）；安全宪法 §9 **未破坏**（`_PLAIN_PATHS` 仍 3 条、无新增加密原语）；
-库结构核对 `check_db_schema.py` **退出码 0**，本版**无 DDL**。
-
-**发布方式**：**真实发布**（推 tag `v1.6.1` → 由 GitHub Actions 云端构建），**产物与校验值以 CI 为准**；
-桌面端产物为安装包（Windows `*-setup.exe` + 便携 zip / Fedora `*.rpm`）。
-详细记录见 [`文档记录/版本发布记录/v1.6.1.md`](文档记录/版本发布记录/v1.6.1.md)。
-
-### v1.5.1 — 4 条 issue 修复 + 桌面端媒体浮层与版本号单源修复
-
-**修复的 4 条用户反馈**（来源：仓库 issue #1~#4）：
-
-| issue | 内容 |
-|-------|------|
-| #1 | **Web 端品牌标识与桌面端一致**：侧栏与登录页由盾牌图标改为**猫猫 logo 图片**（与桌面端同一美术资产，两端逐字节一致，新增门禁脚本核对） |
-| #2 | **两端系统设置项一致**：查证服务端自 v1.4.2 起**已不读取** `media_repair_allow_transcode`，故**删除桌面端失效的**「允许重编码降级」开关，两端只保留「修复并发数」 |
-| #3 | **桌面端媒体浮层联动**：修复"关闭窗体后播放框残留"（关窗=最小化到托盘时同步隐藏浮层并强制重绘）与"拖动主窗画面不跟随"（主窗几何事件驱动重贴合，同帧合并、无轮询；全屏态优先不被拉回） |
-| #4 | **笔记页交互**：大纲由底部折叠区改为**右侧可折叠竖栏**（预览/分屏均可用）；打开笔记默认视图改为**内容驱动**（有内容→预览、空→编辑） |
-
-**同时修复的既有缺陷**：
-
-- 🔐 **桌面端信封解密静默降级**（v1.5.0 遗留、安全相关）：200 响应"是加密信封但解不开"时原先被当成**明文成功**返回（界面表现为"目录是空的"、不报错）；现改为判定信封形状后**一律抛 `ApiError(502)`**，绝不回退明文，并补 24 条用例与负向对照。
-- 🏷 **版本号单一来源违规**：桌面端 Web UI 的版本号常量此前不在同步清单里（登录页/关于页会显示旧版本号），已纳入 `sync_version.py`（同步清单 7 → 8 处；其后又纳入桌面端 `ui/package.json`，**现为 9 处，以 `scripts/sync_version.py::POSITIONS` 为准**），今后由构建前的 `--check` 拦住漂移。
-
-**发布质量**：服务端 169 / 桌面端 133 / Web 端 208 用例全通过；15 组负向对照全部被用例抓住；
-安全宪法 §9 **未破坏**（后端源码零改动，`_PLAIN_PATHS` 仍 3 条）；
-新增两个跨端一致性门禁（`check_logo_sync.py`、`check_web_desktop_parity.py`，均自带反向验证）并接入 CI。
-
-**已知**：13 项真机像素/交互验收项（浮层跟随、关窗残留、窄屏大纲）需人工在有头环境确认；本仓库未配置覆盖率工具（报告如实标注"未测量"）。
-
-### v1.5.0 — 桌面端界面迁移到 Web UI + 三端一致 + 契约修复
-
-**桌面端**：界面从 Qt Widgets（PySide6 + Fluent-Widgets）**整体迁移到 Web UI** ——
-由 QtWebEngine 渲染与 Web 端**同一套界面**，同时保留原生能力：系统托盘、**本地解码**的媒体预览
-（走 OS 解码器而非浏览器解码）、后台同步引擎、传输任务（**取消真实生效**）、原生文件对话框与系统拖放上传。
-交付形态为**安装包**（Windows `setup.exe` / 便携 zip / Linux RPM）。
-旧 Qt 界面与 Fluent-Widgets 依赖已移除。
-
-**三端一致**：移动端设置菜单补齐「系统设置」，层级与 Web 端对齐。
-
-**修复**：Web 端「新建目录」与「删除」两处服务端契约错误（前者静默无效、后者请求了不存在的路由）；
-桌面端会话恢复改为**经服务端确认 token**（原先只看本地过期时间，会"假装已登录"后全线报错）。
-
-**移动端**：同上述层级对齐；其余沿用 v1.4.2。
-
-### v1.4.2 — 手动离线媒体修复 + 播放路径纯净化 + seek 回归修复
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-08-29 |
-| 🔧 服务端 | 架构调整：移除 time 实时修复流，`/stream` 只输出健康文件字节流；新增播放门禁（真损坏 415 + `[MEDIA_NEEDS_REPAIR]`，MKV/AVI/faststart MP4 等原生可播格式放行）；新增离线修复任务（6 个加密 API + `media_repair_tasks` 表 + asyncio 队列 worker，ffmpeg 无损重封装产物落盘 `.jflove-repair/`，支持取消/覆盖/删除）；`_moov_at_front` 放宽为 moov 前置即健康（修复 v1.4.1 卡顿重灾区）；隐藏目录 `.jflove-repair` 全路径防护 |
-| 🐛 修复 | 代码审查 S-1：`repair_task_id` 产物流补磁盘读权限校验；M-1：`delete-record` 只读账号禁止删除他人记录 |
-| ✅ 测试 | 后端 131 / 桌面 99 / 移动 24 / Web 53 全通过（后端新增 23 例） |
-| 📦 发布 | 新增 `media_repair_tasks` 表（幂等 DDL + 回滚脚本）；桌面 JFLove.exe 244.5MB；移动 app-debug.apk 177MB |
-
-### v1.4.1 — 视频播放修复（时长 + seek）
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-08-23 |
-| 🔧 服务端 | 媒体探测失败回退 byte、ffmpeg 可用性修复；TS 伪装 MP4 强制转 AAC；faststart MP4 判定修正（moov+mvex）；fMP4 init 段补读；fMP4 mvhd duration 改写（供播放器显示总时长） |
-| 🌐 Web 端 | MSE 非 fMP4 回退下载 + 下载进度；MSE 时长/seek 修复（timestampOffset + 非受控 src + AbortController 防竞态） |
-| 🖥️ 桌面端 / 📱 移动端 | StreamProxy time 修复流声明 Accept-Ranges，使 QMediaPlayer / ExoPlayer 可拖拽 seek |
-| ✅ 测试 | 后端 122 / 桌面 102 / 移动 27 / Web 52 全通过 |
-| 📦 发布 | 镜像 server/web 推送腾讯云 CCR；桌面 JFLove.exe 242MB；移动 debug+release APK（1.4.1+5） |
-
-### v1.4.0 — 媒体修复与行业标准边下边播（四端）
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-08-13 |
-| 🔧 服务端 | 媒体修复服务：损坏/非流式媒体经 ffmpeg `-c copy` 重封装为 fMP4、stdout 管道直出（不落盘、不改原文件）；开关为服务端 config 三键（`media_repair_enabled`/`allow_transcode`/`max_concurrent`，默认关闭，C 端配置立即生效）；声明机制（仅带 `range_start_seconds` 的客户端走 time 修复，旧客户端零回归）；time meta 携带 `file_size`/`duration`/`codec` |
-| 🌐 Web 端 | 边下边播统一 MSE 主路径（HTTP/HTTPS 均可用，删除 Service Worker）；修复流 codec 由服务端 meta 下发并组装完整 MIME；修复 loading 切换重建 video 元素与 StrictMode 双跑互扰 |
-| 🖥️ 桌面端 | 设置页媒体修复开关（admin）；StreamProxy 适配 time 修复流（200+chunked 顺序流、字节 Range 线性映射时间 seek） |
-| 📱 移动端 | 设置页媒体修复开关（admin）；StreamProxy 同样适配 time 修复流 |
-| ✅ 测试 | 后端 120 / 桌面 102 / 移动 27 / Web 52 全通过；真实服务 E2E（mkv、损坏 mp4 边下边播）；桌面端打包冒烟通过 |
-| 📦 发布 | 四端完整发布：桌面（JFLove.exe）+ 移动（app-debug.apk）2026-08-13；后端镜像 `jflove-server:1.4.0` + Web 镜像 `jflove-web:1.4.0` 2026-08-16 补发布 |
-
-### v1.3.1 — Web 端视频/音频边下边播 + 流式 404 修复
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-08-04 |
-| 🌐 Web 端 | 视频/音频预览实现**真边下边播**：Service Worker 流式代理（`/jflove-stream/<token>`，解析 Range → 后端 `/api/v1/files/stream` 加密流逐帧解密 → 206 返回，原生解码器接管）为主路径；非安全上下文回退 MSE；完整下载仅作最后兜底 |
-| 🐛 修复 | `/stream` 404「文件不存在」：后端约定 `path=目录+filename`，Web 端曾传完整路径导致双重拼接，已在 `openEncryptedStream` 归一化 |
-| 🔧 修复 | `parseStreamFrames` 单分片丢帧：meta 帧与数据帧同分片到达时先解析缓冲再读取 |
-| ✅ 测试 | Web 端 vitest 51 通过；真实服务器 500GB/叶方 IMG_0443.MP4 验证边下边播 + 拖动 seek |
-
-### v1.3.0 — Web 端首个版本 + 后端 CORS
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-08-02 |
-| 🌐 Web 端 | **全新模块**（React + TypeScript + Vite + Tailwind CSS）：登录/文件浏览/预览/笔记/设置/管理/同步/传输全功能，PC 端侧边栏 + 移动端底部 TabBar 双布局；只读 GET 接口走 URL query 加密信封；HTTP 非安全上下文自动回退纯 JS 加密（`@noble/curves` X25519 + HKDF-SHA256） |
-| 🔧 服务端 | 新增 CORS 中间件；版本号 1.1.6 → 1.3.0 |
-| ✅ 测试 | Web 端 vitest 35 用例通过；容器冒烟登录页 + SPA fallback |
-
-### v1.2.3 — 移动端传输任务 Tab + 同步修复 + BUG 修复累积（hotfix1~5）
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-07-21（首次） / 2026-07-28 ~ 07-29（BUG 修复累积） |
-| 📱 移动端 | 底部导航重构：移除「首页」Tab，新增「传输任务」Tab（对齐桌面端），登录后重定向 `/files` |
-| 📱 移动端 | 同步修复：`SyncPage` 配置同步到 `SyncEngineService`，立即同步按钮不再静默失败 |
-| 🐛 hotfix1 | 文件管理体验 10 项：传输任务进页、列表刷新、`file_picker` 多选上传、移动到、写权限控制、取消/清除任务等 |
-| 🐛 hotfix2 | 传输与同步 6 项：下载目录改外部存储 `Download/jflove/`、同步实际传输、上传改三步协议等 |
-| 🐛 hotfix3 | 预览流式化 3 项：视频/音频 StreamProxy 边下边播+seek、文本流式加载、扩展名扩至 60+ |
-| 🐛 hotfix4 | 自动登录 + 服务器地址预填充 2 项 |
-| 🐛 hotfix5 | 视频流 `ExoPlaybackException`：StreamProxy 误用 `dio.post` 改 `dio.get` |
-| ✅ 测试 | 移动端版本号 `1.2.3+3`；加密协议 `X-Encrypted-Stream: v1` 不变 |
-
-### v1.1.6 — 同步配置客户端本地化
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-06-21 |
-| ⚠️ | **Breaking change**：服务端与桌面端必须同步升级 |
-| 🔧 服务端 | 移除 `sync_configs` 表及全部 6 个 CRUD 接口；新增 `POST /api/v1/sync/snapshot`（直接传 `disk_id`+`remote_path`） |
-| 🖥️ 桌面端 | `sync_service.py` 全部改为本地 JSON 文件操作（`sync_configs.json`）；`sync_engine.py` 适配 str UUID ID 和新 snapshot API |
-| 🔄 同步配置 | 每台客户端独立管理自己的同步配置（local_path / auto_sync / sync_interval 互不影响） |
-| ✅ 测试 | 服务端 106 / 桌面端 98 全部通过 |
-
-### v1.1.5 — 桌面端持久化存储修复
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-05-17 |
-| 🔧 修复 | 桌面端持久化数据从 PyInstaller 临时目录（`_MEIPASS`）迁移到用户数据目录 |
-| 🖥️ 桌面端 | 存储方式从 QSettings（Windows 注册表）改为 JSON 文件（`session.json` + `server_history.json`） |
-| 📁 用户数据目录 | Windows: `%APPDATA%/JFLove/`、Linux: `~/.local/share/JFLove/`、macOS: `~/Library/Application Support/JFLove/` |
-| 🔄 自动迁移 | 首次启动自动从旧位置迁移数据 |
-
-### v1.1.4 — 补丁修复与体验优化
-
-| 类型 | 变更 |
-|------|------|
-| 📅 | 2026-05-?? |
-| 🔧 服务端 | `rename`/`move` 路径不存在时返回 404（原 400）；JWT 最大有效期扩展至 30 天 |
-| 🖥️ 桌面端 | 服务端地址历史持久化修复（连接成功立即写入，重启/过期不丢失） |
-| 🖥️ 桌面端 | Token 有效期选项从"按小时"改为"按天"：1 天 / 7 天 / 30 天 |
-| 🐛 桌面端 | 修复 token 过期弹窗后出现双主窗口的必现 Bug |
 
 ---
 
@@ -474,6 +291,7 @@ git tag v1.6.1 && git push origin main --tags
 
 ## 快速导航
 
+- 版本发布记录 → [GitHub Releases](https://github.com/js1688/jflove/releases)（构建产物与校验值以 CI 为准）｜ 详细版 [文档记录/版本发布记录/](文档记录/版本发布记录/)
 - 服务端技术文档 → [`jflove-server/README.md`](jflove-server/README.md)
 - 桌面端技术文档 → [`jflove-desktop/README.md`](jflove-desktop/README.md)
 - 移动端技术文档 → [`jflove-app/README.md`](jflove-app/README.md)

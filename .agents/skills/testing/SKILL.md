@@ -19,7 +19,7 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
   `jflove-desktop/ui/tests/` 也**不存在** ⇒ 桌面端界面回归目前靠 `npm run lint && npm run build`
   + 人工/真机冒烟，**不要**再写"用 `QtTest` 测桌面端页面"的用例。
 - 风格检查：flake8（后端/桌面端）；`dart analyze lib/`（移动端，必须零错误）；ESLint（Web 端，零警告）；`jflove-desktop/ui` 的 ESLint（`npm run lint`）
-- 模块目录：`jflove-server/tests/`、`jflove-desktop/tests/`、`jflove-app/test/`（当前无 integration_test 目录）、`jflove-web/tests/`（20 个文件 / 208 用例）
+- 模块目录：`jflove-server/tests/`、`jflove-desktop/tests/`、`jflove-app/test/`（当前无 integration_test 目录）、`jflove-web/tests/`（21 个文件 / 208 用例）
 - 覆盖率目标：核心业务逻辑 ≥ 90%
 - 命名与编码规范：见 `AGENTS.md §4`；禁止越界规则：见 `AGENTS.md §1`
 

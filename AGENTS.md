@@ -19,24 +19,17 @@
 
 ## 1.1 计划先行（强制）
 
-- **任何任务开始前，必须先列出完整计划**（包含每个步骤的具体内容、涉及的文件、依赖关系），经用户确认无误后，再逐步执行。
-- **在处理新任务时也必须先列出 todo 清单**（写入 `plan.md`），经用户确认后再动手。
-- **禁止跳过计划步骤直接编码**，即使是小改动也需要先说明改什么、改哪里、为什么改。
-- **上下文截断风险防范**：长对话中，AI 应主动做阶段性总结并重新对齐计划，防止因上下文窗口截断导致工作不稳定。
+- **任何任务开始前，必须先列出完整计划**（每个步骤的具体内容、涉及的文件、依赖关系），经用户确认无误后再逐步执行；
+  **禁止跳过计划步骤直接编码** —— 即使小改动也要先说明改什么、改哪里、为什么改。
+- **长对话要主动做阶段性总结并重新对齐计划**，防止上下文截断导致工作不稳定。
 
 ### 1.1.1 计划文件管理（强制）
 
-- **所有计划必须写入 `plans/` 目录**，每份计划独立一个文件，文件名格式：`plans/<模块>-<任务简述>.md`（如 `plans/mobile-crypto-layer.md`、`plans/server-bugfix-login-ttl.md`）。
-- **每份计划文件必须包含**：
-  - 任务目标（简要描述要完成什么）
-  - 当前完成状态（已完成步骤 / 进行中步骤 / 待完成步骤，使用 `[x]` / `[-]` / `[ ]` 标记）
-  - 涉及的源文件列表（预估会被修改的文件路径）
-  - 依赖关系（此任务依赖哪些前置任务/文档）
-- **任务中断与续接**：
-  - 每次开始工作时，AI 必须先读取 `plans/` 下最近相关的计划文件，了解当前进度。
-  - 工作过程中及时更新计划文件的完成状态，确保即使上下文截断、新对话重新加载后也能准确续接。
-  - 所有步骤完成并验证通过后，将计划文件移至 `plans/归档/`（或直接在文件名前加 `DONE-` 前缀）。
-- **避免计划间相互干扰**：每份计划文件只覆盖一个明确的任务范围。多个独立任务并行时，分别建立独立计划文件，不混在同一份文件中。
+- **所有计划写入 `plans/`**，一个任务一个文件，命名 `plans/<模块>-<任务简述>.md`（如 `plans/server-bugfix-login-ttl.md`）。
+  文件名前加 `DONE-` 前缀（或移入 `plans/归档/`）即表示已完成；**`plans/` 不入库**（`.gitignore` 已排除）。
+- **每份计划必须含**：任务目标 / 完成状态（`[x]` 已完成、`[-]` 进行中、`[ ]` 待完成）/ 涉及的源文件清单 / 依赖关系。
+- **中断与续接**：每次开工先读 `plans/` 下最近相关的计划文件对齐进度；过程中及时更新状态，保证新对话也能准确续接。
+- **一个计划只覆盖一个任务范围**，并行任务各建各的文件，不混写。
 
 ## 2. 技术栈
 
@@ -51,106 +44,15 @@
 
 ## 3. 项目目录结构
 
-### jflove-server
+> **各模块的目录树 / 分层 / 文件清单，真身在各角色 `SKILL.md`（见 §6 角色表），本文件不重复展开。**
+> 下面只保留「跨模块必知」的顶层排布与易踩的排布陷阱。
 
-```jflove-server/
-├── src/
-│   ├── controllers/    # 控制器层，处理 HTTP 请求
-│   ├── services/       # 业务逻辑层
-│   ├── repositories/   # 数据访问层
-│   ├── models/         # 数据模型
-│   ├── utils/          # 工具与公共模块
-│   ├── config/         # 配置项
-│   └── main.py         # 入口
-├── tests/              # 测试代码
-├── venv-win/           # 虚拟环境（Windows；Linux 下为 venv-linux/）
-├── build/              # 构建输出
-├── build.py            # 构建脚本
-├── requirements.txt
-└── README.md
-```
-
-### jflove-desktop
-
-> **界面形态 = Web UI（QtWebEngine 渲染，与 Web 端同一套界面）**：Python 侧只保留**原生外壳**（无边框窗口 / 系统托盘 / 媒体原生浮层 / 原生文件对话框），
-> 业务界面全部在前端工程 `ui/`（React + TS + Vite + Tailwind），经 `src/bridge/bridge.py` 的**白名单桥**与 Python 通信（JS 无网络出口）。
-> 详见 `cross-platform-desktop/SKILL.md`。
-
-```jflove-desktop/
-├── src/
-│   ├── ui/                   # 原生外壳（无边框窗口 / 托盘 / 媒体浮层）
-│   │   ├── web_shell.py      # 承载 QtWebEngine、注入桥、关闭=最小化到托盘
-│   │   ├── tray.py           # 系统托盘（显示窗口 / 主题 / 退出）
-│   │   └── media_overlay.py  # 媒体原生浮层（贴 Web 预留矩形，画面由 OS 解码器渲染）
-│   ├── bridge/               # JS↔Python 桥（白名单分发 + 主线程方法集合）
-│   ├── components/           # 原生能力组件（stream_proxy：本地解密 + Range 206）
-│   ├── services/             # 与后端交互的服务层（唯一网络通道 http_client）
-│   ├── utils/                # 工具与公共模块（sync_engine / transfer_manager / http_client …）
-│   ├── config/               # 配置项
-│   └── main.py               # 入口（Linux 强制 XWayland）
-├── ui/                       # 前端工程（React + TS + Vite + Tailwind）
-│   ├── src/                  # pages / components / services / stores / layouts
-│   ├── public/               # 静态资源（logo、vendor/mermaid.bundle.js 离线包）
-│   └── dist/                 # 前端产物（构建生成；打包时作为 webui/ 进包）
-├── tests/                    # 单元测试
-├── venv-win/                 # 虚拟环境
-├── build/                    # 构建输出
-├── packaging/                # 打包资产（Windows Inno Setup 脚本 / Linux RPM）
-├── build.py                  # 构建脚本（先构建前端 → onedir + 安装包 + 便携 zip；Linux 走 RPM）
-├── requirements.txt
-```
-
-### jflove-app
-
-```jflove-app/
-├── lib/
-│   ├── main.dart                         # 入口，ProviderScope + App widget
-│   ├── app.dart                          # MaterialApp.router + 主题
-│   ├── config/                           # 应用配置（常量、主题）
-│   ├── models/                           # 数据模型（不可变类）
-│   ├── providers/                        # Riverpod 状态管理
-│   ├── services/                         # 业务服务层（12 个 service + mermaid/ 渲染子模块）
-│   ├── pages/                            # 页面（按路由组织）
-│   ├── widgets/                          # 可复用 UI 组件
-│   └── utils/                            # 工具模块（crypto / http / session）
-├── test/                                 # 单元 + Widget 测试（19 个测试文件）
-├── android/                              # Android 原生壳
-├── assets/                               # 离线资源（mermaid 渲染页与 bundle）
-├── pubspec.yaml                          # 依赖声明
-├── analysis_options.yaml                 # 静态分析规则
-└── README.md
-```
-
-> 移动端构建入口在**仓库根**：`python build.py -m app`（根编排器直接调 flutter，模块内**没有** `build.py`）。
-> `integration_test/`、`ios/`、`ohos/` 为**预留**方向，仓库内**暂无**这些目录（首版 Android-only）。
-
-### jflove-web
-
-```jflove-web/
-├── src/
-│   ├── main.tsx                    # 入口，ReactDOM.createRoot + 全局 Provider
-│   ├── App.tsx                     # 根组件，RouterProvider + 全局布局
-│   ├── config/                     # 配置项
-│   ├── layouts/                    # 布局组件（DesktopLayout / MobileLayout / AuthLayout）
-│   ├── pages/                      # 页面组件（按路由组织）
-│   ├── components/                 # 可复用 UI 组件
-│   ├── hooks/                      # 自定义 Hooks
-│   ├── services/                   # 业务服务层（10 个 service）
-│   ├── stores/                     # Zustand 状态管理
-│   ├── utils/                      # 工具模块（crypto / http-client / session / stream-frame / mermaid/ …）
-│   └── types/                      # TypeScript 类型定义
-├── tests/                          # 单元测试 + 组件测试
-├── index.html                      # Vite HTML 入口
-├── package.json
-├── tsconfig.json
-├── vite.config.ts
-├── eslint.config.ts
-├── Dockerfile                      # 多阶段 Docker 构建
-├── nginx.conf                      # Nginx SPA 配置
-└── README.md
-```
-
-> Tailwind CSS 4 为 **CSS-first**：工程内**没有** `tailwind.config.ts`，主题与工具类由 `@tailwindcss/vite` 插件 + `src/index.css` 承担。
+| 模块 | 顶层排布 | 排布陷阱（会踩到的） |
+| --- | --- | --- |
+| jflove-server | `src/`（controllers → services → repositories → models / utils / config / main.py）+ `tests/` + `build.py` + `requirements.txt` | `venv-win/`（Linux `venv-linux/`）与 `build/` 不入库、不要提交 |
+| jflove-desktop | `src/`（原生外壳 `ui/` / 桥 `bridge/` / `components/` / `services/` / `utils/` / `config/` / `main.py`）+ **前端工程 `ui/`**（React+TS+Vite+Tailwind）+ `packaging/` + `build.py` | **源码树里没有 `webui/`** —— 它只是 `build.py` 把 `ui/dist/` 打进包内的资源目录名；`ui/dist/` 是构建产物 |
+| jflove-app | `lib/`（main.dart / app.dart / config / models / providers / services / pages / widgets / utils）+ `test/` + `android/` + `assets/` + `pubspec.yaml` | 模块内**没有** `build.py`（构建入口在仓库根）；`integration_test/`、`ios/`、`ohos/` 是**预留**方向，仓库内**暂无**这些目录 |
+| jflove-web | `src/`（main.tsx / App.tsx / config / layouts / pages / components / hooks / services / stores / utils / types）+ `tests/` + `Dockerfile` + `nginx.conf` + `vite.config.ts` | Tailwind CSS 4 为 **CSS-first**：工程内**没有** `tailwind.config.ts`，主题与工具类由 `@tailwindcss/vite` + `src/index.css` 承担 |
 
 ## 3.1 开发环境变量约定
 
@@ -232,34 +134,27 @@
 必须先等于"当前程序代码期望的结构"**（否则两边会一起被带偏）。
 **没有任何脚本会自动把 dev 结构同步到 prod** —— 这是发布时的显式步骤。
 
-发布前**必须**执行（devops 技能发布步骤内）：
+发布前**必须**执行（devops 技能发布步骤内；退出码即判据）：
 
-```bash
-python scripts/check_db_schema.py            # 核对：退出码 0 = 一致；1 = 有差异
-python scripts/check_db_schema.py --align    # 对齐（自动备份 prod，只改结构不动数据）
-```
+| 关卡 | 命令 | 判据 | 失败含义 |
+| --- | --- | --- | --- |
+| ① 代码 → dev | `check_db_schema.py` 内置前置检查（自动） | dev 等于代码 `expected_schema()` / `expected_indexes()` 建出的结构 | dev **陈旧**或**含代码已不建的死表**，直接对齐会把 prod 带偏 |
+| ② dev → prod | `python scripts/check_db_schema.py` | **退出码 0** | **退出码 1 = 发布阻塞项**：prod 缺对象或约束不一致 → 必须 `--align` |
+| ③ 复验 | `--align` 后自动重跑 ② | 退出码 0 | 对齐没生效 ⇒ 仍需人工处理（退出码 2 = 环境/参数错误，**不得当成"没差异"放行**） |
 
-三道关，缺一不可（脚本内置，退出码即判据）：
-
-| 关卡 | 判据 | 失败含义 |
-| --- | --- | --- |
-| ① 代码 → dev | `expected_schema()` / `expected_indexes()` 在内存库里建出的结构 vs dev 库 | dev 库**陈旧**或**含代码已不建的死表**，直接对齐会把 prod 带偏 |
-| ② dev → prod | 表 / 列 / 索引 / **结构化**建表语句比对 | prod 缺对象或约束不一致 → 必须 `--align` |
-| ③ 复验 | `--align` 后自动重跑 ② | 对齐没生效 ⇒ 仍需人工处理 |
-
-- **退出码 1 是发布阻塞项**，必须处理完才能继续打包/发版。
 - 判据是**以 dev 为准**，且只朝"**基准要求而目标不满足**"的方向判定：
   dev 有而 prod 无的对象必须补齐；**prod 多出来的表/列/索引一律只报告、不自动删**，
   也**不允许**因为它们的出现而触发"重建表"（重建会连数据一起丢）。
 - **历史遗留表不参与比对**（`scripts/check_db_schema.py::_LEGACY_TABLES`）：代码早已不再
-  创建的死表（如 `notes_permissions`）**不会被复制进 prod**；prod 上若残留可用
-  `python scripts/check_db_schema.py --prune-legacy` 清理（**仅当该表为空时**才删，非空会中止）。
+  创建的死表（如 `notes_permissions`）**不会被复制进 prod**；prod 残留空表可 `--prune-legacy` 清理。
 - **不要指望 `init_db()` 兜底**：它的运行时迁移只会"加表 / 加列 / 建索引"，
   **管不到"需要去掉约束"的既有结构变更**（v1.5.0 的 `users.username` 去掉
   `UNIQUE` 就是这类）；也不能用它来替代发布前的核对。
 - 对齐方式与结果（含命令、前后差异、复验）必须写进 `文档记录/版本发布记录/<版本号>.md`
   的「生产库 DDL（升级+回滚）」章节。
 
+> 命令细节、差异类型判据、对齐方式（`--align` / 手写 DDL）、历史遗留表与空库校验口径，
+> 见 `.agents/skills/devops/SKILL.md`「生产库表结构同步」章节。
 > 修改过本工具或做过结构迁移后，**必须**跑一遍反向验证（喂坏数据要拦住、喂纯格式差异要放行），
 > 复验退出码都要为 `0` 才算工具可信（依据：`.agents/skills/lessons/LESSONS.md` L15–L17）。
 
@@ -308,7 +203,7 @@ python scripts/check_db_schema.py --align    # 对齐（自动备份 prod，只�
 | code-review | `.agents/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
 | testing | `.agents/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
 | pmo | `.agents/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
-| devops | `.agents/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/` + 根 `README.md` |
+| devops | `.agents/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/`（根 `README.md` 只维护「功能特性」，**不再维护版本历史**，见 §8） |
 
 **调度原则**：
 
@@ -317,68 +212,43 @@ python scripts/check_db_schema.py --align    # 对齐（自动备份 prod，只�
 
 ### 6.1 子 agent 委派规约（强制）
 
-> **背景（实测，不是猜测）**：子 agent **确实**继承了本文件（以 `Instructions from: AGENTS.md` 注入），
-> 但注入的效力只是 *"may be relevant … as guidance when applicable"*，**弱于**父 agent 在委派 prompt 里的显式要求；
-> 且 DSH 的 `subagent` / `subagent_fork` / `workflow` **没有权限参数**，写盘边界无法在工具层硬隔离。
-> **实测反例**：派一个 prompt 里写明「严禁创建、修改、删除任何文件」的探针子 agent，它**仍然写了文件**。
-> ⇒ 只在 prompt 里写"禁止"不牢靠，**必须配事后核对**。
+> **完整契约见 `subagent-delegation` 技能**（`.agents/skills/subagent-delegation/SKILL.md`，派活前 / 接活后必读）。
+> 本节只留**不可变的两条事实**与**模板**，细则不在此重复。
 
-**父 agent 的硬性义务**：
+- **事实①**：子 agent **确实**继承了本文件（以 `Instructions from: AGENTS.md` 注入），但注入语气的效力只是
+  *"may be relevant … as guidance when applicable"*，**弱于**父 agent 在委派 prompt 里的显式要求。
+- **事实②**：DSH 的 `subagent` / `subagent_fork` / `workflow` **没有权限参数**，写盘边界无法在工具层硬隔离。
+  **实测反例**：prompt 里写明「严禁创建、修改、删除任何文件」的探针子 agent，**仍然写了文件**。
+  ⇒ 只在 prompt 里写"禁止"不牢靠，**必须配「委派前后各跑一次 `git status --porcelain`」的事后核对**。
 
-1. **必须点名角色**。委派 prompt 首段写清：
-   `角色：<role>；先调用 skill 工具加载 <role>，再 read .agents/skills/<role>/SKILL.md 全文并遵守。`
-   未点名角色的委派 = **违规委派**。
-2. **prompt 必须自包含**。`subagent` / `workflow` 是**全新会话、不继承当前对话**（只有 `subagent_fork` 继承），必须显式给出：
-   - 任务目标 + **可判定的验收判据**（不要"看着对"）
-   - **允许改动的目录白名单** + **禁止改动的目录**
-   - 必须先读的文件清单（需求/设计文档、开发记录、相关源码）
-   - 需要产出的文档路径（按 §6 角色表对应目录）
-3. **只读任务写成只读**：调研 / 审查 / 探针类子 agent，prompt 必须含
-   「**只读，禁止写盘**；结论以最终文本返回，不要写任何副本文件」。
-4. **事后核对（不可省）**：委派前后各跑一次 `git status --porcelain`，逐条确认新增/修改文件都在白名单内；
-   越界写盘**立即清理**并在回复中说明。
-5. **回执必须核验**：子 agent 结论必须带证据（文件:行 / 命令 / 输出），父 agent **核对证据后才采信**，
-   不得把子 agent 结论直接当事实转述给用户。
-6. **一个子 agent 只做一件事**；跨模块任务拆成多个子 agent，不要塞进一个。
-7. **技能命中必须播报**（承接 §6）：父子两侧都要说明本次命中了哪些技能。
-
-**子 agent 的硬性义务**：
-
-1. **禁止嵌套委派**：不得再调用 `subagent` / `subagent_fork` / `workflow`；需要拆分时回报父 agent。
-2. **模块边界同等有效**（§1）：只能在自己被授权的模块目录内改动；越界写入视为父 agent 违规。
-3. **只读就真的只读**：不创建文件、不改文件、不写"答案副本"。
-4. **计划先行**（§1.1）：动手前先列出计划；长任务及时更新 `plans/` 计划文件状态。
-5. **统一回执四段式**：`1) 结论 → 2) 证据（文件:行 / 命令 / 输出摘要）→ 3) 未决问题/未验证项 → 4) 是否越界写盘（没有也要写"无"）`。
-6. **不确定就说不确定**：没跑过的验证不要写"已验证"（依据 `LESSONS.md` L43 / §五 自查清单）。
-
-> 可加载形态：`subagent-delegation` 技能（`.agents/skills/subagent-delegation/SKILL.md`），内容与本节一致。
+**父 agent 五条不变量**：① 首段**点名角色**并要求 `skill` 加载 + `read` 真身；② prompt **自包含**
+（目标 + 可判定判据 + 目录白名单/黑名单 + 必读清单 + 产出路径）；③ 只读任务**写明只读**；
+④ 事后核对 `git status --porcelain`，越界产物立即清理；⑤ 回执**带证据**（文件:行 / 命令 / 输出）并核对后才采信。
+**子 agent 三条不变量**：① **禁止嵌套委派**；② 模块边界同等有效（§1）；③ 回执四段式
+（结论 → 证据 → 未决问题 → 是否越界写盘）。
 
 ### 6.2 技能组织与发现（DSH 原生格式）
 
-1. **唯一真相 = `.agents/skills/<技能名>/SKILL.md`**（DSH **工作区级**技能扫描根；实测**热扫描**：
-   新增 / 改名 / 删除**立即**反映到技能目录，无需重启）。技能形态只认顶层 `<name>/SKILL.md` 或平铺 `<name>.md`，
-   **不递归**；项目根 = 含 `.git` 的最近祖先。
-   技能名约定：角色技能名 = **`<角色名>`**（`backend` / `code-review` / …）；跨角色经验库 = **`lessons`**；委派契约 = **`subagent-delegation`**。
-   > **历史（2026-10-14 迁移）**：技能原先放在 `.claude/skills/`，而该目录**不在**任何 DSH 扫描根里
+1. **唯一真相 = `.agents/skills/<技能名>/SKILL.md`**（DSH **工作区级**扫描根；实测**热扫描**：
+   新增 / 改名 / 删除**立即**生效，无需重启）。形态只认顶层 `<name>/SKILL.md` 或平铺 `<name>.md`，**不递归**；
+   项目根 = 含 `.git` 的最近祖先。技能名 = **角色名**（`backend` / `code-review` / …），另有 `lessons`（经验库）
+   与 `subagent-delegation`（委派契约）。
+   > **历史包袱已清（2026-10-14）**：技能原先在 `.claude/skills/`，该目录**不在**任何 DSH 扫描根里
    > （扫描根按 rank 小者优先：`<项目根>/.dsh/skills` → `<项目根>/.agents/skills` → profile `customSkillDirs`
-   > → `<dshHome>/skills` → 随包内置），当年只能靠 `.agents/skills/` 下的"指路代理"过渡。
-   > **现在技能真身就在 `.agents/skills/`，`.claude/` 已删除 —— 不再有代理，也不需要代理。**
-2. **frontmatter 必须合法 YAML（实测坑：非法会被静默丢弃）**：必填 `name`（kebab-case，且**与目录名一致**）+ `description`。
-   `description` 里含 `: `（冒号 + 空格，例如 `Use when: …`）时**必须加双引号**；写成 YAML plain scalar 就是非法 YAML，
-   DSH 会**静默丢弃整个技能** —— 技能目录里查不到、`skill("<name>")` 只回 `unknown or no longer available`，
-   **不报错、不告警**（依据 `LESSONS.md` L45；手写技能如 `subagent-delegation` 同样受此约束）。
-   校验命令（退出码即判据，**必须用带 PyYAML 的解释器**；PATH 上的 `python` 没有 PyYAML，
-   会退化为正则形状检查并打印 `[WARN]`）：
+   > → `<dshHome>/skills` → 随包内置），当年靠"指路代理"过渡 —— **代理已废弃，不要再引入**（同一规则存两处必然漂移）。
+2. **frontmatter 必须合法 YAML（实测：非法会被静默丢弃）**：必填 `name`（kebab-case，**与目录名一致**）+ `description`；
+   `description` 含 `: `（如 `Use when: …`）时**必须加双引号**，否则 DSH **静默丢弃整个技能**
+   （技能目录查不到、`skill("<name>")` 只回 `unknown or no longer available`，**不报错不告警**；依据 `LESSONS.md` L45）。
+   校验（退出码即判据，**必须用带 PyYAML 的解释器**，PATH 上的 `python` 没有 PyYAML 会退化为形状检查并打 `[WARN]`）：
 
    ```bash
    jflove-server\venv-win\Scripts\python.exe scripts\check_skills.py
    ```
 3. **技能不可加载时的退化路径（必须走）**：`read .agents/skills/<技能名>/SKILL.md` 全文。
-   `.agents/skills/**` 永远是**唯一真相**；技能目录只是入口——
-   换机器 / 新克隆 / 清理后**照样按本节执行**，不许因为"技能目录里没有"就跳过角色技能。
-4. **项目技能优先于内置技能**：工作区扫描根的优先级高于随包内置技能，同名时项目技能胜出 —— "优先本地项目技能"天然满足。
-5. **大文件技能按条目读**：`lessons` 的入口是 `.agents/skills/lessons/SKILL.md`，650 行全文在**同目录** `LESSONS.md`；
-   加载入口后按其指引 read 相关章节，不要整篇塞进上下文。
+   `.agents/skills/**` 永远是**唯一真相**；技能目录只是入口 —— 换机器 / 新克隆 / 清理后**照样按本节执行**。
+4. **项目技能优先于内置技能**：工作区扫描根优先级高于随包内置，同名时项目技能胜出。
+5. **大文件技能按条目读**：`lessons` 入口是 `.agents/skills/lessons/SKILL.md`，全文在同目录 `LESSONS.md`；
+   按其指引 read 相关章节，不要整篇塞进上下文。
 
 ### 6.3 委派 prompt 模板（复制即用）
 
@@ -445,7 +315,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
 | **Phase 5** 代码审查 | "代码审查" | code-review | 所有代码变更 + 需求/设计文档 | `文档记录/代码审查报告/<版本号>.md` |
 | **Phase 6** 测试 | "测试" | testing | 需求/设计文档 + 代码 | 补全测试用例 + `文档记录/测试报告/<版本号>.md` |
 | **Phase 7** 项目管理 | "项目管理" | pmo | 版本范围与任务列表 | `文档记录/项目管理记录/<版本号>.md` |
-| **Phase 8** 版本发布 | "发布" | devops | 审查/测试通过（Phase 5+6） | 构建产物 + `文档记录/版本发布记录/<版本号>.md` + 根 `README.md` |
+| **Phase 8** 版本发布 | "发布" | devops | 审查/测试通过（Phase 5+6） | 构建产物 + `文档记录/版本发布记录/<版本号>.md` |
 
 ### 7.3 各阶段关键步骤
 
@@ -534,7 +404,8 @@ Phase 8              Phase 7              Phase 6              Phase 5
    - **真实发布** → **不在本地构建**；推 tag 后由 `.github/workflows/build-*.yml` 在云端构建并挂到 Release
    - 产物：服务端/Web 端 Docker 镜像、桌面端 **onedir 目录 + 安装包**（Windows `*-setup.exe` + 便携 `*-portable.zip`、Linux/Fedora `*.rpm`）、移动端 debug+release 两个 APK
 5. 执行冒烟测试
-6. 输出 `文档记录/版本发布记录/<版本号>.md`，并同步更新根 `README.md` 的「版本变化」与「功能特性」章节
+6. 输出 `文档记录/版本发布记录/<版本号>.md`（**它是版本历史的唯一去处** —— 根 `README.md` 已移除「版本变化」章节，
+   只有「功能特性」需要按新增/去除/调整同步维护，且**不写具体版本号字面量**，避免每版改 README）
 
 ### 7.4 全局规则
 
@@ -644,10 +515,29 @@ Step 5：发布（devops）
 
 ## 8. 文档与版本管理
 
-- 每个版本号对应一份独立文件；新版本必须列出与上一版本的差异。
-- 版本号策略：主版本号代表重大变更，次版本号代表小迭代。
-- **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余**共 9 处（以 `scripts/sync_version.py::POSITIONS` 为准）**（server `main.py`/`Dockerfile`、desktop `settings.py` + **`ui/src/config/constants.ts`**（登录页页脚 / 关于页显示的界面版本号）+ `ui/package.json`、web `package.json`/`constants.ts`、app `pubspec.yaml`/`settings_page.dart`）全部由 `python scripts/sync_version.py` 派生/同步，各角色**禁止手动改版本号字段**。改版本只改 `version.json` + 跑同步脚本；移动端 versionCode 由版本号派生（`major*1e6+minor*1e3+patch`），无需单独维护。
-- **统一打包入口（强制）**：本地打包一律走根 `python build.py`（`-m` 参数或交互多选），禁止直接调用各模块 build.py / flutter build。
+### 8.1 版本号单一来源（强制）
+
+- **唯一真相 = 仓库根 `version.json`**；其余位置**全部由 `python scripts/sync_version.py` 派生/同步**，
+  **各角色禁止手动改任何模块内的版本号字段**。改版本只有一个动作：
+  `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`。
+- **完整位置清单以 `scripts/sync_version.py::POSITIONS` 为准**（当前 9 处，按 scope 归属）：
+
+  | scope | 位置 | 数量 |
+  | --- | --- | --- |
+  | server | `src/main.py`（`/docs` 显示）、`Dockerfile`（`LABEL version`） | 2 |
+  | desktop | `src/config/settings.py`、**`ui/src/config/constants.ts`**（用户可见：登录页页脚 / 设置-关于）、`ui/package.json` | 3 |
+  | web | `package.json`、`src/config/constants.ts`（设置页-关于显示） | 2 |
+  | app | `pubspec.yaml`（`version: x.y.z+<code>`）、`lib/pages/settings/settings_page.dart`（关于页显示） | 2 |
+
+  > 移动端 versionCode `+<code>` **由版本号派生**：`major*1e6 + minor*1e3 + patch`，不允许单独维护。
+- **校验**：`python scripts/sync_version.py --check`（不一致非 0 退出）；server / desktop / web 三个模块
+  `build.py` 在构建前校验模块内版本号，**不一致直接中止构建**；CI 从 tag 提取版本号并校验
+  `tag == version.json` 与上述全部位置。各模块**只管自己那几处**，细则见对应 `SKILL.md`。
+- 版本号策略：主版本号代表重大变更，次版本号代表小迭代；每个版本号对应一份独立文档，新版本必须列出与上一版本的差异。
+
+### 8.2 打包与交付形态（强制）
+
+- **统一打包入口**：本地打包一律走根 `python build.py`（`-m` 参数或交互多选），**禁止**直接调用各模块 build.py / flutter build。
 - **桌面端交付形态 = 安装包（强制，2026-07-14 用户定）**：任何触发路径（根入口 / 模块 `build.py` / 交互式多选 / GitHub Actions）都必须以安装包为标准产出，**不得以单体 exe 交付**：
   - Windows：`JFLove-<ver>-win64-setup.exe`（Inno Setup；另附便携 `*-portable.zip` 与 onedir 目录）
   - Linux/Fedora：`jflove-desktop-<ver>-1.fc<N>.x86_64.rpm`
@@ -657,7 +547,20 @@ Step 5：发布（devops）
   - CI 侧由 `build-desktop.yml` 的 `if-no-files-found: error` 强制：缺 `*setup.exe` / `*.rpm` 时该 job 直接失败
   - 原因：onefile 每次启动要解压数百 MB（实测「启动→首窗可见」中位 9.58s → onedir 1.31s，快约 7.3×），
     且 onedir 才配得上"正常安装模式"（开始菜单 / 卸载器）
-- 文档应同时具备：架构 / 模块 / 接口 / 数据库 / 使用部署 / 变更日志。
+
+### 8.3 文档职责边界（避免同一内容多处维护）
+
+| 内容 | 唯一去处 | 谁维护 |
+| --- | --- | --- |
+| 版本历史（每版改了什么、产物与校验值） | `文档记录/版本发布记录/<版本号>.md` | devops |
+| 当前能力清单（不带版本号） | 根 `README.md`「功能特性」 | devops（发布时按需增删） |
+| 各模块技术文档（架构 / 启动 / 路由表 / 已知限制） | 各模块 `README.md` | 对应开发角色 |
+| 跨版本技术债 / 下个版本候选台账 | `文档记录/项目管理记录/<最新版本>.md` 的「下个版本候选台账」小节 | pmo |
+
+- **根 `README.md` 不维护版本历史**（2026-10-16 用户裁决）：原「版本变化」章节会导致 README 无限膨胀，已删除；
+  版本历史统一看 `文档记录/版本发布记录/`，发布产物看 GitHub Releases。为此 README 内**不写具体版本号字面量**
+  （写 `x.y.z` / `<版本号>` 占位），避免每版都要回来改 README。
+- 文档应同时具备：架构 / 模块 / 接口 / 数据库 / 使用部署；变更日志归发布记录。
 - 定期更新依赖、做性能优化与代码重构，但**不要在不相关的任务里夹带**这些工作。
 
 ## 9. 安全宪法（强制条款，不可降级）

@@ -31,10 +31,37 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 - **首版 Android-only**：保留 `android/`，删除 ios/macos/windows/linux/web
 - **加密实现陷阱**：见下方「⚠️ 加密实现陷阱」节
 
+### 启动图标（`ic_launcher`）规范（v1.6.1 后实测修订）
+
+**母版是 `jflove-desktop/images/icon.png`（2048×2048）**，Android 各密度目录里的 `ic_launcher.png`
+必须是**按密度降采样后的对应尺寸**，不能把母版原样复制过去：
+
+| 密度目录 | 应为尺寸 | 参考体积 |
+| --- | --- | --- |
+| `mipmap-mdpi` | 48×48 | ~4 KB |
+| `mipmap-hdpi` | 72×72 | ~8 KB |
+| `mipmap-xhdpi` | 96×96 | ~13 KB |
+| `mipmap-xxhdpi` | 144×144 | ~26 KB |
+| `mipmap-xxxhdpi` | 192×192 | ~43 KB |
+
+- **反面案例（实测）**：这 5 个目录曾全部是 **2048×2048 的同一份母版**（各自 2.7 MB，合计 13.5 MB）
+  ⇒ APK 白胖约 13 MB，且 mdpi 设备要运行时下采样。改后**五档合计 93 KB**。
+- 重新生成（用带 Pillow 的解释器；**不要去改母版**）：
+  ```python
+  from PIL import Image
+  im = Image.open('jflove-desktop/images/icon.png').convert('RGB')
+  for dens, size in {'mdpi':48,'hdpi':72,'xhdpi':96,'xxhdpi':144,'xxxhdpi':192}.items():
+      im.resize((size, size), Image.LANCZOS).save(
+          f'jflove-app/android/app/src/main/res/mipmap-{dens}/ic_launcher.png',
+          'PNG', optimize=True, compress_level=9)
+  ```
+- 校验判据：每个文件的**像素尺寸等于上表**（`Image.open(p).size`），而不是"文件存在"。
+  **注意**：`scripts/check_logo_sync.py` 只管两端 `public/logo-*`（品牌图），**不覆盖**这两个图标 ——
+  改图标不会被任何现有门禁拦住，只能靠本节的尺寸判据自查。
+
 ## 项目结构约定
 
 参见 `AGENTS.md §3` jflove-app 目录结构。关键分层：
-
 - `lib/utils/` — 加密（crypto）、HTTP（http_service）、会话（session）、流式帧解析（stream_frame）、流式代理（stream_proxy）
 - `lib/services/` — **12 个业务 service**（auth / config / disk / file / note / permission / repair / server_history / sync / sync_engine / transfer / user）+ `mermaid/` 渲染子模块（mermaid_render_service / mermaid_types），对标桌面端 `services/`，构造注入 HttpService
 - `lib/providers/` — Riverpod 状态管理（7 个文件：admin / file / note / session / sync / theme / transfer），按功能域拆分
@@ -48,8 +75,8 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 - 严格按设计文档实现，不做超出设计范围的扩展。
 - **API 对齐（强制）**：每个 service 的接口路径、HTTP method、请求体字段名、响应字段名**必须与设计文档的「调用的后端接口」表格完全一致**。开发前先读设计文档中的接口对照表和服务端 `jflove-server/src/controllers/` 下的对应 controller 确认参数和路径，不可猜测 HTTP method。
 - 平台差异通过 `dart:io` 的 `Platform.isAndroid` / `Platform.isIOS` 或条件导入隔离，避免在业务代码中混用平台逻辑。
-- **首版 Android-only**：只确保 `flutter build apk --debug` 通过。仅保留 `android/` 目录，**删除 ios/macos/windows/linux/web 目录**。
-  - iOS/鸿蒙代码路径预留，但暂不编译验证。
+- **首版 Android-only**：只保留 `android/`（ios/macos/windows/linux/web 目录已删除）；
+  只需确保 `flutter build apk --debug` 通过，iOS/鸿蒙代码路径预留但暂不编译验证。
   - 鸿蒙预留：使用条件导入或 feature flag 隔离，**不直接使用 `Platform.isHarmonyOS`**（该 API 仅存在于 `flutter_ohos` 社区插件中，标准 Flutter 不提供）。
 - 所有后端调用统一封装在 `lib/utils/http_service.dart`，UI 层和 `lib/services/` 层禁止直接 `import 'package:dio/dio.dart'` 或直接 HTTP 请求。
 - 性能敏感路径（大文件加解密、流式帧解析）使用 `Isolate` 或异步 Stream，避免阻塞 UI 线程。
@@ -85,13 +112,10 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 - **HKDF 正确用法**：pointycastle 的 `HKDFKeyDerivator.process()` 会将参数**追加到 info 字段**，导致派生密钥与服务端不一致。必须使用 `deriveKey(null, 0, out, 0)` 替代 `process()`。
 - **登录响应字段名**：服务器返回 `expires_in`（有效期秒数），不是 `expires_at`。需要从当前时间 + `expires_in` 计算过期时间戳。
 - **错误响应需解密**：加密错误响应的 body 是密文信封，需 `_decryptEnvelope` 解密后才能看到真实 detail，不能直接显示原始 `DioException.message`。
-- **版本号（单一来源，禁止手改）**：唯一真相是仓库根 **`version.json`**，移动端由
-  `python scripts/sync_version.py` 同步**两处**（全仓总处数**以 `scripts/sync_version.py::POSITIONS` 为准**）
-  —— `jflove-app/pubspec.yaml` 的
-  `version: x.y.z+<code>` 与 `jflove-app/lib/pages/settings/settings_page.dart`（设置页「关于」显示）。
-  `+<code>`（Android versionCode）由版本号**派生**：`major*1e6 + minor*1e3 + patch`
-  （如 `1.5.0 → 1005000`），不允许单独维护。改版本只改 `version.json` + 跑同步脚本；
-  `sync_version.py --check` 不一致时非 0 退出（CI / 构建会拦住）。
+- **版本号（单一来源，禁止手改）**：唯一真相是仓库根 **`version.json`**，完整规则见 `AGENTS.md §8.1`
+  （清单以 `scripts/sync_version.py::POSITIONS` 为准）。**移动端只管 app scope 的 2 处**：
+  `jflove-app/pubspec.yaml` 的 `version: x.y.z+<code>` 与 `lib/pages/settings/settings_page.dart`（设置页「关于」显示）。
+  改版本只改 `version.json` + 跑 `python scripts/sync_version.py`；`sync_version.py --check` 不一致时非 0 退出（CI / 构建会拦住）。
 
 ## 边界约束（禁止越界）
 

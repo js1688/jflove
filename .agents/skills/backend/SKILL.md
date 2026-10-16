@@ -35,11 +35,10 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
 - 分层架构：`controllers/` → `services/` → `repositories/` → `models/`，不跨层调用。
 - 接口、方法、参数、字段必须有**中文注释**，遵守 OpenAPI 规范。
 - 代码必须自测通过（flake8 0 警告 + pytest 全通过）。
-- 版本号**单一来源 = 仓库根 `version.json`**，**禁止手改**任何模块内的版本号字段。服务端占其中 **2 处**
-  （`src/main.py` 的 `FastAPI(version="x.x.x")`、`Dockerfile` 的 `LABEL version`），
-  由 `python scripts/sync_version.py` 同步（全仓位置数以该脚本的 `POSITIONS` 为准，当前 9 处）。改版本只有一个动作：
-  `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`；
-  `jflove-server/build.py` 构建前会校验一致性，不一致直接中止构建。
+- 版本号**单一来源 = 仓库根 `version.json`** 的完整规则见 `AGENTS.md §8.1`（当前 9 处，清单以
+  `scripts/sync_version.py::POSITIONS` 为准）。**服务端只管 server scope 的 2 处**：
+  `src/main.py` 的 `FastAPI(version="x.x.x")` 与 `Dockerfile` 的 `LABEL version`。
+  **禁止手改**；改版本只改 `version.json` + 跑 `python scripts/sync_version.py`。
   ⚠️ 模块 `jflove-server/build.py` **没有 `--version` 参数**（只有 `--tag` / `--no-cache` / `--save`）。
 - 耗时操作异步化（asyncio / 多线程）。
 
@@ -60,11 +59,11 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
      口径不一致，管理员删号后无法重建同名，报的是 `UNIQUE constraint failed`。
 
 2. **改结构前先问 `init_db()` 兜不兜得住**
-   `init_db()` 的运行时迁移只会**加表 / 加列 / 建索引**，**管不到"去掉约束"**这类既有结构变更。
-   SQLite 也**不支持** `ALTER TABLE ... DROP CONSTRAINT`，只能**重建表**。
-   - 凡涉及"去掉/修改既有约束"，必须写显式迁移脚本 + 回滚脚本（见 `AGENTS.md §5.1.2`），
-     并在发布前核对对齐（`AGENTS.md §5.1.1`）；
-   - 重建表时**主键 id 必须原样保留**（其它表按 `user_id` 整数引用），失败要整体回滚。
+   `init_db()` 的运行时迁移只会**加表 / 加列 / 建索引**，**管不到"去掉约束"**这类既有结构变更
+   （SQLite 也不支持 `ALTER TABLE ... DROP CONSTRAINT`，只能**重建表**）。
+   - 凡涉及"去掉/修改既有约束"，必须写显式迁移脚本 + 回滚脚本，并在发布前核对对齐
+     （判据、交付物与对齐方式见 `AGENTS.md §5.1.1` / `§5.1.2`）；
+   - 重建表时**主键 id 必须原样保留**（其它表按 `user_id` 整数引用），失败要整体回滚；
    - **禁止**用 `PRAGMA writable_schema` 直接改建表语句：实测会留下悬空自动索引，
      之后任何访问都报 `malformed database schema ... orphan index`，且**当时不抛异常**、看着像成功了。
 
@@ -74,8 +73,8 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
    正确做法：剥掉 `--` / `/* */` 注释后再用精确正则判断。
 
 4. **开发库 ≠ 生产库，不要用 `init_db()` 当发布手段**
-   `AGENTS.md §5.1`：开发期只允许动 `jflove-dev.db`；prod 库仅发布时同步**表结构**。
-   没有任何脚本会自动同步 dev → prod。
+   开发期只允许动 `jflove-dev.db`；prod 库仅发布时同步**表结构**，且**没有任何脚本会自动
+   把 dev 同步到 prod**（唯一真相与核对判据见 `AGENTS.md §5.1` / `§5.1.1`）。
 
 5. **改了 `init_db()` 的建表 DDL，必须同步 `expected_schema()` / `expected_indexes()`**
    `src/models/database.py` 导出的这两个函数是**代码侧结构的唯一声明**，

@@ -43,14 +43,14 @@ description: "桌面端工程师，负责 jflove-desktop 跨平台桌面应用�
 - 耗时操作用多线程，避免阻塞 UI 线程；全局异常 + 友好提示。
 - 自测：`python -m flake8 src/ tests/ --max-line-length=99` + `python -m pytest tests/ -v`；
   **前端工程另有自己的门禁**：`cd jflove-desktop/ui && npm run lint && npm run build`（`ui/` 无 test 脚本，见 `testing` 技能）。
-- 版本号**单一来源 = 仓库根 `version.json`**（改版本用 `python scripts/sync_version.py`，不要手改各模块常量）。
-  桌面端有**三处**，都必须与之一致（`POSITIONS` 里 desktop scope 的 3 条）—— `build.py` 构建前会校验，
-  不一致直接中止构建（防"构建了新版本、应用内还是旧版本号"）：
+- 版本号**单一来源 = 仓库根 `version.json`**，完整规则见 `AGENTS.md §8.1`（清单以
+  `scripts/sync_version.py::POSITIONS` 为准）。**桌面端只管 desktop scope 的 3 处**，
+  `build.py` 构建前会校验，不一致直接中止构建（防"构建了新版本、应用内还是旧版本号"）：
   1. `src/config/settings.py` 的 `APP_VERSION`（Python 侧）
   2. **`ui/src/config/constants.ts` 的 `APP_VERSION`** —— 这是**用户可见**的那一处
      （`LoginPage.tsx` 登录页页脚 `v{APP_VERSION}`、`SettingsPage.tsx` 设置-关于 `JFLove v{APP_VERSION}`）
   3. `ui/package.json` 的 `version`（桌面端前端工程自身的包版本）
-  UI 页禁止硬编码版本号。
+  **禁止手改**，UI 页禁止硬编码版本号。
 - 前端产物：`ui/dist/` 由 `build.py` 以 `--add-data "ui/dist;webui"` 打进包内
   （onedir 下实际落在 `_internal/webui/`）。**`webui/` 只是包内资源目录名，源码树里不存在这个目录**，
   源码工程是 `jflove-desktop/ui/`。

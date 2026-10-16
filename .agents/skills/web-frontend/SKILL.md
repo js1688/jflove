@@ -10,13 +10,6 @@ description: "前端工程师，负责 jflove-web 浏览器端应用开发（Rea
 - 注重现代极简 UI 审美，兼顾 PC / 移动端响应式体验。
 - 通用编码规范：见 `AGENTS.md §4`（命名）、§1（禁止越界）。
 
-## 启用前置条件
-
-- 用户明确指示开发 web 端功能。
-- 已存在最新版需求文档与最新版设计文档，且其中包含 web 端的设计内容。
-- 已确认本次开发的版本号。
-- `jflove-web/` 目录已初始化（含 `package.json`、`tsconfig.json`、`vite.config.ts` 等基础配置）。
-
 ## 技术栈约束
 
 | 层面 | 选型 | 版本约束 | 对标说明 |
@@ -64,7 +57,7 @@ description: "前端工程师，负责 jflove-web 浏览器端应用开发（Rea
 - `src/hooks/` — 自定义 Hooks（含 `use-responsive.ts` 的 `useIsPC` / `useBreakpoint`）
 - `src/types/` — TypeScript 类型定义，对标后端 Pydantic models
 - `src/components/` — 可复用 UI 组件
-- `tests/` — 单元测试 + 组件测试（Vitest，当前 **208 用例** / 20 个文件）
+- `tests/` — 单元测试 + 组件测试（Vitest，当前 **208 用例** / 21 个文件）
 
 ## 行为规范
 
@@ -106,6 +99,8 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 
 ## 边界约束（禁止越界）
 
+- **启用前置条件**：① 用户明确指示开发 web 端功能；② 已有最新版需求/设计文档且含 web 端设计内容；
+  ③ 已确认本次版本号；④ `jflove-web/` 已初始化（含 `package.json` / `tsconfig.json` / `vite.config.ts`）。
 - 只在 `jflove-web/` 下编码，不可触碰 jflove-server / jflove-desktop / jflove-app。
 - **桌面端前端工程是 `jflove-desktop/ui/`**（Vite + React + Tailwind + TypeScript），由 QtWebEngine 承载；
   `jflove-desktop/webui/` **只是构建产物里的包内资源目录名**（`jflove-desktop/build.py` 的
@@ -227,16 +222,12 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 
 ## 版本号管理（发布阻塞项）
 
-- **唯一真相 = 仓库根 `version.json`**，Web 端由 `python scripts/sync_version.py` 同步**2 处**
-  （全仓总处数**以 `scripts/sync_version.py::POSITIONS` 为准**）：
-  `package.json` `version`、`src/config/constants.ts` `APP_VERSION`（设置页「关于」显示）。
-  `jflove-web/build.py` **不再硬编码版本号**（它只读 `version.json`，并在构建前用
-  `sync_version.check_consistency("web")` 校验，不一致直接中止构建）。
-- **禁止手动改任何版本号字段**。改版本只有一个动作：
-  `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`
-  （只校验：`python scripts/sync_version.py --check`，不一致非 0 退出）。
+- **唯一真相 = 仓库根 `version.json`**，完整规则见 `AGENTS.md §8.1`（清单以 `scripts/sync_version.py::POSITIONS` 为准）。
+  **Web 端只管 web scope 的 2 处**：`package.json` `version`、`src/config/constants.ts` `APP_VERSION`（设置页「关于」显示）。
+  **禁止手动改任何版本号字段**；`jflove-web/build.py` 不再硬编码版本号（它只读 `version.json`，
+  并在构建前用 `sync_version.check_consistency("web")` 校验，不一致直接中止构建）。
 - 模块 `jflove-web/build.py` 的参数只有 `--tag` / `--no-cache` / `--save`，**没有 `--version`**；
-  发布走仓库根统一入口 `python build.py -m web`（见 `AGENTS.md §8`）。
+  发布走仓库根统一入口 `python build.py -m web`（见 `AGENTS.md §8.2`）。
 
 ## 构建与验收
 
@@ -287,7 +278,7 @@ docker run -p 8080:80 jflove-web:<版本号>
 - **加密原语必须三端兼容**：`@noble/ciphers` 的 ChaCha20-Poly1305 输出必须与 Python `cryptography`、Dart `pointycastle` 的输出逐字节一致（同一 nonce + key + plaintext → 同一 ciphertext）。
 - **Web Crypto API 的 X25519**：`SubtleCrypto.generateKey({name: 'X25519'}, ...)` 生成的 CryptoKey 对象**不可序列化**，公钥通过 `SubtleCrypto.exportKey('raw', ...)` 导出 `Uint8Array`，私钥**用完即销毁**（不导出、不存储）。
 - **session_key 仅存内存**（`session.ts` 的闭包变量），不进入 Zustand store、localStorage、sessionStorage。
-- **JWT token**：不存 `Authorization` header，走加密 body 的 `token` 字段（见 AGENTS.md §9.3.9）。
+- **JWT token**：不存 `Authorization` header，走加密 body 的 `token` 字段（见 `AGENTS.md` §9.3 第 9 条）。
 - **禁止在任何 URL 参数中携带业务数据**（包括文件 ID、笔记 ID 等）。
 - **生产构建必须确保 source map 不泄露源代码路径**。
 

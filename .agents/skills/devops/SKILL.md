@@ -52,9 +52,9 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
 | 产物报告 | ✅ **路径 + 大小 + sha256 校验值 + 试用方式**（怎么装、怎么跑、连哪个地址） | ✅ 同左 |
 | 生产库结构核对 | ⚠️ 建议做（`check_db_schema.py`），因为产物要用真实库；**未做要说明** | ✅ **必做，退出码 0，阻塞项** |
 | 版本号封板 / `sync_version.py` | 走构建脚本自动同步即可，**不算封板** | ✅ 必须 `version.json` + 全位置一致 |
-| `文档记录/版本发布记录/<版本号>.md` | ❌ **不产出** | ✅ 必须 |
+| `文档记录/版本发布记录/<版本号>.md` | ❌ **不产出** | ✅ 必须（**版本历史的唯一去处**，根 `README.md` 已不再维护版本历史） |
 | PMO 记录（Phase 7） | ❌ **不产出** | ✅ 必须 |
-| 根 `README.md`「版本变化」/「功能特性」 | ❌ 不改 | ✅ 必须改 |
+| 根 `README.md`「功能特性」 | ❌ 不改 | ✅ 按需增删（**不写具体版本号字面量**） |
 | git（提交 / tag / Release / CI 触发） | ❌ **一律不动** | ✅ 按「发布方式分叉」执行 |
 | 交付时明确声明 | 必须写明"**未产出发布/PMO 记录、未动 git**" | 必须写明产物与发布范围 |
 
@@ -86,13 +86,12 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
         —— 少了它 `assert_mermaid_assets()` 会让构建直接失败（CI 两个 job 都已内置这一步）
     - app     → APK `build/app/outputs/flutter-apk/app-debug.apk` + `app-release.apk`（**两个 APK 都必须真机安装验证**）
     - web     → Docker 镜像 `jflove-web:<version>`（可选 `--save` 导出 tar）
-- **版本号单一来源（强制）**：版本号唯一真相是仓库根 `version.json`，其余共 **9 处**（**以 `scripts/sync_version.py` 的 `POSITIONS` 条目为准**，当前 9 条）由 `python scripts/sync_version.py` 派生/同步：
-  - 服务端：`main.py` + `Dockerfile LABEL`
-  - 桌面端：`src/config/settings.py APP_VERSION`（Python 侧）+ **`ui/src/config/constants.ts APP_VERSION`**（QtWebEngine 承载的前端工程，**用户可见**：`LoginPage.tsx` 登录页页脚、`SettingsPage.tsx` 设置-关于）+ `ui/package.json version`（桌面端前端工程自身的包版本）
-  - 移动端：`pubspec.yaml`（versionCode 由版本号派生 `major*1e6+minor*1e3+patch`）+ `settings_page.dart`（「关于」页显示）
-  - Web 端：`package.json` + `constants.ts`
-  - 三个 `build.py`（server / web / desktop；移动端没有模块 `build.py`）不再硬编码版本号，构建前校验模块内版本号与 `version.json` 一致，**不一致直接中止构建**（防「应用内版本号未更新」）
-  - 改版本号：`echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`
+- **版本号单一来源（强制）**：唯一真相是仓库根 `version.json`，**完整清单见 `AGENTS.md §8.1`**
+  （以 `scripts/sync_version.py::POSITIONS` 为准，当前 9 处）。devops 侧只负责**核对**：
+  `python scripts/sync_version.py --check`（不一致非 0 退出）；改版本只改 `version.json` + 跑同步脚本。
+  移动端 versionCode `+<code>` 由版本号派生（`major*1e6+minor*1e3+patch`），不允许单独维护。
+  三个模块 `build.py`（server / web / desktop）在构建前会校验模块内版本号，不一致直接中止；
+  移动端**没有**模块 `build.py`。**别再维护各模块的位置清单副本** —— 清单只在 `AGENTS.md §8.1` 与脚本里。
 - 生产库 DDL 变更必须有**升级 + 回滚**两个脚本，并先按「生产库表结构同步（发布阻塞项，强制）」章节核对 / 对齐 prod 结构；Docker 镜像内置空表结构 DB，支持 `-v /data` 挂载持久化
 
 ## 线上构建（GitHub Actions，本地构建的云端镜像）
@@ -204,41 +203,10 @@ python scripts/check_db_schema.py
 | **1** | 存在结构差异 | **发布阻塞项**：必须对齐完才能继续打包 / 发版 |
 | **2** | 环境 / 参数错误（库文件不存在、`--dev` / `--prod` 路径写错、遗留表非空而中止清理等） | 先修环境；**不得**把退出码 2 当成"没差异"放行 |
 
-预期输出（一致时，实测）：
-
-```text
-------------------------------------------------------------------------
-前置检查：dev 库 vs 当前程序代码的表结构
-dev 库与当前代码一致 ✓
-========================================================================
-dev / prod 表结构核对
-  dev  = D:\github\jflove\jflove-db\jflove-dev.db
-  prod = D:\github\jflove\jflove-db\jflove-prod.db
-========================================================================
-结构一致 ✓（发布前检查通过）
-```
-
-存在差异时逐条打印（下例为在 prod 副本上删掉 `users_username_active_uidx` 后的实测输出）：
-
-```text
-发现 1 处差异：
-  [missing_index] users_username_active_uidx
-      dev 有、prod 无
-      → 按 dev 的索引定义创建
-
-提示：执行 `python scripts/check_db_schema.py --align` 可自动对齐。
-```
-
-**判据（以 dev 为准，且只朝"基准要求而目标不满足"的方向判定）**：
-
-| 差异类型 | 含义 | 是否阻塞发布 |
-|----------|------|--------------|
-| `missing_table` | dev 有表、prod 无 | ✅ 阻塞 |
-| `missing_column` | dev 有列、prod 无 | ✅ 阻塞 |
-| `missing_index` | dev 有索引、prod 无 | ✅ 阻塞 |
-| `table_ddl_mismatch` | **结构化**建表语句不一致（列定义 / 表级约束），**典型就是约束差异**，如 v1.5.0 的 `username UNIQUE` | ✅ 阻塞 |
-| `index_ddl_mismatch` | 索引定义不一致 | ✅ 阻塞 |
-| `extra_table` / `extra_column` / `extra_index` | prod 有、dev 无（历史遗留） | ⛔ 工具不自动删；人工确认后在发布记录中说明 |
+**差异类型判据（以 dev 为准，只朝"基准要求而目标不满足"的方向判定，完整表见 `AGENTS.md §5.1.1`）**：
+`missing_table` / `missing_column` / `missing_index` / `table_ddl_mismatch`（**典型就是约束差异**，
+如 v1.5.0 的 `username UNIQUE`）/ `index_ddl_mismatch` → **全部阻塞发布**；
+`extra_table` / `extra_column` / `extra_index`（prod 多出来的）→ **工具不自动删**，人工确认后在发布记录中说明。
 
 ### 历史遗留表（不参与比对）
 
@@ -265,24 +233,6 @@ python scripts/check_db_schema.py --align
 - 任何异常**整体回滚**，不留半对齐状态；结束后**自动复验**并打印结果；
 - 幂等：对齐后再跑一次 `python scripts/check_db_schema.py` 应为退出码 0。
 
-实测输出（改造过的真实样例：prod 缺表 + 缺列 + 缺索引，且 prod 自带一列 `legacy_flag` 与一张历史表 `legacy_thing`）：
-
-```text
-开始对齐 prod 结构到 dev …
-
-已备份 prod → jflove-prod.db.bak-align-20260912-113100
-  [+] 建表 media_repair_tasks
-  [=] 保留 extra_table legacy_thing（需人工确认）
-  [+] 加列 users.notes_path
-  [=] 保留 extra_column virtual_disks.legacy_flag（需人工确认）
-  [+] 建索引 media_repair_tasks_disk_id_idx
-  [+] 建索引 media_repair_tasks_user_id_idx
-  [+] 建索引 users_username_active_uidx
-  [+] 建索引 users_username_idx
-
-已应用 8 项结构变更
-```
-
 **方式 B：手动对齐**
 
 - 执行本版本的升级 DDL：`sqlite3 jflove-prod.db < jflove-db/migrate-<版本号>.sql`（v1.5.0 即 `jflove-db/migrate-v1.5.0.sql`），并准备好对应的 `jflove-db/rollback-<版本号>.sql`；
@@ -291,7 +241,8 @@ python scripts/check_db_schema.py --align
 **硬约束**：
 
 - 发布前 `python scripts/check_db_schema.py` 退出码**必须是 0**，否则**阻断发布**（与移动端 R8 禁令同级）。
-- 只允许上面两条对齐路径；**禁止**用 `PRAGMA writable_schema` 之类的取巧手段直接改写 `sqlite_master`（v1.5.0 实测会留下悬空自动索引，之后任何访问都报 `malformed database schema ... orphan index`，且当场不抛异常）。
+- 只允许上面两条对齐路径；**禁止**用 `PRAGMA writable_schema` 之类的取巧手段直接改写 `sqlite_master`
+  （v1.5.0 实测会留下悬空自动索引，之后任何访问都报 `malformed database schema ... orphan index`，且当场不抛异常）。
 - 重建表的操作**必须保留主键 `id`**；拷列时只拷两边共有的列，**且必须把 prod 独有的列一起保留**（工具已按此实现，手写 SQL 时同样要求）。
 - 对齐后 prod 仍必须是"无业务数据"状态（见下方「prod 库『空库』校验口径」）——对齐只同步结构，**不得**把 dev 的业务数据带过去。
 - **无论用哪种方式，发布记录里必须写明**：执行了哪条命令 / 哪个脚本、对齐**前后**的结构差异、**复验结果**。
@@ -300,15 +251,17 @@ python scripts/check_db_schema.py --align
 
 ### 版本内有表结构变更时的必备交付物（强制）
 
+> 两个脚本的**硬性要求**见 `AGENTS.md §5.1.2`；本文件补充**文件头写法与实测要求**。
+
 | 交付物 | 要求 |
 |--------|------|
-| `jflove-db/migrate-<版本号>.sql` | 升级 DDL；**幂等、可重复执行、不触碰任何业务数据**；文件头写清执行方式（`sqlite3 jflove-prod.db < migrate-<版本号>.sql`）与本次变更点（参考 `jflove-db/migrate-v1.5.0.sql` 的写法） |
-| `jflove-db/rollback-<版本号>.sql` | 回滚 DDL；**若回滚会因数据冲突失败，必须在脚本里写明回滚前的冲突检查 SQL** —— 参照 `jflove-db/rollback-v1.5.0.sql`：恢复列级 `UNIQUE` 前先跑 `SELECT username, COUNT(*) AS n FROM users GROUP BY username HAVING n > 1;`，命中「同名活跃行 + 已软删除历史行」时先处理历史行（物理删除或改名）再回滚 |
+| `jflove-db/migrate-<版本号>.sql` | 文件头写清执行方式（`sqlite3 jflove-prod.db < migrate-<版本号>.sql`）与本次变更点（参考 `jflove-db/migrate-v1.5.0.sql` 的写法） |
+| `jflove-db/rollback-<版本号>.sql` | **若回滚会因数据冲突失败，必须在脚本里写明回滚前的冲突检查 SQL** —— 参照 `jflove-db/rollback-v1.5.0.sql`：恢复列级 `UNIQUE` 前先跑 `SELECT username, COUNT(*) AS n FROM users GROUP BY username HAVING n > 1;`，命中「同名活跃行 + 已软删除历史行」时先处理历史行（物理删除或改名）再回滚 |
 | 发布记录「生产库 DDL（升级+回滚）」章节 | 不止贴脚本内容，还要写**实测结果**：执行的命令 / 脚本、对齐前后的结构差异、复验输出、回滚脚本是否实测过 |
 
 ### prod 库「空库」校验口径
 
-`jflove-server/build.py::assert_prod_db_empty()` 在**打镜像前**校验 prod 不含业务数据（`AGENTS.md §5.1`）：
+`jflove-server/build.py::assert_prod_db_empty()` 在**打镜像前**校验 prod 不含业务数据（白名单口径见 `AGENTS.md §5.1.3`）：
 
 - **允许**：`config` 表存在 `init_db()` 首次运行幂等写入的默认键 —— `media_repair_enabled=0`、`media_repair_allow_transcode=0`（值必须等于默认值，属"初始化数据"）；
 - **中止构建**：其余任何表非空，或 `config` 出现白名单外的键 / 被改过的值；
@@ -338,10 +291,11 @@ python scripts/check_db_schema.py --align
 
 ## 文档更新范围
 
-- 路径：`文档记录/版本发布记录/<版本号>.md`
-- 根目录 `README.md`（每次发布后必须同步维护，与版本发布记录一并交付）：
-  - 「版本变化」章节：追加本次版本条目，并将 `（当前版本）` 标记移到最新版本
+- 路径：`文档记录/版本发布记录/<版本号>.md`（**版本历史的唯一去处**；不要在根 `README.md` 里追加版本条目）
+- 根目录 `README.md`（每次发布后**按需**维护，与版本发布记录一并交付）：
   - 「功能特性」章节：本次新增 / 去除 / 调整的功能同步增删改，按需标注引入版本号（如 `（v1.5.0+）`）
+  - **不再维护「版本变化」章节**（2026-10-16 用户裁决已删除）：README 内**不写具体版本号字面量**
+    （统一用 `x.y.z` / `<版本号>` 占位），避免每版都要回来改 README
 - 必须包含：版本号/发布时间、交付物清单（含 debug + release 两个 APK）、构建产物（路径+校验值）、依赖变更、生产库结构核对与对齐（`check_db_schema.py` 命令 + 对齐前后差异 + 复验结果）、生产库 DDL（升级 + 回滚脚本，并附**实测执行结果**而非只贴脚本内容）、部署步骤（含 Docker 启动命令）、冒烟结果、回滚预案、加密协议版本
 
 ## 常见问题（发布相关）
@@ -359,7 +313,7 @@ python scripts/check_db_schema.py --align
   **新写的发布相关脚本应当照做**（或直接避免在输出里用非 ASCII 符号）。跑既有脚本撞上该报错时，临时兜底可设 `PYTHONIOENCODING=utf-8`（PowerShell：`$env:PYTHONIOENCODING="utf-8"`）。
 - **别靠肉眼看建表语句判断约束**：`users` 等表的 DDL 可能带中文注释（如 `-- 去掉了原来的 UNIQUE`），人工比对时容易把注释当成真实定义（v1.5.0 排查时被坑过一次）。`scripts/check_db_schema.py` 会先剥离 `--` / `/* */` 注释、去掉 `IF NOT EXISTS` 与引号差异、按**列名对齐**比较列定义，**以脚本结论为准**。
 - **"以 dev 为准"里的 dev 也可能是错的**：dev 库是长期滚出来的，可能**陈旧**（没跑过迁移）或**含代码早已不建的死表**。工具已内置「代码 → dev」前置检查并把死表排除在比对之外（见「三道关」与「历史遗留表」），**不要用 `--skip-code-check` 图省事**；被这两道关拦下时，按提示先修 dev 库或清理遗留表。
-- **检查脚本"报通过"不等于真的比过**：任何门禁类脚本改动后都要跑**反向验证**——喂坏数据（少列 / 缺表 / 缺索引 / 列定义变化）必须拦住，喂纯格式差异（表头写法、列顺序）必须放行。工具已配套  与 （依据 `LESSONS.md` L15–L17）。
+- **检查脚本"报通过"不等于真的比过**：任何门禁类脚本改动后都要跑**反向验证**——喂坏数据（少列 / 缺表 / 缺索引 / 列定义变化）必须拦住，喂纯格式差异（表头写法、列顺序）必须放行。工具已配套 `scripts/verify_check_db_schema.py`（依据 `LESSONS.md` L15–L17；该脚本的运行前提必须**可注入**，见 L41）。
 - **对齐工具本身会"忠实执行错误口径"**：v1.5.0 曾出现"承诺不删 prod 自有列、实际却把该列连数据删掉并报成功"（根因是用建表语句整串文本比较 ⇒ prod 多一列被误判成需要重建表）。现已改为**结构化比较 + 只朝"基准要求"方向判定**，并且重建表时会保留 prod 自有列；改用例前先确认这一点没有被回退。
 - **对齐后 prod 结构变了但发布记录没写**：等于没做。对齐命令、前后差异、复验结果三项缺一不可（见「生产库表结构同步」章节的硬约束）。
 
