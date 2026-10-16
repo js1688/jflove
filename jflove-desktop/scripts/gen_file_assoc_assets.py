@@ -55,6 +55,16 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Windows 默认 stdout/stderr 编码为 cp1252，print 中文会 UnicodeEncodeError
+# （GitHub Actions 的 windows-latest runner 上**必现**：`build.py:430` 用
+# `subprocess.run(capture_output=True)` 调本脚本 ⇒ 子进程 stdout 是**管道**，Python 对管道
+# 按 locale 取编码 = cp1252 ⇒ 打印「已是最新」这类中文即崩。与 `scripts/sync_version.py` /
+# `check_logo_sync.py` 等既有脚本保持同一写法。）
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 HERE = Path(__file__).resolve().parent            # jflove-desktop/scripts
 DESKTOP_ROOT = HERE.parent                        # jflove-desktop
 REPO_ROOT = DESKTOP_ROOT.parent                   # 仓库根
