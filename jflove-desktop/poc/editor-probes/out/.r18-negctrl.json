@@ -1,0 +1,145 @@
+[
+ {
+  "tag": "dummy-extra-format",
+  "extraFormat": "r18-dummy-format",
+  "formats": [
+   "HTML Format",
+   "CF_UNICODETEXT",
+   "r18-dummy-format",
+   "CF_LOCALE",
+   "CF_TEXT",
+   "CF_OEMTEXT"
+  ],
+  "wrote": {
+   "html": true,
+   "text": true,
+   "extra": true
+  },
+  "exitCode": 0,
+  "evidenceDir": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r17-20261016-131738",
+  "status": "PASS",
+  "equalAnyAttempt": true,
+  "equalFirstAttempt": true,
+  "attemptCount": 1,
+  "verdictNote": "paste-succeeded",
+  "attempts": [
+   {
+    "round": 1,
+    "foregroundIsShell": true,
+    "equal": true,
+    "after": {
+     "docCodePoints": 15,
+     "docUtf8Bytes": 15,
+     "docFnv1a32": "cd8a4c35",
+     "empty": false,
+     "hasFocus": true,
+     "selectionMain": {
+      "from": 15,
+      "to": 15
+     },
+     "r17Error": null
+    }
+   }
+  ],
+  "qtShapeAtPasteTime": {
+   "formats": [
+    "text/html",
+    "text/plain",
+    "application/x-qt-windows-mime;value=\"r18-dummy-format\""
+   ],
+   "hasHtml": true,
+   "hasText": true,
+   "htmlChars": 43,
+   "htmlUtf8Bytes": 43,
+   "htmlLowerHasTag": true,
+   "htmlHasMarkerComment": false,
+   "htmlHasStartFragmentHeader": false,
+   "htmlHasEndFragmentHeader": false,
+   "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+   "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+   "textChars": 15,
+   "textFnv1a32": "cd8a4c35",
+   "plainMatchesPayload": null
+  }
+ },
+ {
+  "tag": "uri-format-https",
+  "extraFormat": "UniformResourceLocator",
+  "formats": [
+   "HTML Format",
+   "CF_UNICODETEXT",
+   "UniformResourceLocator",
+   "CF_LOCALE",
+   "CF_TEXT",
+   "CF_OEMTEXT"
+  ],
+  "wrote": {
+   "html": true,
+   "text": true,
+   "extra": true
+  },
+  "exitCode": 1,
+  "evidenceDir": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r17-20261016-131811",
+  "status": "FAIL",
+  "equalAnyAttempt": false,
+  "equalFirstAttempt": false,
+  "attemptCount": 2,
+  "verdictNote": "paste-nothing-but-foreground-was-not-shell",
+  "attempts": [
+   {
+    "round": 1,
+    "foregroundIsShell": false,
+    "equal": false,
+    "after": {
+     "docCodePoints": 0,
+     "docUtf8Bytes": 0,
+     "docFnv1a32": "811c9dc5",
+     "empty": true,
+     "hasFocus": true,
+     "selectionMain": {
+      "from": 0,
+      "to": 0
+     },
+     "r17Error": null
+    }
+   },
+   {
+    "round": 2,
+    "foregroundIsShell": true,
+    "equal": false,
+    "after": {
+     "docCodePoints": 0,
+     "docUtf8Bytes": 0,
+     "docFnv1a32": "811c9dc5",
+     "empty": true,
+     "hasFocus": true,
+     "selectionMain": {
+      "from": 0,
+      "to": 0
+     },
+     "r17Error": null
+    }
+   }
+  ],
+  "qtShapeAtPasteTime": {
+   "formats": [
+    "text/html",
+    "text/plain",
+    "text/uri-list"
+   ],
+   "hasHtml": true,
+   "hasText": true,
+   "htmlChars": 43,
+   "htmlUtf8Bytes": 43,
+   "htmlLowerHasTag": true,
+   "htmlHasMarkerComment": false,
+   "htmlHasStartFragmentHeader": false,
+   "htmlHasEndFragmentHeader": false,
+   "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+   "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+   "textChars": 15,
+   "textFnv1a32": "cd8a4c35",
+   "plainMatchesPayload": null
+  }
+ }
+]

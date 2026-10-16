@@ -1,13 +1,17 @@
 /**
- * CM6 编辑器**实例宿主**（设计 v1.6.0 §4.1.1 / §4.1.3 / §6.1.2 / §6.1.3 / §14.2 步骤 7）
+ * CM6 编辑器**实例宿主**（设计 v1.6.1 §4.2 / §4.1.3 / §6.1.2 / §6.1.3）
  *
  * ## 职责（只做这四件事）
  *
- * 1. **懒挂载**：`pane.mounted === true` **且**宿主矩形进入视口（`IntersectionObserver`）时，
- *    才 `await loadEditorBundle()`（`window.__JFLOVE_CM__`）并建 `EditorView`；
+ * 1. **懒挂载**：`pane.mounted === true` **且**面板可见（`visible`）**且**宿主矩形进入视口
+ *    （`IntersectionObserver`）时，才 `await loadEditorBundle()`（`window.__JFLOVE_CM__`）并建 `EditorView`；
  *    未满足条件时只渲染骨架，内存占用 = 一个 React 空壳（§4.1.3，AC-60）。
  * 2. **生命周期**：`view.destroy()` 只在组件卸载 / `pane.id` 变化时调用（**不泄漏**）；
- *    可见性翻转**不**拆实例（否则滚动一下就把撤销历史丢了）。
+ *    可见性翻转（切标签 / 滚出视口）**不**拆实例（否则滚动一下就把撤销历史丢了，§14.1 DS-29）。
+ *    **路由卸载 = 实例销毁**（DS-29 修订 / 设计 §15.5.7）：因此销毁之前必须把正文交出去 ——
+ *    `setContainerNode` 的 callback ref 与 `pane.id` effect 的 cleanup 都会先
+ *    `snapshotIntoStore()`（正文 + 光标 + 滚动写回 `initialTexts`，AC-77），**然后**才 `destroy()`。
+ *    ⚠ **undo 历史不保**（只交一份字符串，见 `snapshotIntoStore` 的 JSDoc）。
  * 3. **能力接线**：
  *    - 语言注入（`config/scratch-types.ts` 的 `language` id；**未知语言回落 `text`**）；
  *    - 行号 / 自动换行 / 字号 / 只读（`pane.readOnly`：大文件降级与 `.diff` 都走它）；
@@ -23,15 +27,17 @@
  * 5. **鼠标手势**（§4.2.1 第 466 行 / AC-35）：`Ctrl` + 滚轮缩放字号、`Shift` + 滚轮横向滚动
  *    （两者都在**非 passive** 的原生 `wheel` 监听里做，见组件内的注释）。
  *
- * ## 使用约定（与同事的接口）
+ * ## 使用约定（v1.6.1：单面板组件族）
  *
  * ```tsx
- * // components/scratch/ScratchPane.tsx 里：一个窗格**只挂一个**宿主
+ * // components/scratch/EditorPanel.tsx 里：一个已挂载标签挂一个宿主（非激活面板 `hidden`）
+ * <ScratchEditorHost pane={tab} visible={active} />
+ * // components/scratch/views/MarkdownSplitView.tsx 里：split 态自带宿主（省略 visible = 可见）
  * <ScratchEditorHost pane={pane} />
  * ```
  *
  * ⚠ **不要再套第二层**：`MarkdownSplitView` 的 split 态内部已经自带宿主，
- * 若外面同时挂了宿主，一个窗格会出现两个 CM6 实例（内容不同步）。
+ * 若外面同时挂了宿主，一个标签页会出现两个 CM6 实例（内容不同步）。
  *
  * ## 安全（AGENTS.md §9.6 / §9.14 / R-1）
  *
@@ -41,10 +47,16 @@
  *   源码里**没有任何** `import '@codemirror/...'`（§6.1.1）。
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { selectBlockSelectModifier, useShortcutStore } from '../../stores/shortcut-store';
-import { registerScratchContentAccessor, takeInitialText, useScratchStore } from '../../stores/scratch-store';
+import {
+  hasInitialText,
+  registerScratchContentAccessor,
+  snapshotInitialText,
+  takeInitialText,
+  useScratchStore,
+} from '../../stores/scratch-store';
 import { useThemeStore } from '../../stores/theme-store';
 import type {
   EditorSelection,
@@ -54,7 +66,7 @@ import type {
   SelectionRange,
   ViewUpdate,
 } from '../../types/codemirror-bundle';
-import type { PaneCaret, ScratchPane } from '../../types/scratch';
+import type { ScratchTab, TabCaret } from '../../types/scratch';
 import {
   BLOCK_DIRECTIONS,
   blockCursorFromSelection,
@@ -66,6 +78,7 @@ import {
   isBlockSelection,
 } from '../../utils/scratch/block-select';
 import type { BlockCursor, BlockDirection } from '../../utils/scratch/block-select';
+import { installEditorPhrases } from '../../utils/scratch/editor-phrases';
 import { loadEditorBundle } from '../../utils/scratch/load-editor-bundle';
 import { stepFontSize } from '../../utils/scratch/toolbox';
 
@@ -99,7 +112,7 @@ export interface ScratchEditorSession {
   getText(): string;
   getStats(): ScratchEditorStats;
   /** 1 基光标（草稿还原口径） */
-  getCaret(): PaneCaret;
+  getCaret(): TabCaret;
   getScrollTop(): number;
   /** 整体替换正文（工具箱纯函数变换后回写；会触发 `markDirty`） */
   setText(next: string): void;
@@ -155,7 +168,7 @@ export function computeEditorStats(view: EditorView): ScratchEditorStats {
 }
 
 /** 1 基光标（草稿还原口径） */
-export function caretOfView(view: EditorView): PaneCaret {
+export function caretOfView(view: EditorView): TabCaret {
   const stats = computeEditorStats(view);
   return { line: stats.line, col: stats.col };
 }
@@ -195,9 +208,9 @@ export function subscribeScratchEditorStats(
 }
 
 /**
- * React Hook：订阅某窗格的编辑器统计（状态栏 `ScratchPaneStatusBar` 直接用这个）。
+ * React Hook：订阅某个标签页面板的编辑器统计（状态栏 `ScratchEditorStatusBar` 直接用这个）。
  *
- * 未挂载窗格返回 `null` ⇒ 状态栏显示骨架而不是 0（避免"看起来在读空文档"）。
+ * 未挂载面板返回 `null` ⇒ 状态栏显示骨架而不是 0（避免"看起来在读空文档"）。
  */
 export function useScratchEditorStats(paneId: string): ScratchEditorStats | null {
   const [stats, setStats] = useState<ScratchEditorStats | null>(
@@ -289,6 +302,45 @@ function copyHandlerFor(api: JFLoveCmApi): Extension {
   );
 }
 
+/**
+ * 粘贴：**刻意不接管**（v1.6.1 · F6 真凶已定，见下）。
+ *
+ * 上一批（C1）曾在此处加过 `pasteHandlerFor`（只把 `text/plain` 交给 CM6），依据是
+ * "Qt 砍掉 CF_HTML 头 ⇒ Blink 拿到空 markup（QTBUG-118121）"。**该成因已被排除**：
+ * r18 单变量对照矩阵证明真凶是剪贴板上的 `UniformResourceLocator`（`CFSTR_INETURL`，
+ * Qt 侧 `text/uri-list`），与 CF_HTML 的标记 / 偏移无关；且 QtWebEngine 在该格式存在时
+ * **根本没把内容交给渲染层**（`Ctrl+V` 后正文 0 字符）⇒ 渲染层怎么改都修不了 F6。
+ * 修复已移到**原生外壳**：`src/ui/web_shell.py` 的 `PasteClipboardNormalizer` 在
+ * `Ctrl+V` 时先把剪贴板归一化（剔掉 `text/uri-list`）再**放行**默认粘贴。
+ *
+ * 不接管同时**是行为要求**：接管会抢在 CM6 内置 `paste` 之前，破坏"多光标粘贴按行分发"
+ * 的原生便利（`scratch-editor-paste.test.tsx` 的判别力判据守着这条）。
+ */
+
+/**
+ * 把 CM6 实例的**正文 + 光标 + 滚动**快照回 store（AC-77 的**写侧**修复）。
+ *
+ * 为什么独立成函数：① 调用点有两处（`setContainerNode` 的 callback ref cleanup 与
+ * `pane.id` effect 的 cleanup），语义完全相同，必须同一实现；② 便于单测直接调用（不经 DOM）。
+ *
+ * ⚠ **undo 历史明确不保**：CM6 的 history 在 `EditorState` 里，`view.destroy()` 后无处可取；
+ * 本函数只交 `doc.toString()` 一份字符串 ⇒ 重挂后 `Ctrl+Z` **不能**撤回卸载前的编辑。
+ * **这是刻意的取舍**（写在这里，避免后人以为保了）：要保 undo 就得让实例跨路由常驻
+ * （= 设计的退路 R-18-B），代价是把编辑器重新挂回 router 之外，与 D27/DS-17 的整页工作区冲突。
+ *
+ * 快照**直接读 `doc`**（不经防抖、不经 `contentAccessors`）⇒ 与 1500 ms 自动暂存窗口**无关**，
+ * 天然满足 AC-77① 的"含防抖窗口内切走"。
+ */
+function snapshotIntoStore(tabId: string, view: EditorView | null): void {
+  if (!view) return; // 实例不存在 ⇒ 没有任何正文可交（StrictMode 首轮卸载就是这条路径）
+  const text = view.state.doc.toString();
+  // 快照只经 store 的导出函数落表（本文件不持有第二份正文缓存）
+  snapshotInitialText(tabId, text, {
+    caret: caretOfView(view),
+    scrollTop: view.scrollDOM.scrollTop,
+  });
+}
+
 /** `modules.state` 在手写类型里是宽松的索引签名 ⇒ 多 range 选区必须取**真** `EditorSelection` */
 interface EditorSelectionStatic {
   range(from: number, to: number): SelectionRange;
@@ -374,6 +426,9 @@ function baseExtensions(api: JFLoveCmApi, onUpdate: (update: ViewUpdate) => void
     api.extensions.syntaxHighlighting(api.extensions.defaultHighlightStyle, { fallback: true }),
     api.extensions.bracketMatching(),
     api.extensions.foldGutter(),
+    // ★ 编辑器内核面板的中文短语（AC-74，设计 §15.2.2）；`installEditorPhrases` 内部已做
+    //   存在性防御，返回 `[]` 时等价于现状（英文面板），不会崩
+    ...installEditorPhrases(api),
     api.modules.search.search({ top: true }),
     api.modules.autocomplete.closeBrackets(),
     api.modules.autocomplete.autocompletion(),
@@ -447,10 +502,22 @@ function useElementVisible(ref: RefObject<HTMLElement | null>, enabled: boolean)
  * 组件
  * ========================================================================== */
 
-/** 宿主 props：`pane` 是同事（`ScratchPane`）挂载本组件的**唯一约定** */
+/**
+ * 宿主 props。
+ *
+ * `pane` 这个字段名**保持 v1.6.0 不变**（值类型由 `ScratchPane` 换成 `ScratchTab`）：
+ * `views/MarkdownSplitView.tsx` 以 `<ScratchEditorHost pane={pane} />` 挂载本组件，
+ * 该文件不在本次改造白名单内，改名会让它立刻编译失败。
+ */
 export interface ScratchEditorHostProps {
-  /** 窗格状态（来自 `scratch-store`；正文**不在**其中） */
-  pane: ScratchPane;
+  /** 标签状态（来自 `scratch-store`；正文**不在**其中） */
+  pane: ScratchTab;
+  /**
+   * 面板当前是否可见（非激活标签的面板被 `hidden` 隐藏）。
+   * 省略时视为可见 —— 与 `MarkdownSplitView` 的直挂用法保持一致；
+   * 隐藏时把懒挂载的"相交"判定关掉，恢复可见时重新注册 `IntersectionObserver` 并重新测量。
+   */
+  visible?: boolean;
   /** 可选：附加类名（外壳布局微调用） */
   className?: string;
 }
@@ -471,10 +538,10 @@ interface HostCompartments {
  * CM6 实例宿主。
  *
  * @example
- * // 由同事的 `ScratchPane` 挂载（**只挂一个**）
- * <ScratchEditorHost pane={pane} />
+ * // 由 `EditorPanel` 挂载（每个已挂载标签一个；非激活项被 `hidden` 隐藏）
+ * <ScratchEditorHost pane={pane} visible={active} />
  */
-export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
+export function ScratchEditorHost({ pane, visible = true, className }: ScratchEditorHostProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -502,17 +569,88 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
   const darkRef = useRef(dark);
   darkRef.current = dark;
 
-  const visible = useElementVisible(containerRef, pane.mounted);
-  const canCreate = pane.mounted && visible;
+  /**
+   * CM6 宿主容器的 **callback ref**（AC-77 的写侧修复，设计 §15.5.2）。
+   *
+   * ## 为什么必须是 callback ref，而不是只靠 effect cleanup
+   *
+   * 1. **callback ref 的 cleanup 与"DOM 引用被替换/清除"一一对应**：React 会在设置新 ref
+   *    **之前**先调用旧 ref 的 cleanup ⇒ 它**与"宿主是否真的被换掉"绑定**；而 effect 的 cleanup
+   *    还会在依赖变化时触发（本组件 `pane.id` effect 的依赖是 `[pane.id]`）—— 将来若有人给那个
+   *    effect 加依赖（很容易发生，例如把 `pane.language` 加进去做重配），正文会被**意外快照到
+   *    错误时机**；
+   * 2. **覆盖"宿主被换掉"的情形**：`containerRef` 从"节点 A"换成"节点 B"（视图模式切换导致宿主
+   *    槽位重排 / `hidden` 翻转 / `key` 变化）时，React **只**调用 ref cleanup → ref，**不**触发
+   *    `pane.id` effect（依赖未变）⇒ **只有 callback ref 能捕捉到这次"实例即将失去 DOM 宿主"**。
+   *    这正是 AC-77 要保的"活会话中更新的未保存改动"最容易丢的时刻；
+   * 3. 与既有 `releaseAccessorRef` 的职责边界清晰：`:653-662` 已用"ref 里存注销函数"的手法管理
+   *    正文读取器；本项把"快照"放进同一条清理序列，**不新增第二套生命周期**。
+   *
+   * 语义 = "**容器还在 ⇒ 实例应当还在；容器要走 ⇒ 先把正文交出去**"。
+   * `useCallback([])` 保证 ref 身份恒定 —— 身份一变 React 会先调 cleanup 再调新 ref，
+   * 等于每次渲染都白快照一次。
+   */
+  const setContainerNode = useCallback((node: HTMLDivElement | null) => {
+    const previous = containerRef.current;
+    if (previous && previous !== node) {
+      // cleanup：宿主 DOM 即将被移除 / 替换 ⇒ **先交正文**（此刻 view 仍然有效）
+      snapshotIntoStore(paneRef.current.id, viewRef.current);
+    }
+    containerRef.current = node;
+  }, []);
+
+  // 懒挂载的两个条件：① 标签已挂载（store 的 `mounted`）② 宿主矩形与视口相交。
+  // 面板被 `hidden` 隐藏（非激活标签）时 `visible` 为 false —— 相交判定会关闭并清位，
+  // 恢复可见后 effect 重新注册 `IntersectionObserver`，CM6 实例**不**因此销毁（§14.1）。
+  const intersecting = useElementVisible(containerRef, pane.mounted && visible);
+  const canCreate = pane.mounted && intersecting;
 
   /* ── 生命周期：只在 `pane.id` 变化 / 组件卸载时销毁实例（可见性翻转**不**拆实例） ── */
   useEffect(() => {
     const paneId = pane.id;
     destroyedRef.current = false;
-    // 未挂载窗格的初始正文由 store 暂存，这里**取走即删**（全生命周期只交付一次）
+    // 标签未挂载时的初始正文由 store 暂存，这里**取走即删**（全生命周期只交付一次）
     initialTextRef.current = takeInitialText(paneId) ?? '';
     return () => {
       destroyedRef.current = true;
+      /**
+       * ★ **M-15 修复**（审查报告 v1.6.1 §15.3 M-15 / 设计 §15.5.2）：
+       * 「**实例从未建成**」这一情形必须补一次写回，否则正文会随卸载消失。
+       *
+       * ## 缺陷形态（修复前）
+       *
+       * 上面 `:612` 的 `takeInitialText(paneId)` 是**取走即删**，而 CM6 实例要到
+       * `:709-712`（**一个 `await loadEditorBundle()` 之后**，离线包首次加载 / 解析 3.4 MB
+       * 的窗口最宽）才创建。若卸载落在这两点之间：
+       *   ① `snapshotIntoStore(paneId, viewRef.current)` 因 `view === null` 直接 return
+       *      （`:334` 的守卫），**不写回快照**；
+       *   ② 正文只活在组件内的 `initialTextRef` 里 ⇒ 随卸载一起消失；
+       *   ③ 重挂时 `takeInitialText` 取不到 ⇒ `EditorState.create({ doc: '' })` ⇒ **空 doc**。
+       *
+       * 这与 F5 是**同一形态**（"正文失去唯一持有者"），只是窗口更窄、落在刚改过的那段代码里。
+       *
+       * ## 判据与三条不能破坏的语义
+       *
+       * 1. **只在实例从未建成时才走**（`viewRef.current === null`）：实例建成的路径由下面的
+       *    `snapshotIntoStore` 按 **`view` 的真正文**（含用户此间的编辑）交付，绝不能被
+       *    `initialTextRef` 的旧文本覆盖；
+       * 2. **只在初始正文确实被取走过时才走**（`hasInitialText` 为假）：
+       *    `takeInitialText` 是"交付一次"的语义，若 store 里仍有该标签的待交付正文，
+       *    说明它**没有**被 `:612` 消费（如 `pane.id` 变化的中间态 / StrictMode 二次挂载的
+       *    中间态）⇒ 此时写回是多余动作，保持"取走即删"的既有语义不变；
+       * 3. **空串不写回**：不是"删除"语义，而是"没有可交付的正文"⇒ 不写。
+       *
+       * 写入仍走 `snapshotInitialText`，它自带的 `tabs.find` 守卫会挡住**已关闭标签**
+       * ⇒ 不会让死标签复活（AC-59 不受影响）。
+       */
+      if (!viewRef.current && initialTextRef.current && !hasInitialText(paneId)) {
+        snapshotInitialText(paneId, initialTextRef.current);
+      }
+      // ★ 双保险（AC-77，设计 §15.5.2）：在 `view.destroy()` **之前**把正文交出去，
+      //   覆盖"React 因错误边界 / 卸载顺序异常而没走 ref cleanup"的极端情形。
+      //   与 `setContainerNode` 的 cleanup 是**同一函数、同一语义** ⇒ 幂等无害
+      //   （`doc.toString()` 是纯读，`snapshotInitialText` 是 `Map.set` 覆盖）。
+      snapshotIntoStore(paneId, viewRef.current);
       const view = viewRef.current;
       viewRef.current = null;
       apiRef.current = null;
@@ -553,6 +691,7 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
           blockSelect: Compartment ? new Compartment() : null,
         };
 
+        // 只挂 `copy`（矩形块选择）；**paste 刻意不接管**，见本文件 `copyHandlerFor` 下方的说明
         const extensions: Extension[] = [copyHandlerFor(api)];
         for (const extension of baseExtensions(api, (update: ViewUpdate) => {
           if (update.docChanged) markDirtyRef.current(current.id, true);
@@ -716,8 +855,10 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
 
   return (
     <div ref={wrapperRef} className={wrapperClass}>
-      {/* CM6 容器的**子节点全部由 CM6 自己管理**：React 不往里塞任何东西（避免节点打架） */}
-      <div ref={containerRef} className="h-full w-full overflow-hidden" />
+      {/* CM6 容器的**子节点全部由 CM6 自己管理**：React 不往里塞任何东西（避免节点打架）。
+          容器用 **callback ref**（`setContainerNode`，AC-77）：宿主 DOM 被移除 / 替换前先把正文
+          快照回 store，重挂时经 `takeInitialText` 取回（设计 §15.5.2 / §15.5.3）。 */}
+      <div ref={setContainerNode} className="h-full w-full overflow-hidden" />
       {status === 'error' ? (
         <div
           role="alert"
@@ -728,7 +869,7 @@ export function ScratchEditorHost({ pane, className }: ScratchEditorHostProps) {
       ) : null}
       {status === 'idle' || status === 'loading' ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs opacity-50">
-          {pane.mounted ? '正在加载编辑器内核…' : '窗格未挂载'}
+          {pane.mounted ? '正在加载编辑器内核…' : '编辑器尚未挂载'}
         </div>
       ) : null}
     </div>

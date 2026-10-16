@@ -1,0 +1,24 @@
+r17 真机探针 · 剪贴板 CF_HTML（AWT vs Chromium）⇒ 编辑器粘贴 · v1.6.1 F6
+平台=(默认) · 真窗口=True · 判据=['USER-CLIP'] · 中文载荷=False
+证据目录：D:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-130213
+复用 r15 OS 级按键原语；补齐虚拟键：['backspace', 'delete', 'v', 'a']
+载荷：{"AWT": {"style": "awt", "payloadUtf8Bytes": 176, "hasMarkerComment": false, "plainCodePoints": 42}, "CHROMIUM": {"style": "chromium", "payloadUtf8Bytes": 210, "hasMarkerComment": true, "plainCodePoints": 42}, "AWT-HTMLONLY": {"style": "awt", "payloadUtf8Bytes": 176, "hasMarkerComment": false, "plainCodePoints": 42}, "TEXT": {"style": null, "payloadUtf8Bytes": null, "hasMarkerComment": null, "plainCodePoints": 42}, "EMPTY": {"style": null, "payloadUtf8Bytes": null, "hasMarkerComment": null, "plainCodePoints": 0}}
+[2026-10-16 13:02:14] [INFO] [src.utils.input_method] ���뷨���ã�win32 ƽ̨ʹ��ϵͳԭ�� IME������ Qt ����������
+[2026-10-16 13:02:14] [INFO] [src.ui.web_shell] ����Ĭ�϶���������ɣ�10/13 �����������������
+宿主 WebAction instrumentation：47 项（NoWebAction/WebActionCount 已扣除）
+[2026-10-16 13:02:15] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 13:02:15] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 13:02:16] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 13:02:17] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] P0 真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区）
+       {"load_ui": true, "realWindow": true, "state": {"hash": "#/login", "connectButton": true, "passwordInputs": 0, "navEditor": false, "workspaceCount": 0, "tabCount": 0, "cmBundle": false}}
+[ OK ] USER-CLIP 只读观察真实来源（例如 IDEA）留在剪贴板上的 flavor 与 CF_HTML 头结构 （观察项，不参与退出码）
+       {"formats": ["HTML Format", "CF_UNICODETEXT", "CF_TEXT", "UniformResourceLocator", "CF_LOCALE", "CF_OEMTEXT"], "htmlAvailable": true, "unicodeTextAvailable": true, "oemTextAvailable": true, "htmlBytes": 179, "htmlSha256Prefix": "932feec4d2f978a9", "htmlPrefix12Hex": "56657273696f6e3a312e300d", "offsets": {"startHtml": 128, "endHtml": 179, "startFragment": 140, "endFragment": 165}, "hasMarkerComment": false, "hasMarkerCommentLoose": false, "hasEndMarkerComment": false, "hasHtmlTag": true, "hasBodyTag": true, "lineEnding": "crlf", "markerCount": 0, "fragmentByOffsetOk": {"ok": true, "chunkUtf8Bytes": 25, "chunkFnv1a32": "c1bcee6d", "chunkIsWholeFragment": true, "offsets": {"startHtml": 128, "endHtml": 179, "startFragment": 140, "endFragment": 165}}, "startHtmlPointsAtHtmlTag": true, "syntheticPayloadComparable": false, "verdict": "awt-like-no-marker", "clipboardSequence": 1389, "note": "本判据只读、不写剪贴板；裸 Win32 枚举（不经 Qt，无隐式格式转换）。若 verdict=no-html-flavor ⇒ 当前剪贴板里没有 CF_HTML，请先在 IDEA 里复制一段代码再重跑本判据。"}
+[SKIP] P1 隔离服务端就绪 + 真登录 + 工作区可用
+       "本轮未选中任何需要渲染层的判据（例如 --only USER-CLIP）"
+  · 未进入粘贴相位；WebAction 计数：{"total": 0, "byAction": {}, "eventCount": 0, "phase": "init"}
+[SKIP] H-NOHOST 粘贴相位内宿主 WebAction 计数 = 0 （观察项，不参与退出码）
+       "本轮没有粘贴相位"
+结果 JSON：D:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-130213\r17-result.json
+退出码：0
+收尾未清空剪贴板（--only USER-CLIP 为只读观察，保留用户剪贴板原状）

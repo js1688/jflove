@@ -74,7 +74,7 @@ export function QuitConfirmDialog({
       <div className="flex flex-col gap-3 text-sm">
         <p>
           {dirtyCount > 0 ? (
-            <>有 <strong>{dirtyCount}</strong> 个编辑窗格尚未保存。</>
+            <>有 <strong>{dirtyCount}</strong> 个编辑标签页尚未保存。</>
           ) : (
             <>没有未保存的更改。</>
           )}
@@ -82,13 +82,13 @@ export function QuitConfirmDialog({
 
         {draftOnly > 0 && (
           <p className="text-muted">
-            其中 <strong>{draftOnly}</strong> 个窗格尚未指定保存位置（草稿形态）：
+            其中 <strong>{draftOnly}</strong> 个标签页尚未指定保存位置（草稿形态）：
             它们<strong>不会</strong>被写入磁盘，正文仍留在草稿库中。
           </p>
         )}
 
         {dirtyCount > 0 && savableCount === 0 && (
-          <p className="text-muted">当前没有可写回原文件的窗格，只能选择「放弃并退出」。</p>
+          <p className="text-muted">当前没有可写回原文件的标签页，只能选择「放弃并退出」。</p>
         )}
 
         <label className="flex items-center gap-2 select-none">
@@ -98,7 +98,7 @@ export function QuitConfirmDialog({
             disabled={busy}
             onChange={(event) => setRetain(event.target.checked)}
           />
-          <span>保留下次恢复（下次启动自动还原这些窗格）</span>
+          <span>保留下次恢复（下次启动自动还原这些标签页）</span>
         </label>
 
         <p className="text-muted">

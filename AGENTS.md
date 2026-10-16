@@ -1,6 +1,6 @@
 # 项目工作手册（jflove）
 
-> 本文件是项目的总纲。具体角色的工作细则放在 `.claude/skills/<角色名>/SKILL.md`（兼容 GitHub Copilot / Claude Code / Cursor / Windsurf 等），本文件只做规则定义与角色调度。
+> 本文件是项目的总纲。具体角色的工作细则放在 `.agents/skills/<角色名>/SKILL.md`（DeepSeek Harness 原生技能格式，`skill` 工具直接加载），本文件只做规则定义与角色调度。
 
 ## 1. 项目模块与开发状态
 
@@ -187,11 +187,12 @@
 ├── Web端开发记录/          # web-frontend 输出
 ├── 代码审查报告/           # code-review 输出
 ├── 测试报告/              # testing 输出
-├── 项目管理记录/           # pmo 输出（含跨版本台账 BACKLOG.md）
+├── 项目管理记录/           # pmo 输出（含"下个版本候选台账"小节，见下）
 └── 版本发布记录/           # devops 输出
 ```
 
-> **⚠ 开工新版本前先读**：`文档记录/项目管理记录/BACKLOG.md`（技术债 / 下个版本候选台账）。
+> **⚠ 开工新版本前先读**：`文档记录/项目管理记录/<最新版本号>.md` 的「**下个版本候选台账**」小节
+> （技术债 / 下个版本候选台账；**2026-10-16 起**由该小节承担，原独立的 `BACKLOG.md` 已由用户裁决删除）。
 > 每条都带**证据（文件:行 + 命令）+ 建议做法 + 验收判据**，避免下个版本重新取证；
 > 版本内计划仍按 §1.1.1 放 `plans/`。
 
@@ -260,7 +261,7 @@ python scripts/check_db_schema.py --align    # 对齐（自动备份 prod，只�
   的「生产库 DDL（升级+回滚）」章节。
 
 > 修改过本工具或做过结构迁移后，**必须**跑一遍反向验证（喂坏数据要拦住、喂纯格式差异要放行），
-> 复验退出码都要为 `0` 才算工具可信（依据：`.claude/skills/LESSONS.md` L15–L17）。
+> 复验退出码都要为 `0` 才算工具可信（依据：`.agents/skills/lessons/LESSONS.md` L15–L17）。
 
 
 #### 5.1.2 版本内有表结构变更时的必备交付物（强制）
@@ -290,25 +291,117 @@ python scripts/check_db_schema.py --align    # 对齐（自动备份 prod，只�
 
 ## 6. 角色与命令对应表
 
-每次工作如果命中技能时,应当主动告知用户当前命中了哪些技能
+**技能调用（强制）**：命中下表任一角色时，必须**先调用 `skill` 工具加载同名技能**（技能名 = 角色名），
+再开始该角色的工作；并在回复开头说明本次命中了哪些技能。
+
+> 需要跨角色通用经验时加载 `lessons`（= `.agents/skills/lessons/LESSONS.md`，踩坑记录 + 交付前自查清单）。
+> 技能目录里看不到项目技能时，按 §6.2 第 3 条的退化路径直接 `read` 对应 `SKILL.md`——**约束不因此放松**。
 
 | 角色（agent） | 命令文件 | 模块归属 | 输出文档目录 |
 | --- | --- | --- | --- |
-| product | `.claude/skills/product/SKILL.md` | 产品 | `文档记录/需求文档/` |
-| designer | `.claude/skills/designer/SKILL.md` | 架构设计 | `文档记录/设计文档/` |
-| backend | `.claude/skills/backend/SKILL.md` | jflove-server | `文档记录/后端开发记录/` + `jflove-server/README.md` |
-| cross-platform-desktop | `.claude/skills/cross-platform-desktop/SKILL.md` | jflove-desktop | `文档记录/桌面端开发记录/` + `jflove-desktop/README.md` |
-| web-frontend | `.claude/skills/web-frontend/SKILL.md` | jflove-web | `文档记录/Web端开发记录/` + `jflove-web/README.md` |
-| cross-platform-mobile | `.claude/skills/cross-platform-mobile/SKILL.md` | jflove-app | `文档记录/移动端开发记录/` + `jflove-app/README.md` |
-| code-review | `.claude/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
-| testing | `.claude/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
-| pmo | `.claude/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
-| devops | `.claude/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/` + 根 `README.md` |
+| product | `.agents/skills/product/SKILL.md` | 产品 | `文档记录/需求文档/` |
+| designer | `.agents/skills/designer/SKILL.md` | 架构设计 | `文档记录/设计文档/` |
+| backend | `.agents/skills/backend/SKILL.md` | jflove-server | `文档记录/后端开发记录/` + `jflove-server/README.md` |
+| cross-platform-desktop | `.agents/skills/cross-platform-desktop/SKILL.md` | jflove-desktop | `文档记录/桌面端开发记录/` + `jflove-desktop/README.md` |
+| web-frontend | `.agents/skills/web-frontend/SKILL.md` | jflove-web | `文档记录/Web端开发记录/` + `jflove-web/README.md` |
+| cross-platform-mobile | `.agents/skills/cross-platform-mobile/SKILL.md` | jflove-app | `文档记录/移动端开发记录/` + `jflove-app/README.md` |
+| code-review | `.agents/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
+| testing | `.agents/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
+| pmo | `.agents/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
+| devops | `.agents/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/` + 根 `README.md` |
 
 **调度原则**：
 
-- 角色定位、行为规范、技术栈细节均以 `.claude/skills/<角色名>/SKILL.md` 为准；本文件不重复展开。
+- 角色定位、行为规范、技术栈细节均以 `.agents/skills/<角色名>/SKILL.md` 为准；本文件不重复展开。
 - 命中具体流程后，必须在该流程内工作，不得越界处理其他流程的事。
+
+### 6.1 子 agent 委派规约（强制）
+
+> **背景（实测，不是猜测）**：子 agent **确实**继承了本文件（以 `Instructions from: AGENTS.md` 注入），
+> 但注入的效力只是 *"may be relevant … as guidance when applicable"*，**弱于**父 agent 在委派 prompt 里的显式要求；
+> 且 DSH 的 `subagent` / `subagent_fork` / `workflow` **没有权限参数**，写盘边界无法在工具层硬隔离。
+> **实测反例**：派一个 prompt 里写明「严禁创建、修改、删除任何文件」的探针子 agent，它**仍然写了文件**。
+> ⇒ 只在 prompt 里写"禁止"不牢靠，**必须配事后核对**。
+
+**父 agent 的硬性义务**：
+
+1. **必须点名角色**。委派 prompt 首段写清：
+   `角色：<role>；先调用 skill 工具加载 <role>，再 read .agents/skills/<role>/SKILL.md 全文并遵守。`
+   未点名角色的委派 = **违规委派**。
+2. **prompt 必须自包含**。`subagent` / `workflow` 是**全新会话、不继承当前对话**（只有 `subagent_fork` 继承），必须显式给出：
+   - 任务目标 + **可判定的验收判据**（不要"看着对"）
+   - **允许改动的目录白名单** + **禁止改动的目录**
+   - 必须先读的文件清单（需求/设计文档、开发记录、相关源码）
+   - 需要产出的文档路径（按 §6 角色表对应目录）
+3. **只读任务写成只读**：调研 / 审查 / 探针类子 agent，prompt 必须含
+   「**只读，禁止写盘**；结论以最终文本返回，不要写任何副本文件」。
+4. **事后核对（不可省）**：委派前后各跑一次 `git status --porcelain`，逐条确认新增/修改文件都在白名单内；
+   越界写盘**立即清理**并在回复中说明。
+5. **回执必须核验**：子 agent 结论必须带证据（文件:行 / 命令 / 输出），父 agent **核对证据后才采信**，
+   不得把子 agent 结论直接当事实转述给用户。
+6. **一个子 agent 只做一件事**；跨模块任务拆成多个子 agent，不要塞进一个。
+7. **技能命中必须播报**（承接 §6）：父子两侧都要说明本次命中了哪些技能。
+
+**子 agent 的硬性义务**：
+
+1. **禁止嵌套委派**：不得再调用 `subagent` / `subagent_fork` / `workflow`；需要拆分时回报父 agent。
+2. **模块边界同等有效**（§1）：只能在自己被授权的模块目录内改动；越界写入视为父 agent 违规。
+3. **只读就真的只读**：不创建文件、不改文件、不写"答案副本"。
+4. **计划先行**（§1.1）：动手前先列出计划；长任务及时更新 `plans/` 计划文件状态。
+5. **统一回执四段式**：`1) 结论 → 2) 证据（文件:行 / 命令 / 输出摘要）→ 3) 未决问题/未验证项 → 4) 是否越界写盘（没有也要写"无"）`。
+6. **不确定就说不确定**：没跑过的验证不要写"已验证"（依据 `LESSONS.md` L43 / §五 自查清单）。
+
+> 可加载形态：`subagent-delegation` 技能（`.agents/skills/subagent-delegation/SKILL.md`），内容与本节一致。
+
+### 6.2 技能组织与发现（DSH 原生格式）
+
+1. **唯一真相 = `.agents/skills/<技能名>/SKILL.md`**（DSH **工作区级**技能扫描根；实测**热扫描**：
+   新增 / 改名 / 删除**立即**反映到技能目录，无需重启）。技能形态只认顶层 `<name>/SKILL.md` 或平铺 `<name>.md`，
+   **不递归**；项目根 = 含 `.git` 的最近祖先。
+   技能名约定：角色技能名 = **`<角色名>`**（`backend` / `code-review` / …）；跨角色经验库 = **`lessons`**；委派契约 = **`subagent-delegation`**。
+   > **历史（2026-10-14 迁移）**：技能原先放在 `.claude/skills/`，而该目录**不在**任何 DSH 扫描根里
+   > （扫描根按 rank 小者优先：`<项目根>/.dsh/skills` → `<项目根>/.agents/skills` → profile `customSkillDirs`
+   > → `<dshHome>/skills` → 随包内置），当年只能靠 `.agents/skills/` 下的"指路代理"过渡。
+   > **现在技能真身就在 `.agents/skills/`，`.claude/` 已删除 —— 不再有代理，也不需要代理。**
+2. **frontmatter 必须合法 YAML（实测坑：非法会被静默丢弃）**：必填 `name`（kebab-case，且**与目录名一致**）+ `description`。
+   `description` 里含 `: `（冒号 + 空格，例如 `Use when: …`）时**必须加双引号**；写成 YAML plain scalar 就是非法 YAML，
+   DSH 会**静默丢弃整个技能** —— 技能目录里查不到、`skill("<name>")` 只回 `unknown or no longer available`，
+   **不报错、不告警**（依据 `LESSONS.md` L45；手写技能如 `subagent-delegation` 同样受此约束）。
+   校验命令（退出码即判据，**必须用带 PyYAML 的解释器**；PATH 上的 `python` 没有 PyYAML，
+   会退化为正则形状检查并打印 `[WARN]`）：
+
+   ```bash
+   jflove-server\venv-win\Scripts\python.exe scripts\check_skills.py
+   ```
+3. **技能不可加载时的退化路径（必须走）**：`read .agents/skills/<技能名>/SKILL.md` 全文。
+   `.agents/skills/**` 永远是**唯一真相**；技能目录只是入口——
+   换机器 / 新克隆 / 清理后**照样按本节执行**，不许因为"技能目录里没有"就跳过角色技能。
+4. **项目技能优先于内置技能**：工作区扫描根的优先级高于随包内置技能，同名时项目技能胜出 —— "优先本地项目技能"天然满足。
+5. **大文件技能按条目读**：`lessons` 的入口是 `.agents/skills/lessons/SKILL.md`，650 行全文在**同目录** `LESSONS.md`；
+   加载入口后按其指引 read 相关章节，不要整篇塞进上下文。
+
+### 6.3 委派 prompt 模板（复制即用）
+
+```text
+角色：<role>（先调用 skill 工具加载 `<role>`，再 read `.agents/skills/<role>/SKILL.md` 全文并遵守）
+
+任务：<一句话目标>
+背景：<为什么做 / 对应需求或设计文档路径>
+必须先读：<文件清单>
+允许改动：<目录白名单>            禁止改动：<目录黑名单>
+验收判据：<可判定的条件，如"命令 X 退出码 0"、"文件 Y 含 Z">
+产出：<文档路径 / 代码路径>        写盘约束：<只读 或 仅允许写上述白名单>
+回执格式：1) 结论 2) 证据（文件:行 / 命令 / 输出）3) 未决问题 4) 是否越界写盘
+```
+
+### 6.4 落地自查（"写进文档"不等于"被执行"）
+
+每次委派结束后，父 agent 自查（依据 `LESSONS.md` L12 / L43 / L44）：
+
+- [ ] 委派 prompt 首段**点名了角色**，并要求 `skill` 加载 + `read` 真身？
+- [ ] 给了**目录白名单**与**可判定的验收判据**？
+- [ ] 委派前后 `git status --porcelain` 核对过，越界产物已清理？
+- [ ] 子 agent 回执**带证据**，且父 agent 核对后才采信？
 
 ## 7. 版本迭代流程（核心流水线）
 

@@ -4,7 +4,7 @@ JFLove 品牌 logo 跨端一致性核对（v1.5.1，AC-3）
 背景：桌面端（`jflove-desktop/ui/public/`）与 Web 端（`jflove-web/public/`）是
 **两套独立前端工程**，各自持有品牌资产副本（不共享源码、不跨工程引用）。
 本脚本负责证明"两份副本是同一份美术资产"，把这条约束从"靠记忆"变成
-**可执行判据**（依据：`.claude/skills/LESSONS.md` L12）。
+**可执行判据**（依据：`.agents/skills/lessons/LESSONS.md` L12）。
 
 用法：
     python scripts/check_logo_sync.py              # 核对，退出码 0 = 一致；1 = 有差异

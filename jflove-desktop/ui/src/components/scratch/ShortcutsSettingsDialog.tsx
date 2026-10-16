@@ -1,9 +1,9 @@
 /**
- * 快捷键配置对话框（设计 v1.6.0 §4.2；设置页「文本编辑器」Section 的子块 ①，§4.3）
+ * 快捷键配置对话框（设计 v1.6.1 §4.7 / v1.6.0 §4.2；设置页「文本编辑器」Section 的子块 ①，§4.3）
  *
  * ## 硬口径（逐条对齐设计 / 任务要求）
  *
- * 1. **20 项逐项呈现**：行数据全部来自 `config/shortcuts.ts::SHORTCUT_DEFS`（唯一手写真相），
+ * 1. **18 项逐项呈现**：行数据全部来自 `config/shortcuts.ts::SHORTCUT_DEFS`（唯一手写真相），
  *    每行显示「功能名 + 中文功能说明 + 默认键 + 当前键 + 修改 + 重置」，并支持单项重置与一键恢复默认。
  * 2. **冲突检测**：全表归一化比对由 `stores/shortcut-store.ts::save()` 统一执行（AC-9）；本组件把
  *    `store.conflicts` 实时渲染成顶部横幅 + 标红行（含「该键同时被编辑器内核使用」说明），
@@ -12,7 +12,7 @@
  *    `keyboardEventToShortcut()`（与冲突检测共用同一套归一化规则）拿到组合键；
  *    **拒绝纯修饰键**作为普通快捷键（块选择修饰键那一项例外 —— 它只能配单个 Alt / Ctrl）。
  * 4. **不注册任何全局热键**（AC-8）：监听只在配置期间存在，且校验 `document.hasFocus() && !document.hidden`；
- *    本组件只产数据，真正的键位匹配发生在窗格层（`ScratchPaneLayer`）挂在 `window` 的监听里。
+ *    本组件只产数据，真正的键位匹配发生在快捷键运行时（编辑器工作区挂在 `window` 上的应用级监听里）。
  * 5. **落盘时机**（§4.2.4）：改键 / 单项重置**只改内存**，用户点「保存」才写盘（不做防抖自动写）；
  *    「恢复全部默认」按设计**立即落盘**（写 `{"version":1,"bindings":{}}`），失败由 store 回滚。
  * 6. 渲染层**不打印**路径与内容（§7.4）、**不用** `localStorage`（R-1）、**不发**任何网络请求。
@@ -81,9 +81,19 @@ export function formatBindingForDisplay(def: ShortcutDef, raw: string): string {
 /**
  * 该项是否**被用户真正改过**（用于「已自定义 N 项」与单项重置按钮的可用性）。
  *
- * 与 `overrides[id] !== undefined` 的唯一差别：块选择修饰键的 overrides 项是 store 归一化口径
- * **必然产生**的 —— `toOverrides(DEFAULT_BINDINGS)` 实测返回 `{"edit.blockSelectModifier":"Alt+Alt"}`，
- * 并非用户改动。不做这层校正，全新配置也会显示"已自定义 1 项"、并让该行的「重置」看起来可用。
+ * 与 `overrides[id] !== undefined` 的差别：**仅修饰键**条目（块选择修饰键）只接受单个修饰键，
+ * 归一化后可能与默认值是**同一语义**（同一个修饰键）—— 此时不该算"用户改过"，
+ * 否则全新配置也会显示"已自定义 1 项"、并让该行的「重置」看起来可用。
+ *
+ * 勘误（Phase 5 审查 D-2）：原注释用 `toOverrides(DEFAULT_BINDINGS)` 返回
+ * `{"edit.blockSelectModifier":"Alt+Alt"}` 当论据 —— 该值**实测为 `{}`**（`toOverrides`
+ * 会剔除与默认归一值相同的项，见 `config/shortcuts.ts:504-515`；而 `DEFAULT_BINDINGS`
+ * 本身取的就是归一化默认值，见同文件 `:266-271`），论据已失效；函数保留是因为上面这条
+ * "同语义不算改动"的判定本身仍然需要（用户把修饰键改回默认时不应留下"已自定义"痕迹）。
+ *
+ * 附带结论：`toOverrides` 会剔除掉与默认同归一值的项，且 store 的落盘数据也统一经它过一遍
+ * （`stores/shortcut-store.ts:181`）⇒ 当前代码里**到不了**"`overrides[id]` 存在但语义等于默认"
+ * 的情形，下面 `modifierOnly` 那段已是**防御性分支**（防外部手改的落盘文件），不是活路径。
  */
 export function isUserCustomizedShortcut(
   def: ShortcutDef,
@@ -164,14 +174,11 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
     useShortcutStore.getState().setBinding(id, value);
     const state = useShortcutStore.getState();
     if (state.lastError) {
-      const def = getShortcutDef(id);
       // 未写入：保留配置态并把明确原因显示在该行（绝不静默丢弃用户按键）
-      setCaptureHint(
-        def?.meta.modifierOnly
-          ? `${state.lastError}（已知缺陷：修饰键归一化后被拼成 ${value}+${value}，与 store 白名单不匹配，` +
-              `该项当前只能保持默认 ${value}；已登记为待修项，不影响其余 19 项）`
-          : state.lastError,
-      );
+      // 说明（Phase 5 审查 **L-4**）：原先这里对"仅修饰键"额外拼了一段「已知缺陷：会被拼成 Alt+Alt」，
+      // 该缺陷在 v1.6.x 已不存在（`setBinding` 走 `isAllowedModifierValue` 白名单，Alt/Ctrl/Shift/Meta 均可改），
+      // 陈旧文案反而会误导用户 ⇒ 统一只显示 store 给出的 `lastError`。
+      setCaptureHint(state.lastError);
       return;
     }
     setCapturingId(null);
@@ -182,9 +189,9 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
   /**
    * 配置态按键捕获（**只在对话框打开且处于配置态时挂载**，窗口失焦即不响应 —— AC-8）。
    *
-   * 说明：本监听挂在 `window` 捕获阶段，与窗格层的应用级监听同层；后者先注册，
-   * 因此当用户按下的键恰好是某个已生效的窗格快捷键时，窗格动作仍可能被触发一次
-   * （例如按下 `Ctrl+Alt+N` 想把它改给别的功能会顺手新建窗格）。
+   * 说明：本监听挂在 `window` 捕获阶段，与快捷键运行时的应用级监听同层；后者先注册，
+   * 因此当用户按下的键恰好是某个已生效的应用级快捷键时，对应动作仍可能被触发一次
+   * （例如按下 `Ctrl+Alt+N` 想把它改给别的功能会顺手新建标签页）。
    * 这正是"该键已被占用"的场景 —— 下面会给出冲突提示，保存会被拒绝。
    * 同时设置 `body[data-jf-shortcut-capture]`，供应用级监听自查"正在配置快捷键"并让路。
    */
@@ -247,7 +254,7 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
       }
       const chord = parseShortcut(normalized);
       if (chord && !chord.ctrl && !chord.alt && !chord.shift && !chord.meta) {
-        // 增强保护：无修饰键的裸键会在窗格内抢走正常输入（把 `A` 配成快捷键后打不出字母）
+        // 增强保护：无修饰键的裸键会在编辑面板内抢走正常输入（把 `A` 配成快捷键后打不出字母）
         setCaptureHint('快捷键至少需要一个修饰键（Ctrl / Alt / Shift / Meta），否则会抢走编辑器里的正常输入');
         return;
       }
@@ -412,7 +419,7 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
           </div>
         )}
 
-        {/* 20 项快捷键：行数据逐项来自 SHORTCUT_DEFS（唯一手写真相），不做任何过滤 */}
+        {/* 18 项快捷键：行数据逐项来自 SHORTCUT_DEFS（唯一手写真相），不做任何过滤 */}
         <div className="max-h-[52vh] overflow-y-auto rounded-lg border border-line-subtle">
           {SHORTCUT_DEFS.map((def) => {
             const current = bindings[def.id] ?? def.defaultKey;
@@ -438,7 +445,7 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="text-[13px] text-fg">{def.label}</span>
                     <span className="rounded-full border border-line-subtle px-1.5 text-[10.5px] text-subtle">
-                      {def.scope === 'window' ? '窗口激活' : '窗格聚焦'}
+                      {def.scope === 'window' ? '窗口激活' : '编辑面板聚焦'}
                     </span>
                     {changed && <span className="text-[10.5px] text-fg-brand">已自定义</span>}
                     {conflicting && <span className="text-[10.5px] text-danger-700">键位重复</span>}

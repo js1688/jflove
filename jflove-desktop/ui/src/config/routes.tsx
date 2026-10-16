@@ -10,6 +10,7 @@ import { LoginPage } from '../pages/LoginPage';
 import { NoteEditPage } from '../pages/NoteEditPage';
 import { NoteListPage } from '../pages/NoteListPage';
 import { SecurityPage } from '../pages/SecurityPage';
+import { ScratchWorkspace } from '../components/scratch/ScratchWorkspace';
 import { SyncPage } from '../pages/SyncPage';
 import { TransferTabsPage } from '../pages/TransferTabsPage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -117,6 +118,9 @@ export const router = createHashRouter([
       { path: 'files/:diskId', element: <DiskBrowserPage /> },
       { path: 'files/:diskId/preview', element: <FilePreviewPage /> },
       { path: 'notes', element: <NoteListPage /> },
+      // 文本编辑器工作区（v1.6.1 DS-17）：**登录后**可达的普通页面，取代 v1.6.0 挂在
+      // RouterProvider 之外的 `<ScratchPaneLayer />` 浮动层。未登录时 RequireAuth 会先送去 `/login`（AC-63）。
+      { path: 'editor', element: <ScratchWorkspace /> },
       { path: 'sync', element: <SyncPage /> },
       // 传输任务与修复中心同一页的两个标签（/repair 保留以兼容深链）
       { path: 'transfer', element: <TransferTabsPage /> },

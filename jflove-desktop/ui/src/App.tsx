@@ -4,9 +4,13 @@ import { router } from './config/routes';
 import { useThemeStore, type ThemeMode } from './stores/theme-store';
 import { ToastHost, toast } from './components/ui';
 import { TitleBar } from './components/desktop/TitleBar';
-// 浮动窗格层：与 TitleBar 同级、在 RouterProvider **之外** ⇒ 任意路由页都能呼出窗格，
-// 且切换路由不会销毁窗格（设计 v1.6.0 §4.1.1 / AC-47）。
-import { ScratchPaneLayer } from './components/scratch';
+// ── 编辑器两处**模块级常驻**接线（v1.6.1）──
+// ① 快捷键运行时：AC-1 要求"已登录时在**任意路由页**按新建键都能进工作区"，
+//    所以监听器不能挂在 /editor 页面组件里，必须由根组件静态 import（设计 §4.7.1 / U-8）。
+import './utils/scratch/shortcut-runtime';
+// ② 外部唤起（双击关联文件 / 命令行传路径）→ 登录门 → 打开并切到工作区（设计 §4.4 / AC-64）。
+//    静态 import = 模块顶层装上消费者，早于首帧，避免"启动期事件早于 UI"丢失（§7.5）。
+import './utils/scratch/editor-open-paths';
 import { QuitConfirmDialog } from './components/scratch/QuitConfirmDialog';
 import { getScratchEditorSession } from './components/scratch/ScratchEditorHost';
 import { useScratchStore, selectDirtyCount } from './stores/scratch-store';
@@ -41,31 +45,11 @@ export function App() {
     return watchSystem();
   }, [watchSystem]);
 
-  // 启动还原（D7 / D9 / §6.3.2 / AC-55 / AC-60）：
-  // 索引里**有条目**就还原 —— 异常退出（clean_exit=false）由崩溃检测触发，
-  // 正常退出时条目仍在则说明用户在退出确认里选了"保留下次恢复"（选不保留会被清空 ⇒ 无条目）。
-  // 还原阶段只登记状态、不建 CM6 实例（§4.1.3 懒挂载），所以几十份草稿也不会拖慢启动。
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const { cleanExit, entries } = await scratchService.draftList();
-        if (!alive || entries.length === 0) return;
-        useScratchStore.getState().hydrateFromDrafts(entries);
-        toast.info(
-          `已还原 ${entries.length} 个编辑窗格`,
-          cleanExit ? '上次退出时选择了保留' : '上次未正常退出，草稿已自动还原',
-        );
-      } catch {
-        // 浏览器 `npm run dev` 无桥 / 索引不可读：静默降级，不阻塞启动（AC-S2 ①）
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // 说明：草稿**还原**已不在根组件做（v1.6.1 §4.5）：编辑器必须登录后才能用（AC-63），
+  // 而在根组件还原会在未登录时就把标签登记进内存。还原时机与提示统一由
+  // `components/scratch/ScratchWorkspace.tsx` 负责（条件：已登录 且 内存无标签 且 本会话未还原过）。
 
-  // 脏窗格数变化 → 告知 Python（AC-56 前置：退出握手要知道"有多少内容待保存"）
+  // 脏标签数变化 → 告知 Python（AC-56 前置：退出握手要知道"有多少内容待保存"）
   useEffect(() => {
     void scratchService.reportDirty(dirtyCount).catch(() => {
       // 无桥时忽略（浏览器 dev）
@@ -77,22 +61,26 @@ export function App() {
     return scratchService.onShellQuitRequested(() => setQuitRequested(true));
   }, []);
 
-  /** 把"有保存路径"的脏窗格写回原文件；草稿形态的窗格永不静默写盘（D17 红线） */
-  const saveFileBackedPanes = async (): Promise<number> => {
+  /** 把"有保存路径"的脏标签写回原文件；草稿形态的标签永不静默写盘（D17 红线）。
+   *
+   * `readOnly` 必须排除（BL-26 / M-11）：只读标签（如 > 5 MB 降级只读）的改动不得被退出
+   * 流程写回磁盘。⚠ 本筛选与 `savableCount`（`App.tsx:167`）是**同一判据的两处**，后者 2026-10-15 才补。
+   */
+  const saveFileBackedTabs = async (): Promise<number> => {
     const targets = useScratchStore
       .getState()
-      .panes.filter((pane) => pane.dirty && pane.path);
+      .tabs.filter((tab) => tab.dirty && tab.path && !tab.readOnly);
     let saved = 0;
-    for (const pane of targets) {
-      const session = getScratchEditorSession(pane.id);
-      if (!session || !pane.path) continue; // 未挂载窗格没有实时正文，留给草稿库
+    for (const tab of targets) {
+      const session = getScratchEditorSession(tab.id);
+      if (!session || !tab.path) continue; // 未挂载标签没有实时正文，留给草稿库
       await scratchService.writeText({
-        path: pane.path,
+        path: tab.path,
         text: session.getText(),
-        encoding: pane.encoding,
-        lineEnding: pane.lineEnding,
+        encoding: tab.encoding,
+        lineEnding: tab.lineEnding,
       });
-      useScratchStore.getState().markDirty(pane.id, false);
+      useScratchStore.getState().markDirty(tab.id, false);
       saved += 1;
     }
     return saved;
@@ -101,8 +89,8 @@ export function App() {
   const handleSaveAndQuit = async (retain: boolean) => {
     setQuitBusy(true);
     try {
-      await saveFileBackedPanes();
-      // 草稿库补一次"落定"写入（含未挂载窗格）—— 之后才允许 Python 放行退出
+      await saveFileBackedTabs();
+      // 草稿库补一次"落定"写入（含未挂载标签）—— 之后才允许 Python 放行退出
       await useScratchStore.getState().flushPendingSaves();
       await scratchService.confirmQuit(retain);
     } catch (error) {
@@ -166,9 +154,8 @@ export function App() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas">
       <TitleBar />
-      {/* 浮动窗格层（绝对定位，不占 flex 流；router 之外 ⇒ 换页不销毁窗格） */}
-      <ScratchPaneLayer />
-      {/* 内容区：高度由 flex 分配，页面内部自己滚动 */}
+      {/* 内容区：高度由 flex 分配，页面内部自己滚动。
+          编辑器工作区**就是其中一个路由页**（`/editor`，设计 DS-17）—— 不再是浮在路由之上的浮层。 */}
       <div className="relative min-h-0 flex-1">
         <RouterProvider router={router} />
       </div>
@@ -177,9 +164,7 @@ export function App() {
       <QuitConfirmDialog
         open={quitRequested}
         dirtyCount={dirtyCount}
-        savableCount={
-          useScratchStore.getState().panes.filter((pane) => pane.dirty && pane.path).length
-        }
+        savableCount={useScratchStore.getState().tabs.filter((tab) => tab.dirty && tab.path && !tab.readOnly).length}
         busy={quitBusy}
         onSaveAndQuit={(retain) => void handleSaveAndQuit(retain)}
         onDiscardAndQuit={(retain) => void handleDiscardAndQuit(retain)}

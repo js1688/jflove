@@ -1,0 +1,315 @@
+{
+  "probe": "r13-ctrlw-takeover",
+  "at": "2026-10-15T09:37:41",
+  "negative_ac70": false,
+  "checks": [
+    {
+      "id": "H0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（无编辑器入口 / 无工作区 DOM）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "hostActions": 47,
+        "state": {
+          "hash": "#/login",
+          "navLabels": [],
+          "navEditor": false,
+          "workspaceCount": 0,
+          "emptyCount": 0,
+          "tabCount": 0,
+          "tabs": [],
+          "panelCount": 0,
+          "activePanelCount": 0,
+          "cmBundle": false,
+          "cmContentCount": 0,
+          "dialogLabel": null,
+          "dialogText": null,
+          "hasLoginForm": false,
+          "focused": true,
+          "hidden": false,
+          "bodyText": "登录\nJFLove\n\n所有通信均经过端到端加密，连接后自动交换临时会话密钥。\n\n服务端地址\n\n需填写完整的服务端地址（含协议与端口），例如 http://127.0.0.1:8989\n\n连接服务端\nv1.5.1"
+        }
+      }
+    },
+    {
+      "id": "H1",
+      "desc": "OS 级 Ctrl+W 投递到渲染层（探针监听读到 keydown；无需登录）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "install": {
+          "ok": true,
+          "installedAt": 1792028256663
+        },
+        "reached": true,
+        "ctrled": true,
+        "preventedWhenUnlogged": false,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "w",
+            "code": "KeyW",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": false,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "bodyYield": false
+          }
+        ],
+        "attempts": 1,
+        "diag": {
+          "attempts": [
+            {
+              "n": 1,
+              "beforeMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "afterMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "all": [
+                {
+                  "seq": 0,
+                  "phase": "capture",
+                  "key": "Control",
+                  "code": "ControlLeft",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "bodyYield": false
+                },
+                {
+                  "seq": 1,
+                  "phase": "bubble",
+                  "key": "Control",
+                  "code": "ControlLeft",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "bodyYield": false
+                },
+                {
+                  "seq": 2,
+                  "phase": "capture",
+                  "key": "w",
+                  "code": "KeyW",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "bodyYield": false
+                },
+                {
+                  "seq": 3,
+                  "phase": "bubble",
+                  "key": "w",
+                  "code": "KeyW",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "bodyYield": false
+                }
+              ]
+            }
+          ],
+          "hit": 1
+        }
+      }
+    },
+    {
+      "id": "H2",
+      "desc": "未登录：Ctrl+W 到达渲染层但**不接管**（不 preventDefault）、零标签页、窗口不关（AC-63 ②）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "reached": true,
+        "defaultPrevented": false,
+        "windowAlive": true,
+        "state": {
+          "hash": "#/login",
+          "navLabels": [],
+          "navEditor": false,
+          "workspaceCount": 0,
+          "emptyCount": 0,
+          "tabCount": 0,
+          "tabs": [],
+          "panelCount": 0,
+          "activePanelCount": 0,
+          "cmBundle": false,
+          "cmContentCount": 0,
+          "dialogLabel": null,
+          "dialogText": null,
+          "hasLoginForm": false,
+          "focused": true,
+          "hidden": false,
+          "bodyText": "登录\nJFLove\n\n所有通信均经过端到端加密，连接后自动交换临时会话密钥。\n\n服务端地址\n\n需填写完整的服务端地址（含协议与端口），例如 http://127.0.0.1:8989\n\n连接服务端\nv1.5.1"
+        },
+        "host": {
+          "hostActionTotal": 0,
+          "hostActionsFired": {},
+          "downloads": [],
+          "modalWidget": null,
+          "shellVisible": true
+        },
+        "screenshot": "r13-h2-unlogged-ctrlw.png"
+      }
+    },
+    {
+      "id": "H2b",
+      "desc": "未登录：Ctrl+Alt+N 到达渲染层但零响应（不新建标签页、工作区不出现）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "reached": true,
+        "defaultPrevented": false,
+        "before": {
+          "tabCount": 0,
+          "workspaceCount": 0
+        },
+        "after": {
+          "tabCount": 0,
+          "workspaceCount": 0
+        },
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 4,
+            "phase": "capture",
+            "key": "N",
+            "code": "KeyN",
+            "ctrl": true,
+            "alt": true,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": false,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "bodyYield": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "H3pre",
+      "desc": "隔离服务端 + 桌面端服务层真登录",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "--skip-login：本轮只验 H1/H2（AC-63 ②）；H3（AC-70 已登录态）未取到判据"
+    },
+    {
+      "id": "H4",
+      "desc": "宿主零默认动作：全部 WebAction 触发计数 = 0、无下载、无宿主模态、主窗口存活",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "hostActionTotal": 0,
+        "hostActionsFired": {},
+        "downloads": [],
+        "modalWidget": null,
+        "shellVisible": true
+      }
+    }
+  ],
+  "notes": [],
+  "platform": "",
+  "real_window": true,
+  "skip_login": true,
+  "requests": [
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-C_K6iEnl.js",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-GAj7rWw0.css",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png"
+  ],
+  "requestsRemote": [],
+  "hostActionNames": [
+    "AlignCenter",
+    "AlignJustified",
+    "AlignLeft",
+    "AlignRight",
+    "Back",
+    "ChangeTextDirectionLTR",
+    "ChangeTextDirectionRTL",
+    "Copy",
+    "CopyImageToClipboard",
+    "CopyImageUrlToClipboard",
+    "CopyLinkToClipboard",
+    "CopyMediaUrlToClipboard",
+    "Cut",
+    "DownloadImageToDisk",
+    "DownloadLinkToDisk",
+    "DownloadMediaToDisk",
+    "ExitFullScreen",
+    "Forward",
+    "Indent",
+    "InsertOrderedList",
+    "InsertUnorderedList",
+    "InspectElement",
+    "OpenLinkInNewBackgroundTab",
+    "OpenLinkInNewTab",
+    "OpenLinkInNewWindow",
+    "OpenLinkInThisWindow",
+    "Outdent",
+    "Paste",
+    "PasteAndMatchStyle",
+    "Redo",
+    "Reload",
+    "ReloadAndBypassCache",
+    "RequestClose",
+    "SavePage",
+    "SelectAll",
+    "Stop",
+    "ToggleBold",
+    "ToggleItalic",
+    "ToggleMediaControls",
+    "ToggleMediaLoop",
+    "ToggleMediaMute",
+    "ToggleMediaPlayPause",
+    "ToggleStrikethrough",
+    "ToggleUnderline",
+    "Undo",
+    "Unselect",
+    "ViewSource"
+  ],
+  "user_data_sandbox": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r13-20261015-093731\\appdata",
+  "isolatedServer": {
+    "pid": null
+  }
+}

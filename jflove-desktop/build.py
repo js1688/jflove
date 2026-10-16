@@ -1,7 +1,7 @@
 """
 jflove-desktop PyInstaller 构建脚本
 
-按 .claude/skills/devops/SKILL.md 约定：
+按 .agents/skills/devops/SKILL.md 约定：
   - 跨平台桌面端使用 pyinstaller 打包
   - 产物输出到 jflove-desktop/build/
   - 安装包不带任何源 session_key（运行时随密钥交换动态生成）

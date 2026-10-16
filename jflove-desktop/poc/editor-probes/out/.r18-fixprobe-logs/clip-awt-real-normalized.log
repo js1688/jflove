@@ -1,0 +1,67 @@
+r17 çœŸæœºæ¢é’ˆ Â· å‰ªè´´æ¿ CF_HTMLï¼ˆAWT vs Chromiumï¼‰â‡’ ç¼–è¾‘å™¨ç²˜è´´ Â· v1.6.1 F6
+å¹³å°=(é»˜è®¤) Â· çœŸçª—å£=True Â· åˆ¤æ®=['CLIP-AWT-REAL'] Â· ä¸­æ–‡è½½è·=False
+è¯æ®ç›®å½•ï¼šD:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-131915
+å¤ç”¨ r15 OS çº§æŒ‰é”®åŸè¯­ï¼›è¡¥é½è™šæ‹Ÿé”®ï¼š['backspace', 'delete', 'v', 'a']
+è½½è·ï¼š{"AWT": {"style": "awt", "payloadUtf8Bytes": 176, "hasMarkerComment": false, "plainCodePoints": 42}, "CHROMIUM": {"style": "chromium", "payloadUtf8Bytes": 210, "hasMarkerComment": true, "plainCodePoints": 42}, "AWT-HTMLONLY": {"style": "awt", "payloadUtf8Bytes": 176, "hasMarkerComment": false, "plainCodePoints": 42}, "TEXT": {"style": null, "payloadUtf8Bytes": null, "hasMarkerComment": null, "plainCodePoints": 42}, "EMPTY": {"style": null, "payloadUtf8Bytes": null, "hasMarkerComment": null, "plainCodePoints": 0}}
+[2026-10-16 13:19:15] [INFO] [src.utils.input_method] ÊäÈë·¨ÅäÖÃ£ºwin32 Æ½Ì¨Ê¹ÓÃÏµÍ³Ô­Éú IME£¨ÎŞĞè Qt »·¾³±äÁ¿£©
+[2026-10-16 13:19:16] [INFO] [src.ui.web_shell] ËŞÖ÷Ä¬ÈÏ¶¯×÷´¦ÖÃÍê³É£º10/13 Ïî£¨°×Ãûµ¥°´Ãû½âÎö£©
+å®¿ä¸» WebAction instrumentationï¼š47 é¡¹ï¼ˆNoWebAction/WebActionCount å·²æ‰£é™¤ï¼‰
+[2026-10-16 13:19:16] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó transfer.list ²ÎÊı¼ü=[]
+[2026-10-16 13:19:16] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó meta.server_history ²ÎÊı¼ü=[]
+[2026-10-16 13:19:18] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó auth.restore_session ²ÎÊı¼ü=[]
+[2026-10-16 13:19:18] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó editor.reportDirty ²ÎÊı¼ü=['count']
+[ OK ] P0 çœŸå¤–å£³åŠ è½½ v1.6.1 å‰ç«¯äº§ç‰©ï¼›åˆå§‹æ€ = æœªç™»å½•ï¼ˆç™»å½•é¢æ¿ / æ— ç¼–è¾‘å™¨å…¥å£ / æ— å·¥ä½œåŒºï¼‰
+       {"load_ui": true, "realWindow": true, "state": {"hash": "#/login", "connectButton": true, "passwordInputs": 0, "navEditor": false, "workspaceCount": 0, "tabCount": 0, "cmBundle": false}}
+[2026-10-16 13:19:20] [INFO] [src.services.auth_service] ÃÜÔ¿½»»»Íê³É£¬session_id=21ccd857-da0d-4f88-84cf-1bee0174420e
+[2026-10-16 13:19:20] [INFO] [src.services.auth_service] ¹ÜÀíÔ±ÕËºÅ³õÊ¼»¯³É¹¦: r17probe
+[2026-10-16 13:19:20] [INFO] [src.services.auth_service] ÓÃ»§µÇÂ¼³É¹¦: r17probe (role=admin)
+[2026-10-16 13:19:20] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó transfer.list ²ÎÊı¼ü=[]
+[2026-10-16 13:19:20] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó meta.server_history ²ÎÊı¼ü=[]
+[2026-10-16 13:19:22] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó auth.restore_session ²ÎÊı¼ü=[]
+[2026-10-16 13:19:32] [INFO] [src.services.auth_service] ÃÜÔ¿½»»»Íê³É£¬session_id=b50b6624-d083-4cda-835e-34cf9011f273
+[2026-10-16 13:19:37] [INFO] [src.services.auth_service] ÃâµÇÂ¼»Ö¸´»á»°³É¹¦: r17probe (role=admin)
+[2026-10-16 13:19:38] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó editor.reportDirty ²ÎÊı¼ü=['count']
+[2026-10-16 13:19:38] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó media.close ²ÎÊı¼ü=[]
+[2026-10-16 13:19:38] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó api.request ²ÎÊı¼ü=['body', 'method', 'path', 'plain']
+[2026-10-16 13:19:39] [DEBUG] [src.bridge.api_gateway] ÇÅ×ª·¢ HTTP GET /api/v1/files/disks£¨Ã÷ÎÄ=False£©
+[2026-10-16 13:19:39] [INFO] [src.ui.web_shell] Íâ²¿Â·¾¶£ºÒÑÍÆËÍ editor.openPaths£¨1 Ìõ£¬À´Ô´=cli£©
+[2026-10-16 13:19:39] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó media.close ²ÎÊı¼ü=[]
+[2026-10-16 13:19:39] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó editor.detectAndRead ²ÎÊı¼ü=['paths']
+[2026-10-16 13:19:39] [INFO] [src.bridge.editor] ÅúÁ¿´ò¿ª 1 Ìõ£¨³É¹¦ 1 Ìõ£©
+[2026-10-16 13:19:39] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó editor.draftList ²ÎÊı¼ü=[]
+[ OK ] P1 éš”ç¦»æœåŠ¡ç«¯å°±ç»ª + æœåŠ¡å±‚çœŸç™»å½• + é‡è½½åæ¸²æŸ“å±‚å·²ç™»å½•ã€å·¥ä½œåŒºå¯ç”¨ã€æ°å¥½ 1 ä¸ªæ ‡ç­¾é¡µ
+       {"port": 50278, "serverPid": 6900, "login": {"serverUrlSet": true, "sessionReady": true, "adminExistsBefore": false, "adminExistsAfter": true, "tokenPresentAfterInit": false, "loggedInAfterInit": false, "loggedIn": true, "username": "r17probe", "role": "admin", "hasToken": true, "sessionFileExists": true}, "reload": {"ok": true, "tried": [{"via": "view.reload", "ok": true}]}, "navEditorAfter": true, "workspaceRootCount": 0, "pushedOpenPaths": 1, "fixtureName": "r17-clip-target.txt", "tabState": {"tabCount": 1, "activePanelCount": 1, "cmContentCount": 1, "hash": "#/editor", "activePanelId": "90fa6ea9-584c-49e0-aef2-e653ca29f122", "cmBundle": true}}
+  Â· H-NOHOST è®¡æ•°æ¸…é›¶ï¼šæ¸…é›¶å‰ {"total": 1, "byAction": {"Reload": 1}, "eventCount": 1, "phase": "init"}
+[SKIP] SHAPE-AWT è·³è¿‡ï¼šæœ¬è½®é€‰æ‹© CLIP-AWT-REALï¼ˆè´´å‰ªè´´æ¿ä¸Šçš„**çœŸå® AWT è½½è·**ï¼‰ï¼Œå†™åˆæˆè½½è·ä¼šè¦†ç›–å®ƒï¼›æ­¤å¤„åªè¯»ç•™è¯çœŸå®è½½è·æ­¤åˆ»çš„ Qt å½¢æ€
+       {"why": "would-overwrite-real-payload", "realClipboardQtShape": {"formats": ["text/html", "text/plain"], "hasHtml": true, "hasText": true, "htmlChars": 44, "htmlUtf8Bytes": 56, "htmlLowerHasTag": true, "htmlHasMarkerComment": false, "htmlHasStartFragmentHeader": false, "htmlHasEndFragmentHeader": false, "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e", "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e", "textChars": 11, "textFnv1a32": "91f740bd", "plainMatchesPayload": false, "payloadMeta": {}}}
+[SKIP] SHAPE-CHROMIUM è·³è¿‡ï¼šæœ¬è½®é€‰æ‹© CLIP-AWT-REALï¼ˆåŒä¸Šï¼Œä¸å†™åˆæˆè½½è·ï¼‰ ï¼ˆè§‚å¯Ÿé¡¹ï¼Œä¸å‚ä¸é€€å‡ºç ï¼‰
+       {"why": "would-overwrite-real-payload"}
+[SKIP] CLIP-AWT ç²˜è´´åˆ¤æ®ï¼ˆAWTï¼‰
+       "æœªé€‰ä¸­ï¼ˆ--onlyï¼‰"
+[SKIP] CLIP-CHROMIUM ç²˜è´´åˆ¤æ®ï¼ˆCHROMIUMï¼‰
+       "æœªé€‰ä¸­ï¼ˆ--onlyï¼‰"
+[SKIP] CLIP-TEXT ç²˜è´´åˆ¤æ®ï¼ˆTEXTï¼‰
+       "æœªé€‰ä¸­ï¼ˆ--onlyï¼‰"
+[SKIP] CLIP-EMPTY ç²˜è´´åˆ¤æ®ï¼ˆEMPTYï¼‰
+       "æœªé€‰ä¸­ï¼ˆ--onlyï¼‰"
+[SKIP] CLIP-HTMLONLY ç²˜è´´åˆ¤æ®ï¼ˆAWT-HTMLONLYï¼‰
+       "æœªé€‰ä¸­ï¼ˆ--onlyï¼‰"
+[SKIP] CLIP-DIVERGE ç²˜è´´åˆ¤æ®ï¼ˆAWT-DIVERGEï¼‰
+       "æœªé€‰ä¸­ï¼ˆ--onlyï¼‰"
+[SKIP] AWT-CJK ä¸­æ–‡è½½è· â‡’ ç²˜è´´æˆåŠŸ
+       "--no-cjk æˆ–æœªé€‰ä¸­ï¼ˆæœ¬è½®åªä¿ç•™ ASCII æœºåˆ¶è¯æ®ï¼‰"
+  Â· [CLIP-AWT-REAL] æœŸæœ›æ–‡æœ¬æ¥æº=cf-unicodetext é•¿åº¦=11 æŒ‡çº¹=91f740bd hadCrlf=Falseï¼ˆ**ä¸å†™å‰ªè´´æ¿**ï¼‰
+[2026-10-16 13:19:40] [INFO] [src.ui.web_shell] Íâ²¿Â·¾¶£º¾ÍĞ÷»ØÖ´Î´µ½£¬°´ĞòÖØÍÆÒ»´Î£¨¹² 1 Ìõ£©
+[2026-10-16 13:19:40] [INFO] [src.ui.web_shell] Íâ²¿Â·¾¶£ºÒÑÍÆËÍ editor.openPaths£¨1 Ìõ£¬À´Ô´=cli£©
+  Â· [CLIP-AWT-REAL] å·²ç­‰è¿‡å¤–å£³å»¶è¿Ÿé‡æ¨ï¼ˆ3sï¼‰å†ç²˜è´´
+  Â· [CLIP-AWT-REAL#1] è½ç„¦ç‚¹ + æ¸…ç©ºæ­£æ–‡ï¼ˆOS çº§ Ctrl+A / Backspaceï¼Œè‡ªæ ¡éªŒé‡è¯•ï¼‰
+[2026-10-16 13:19:46] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó editor.reportDirty ²ÎÊı¼ü=['count']
+[2026-10-16 13:19:46] [DEBUG] [src.bridge.bridge] ÇÅÇëÇó editor.reportDirty ²ÎÊı¼ü=['count']
+  Â· [CLIP-AWT-REAL] ç¬¬ 1 è½®ï¼šè´´å‡º 11 å­—ç¬¦ï¼ŒforegroundIsShell=Trueï¼Œequal=True
+[ OK ] CLIP-AWT-REAL çœŸå® AWT è½½è·ï¼ˆJDK è‡ªå·±å†™çš„ CF_HTML + çº¯æ–‡æœ¬ï¼‰â‡’ OS çº§ Ctrl+V åæ­£æ–‡é€å­—ç¬¦ç­‰äºå‰ªè´´æ¿ä¸Šçš„æœŸæœ›æ–‡æœ¬ï¼›æ¢é’ˆ**ä¸å†™å‰ªè´´æ¿**ï¼ˆæœ€å¤šä¸¤è½®ï¼Œç»“æœéƒ½ç•™è¯ï¼‰
+       {"kind": "AWT-REAL", "focusBeforeClear": {"ok": true, "panelId": "90fa6ea9-584c-49e0-aef2-e653ca29f122", "hasFocus": true, "docLength": 0}, "clearRetry": {"ok": true, "attempts": [{"round": 1, "focus": {"ok": true, "panelId": "90fa6ea9-584c-49e0-aef2-e653ca29f122", "hasFocus": true, "docCodePoints": 0, "selectionMain": {"from": 0, "to": 0}}, "pageFocus": {"hasFocus": true, "hidden": false, "visibility": "visible", "activeTag": "DIV", "activeClass": "cm-content"}, "pressed": true, "docCodePoints": 0, "empty": true}], "focus": {"ok": true, "panelId": "90fa6ea9-584c-49e0-aef2-e653ca29f122", "hasFocus": true, "docCodePoints": 0, "selectionMain": {"from": 0, "to": 0}}, "pageFocus": {"hasFocus": true, "hidden": false, "visibility": "visible", "activeTag": "DIV", "activeClass": "cm-content"}, "before": {"ok": true, "panelId": "90fa6ea9-584c-49e0-aef2-e653ca29f122", "docCodePoints": 0, "docUtf8Bytes": 0, "docFnv1a32": "811c9dc5", "docCharUnits": 0, "empty": true, "hasFocus": true, "selectionMain": {"from": 0, "to": 0}, "domFocused": true}}, "osCtrlAPressed": true, "clearedToEmpty": true, "selectionAfterClear": {"from": 0, "to": 0}, "baselineFnv1a32": "811c9dc5", "baselineCodePoints": 0, "p
+[ OK ] H-NOHOST ç²˜è´´ç›¸ä½å†…å®¿ä¸» 47 é¡¹ WebAction è§¦å‘è®¡æ•° = 0ã€æ— å®¿ä¸»æ¨¡æ€ã€ä¸»çª—å£å­˜æ´»ï¼ˆè®¡æ•°å·²åœ¨ç²˜è´´ç›¸ä½èµ·ç‚¹æ¸…é›¶ï¼›æ¸…é›¶å‰çš„æ¢é’ˆè‡ªèº« Reload å¦å­˜äº detailï¼‰
+       {"webActionTotalInPastePhase": 0, "webActionByActionInPastePhase": {}, "webActionEventsInPastePhase": [], "instrumentedActionCount": 47, "phaseBeforeReset": {"total": 1, "byAction": {"Reload": 1}, "eventCount": 1, "phase": "init"}, "hostModalWidget": null, "windowAlive": true, "bridgeCounterInstallErrors": [], "bridgeCallCounts": {"editor.detectAndRead": 1, "editor.writeText": 0, "editor.draftSave": 0}}
+ç»“æœ JSONï¼šD:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-131915\r17-result.json
+é€€å‡ºç ï¼š0
+æ”¶å°¾æ¸…ç©ºå‰ªè´´æ¿ï¼šopened=True closed=True

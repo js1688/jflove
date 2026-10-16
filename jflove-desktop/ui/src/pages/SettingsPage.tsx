@@ -287,7 +287,7 @@ export function SettingsPage() {
         </Section>
 
         {/* 文本编辑器（v1.6.0 §4.3）
-            - 子块 ① 快捷键：入口 + 当前键位摘要（面板在弹窗里，20 项逐项可改 / 可重置）
+            - 子块 ① 快捷键：入口 + 当前键位摘要（面板在弹窗里，18 项逐项可改 / 可重置）
             - 子块 ② 文件关联：勾选清单（由 config/scratch-types.ts 派生）+「设为默认」
             - 子块 ③ 草稿：随「第 10 步 草稿 / 还原 / 退出握手」交付，落点在本 Section 内 */}
         <Section icon={isPC ? undefined : 'edit'} title="文本编辑器">

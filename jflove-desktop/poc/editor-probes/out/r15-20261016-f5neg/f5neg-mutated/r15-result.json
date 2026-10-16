@@ -1,0 +1,367 @@
+{
+  "probe": "r15-real-gui-ac64-ac71",
+  "at": "2026-10-16T14:13:31",
+  "only": [
+    "68"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区 DOM）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "state": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0,
+          "cmBundle": false
+        }
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "隔离服务端就绪 + 桌面端服务层在隔离库上造管理员（**不登录** ⇒ 渲染层仍是未登录态）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "port": 52313,
+        "serverPid": 2028,
+        "serverUrlSet": true,
+        "sessionReady": true,
+        "adminExistsBefore": false,
+        "adminExistsAfter": true,
+        "tokenPresentAfterInit": false,
+        "loggedInAfterInit": false
+      }
+    },
+    {
+      "id": "AC64-1",
+      "desc": "AC-64 ①（未登录唤起 ⇒ 只有登录面板）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 64"
+    },
+    {
+      "id": "AC64-2",
+      "desc": "AC-64 ②（渲染层自己登录）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 64"
+    },
+    {
+      "id": "AC64-3",
+      "desc": "AC-64 ③（1 个激活标签页）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 64"
+    },
+    {
+      "id": "AC64-4",
+      "desc": "AC-64 ③（正文逐字符相等）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 64"
+    },
+    {
+      "id": "AC64-5",
+      "desc": "AC-64 ④（状态栏一致）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 64"
+    },
+    {
+      "id": "P2",
+      "desc": "AC-71/67/68 前置：Python 侧真登录（桌面端服务层）+ 重载页面 ⇒ 渲染层进入已登录态（本条不要求渲染层登录，故与 AC-64 无关）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "login": {
+          "serverUrlSet": true,
+          "sessionReady": true,
+          "adminExistsBefore": true,
+          "adminExistsAfter": true,
+          "tokenPresentAfterInit": false,
+          "loggedInAfterInit": false,
+          "loggedIn": true,
+          "username": "r15probe",
+          "role": "admin",
+          "hasToken": true,
+          "sessionFileExists": true
+        },
+        "beforeReloadNavEditor": false,
+        "reload": {
+          "ok": true,
+          "tried": [
+            {
+              "via": "view.reload",
+              "ok": true
+            }
+          ]
+        },
+        "navEditorAfter": true,
+        "hashAfter": "#/files",
+        "passwordInputsAfter": 0
+      }
+    },
+    {
+      "id": "AC71-1",
+      "desc": "AC-71 前提：服务端不可达",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 71"
+    },
+    {
+      "id": "AC71-2",
+      "desc": "AC-71 ①：离线新建 + 输入",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 71"
+    },
+    {
+      "id": "AC71-3",
+      "desc": "AC-71 ②：离线打开已有路径文件",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 71"
+    },
+    {
+      "id": "AC71-4",
+      "desc": "AC-71 ①：离线 Ctrl+S 写回磁盘",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 71"
+    },
+    {
+      "id": "AC71-5",
+      "desc": "AC-71 ③：离线切 / 关标签",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 71"
+    },
+    {
+      "id": "AC71-6",
+      "desc": "AC-71 ④：无登录拦截 / 无阻塞弹窗",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 71"
+    },
+    {
+      "id": "AC71-7",
+      "desc": "AC-71 ③：另存为（SKIP：原生对话框）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 71"
+    },
+    {
+      "id": "AC68-1",
+      "desc": "AC-68 ①：合成 Pointer Events（4 px 阈值 / 跨中点 / 固定 pointerId）把 C 拖到最前 ⇒ 标签条顺序变为 C / A / B",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "pushedCount": 3,
+        "openedTabCount": 3,
+        "orderAfterOpen": [
+          "r15-tab-a.txt",
+          "r15-tab-b.txt",
+          "r15-tab-c.txt"
+        ],
+        "activeAfterClickFirst": "r15-tab-a.txt",
+        "orderBeforeDrag": [
+          "r15-tab-a.txt",
+          "r15-tab-b.txt",
+          "r15-tab-c.txt"
+        ],
+        "dragDispatch": {
+          "ok": true,
+          "startX": 530,
+          "endX": 255,
+          "stepPx": 46,
+          "steps": 6,
+          "nativeObserved": {
+            "pointerdown": 1,
+            "pointermove": 6,
+            "pointerup": 0
+          },
+          "titlesBefore": [
+            "r15-tab-a.txt",
+            "r15-tab-b.txt",
+            "r15-tab-c.txt"
+          ],
+          "orderAfterMoves": [
+            "r15-tab-a.txt",
+            "r15-tab-b.txt",
+            "r15-tab-c.txt"
+          ],
+          "dragClassDuringDispatch": 0
+        },
+        "observedDuringDrag": {
+          "order": [
+            "r15-tab-c.txt",
+            "r15-tab-a.txt",
+            "r15-tab-b.txt"
+          ],
+          "dragClassCount": 1,
+          "draggingTitle": "r15-tab-c.txt",
+          "activeTitle": "r15-tab-a.txt"
+        },
+        "dragUp": {
+          "ok": true,
+          "title": "r15-tab-c.txt"
+        },
+        "orderAfterDrag": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "targetOrder": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "activeAfterDrag": "r15-tab-a.txt",
+        "pointerEventSupported": true,
+        "screenshot": "r15-ac68-after-drag.png"
+      }
+    },
+    {
+      "id": "AC68-2",
+      "desc": "AC-68 ② + AC-77①（真机半边）：切到「设置」再回「文本编辑器」⇒ 标签顺序、激活项**与激活面板正文**均保持（未保存、未等防抖就切走 ⇒ 保的是**内存里的活正文**）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "settingsHash": "#/settings",
+        "settingsWorkspaceCount": 0,
+        "orderBefore": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "orderAfterBack": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "activeBefore": "r15-tab-a.txt",
+        "activeAfterBack": "r15-tab-a.txt",
+        "tabCountAfterBack": 3,
+        "orderKeepOk": true,
+        "docKeepOk": false,
+        "docInsert": {
+          "ok": true,
+          "markerCodePoints": 14,
+          "docLengthAfterInsert": 31
+        },
+        "docBeforeEdit": {
+          "docCodePoints": 17,
+          "docFnv1a32": "23e57547"
+        },
+        "docAfterEdit": {
+          "docCodePoints": 31,
+          "docFnv1a32": "76b9dbe4"
+        },
+        "docAfterBack": {
+          "docCodePoints": 0,
+          "docFnv1a32": "811c9dc5",
+          "r15Error": null
+        },
+        "expectedAfterBack": {
+          "docCodePoints": 31,
+          "docFnv1a32": "76b9dbe4"
+        },
+        "docEqualAfterBack": false,
+        "docChangedByEdit": true,
+        "docChangedFromBeforeEdit": true,
+        "editToSwitchMs": 127,
+        "debounceMs": 1500,
+        "switchedBeforeDebounce": true,
+        "fixtureShaBeforeEdit": "e40718f3fe3cfcd8c8370fe01846e35147b21995f1c1ac09dce6cfac2ca3f0b1",
+        "fixtureShaAtSwitch": "e40718f3fe3cfcd8c8370fe01846e35147b21995f1c1ac09dce6cfac2ca3f0b1",
+        "fixtureUnchangedAtSwitch": true,
+        "fixtureName": "r15-tab-a.txt",
+        "screenshot": "r15-ac68-after-route-return.png"
+      }
+    },
+    {
+      "id": "AC67-1",
+      "desc": "AC-67 ①：12 标签溢出",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 67"
+    },
+    {
+      "id": "AC67-2",
+      "desc": "AC-67 ①：溢出下拉列出全量",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 67"
+    },
+    {
+      "id": "AC67-3",
+      "desc": "AC-67 ②③：选中第 12 个 + 几何可见",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中 67"
+    },
+    {
+      "id": "MEM-R13",
+      "desc": "设计 R-13 观察项：12 标签内存读数",
+      "status": "SKIP",
+      "gating": false,
+      "detail": "未选中 67（内存读数复用该相位的已登录态）"
+    }
+  ],
+  "notes": [
+    "清理前序标签页（避免污染 AC-68 的 A/B/C 三标签前提）"
+  ],
+  "platform": "",
+  "real_window": true,
+  "skip_login": false,
+  "fixtureNames": {
+    "ac64": "r15-ac64-open.log",
+    "ac71": "r15-ac71-offline.txt",
+    "tabs": [
+      "r15-tab-a.txt",
+      "r15-tab-b.txt",
+      "r15-tab-c.txt"
+    ],
+    "overflow": [
+      "r15-12-overflow-fixture-01-tab-title.txt",
+      "r15-12-overflow-fixture-02-tab-title.txt",
+      "r15-12-overflow-fixture-03-tab-title.txt",
+      "r15-12-overflow-fixture-04-tab-title.txt",
+      "r15-12-overflow-fixture-05-tab-title.txt",
+      "r15-12-overflow-fixture-06-tab-title.txt",
+      "r15-12-overflow-fixture-07-tab-title.txt",
+      "r15-12-overflow-fixture-08-tab-title.txt",
+      "r15-12-overflow-fixture-09-tab-title.txt",
+      "r15-12-overflow-fixture-10-tab-title.txt",
+      "r15-12-overflow-fixture-11-tab-title.txt",
+      "r15-12-overflow-fixture-12-tab-title.txt"
+    ]
+  },
+  "bridgeCallCounts": {
+    "editor.detectAndRead": 1,
+    "editor.writeText": 0,
+    "editor.draftSave": 0
+  },
+  "bridgeInstallErrors": [],
+  "remoteRequests": [],
+  "remoteRequestCount": 0,
+  "localRequestCount": 10,
+  "user_data_sandbox": "out\\r15-20261016-f5neg\\f5neg-mutated\\.tmp_appdata",
+  "webRootPatch": {
+    "originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\.tmp_webui\\webui",
+    "indexExists": true,
+    "indexSha256Prefix": "7c0056f78f2406dc"
+  },
+  "isolatedServer": {
+    "pid": 2028,
+    "port": 52313
+  }
+}

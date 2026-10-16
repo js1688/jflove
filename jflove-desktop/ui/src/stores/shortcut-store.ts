@@ -40,6 +40,8 @@ import {
 import type { ShortcutConflict, ShortcutId } from '../config/shortcuts';
 import { scratchService } from '../services/scratch-service';
 import type { BlockSelectModifier, ShortcutsFileV1 } from '../types/scratch';
+// 缺陷 L-7：共享「异常 → 文案」叶子模块（本 store 不再自带一份实现）
+import { ERROR_FALLBACK, describeErrorWithFallback } from '../utils/error-text';
 
 interface ShortcutState {
   /** **只存与默认值不同的项**（overrides 语义，§4.2.4）；这是持久化的唯一真相 */
@@ -79,13 +81,12 @@ function deriveState(overrides: Record<string, string>): {
   return { overrides, bindings: withOverrides(overrides) };
 }
 
-/** 把异常转成可展示文案（不含路径与内容，§7.4） */
-function describeError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  return '快捷键偏好操作失败';
+/** 把异常转成可展示文案（不含路径与内容，§7.4）—— 兜底文案保持抽取前原样 */
+function describeShortcutError(error: unknown): string {
+  return describeErrorWithFallback(error, ERROR_FALLBACK.SHORTCUT);
 }
 
-/** 由生效映射构造落盘结构（`bindings` 只写覆盖项；`blockSelectModifier` 派生自第 14 项） */
+/** 由生效映射构造落盘结构（`bindings` 只写覆盖项；`blockSelectModifier` 派生自第 12 项） */
 function buildShortcutsFile(bindings: Record<string, string>): ShortcutsFileV1 {
   return {
     version: SHORTCUTS_VERSION,
@@ -154,7 +155,7 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
       set({ saving: false });
       return true;
     } catch (error) {
-      set({ ...deriveState(snapshot), saving: false, lastError: describeError(error) });
+      set({ ...deriveState(snapshot), saving: false, lastError: describeShortcutError(error) });
       return false;
     }
   },
@@ -186,7 +187,7 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
         ...deriveState({}),
         loading: false,
         loaded: true,
-        lastError: describeError(error),
+        lastError: describeShortcutError(error),
       });
     }
   },
@@ -205,7 +206,7 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
       set({ saving: false });
       return true;
     } catch (error) {
-      set({ ...deriveState(snapshot), saving: false, lastError: describeError(error) });
+      set({ ...deriveState(snapshot), saving: false, lastError: describeShortcutError(error) });
       return false;
     }
   },

@@ -1,0 +1,8 @@
+2026-10-16 14:09:37 [INFO] src.models.database - 运行时迁移：初始化配置键 media_repair_enabled=0（v1.4.0）
+2026-10-16 14:09:37 [INFO] src.models.database - 运行时迁移：初始化配置键 media_repair_allow_transcode=0（v1.4.0）
+2026-10-16 14:09:37 [INFO] src.main - 数据库初始化完成
+2026-10-16 14:09:37 [INFO] src.services.repair_task_service - 媒体修复队列已启动: workers=7
+2026-10-16 14:09:37 [INFO] src.services.auth_service - 密钥交换完成，session_id=251cfd23-bc6d-4ae8-85f3-6ae8c2131fc4
+2026-10-16 14:09:38 [INFO] src.services.auth_service - 管理员账号已创建: r15probe
+2026-10-16 14:09:41 [INFO] src.services.auth_service - 密钥交换完成，session_id=1df42a0a-805e-4e2d-99a9-f11a2278a880
+2026-10-16 14:09:43 [INFO] src.services.auth_service - 用户登录成功: r15probe（TTL=2592000s）

@@ -4,7 +4,7 @@
 > `src/main.py` 的接线，以及"渲染层信任边界"这一横切安全面。
 > 依据：`文档记录/设计文档/v1.6.0.md` §6.4 / §6.6 / §7.1 / §7.5 / §8 / §10；
 > `文档记录/需求文档/v1.6.0.md` AC-42 / AC-46 / AC-47 / AC-56 / AC-57 / AC-58 / AC-R6；
-> 工程纪律 `.claude/skills/code-review/SKILL.md`（8 条）。
+> 工程纪律 `.agents/skills/code-review/SKILL.md`（8 条）。
 
 ---
 

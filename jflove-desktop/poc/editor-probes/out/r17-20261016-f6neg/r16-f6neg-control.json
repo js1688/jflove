@@ -1,0 +1,74 @@
+{
+  "probe": {
+    "argv": [
+      "D:\\github\\jflove\\jflove-desktop\\venv-win\\Scripts\\python.exe",
+      "poc/editor-probes/r17-clipboard-cfhtml.py",
+      "--only",
+      "CLIP-AWT-REAL",
+      "--out",
+      "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r17-20261016-f6neg\\f6neg-mutated"
+    ],
+    "exit": 1,
+    "costSec": 33.6,
+    "log": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r17-20261016-f6neg\\r17-f6neg-mutated.log",
+    "clipLines": [
+      "平台=(默认) · 真窗口=True · 判据=['CLIP-AWT-REAL'] · 中文载荷=False",
+      "[SKIP] SHAPE-AWT 跳过：本轮选择 CLIP-AWT-REAL（贴剪贴板上的**真实 AWT 载荷**），写合成载荷会覆盖它；此处只读留证真实载荷此刻的 Qt 形态"
+    ],
+    "failedLine": true,
+    "detail": {
+      "status": "FAIL",
+      "verdictNote": "paste-produced-nothing",
+      "equalAnyAttempt": false,
+      "attemptCount": 2,
+      "doesQtSeeHtml": true,
+      "clipboardUntouchedByProbe": true,
+      "osKeyDeliveryOk": true,
+      "docCodePointsAfter": 0,
+      "expectationSource": "cf-unicodetext",
+      "win32Formats": [
+        "HTML Format",
+        "CF_UNICODETEXT",
+        "CF_TEXT",
+        "UniformResourceLocator",
+        "CF_LOCALE",
+        "CF_OEMTEXT"
+      ]
+    },
+    "tail": "[2026-10-16 14:31:14] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']\n[2026-10-16 14:31:15] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']\n[2026-10-16 14:31:16] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�\n[2026-10-16 14:31:16] [INFO] [src.services.scratch_service] �ݸ���д��: pane-4a9d0d64-e21e-47bc-8fe3-adbf21bc61c6.txt (22 �ֽ�)\n[2026-10-16 14:31:16] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'text']\n[2026-10-16 14:31:16] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']\n[2026-10-16 14:31:16] [INFO] [src.services.editor_service] �ѱ����ļ�: r17-clip-tar#3aa3582e size=22\n[2026-10-16 14:31:16] [INFO] [src.bridge.editor] д���ļ� r17-clip-tar#3aa3582e ok=True"
+  },
+  "target": "jflove-desktop/src/ui/web_shell.py",
+  "at": "2026-10-16T14:30:35",
+  "apply": {
+    "sha256Before": "8d3ed9b368747dd356dcba59457446ba8acd650366b1b6eb1844c6cb91f62dbf",
+    "sha256Mutated": "128d0c1a189eca2e820ed253eda392c187ea50283def2ad4a86fc6a97418472e",
+    "anchorHits": 1,
+    "gitStatusBefore": "M jflove-desktop/src/ui/web_shell.py"
+  },
+  "java": {
+    "argv": [
+      "D:\\jdk\\jdk-21.0.9\\bin\\java.exe",
+      "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\AwtClipHtml.java",
+      "--flavor=all",
+      "--preset=ascii",
+      "--hold=900"
+    ],
+    "pid": 2988,
+    "log": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r17-20261016-f6neg\\awt-clipboard.log",
+    "heartbeatSeen": true,
+    "alive": true,
+    "waitSec": 8.0
+  },
+  "restore": {
+    "sha256Restored": "8d3ed9b368747dd356dcba59457446ba8acd650366b1b6eb1844c6cb91f62dbf",
+    "sha256Backup": "8d3ed9b368747dd356dcba59457446ba8acd650366b1b6eb1844c6cb91f62dbf",
+    "bytesEqual": true,
+    "gitStatusAfter": "M jflove-desktop/src/ui/web_shell.py",
+    "gitStatusUnchanged": true,
+    "ok": true
+  },
+  "javaStop": {
+    "wasAlive": true,
+    "terminated": true
+  }
+}

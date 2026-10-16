@@ -15,16 +15,16 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | 工具 | 说明 |
 |------|------|
 | **操作系统** | Linux 7.0（开发主力）/ Windows / macOS（桌面端/iOS 构建） |
-| **IDE** | Visual Studio Code |
-| **AI 插件** | GitHub Copilot + DeepSeek V4 for Copilot Chat（集成 deepseek-v4-pro / deepseek-v4-flash 双模型，驱动多角色 AI 代理工作流） |
-| **AI 模型** | deepseek-v4-pro（复杂任务主用）+ deepseek-v4-flash（轻量/高频任务）（均通过 GitHub Copilot Chat 接入） |
+| **IDE** | **DeepSeek Harness**（主开发界面，本机 Web GUI `http://127.0.0.1:19387`） |
+| **AI 工具** | DeepSeek Harness 原生技能 + 工作区指令（`.agents/skills/<角色名>/SKILL.md` + `AGENTS.md`），驱动多角色 AI 代理工作流 |
+| **AI 模型** | **DeepSeek-V4.1-Flash**（provider `deepseek-account`，默认推理等级 high）；可选 provider `hsfz` 的 `deepseek-v4.1-flash` |
 | **Node.js** | 22+ / npm 10+（Web 端构建与运行，Vite 6） |
 | **代码风格** | EditorConfig 统一缩进（2 空格，UTF-8，LF 换行） |
-| **调试配置** | VS Code launch.json 预设服务端/桌面端/Web 端（Edge）启动配置 |
+| **调试配置** | `.vscode/launch.json` 预设服务端/桌面端/Web 端（Edge）启动配置（可选，用于本地单步调试） |
 
 ### AI 代理角色
 
-项目采用 **多代理协作架构**，通过 `.claude/skills/` 目录下的技能文件驱动 10 个 AI 角色协同工作：
+项目采用 **多代理协作架构**，通过 `.agents/skills/` 目录下的技能文件（DSH 原生技能格式）驱动 10 个 AI 角色协同工作：
 
 | 角色 | 职责 |
 |------|------|
@@ -85,6 +85,19 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 - 每个用户在设置页面独立选择笔记存放目录（互相不可见）
 - 大纲面板（按标题层级解析；v1.5.1 起为**右侧可折叠竖栏**，预览/分屏下均可用）
 - 打开笔记时的默认视图（v1.5.1）：**已有内容 → 预览模式**；空笔记（新建）→ 编辑模式；用户手动切换后本页不再自动改写
+
+### ✏️ 文本编辑器（桌面端，v1.6.1+）
+
+- **登录后可用**：入口在左侧菜单「文本编辑器」；**未登录时入口不可见、快捷键不响应**，从「打开方式」唤起文件会**先要求登录**，登录完成后自动打开
+- **整页工作区 + 顶部标签页**：一个文档一个标签页，支持关闭（脏标签先询问）、**拖拽排序**、**溢出可及**；关闭最后一个标签页留在**空态**（新建 / 打开入口）
+- **纯本地编辑**：打开 / 保存都针对本机文件，编辑器与远端**零交互**（不做远端读写、不依赖服务端）；**登录后断网 / 服务端未启动照常可用**
+- **类型识别与差异化**：按扩展名识别语言、类型校验先行、标准保存语义（原子写）、状态栏显示编码 / 换行符 / 语言 / 行列与字符数
+- **12 项工具箱**：查找 / 替换 / 跳转行、行操作、大小写转换、转义 / 反转义、Base64 编解码、JSON 格式 / 压缩 / 树、Markdown 编辑 / 预览 / 分屏、CSV / TSV 表格视图、SQL 美化、XML 格式化 / 压缩、两段文本对比、字号缩放 / 行号 / 自动换行
+- **Markdown 预览支持 Mermaid**：与笔记端**同一渲染栈**，` ```mermaid ` 渲染为矢量图，主题切换重渲，语法错误给中文提示且不白屏
+- **多标签状态保持**：切换标签保留各自的光标位置、滚动位置、视图模式（编辑 / 预览 / 分屏 / 表格 / 树形）与脏标记
+- **本机草稿与还原（登录后）**：自动暂存未保存编辑，**登录后**可还原上次的标签页（含顺序与激活项）；「清空草稿」入口可控，不影响已保存到磁盘的文件
+- **快捷键可配置**：18 项（含「关闭当前标签页 `Ctrl+W`」，宿主占用时由应用接管）；默认键**不占用** `Ctrl+Alt+*`
+- **文件关联**：可在设置页勾选扩展名并「设为默认」；界面已写清平台范围（Windows ✓ / Linux ✓（需自行在桌面环境选默认）/ macOS 暂不支持）
 
 ### 👤 用户与权限管理（管理员功能）
 
@@ -150,7 +163,7 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 
 ```json
 // version.json
-{ "version": "1.5.1" }
+{ "version": "1.6.1" }
 ```
 
 | 模块 | 版本号位置（由脚本自动同步） |
@@ -160,13 +173,13 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 | jflove-app | `pubspec.yaml` `version: x.y.z+code`（versionCode 由版本号派生）+ `lib/pages/settings/settings_page.dart`（「关于」页显示） |
 | jflove-web | `package.json` + `src/config/constants.ts` `APP_VERSION`（设置页「关于」显示） |
 
-> 移动端 versionCode 派生规则：`major*1000000 + minor*1000 + patch`（如 `1.5.1 → 1005001`），无需单独维护 build number。
+> 移动端 versionCode 派生规则：`major*1000000 + minor*1000 + patch`（如 `1.6.1 → 1005001`），无需单独维护 build number。
 > 共 **4 个构建脚本**：仓库根编排器构建前**自动同步**全部位置；server / desktop / web 三个模块 `build.py` 则在构建前**校验**模块内版本号与 `version.json` 一致，不一致直接中止；移动端**没有**模块 `build.py`（由根编排器直接调 `flutter build`）。
 
 ### 改版本号（一条命令）
 
 ```bash
-echo '{"version":"1.5.1"}' > version.json   # 或手动编辑
+echo '{"version":"1.6.1"}' > version.json   # 或手动编辑
 python scripts/sync_version.py               # 同步全部位置（含 pubspec 派生 versionCode）
 ```
 
@@ -207,12 +220,12 @@ python build.py --skip-env-check   # 跳过环境检查强行构建
 
 ```bash
 # 1. 改版本（唯一真相）
-echo '{"version":"1.5.1"}' > version.json
+echo '{"version":"1.6.1"}' > version.json
 # 2. 统一打包（自动同步版本 + 环境检查 + 打包）
 python build.py -m all
 # 3. 提交发版（打 tag 触发 CI 线上构建）
-git add -A && git commit -m "chore: bump 1.5.1"
-git tag v1.5.1 && git push origin main --tags
+git add -A && git commit -m "chore: bump 1.6.1"
+git tag v1.6.1 && git push origin main --tags
 ```
 
 ---
@@ -225,7 +238,7 @@ git tag v1.5.1 && git push origin main --tags
 ### 触发方式
 
 - **手动触发**：仓库页 Actions → 选择对应 workflow → Run workflow
-- **自动触发**：推送 `v*` 开头的 tag（如 `v1.5.1`）
+- **自动触发**：推送 `v*` 开头的 tag（如 `v1.6.1`）
 
 ### 各端 workflow 与产物
 
@@ -240,8 +253,8 @@ git tag v1.5.1 && git push origin main --tags
 
 - **Docker 镜像**：CI 推送到 GitHub Container Registry，本地拉取：
   ```bash
-  docker pull ghcr.io/<你的用户名>/jflove-server:1.5.1
-  docker pull ghcr.io/<你的用户名>/jflove-web:1.5.1
+  docker pull ghcr.io/<你的用户名>/jflove-server:1.6.1
+  docker pull ghcr.io/<你的用户名>/jflove-web:1.6.1
   ```
   也可在仓库的 **Packages** 页查看已发布镜像。
 - **桌面端 / 移动端产物**：进入对应 workflow 本次运行页，底部 **Artifacts** 区下载 zip。
@@ -251,10 +264,10 @@ git tag v1.5.1 && git push origin main --tags
 CI 从 tag 提取版本号，校验 `tag == version.json` 与模块内 9 处版本号（以 `scripts/sync_version.py::POSITIONS` 为准），任一不一致直接失败。发版前只需：
 
 ```bash
-echo '{"version":"1.5.1"}' > version.json
+echo '{"version":"1.6.1"}' > version.json
 python scripts/sync_version.py
-git add -A && git commit -m "chore: bump 1.5.1"
-git tag v1.5.1 && git push origin main --tags
+git add -A && git commit -m "chore: bump 1.6.1"
+git tag v1.6.1 && git push origin main --tags
 ```
 
 ---
@@ -265,7 +278,48 @@ git tag v1.5.1 && git push origin main --tags
 
 > 以下记录从 v1.1.6 开始的版本变化。更早版本参见 `文档记录/需求文档/`。
 
-### v1.5.1（当前版本）— 4 条 issue 修复 + 桌面端媒体浮层与版本号单源修复
+### v1.6.1（当前版本）— 桌面端「文本编辑器」形态改造 + 7 条实测反馈修复
+
+> 本版是 v1.5.1 之后**第一个对外发布的版本**：v1.6.0（桌面端新增文本编辑器）**未单独发版**，
+> 其发布一并并入本版 ⇒ 从用户视角，**1.6.1 = 文本编辑器首次对外交付 + 形态改造 + 7 条实测反馈修复**。
+
+**① 桌面端「文本编辑器」：登录门 + 整页工作区 / 顶部标签页**
+
+- **登录门**：编辑器**只在登录后存在** —— 未登录时左侧菜单**没有**「文本编辑器」项、快捷键不响应、工作区不渲染；
+  从文件管理器用「打开方式 → JFLove」唤起文件时**先出现登录面板**，登录完成后**自动**切到编辑器并把该文件打开为标签页。
+- **整页工作区 + 顶部标签条**：容器由**应用内浮动窗格**改为**左侧菜单里的整页工作区**（顶部固定标签条 + 编辑面板），
+  **一个文档一个标签页**；支持关闭（脏标签先询问）、**拖拽排序**、**溢出可及**（12 个标签也不丢激活项）、
+  关闭最后一个标签页**留在空态**（含「新建」「打开」入口）；拖动 / 缩放 / 最小化 / 最大化 / 平铺 / 层叠 / 层级**整体退役**。
+- **快捷键 20 → 18 项**：平铺 / 层叠作废，新增「下一个 / 上一个标签页」与「关闭当前标签页 `Ctrl+W`」（宿主占用时由应用接管）。
+- **草稿与离线**：草稿还原改为**登录后**还原为标签页（含视图模式与标签顺序、激活项）；登出 / 会话失效时入口消失、
+  内容留在草稿库，**重新登录可还原**；**已登录后断网 / 服务端未启动照常可用**（登录只管准入）。
+- **内核一项不减**：块选择、类型差异化、12 项工具箱、标准保存语义、类型校验先行、文件关联、单实例、状态栏、
+  数据安全专项全部不变（术语由"窗格"改为"标签页"）。
+- **安全边界不变**：编辑器与远端**零交互**、渲染层**无网络出口**、文件字节与密钥不进渲染层、原子写；
+  **不新增**任何后端接口 / 路径参数 / 加密原语，**数据库无结构变更**（无 migrate / rollback 脚本）。
+
+**② 2026-10-16 用户实测反馈 7 条修复**
+
+| # | 反馈 | 修复 |
+|---|------|------|
+| ⑤ | 切左侧菜单再回来**正文丢失**（tab 还在） | 编辑器宿主在销毁实例**之前**把正文 + 光标 + 滚动位置快照下来，并把工作区重建门收窄 ⇒ 往返后**每个标签的正文逐字符不变**（含自动暂存防抖窗口内切走） |
+| ⑥ | IDEA 复制的代码**贴不进来** | 真凶实测 = 剪贴板存在 `text/uri-list`（Java/AWT 必然写入）时 QtWebEngine 的 `Ctrl+V` 贴出 0 字符 ⇒ 改在**外壳侧粘贴时归一化剪贴板**，撤掉此前基于错误假设的渲染层粘贴接管 |
+| ② | 工具箱 / 编辑器里有英文（如查找替换） | 查找替换等编辑器面板经 `EditorState.phrases` **本地化**（31 键），状态栏语言名、类型表英文 label、SQL 方言下拉 21 项显示名一并**全部中文** |
+| ① | md 预览要支持 **mermaid** | 编辑器预览 / 分屏改用与笔记端**同一套渲染栈**：```` ```mermaid ```` 渲染为**矢量图**、主题切换重渲、语法错误给**中文提示**且不白屏 |
+| ④ | 工具箱**选完不关**弹框 | 工具箱 **10 项选完即关**（含查找替换），仅「SQL 美化」与「字号 / 行号 / 自动换行」两组保持打开；**`Esc`** 与**点弹框外部**都能关 |
+| ③ | 快捷键默认值**抢系统键** | **6 项换键**：`Ctrl+N` / `Ctrl+O` / `Ctrl+PageDown` / `Ctrl+PageUp` / `Ctrl+K` / `Ctrl+Shift+D`；默认键列 **0 项** `Ctrl+Alt+*`，其余 12 项不变，**未自定义过的用户自动生效**；并修好此前 `Ctrl+K` **打不开工具箱**的问题 |
+| ⑦ | 文件关联**只支持 Windows 吗？** | 设置页「文件关联」写清**平台范围**：Windows ✓ / Linux ✓（需自行在桌面环境选默认程序）/ **macOS 暂不支持**，并**诚实登记「Linux 侧尚未真机验证」** |
+
+**发布质量**：桌面端 `ui` 的 `tsc` / `lint` / `vitest`（**42 files / 453 tests：441 passed + 12 expected fail**）/ `vite build` **全 0**；
+桌面端 `pytest` **574 passed, 1 xfailed**、`flake8` 0；负向对照（把修复前行为注回去）**13/13 全部被抓**；
+服务端 259 / Web 端 211（**本版零改动，只跑不写**）；安全宪法 §9 **未破坏**（`_PLAIN_PATHS` 仍 3 条、无新增加密原语）；
+库结构核对 `check_db_schema.py` **退出码 0**，本版**无 DDL**。
+
+**发布方式**：**真实发布**（推 tag `v1.6.1` → 由 GitHub Actions 云端构建），**产物与校验值以 CI 为准**；
+桌面端产物为安装包（Windows `*-setup.exe` + 便携 zip / Fedora `*.rpm`）。
+详细记录见 [`文档记录/版本发布记录/v1.6.1.md`](文档记录/版本发布记录/v1.6.1.md)。
+
+### v1.5.1 — 4 条 issue 修复 + 桌面端媒体浮层与版本号单源修复
 
 **修复的 4 条用户反馈**（来源：仓库 issue #1~#4）：
 

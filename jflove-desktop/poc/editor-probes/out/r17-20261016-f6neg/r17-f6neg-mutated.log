@@ -1,0 +1,76 @@
+r17 真机探针 · 剪贴板 CF_HTML（AWT vs Chromium）⇒ 编辑器粘贴 · v1.6.1 F6
+平台=(默认) · 真窗口=True · 判据=['CLIP-AWT-REAL'] · 中文载荷=False
+证据目录：D:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-f6neg\f6neg-mutated
+复用 r15 OS 级按键原语；补齐虚拟键：['backspace', 'delete', 'v', 'a']
+载荷：{"AWT": {"style": "awt", "payloadUtf8Bytes": 176, "hasMarkerComment": false, "plainCodePoints": 42}, "CHROMIUM": {"style": "chromium", "payloadUtf8Bytes": 210, "hasMarkerComment": true, "plainCodePoints": 42}, "AWT-HTMLONLY": {"style": "awt", "payloadUtf8Bytes": 176, "hasMarkerComment": false, "plainCodePoints": 42}, "TEXT": {"style": null, "payloadUtf8Bytes": null, "hasMarkerComment": null, "plainCodePoints": 42}, "EMPTY": {"style": null, "payloadUtf8Bytes": null, "hasMarkerComment": null, "plainCodePoints": 0}}
+宿主 WebAction instrumentation：47 项（NoWebAction/WebActionCount 已扣除）
+[ OK ] P0 真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区）
+       {"load_ui": true, "realWindow": true, "state": {"hash": "#/login", "connectButton": true, "passwordInputs": 0, "navEditor": false, "workspaceCount": 0, "tabCount": 0, "cmBundle": false}}
+[ OK ] P1 隔离服务端就绪 + 服务层真登录 + 重载后渲染层已登录、工作区可用、恰好 1 个标签页
+       {"port": 52881, "serverPid": 8424, "login": {"serverUrlSet": true, "sessionReady": true, "adminExistsBefore": false, "adminExistsAfter": true, "tokenPresentAfterInit": false, "loggedInAfterInit": false, "loggedIn": true, "username": "r17probe", "role": "admin", "hasToken": true, "sessionFileExists": true}, "reload": {"ok": true, "tried": [{"via": "view.reload", "ok": true}]}, "navEditorAfter": true, "workspaceRootCount": 0, "pushedOpenPaths": 1, "fixtureName": "r17-clip-target.txt", "tabState": {"tabCount": 1, "activePanelCount": 1, "cmContentCount": 1, "hash": "#/editor", "activePanelId": "4a9d0d64-e21e-47bc-8fe3-adbf21bc61c6", "cmBundle": true}}
+  · H-NOHOST 计数清零：清零前 {"total": 1, "byAction": {"Reload": 1}, "eventCount": 1, "phase": "init"}
+[SKIP] SHAPE-AWT 跳过：本轮选择 CLIP-AWT-REAL（贴剪贴板上的**真实 AWT 载荷**），写合成载荷会覆盖它；此处只读留证真实载荷此刻的 Qt 形态
+       {"why": "would-overwrite-real-payload", "realClipboardQtShape": {"formats": ["text/html", "text/plain", "text/uri-list"], "hasHtml": true, "hasText": true, "htmlChars": 0, "htmlUtf8Bytes": 0, "htmlLowerHasTag": false, "htmlHasMarkerComment": false, "htmlHasStartFragmentHeader": false, "htmlHasEndFragmentHeader": false, "htmlPrefix12Hex": "", "htmlSuffix12Hex": "", "textChars": 18, "textFnv1a32": "f79b2ca2", "plainMatchesPayload": false, "payloadMeta": {}}}
+[SKIP] SHAPE-CHROMIUM 跳过：本轮选择 CLIP-AWT-REAL（同上，不写合成载荷） （观察项，不参与退出码）
+       {"why": "would-overwrite-real-payload"}
+[SKIP] CLIP-AWT 粘贴判据（AWT）
+       "未选中（--only）"
+[SKIP] CLIP-CHROMIUM 粘贴判据（CHROMIUM）
+       "未选中（--only）"
+[SKIP] CLIP-TEXT 粘贴判据（TEXT）
+       "未选中（--only）"
+[SKIP] CLIP-EMPTY 粘贴判据（EMPTY）
+       "未选中（--only）"
+[SKIP] CLIP-HTMLONLY 粘贴判据（AWT-HTMLONLY）
+       "未选中（--only）"
+[SKIP] CLIP-DIVERGE 粘贴判据（AWT-DIVERGE）
+       "未选中（--only）"
+[SKIP] AWT-CJK 中文载荷 ⇒ 粘贴成功
+       "--no-cjk 或未选中（本轮只保留 ASCII 机制证据）"
+  · [CLIP-AWT-REAL] 期望文本来源=cf-unicodetext 长度=18 指纹=f79b2ca2 hadCrlf=False（**不写剪贴板**）
+  · [CLIP-AWT-REAL] 已等过外壳延迟重推（3s）再粘贴
+  · [CLIP-AWT-REAL#1] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）
+  · [CLIP-AWT-REAL] 第 1 轮：贴出 0 字符，foregroundIsShell=True，equal=False
+  · [CLIP-AWT-REAL#2] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）
+  · [CLIP-AWT-REAL] 第 2 轮：贴出 0 字符，foregroundIsShell=True，equal=False
+[FAIL] CLIP-AWT-REAL 真实 AWT 载荷（JDK 自己写的 CF_HTML + 纯文本）⇒ OS 级 Ctrl+V 后正文逐字符等于剪贴板上的期望文本；探针**不写剪贴板**（最多两轮，结果都留证）
+       {"kind": "AWT-REAL", "focusBeforeClear": {"ok": true, "panelId": "4a9d0d64-e21e-47bc-8fe3-adbf21bc61c6", "hasFocus": true, "docLength": 0}, "clearRetry": {"ok": true, "attempts": [{"round": 1, "focus": {"ok": true, "panelId": "4a9d0d64-e21e-47bc-8fe3-adbf21bc61c6", "hasFocus": true, "docCodePoints": 0, "selectionMain": {"from": 0, "to": 0}}, "pageFocus": {"hasFocus": true, "hidden": false, "visibility": "visible", "activeTag": "DIV", "activeClass": "cm-content"}, "pressed": true, "docCodePoints": 0, "empty": true}], "focus": {"ok": true, "panelId": "4a9d0d64-e21e-47bc-8fe3-adbf21bc61c6", "hasFocus": true, "docCodePoints": 0, "selectionMain": {"from": 0, "to": 0}}, "pageFocus": {"hasFocus": true, "hidden": false, "visibility": "visible", "activeTag": "DIV", "activeClass": "cm-content"}, "before": {"ok": true, "panelId": "4a9d0d64-e21e-47bc-8fe3-adbf21bc61c6", "docCodePoints": 0, "docUtf8Bytes": 0, "docFnv1a32": "811c9dc5", "docCharUnits": 0, "empty": true, "hasFocus": true, "selectionMain": {"from": 0, "to": 0}, "domFocused": true}}, "osCtrlAPressed": true, "clearedToEmpty": true, "selectionAfterClear": {"from": 0, "to": 0}, "baselineFnv1a32": "811c9dc5", "baselineCodePoints": 0, "p
+[ OK ] H-NOHOST 粘贴相位内宿主 47 项 WebAction 触发计数 = 0、无宿主模态、主窗口存活（计数已在粘贴相位起点清零；清零前的探针自身 Reload 另存于 detail）
+       {"webActionTotalInPastePhase": 0, "webActionByActionInPastePhase": {}, "webActionEventsInPastePhase": [], "instrumentedActionCount": 47, "phaseBeforeReset": {"total": 1, "byAction": {"Reload": 1}, "eventCount": 1, "phase": "init"}, "hostModalWidget": null, "windowAlive": true, "bridgeCounterInstallErrors": [], "bridgeCallCounts": {"editor.detectAndRead": 1, "editor.writeText": 1, "editor.draftSave": 1}}
+结果 JSON：D:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-f6neg\f6neg-mutated\r17-result.json
+退出码：1
+收尾清空剪贴板：opened=True closed=True
+[2026-10-16 14:30:44] [INFO] [src.utils.input_method] ���뷨���ã�win32 ƽ̨ʹ��ϵͳԭ�� IME������ Qt ����������
+[2026-10-16 14:30:44] [INFO] [src.ui.web_shell] ����Ĭ�϶���������ɣ�10/13 �����������������
+[2026-10-16 14:30:45] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 14:30:45] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:30:46] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 14:30:46] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:30:48] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=0c29035d-0c88-45cc-a512-7b4a179cb19f
+[2026-10-16 14:30:48] [INFO] [src.services.auth_service] ����Ա�˺ų�ʼ���ɹ�: r17probe
+[2026-10-16 14:30:48] [INFO] [src.services.auth_service] �û���¼�ɹ�: r17probe (role=admin)
+[2026-10-16 14:30:48] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 14:30:48] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:30:49] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 14:30:55] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=63b2abd9-54f5-4359-af28-28f81eeac4e9
+[2026-10-16 14:30:59] [INFO] [src.services.auth_service] ���¼�ָ��Ự�ɹ�: r17probe (role=admin)
+[2026-10-16 14:30:59] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:30:59] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:30:59] [DEBUG] [src.bridge.bridge] ������ api.request ������=['body', 'method', 'path', 'plain']
+[2026-10-16 14:30:59] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/files/disks������=False��
+[2026-10-16 14:31:00] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[2026-10-16 14:31:00] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:31:00] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:31:00] [INFO] [src.bridge.editor] ������ 1 �����ɹ� 1 ����
+[2026-10-16 14:31:00] [DEBUG] [src.bridge.bridge] ������ editor.draftList ������=[]
+[2026-10-16 14:31:01] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 1 ����
+[2026-10-16 14:31:01] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[2026-10-16 14:31:14] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:31:14] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:31:15] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']
+[2026-10-16 14:31:16] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�
+[2026-10-16 14:31:16] [INFO] [src.services.scratch_service] �ݸ���д��: pane-4a9d0d64-e21e-47bc-8fe3-adbf21bc61c6.txt (22 �ֽ�)
+[2026-10-16 14:31:16] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'text']
+[2026-10-16 14:31:16] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:31:16] [INFO] [src.services.editor_service] �ѱ����ļ�: r17-clip-tar#3aa3582e size=22
+[2026-10-16 14:31:16] [INFO] [src.bridge.editor] д���ļ� r17-clip-tar#3aa3582e ok=True

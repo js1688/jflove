@@ -6,7 +6,7 @@
   `src/utils/scratch/{toolbox.ts,block-select.ts,open-paths-queue.ts,load-editor-bundle.ts}`、`src/styles/scratch-editor.css`、
   `src/pages/SettingsPage.tsx`、`src/App.tsx`、`ui/public/vendor/editor.bundle.js`、`ui/public/file-assoc.manifest.json`
 - 负责验收标准：AC-1~AC-35、AC-42①、AC-44、AC-45、AC-47、AC-62、AC-R4④、AC-R5
-- 纪律依据：`.claude/skills/code-review/SKILL.md`（Markdown XSS 必须 DOMPurify）、`AGENTS.md` §9.6 `cross-platform-desktop` 行
+- 纪律依据：`.agents/skills/code-review/SKILL.md`（Markdown XSS 必须 DOMPurify）、`AGENTS.md` §9.6 `cross-platform-desktop` 行
   （渲染层无网络出口 / 文件字节与密钥不进渲染层）、§9.4 第 13/14 条（错误文案与日志不 echo 完整路径与内容片段）
 - 取证环境：所有动态验证在 `$env:TEMP\1\a4rev\` 下的 esbuild → CJS 副本上真跑（**未改动仓库任何文件**；
   `git status --porcelain` 复核仅新增本报告文件）。

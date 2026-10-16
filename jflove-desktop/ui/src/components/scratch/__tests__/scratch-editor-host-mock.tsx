@@ -17,14 +17,36 @@
  *      替身用等价可观察信号表达：`data-show-line-numbers` / `data-word-wrap` 属性 + CSS
  *      `white-space: pre`（关换行 → 长行不折行）与 `overflow-x: auto`（出现横向滚动）。
  *
+ * ## v1.6.1 补能力：可选「真实内核」模式（AC-66② 的直接判据）
+ *
+ * 默认仍是纯替身（不建任何真实 `EditorView`，正文/光标只在会话表里）—— **既有用例的行为一字不变**。
+ * 只有显式调用 `enableMockRealEditorViews()`（且用例已用 `src/test/cm-bundle.ts` 的
+ * `loadCmBundle()` 注入离线包）后，替身宿主才会：
+ *   ① 在宿主容器（`data-cm-container`）里建**真实** `EditorView`（离线包真实现，不是替身）；
+ *   ② 把它登记进 `VIEWS`，会话的 `view` getter / `getText` / `getCaret` / `getScrollTop`
+ *      因此读到**真实 CM6 状态**（`state.doc` / `state.selection.main.head` / `scrollDOM.scrollTop`）；
+ *   ③ 用**真实** `registerScratchContentAccessor` 注册正文读取器（与 `ScratchEditorHost.tsx:638-642`
+ *      同一条通路：草稿与自动保存读正文/光标/滚动就靠它），并在宿主**卸载**时注销 + `view.destroy()`。
+ *
+ * 生命周期口径严格对齐真实宿主（`ScratchEditorHost.tsx:526-545` 的清理 vs `:548-654` 的创建）：
+ * **建实例**由「可见」驱动且effect **没有清理函数**，**拆实例**只发生在卸载 ⇒ 可见性翻转（切标签）
+ * 不拆实例。这正是 AC-66②「光标与滚动位置与离开前相同」的机制，也是本模式的判别力来源：
+ * 一旦非激活面板改为**卸载**，视图与读取器都会重建，值与引用两头都会变。
+ *
+ * `getCaret()` 的返回类型由 `number` 更正为 `TabCaret`（与真实会话 `ScratchEditorSession.getCaret()`
+ * 同口径）—— 原实现恒返 `0`，与真实形状不符；全仓库只有"定义处"两处（真实会话与替身），**无任何调用点**，
+ * 故该更正不影响既有用例。
+ *
  * 注意：本文件**不是** `.test.tsx`，故不会被 vitest 的 include 收集为用例。
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactElement } from 'react';
 import { cleanup, render } from '@testing-library/react';
 import { vi } from 'vitest';
-import { useScratchStore } from '../../../stores/scratch-store';
-import type { ScratchPane as ScratchPaneModel } from '../../../types/scratch';
+import { registerScratchContentAccessor, useScratchStore } from '../../../stores/scratch-store';
+import type { ScratchContentAccessor } from '../../../stores/scratch-store';
+import type { EditorView } from '../../../types/codemirror-bundle';
+import type { ScratchTab, TabCaret } from '../../../types/scratch';
 import { stepFontSize } from '../../../utils/scratch/toolbox';
 
 /** Ctrl+滚轮的单步字号增量（与 ScratchEditorHost.tsx 的 WHEEL_FONT_STEP 保持一致） */
@@ -41,10 +63,18 @@ export interface MockEditorStats {
 /** 替身对外暴露的会话形状（子集对齐 ScratchEditorSession，够测试断言即可） */
 export interface MockScratchEditorSession {
   paneId: string;
+  /**
+   * **真实** CM6 视图（仅「真实内核」模式下存在，否则 `null`）。
+   *
+   * 与真实 `ScratchEditorSession.view` 同语义：AC-66② 的「同一个 `EditorView` 实例」判据、
+   * 以及 `state.selection.main.head` / `scrollDOM.scrollTop` 两个真实值都从这里取。
+   */
+  readonly view: EditorView | null;
   /** 当前正文（真实实现由 CM6 view.state.doc.toString() 提供） */
   getText: () => string;
   getStats: () => MockEditorStats;
-  getCaret: () => number;
+  /** 1 基光标（与真实 `ScratchEditorSession.getCaret()` 同口径：`{line, col}`） */
+  getCaret: () => TabCaret;
   getScrollTop: () => number;
   setText: (next: string) => void;
   focus: () => void;
@@ -68,6 +98,45 @@ const SESSIONS = new Map<string, MockScratchEditorSession>();
 /** 模块级统计订阅表：等价于真实实现里的监听器集合 */
 const STATS_LISTENERS = new Map<string, Set<StatsListener>>();
 
+/** 真实 CM6 视图表（**仅「真实内核」模式**下有条目）；生命周期跟随宿主挂载 / 卸载 */
+const VIEWS = new Map<string, EditorView>();
+
+/** 替身**实际交给**真实注册表的内容读取器（引用相等判据；见 `mockContentAccessorOf`） */
+const ACCESSORS = new Map<string, ScratchContentAccessor>();
+
+/** 「真实内核」模式开关（默认关闭 ⇒ 既有用例行为不变；`resetMockEditorSessions()` 会关掉） */
+let realEditorViewsEnabled = false;
+
+/**
+ * 打开替身宿主的**真实内核**模式（AC-66② 用）。
+ *
+ * 前置：用例必须先用 `src/test/cm-bundle.ts` 的 `loadCmBundle()` 注入离线包，否则宿主建不出视图，
+ * 相关断言会以「没有真实 CM6 视图」的明确错误失败，而不是含糊地报 `null`。
+ */
+export function enableMockRealEditorViews(value = true): void {
+  realEditorViewsEnabled = value;
+}
+
+/**
+ * 取替身**实际注册进真实注册表**的正文读取器（未注册返回 `null`）。
+ *
+ * 用途：AC-66② 的「读回调本身没有被重建」判据 —— 返回值就是传给
+ * `registerScratchContentAccessor(tabId, accessor)` 的那**同一个对象**，
+ * 因此 `toBe` 相等即"读取器未被重建"；面板一旦卸载，读取器会被注销（条目删除），
+ * 重新挂载会注册**新**对象 ⇒ 该断言必然变红。
+ */
+export function mockContentAccessorOf(paneId: string): ScratchContentAccessor | null {
+  return ACCESSORS.get(paneId) ?? null;
+}
+
+/** 从**真实** CM6 视图读 1 基光标（与 `ScratchEditorHost.caretOfView` 同口径：列按码点） */
+function caretOfRealView(view: EditorView): TabCaret {
+  const head = view.state.selection.main.head;
+  const line = view.state.doc.lineAt(head);
+  const col = [...line.text.slice(0, Math.max(0, head - line.from))].length + 1;
+  return { line: line.number, col };
+}
+
 /** 广播统计（会话内容变化后调用） */
 export function emitStats(paneId: string): void {
   const session = SESSIONS.get(paneId);
@@ -90,24 +159,45 @@ export function listScratchEditorPaneIds(): string[] {
 /**
  * 注册一个替身会话（测试**主动**摆状态用；真实实现由 host 挂载 CM6 时注册）。
  * 返回注销函数。
+ *
+ * 真实内核模式（`enableMockRealEditorViews()`）下，会话的 `view` getter 会指向宿主建的真实
+ * `EditorView`，正文 / 光标 / 滚动一律以它为准；未启用时与旧版替身行为一致 —— 唯一差异是
+ * `getCaret()` 返回真实形状 `{line: 1, col: 1}`（旧版恒返数值 `0`，见文件头）。
  */
 export function registerMockSession(paneId: string, initialText = ''): () => void {
   let text = initialText;
+  /** 当前正文：真实内核模式下以视图的 doc 为准（与真实会话的 `view.state.doc.toString()` 同源） */
+  const currentText = (): string => VIEWS.get(paneId)?.state.doc.toString() ?? text;
   const session: MockScratchEditorSession = {
     paneId,
     api: { name: 'mock-cm-api', formatters: { sqlDialects: ['sql', 'postgres', 'mysql'] } },
     writes: [],
-    getText: () => text,
-    getStats: () => ({
-      line: text.length === 0 ? 1 : text.split('\n').length,
-      col: 1,
-      selectedChars: 0,
-      totalChars: text.length,
-    }),
-    getCaret: () => 0,
-    getScrollTop: () => 0,
+    get view(): EditorView | null {
+      return VIEWS.get(paneId) ?? null;
+    },
+    getText: () => currentText(),
+    getStats: () => {
+      const body = currentText();
+      return {
+        line: body.length === 0 ? 1 : body.split('\n').length,
+        col: 1,
+        selectedChars: 0,
+        totalChars: body.length,
+      };
+    },
+    getCaret: () => {
+      const view = VIEWS.get(paneId);
+      return view ? caretOfRealView(view) : { line: 1, col: 1 };
+    },
+    getScrollTop: () => VIEWS.get(paneId)?.scrollDOM.scrollTop ?? 0,
     setText: (next: string) => {
-      text = next;
+      const view = VIEWS.get(paneId);
+      if (view) {
+        // 与真实 `setText` 同一口径：整篇替换走 dispatch（视图是唯一真相）
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+      } else {
+        text = next;
+      }
       session.writes.push(next);
       emitStats(paneId);
     },
@@ -137,10 +227,18 @@ export function subscribeScratchEditorStats(paneId: string, listener: StatsListe
   };
 }
 
-/** 清空所有会话与订阅（每个用例前调用，避免用例互相污染） */
+/**
+ * 清空所有会话 / 订阅 / 真实视图 / 读取器记录（每个用例前调用，避免用例互相污染）。
+ *
+ * 同时把「真实内核」模式**关回默认值**：该模式是每用例显式打开的能力开关，
+ * 不能让上一个用例的开关影响下一个（同一个文件内多个用例共用模块级状态）。
+ */
 export function resetMockEditorSessions(): void {
   SESSIONS.clear();
   STATS_LISTENERS.clear();
+  VIEWS.clear();
+  ACCESSORS.clear();
+  realEditorViewsEnabled = false;
 }
 
 /**
@@ -159,9 +257,15 @@ export function useScratchEditorStats(paneId: string): MockEditorStats | null {
   return stats;
 }
 
-/** 替身组件 props（与 ScratchEditorHostProps 对齐，仅保留测试用得上的部分） */
+/**
+ * 替身组件 props（与 `ScratchEditorHostProps` 对齐，仅保留测试用得上的部分）。
+ *
+ * v1.6.1：字段名仍是 `pane`（`MarkdownSplitView` 直挂用法未改），值类型由 `ScratchPane`
+ * 换成 `ScratchTab`；新增 `visible`（非激活面板带 `hidden` 时宿主被告知不可见）。
+ */
 export interface MockScratchEditorHostProps {
-  pane: Pick<ScratchPaneModel, 'id' | 'fontSize' | 'showLineNumbers' | 'wordWrap'>;
+  pane: Pick<ScratchTab, 'id' | 'fontSize' | 'showLineNumbers' | 'wordWrap'>;
+  visible?: boolean;
   className?: string;
 }
 
@@ -190,21 +294,69 @@ export function findWindowWheelPassive(
  * ScratchEditorHost 的替身实现。
  *
  * 行为：注册会话 → 在宿主根节点上装 **非 passive** 的 wheel 监听（Ctrl 改字号）→
- * 按 props 暴露行号 / 换行的可观察状态。
+ * 按 props 暴露行号 / 换行的可观察状态；
+ * 「真实内核」模式打开时，另在容器里建**真实** `EditorView` 并注册真实正文读取器（见文件头）。
+ *
+ * 生命周期口径与真实宿主严格同构：**建实例**由「可见」驱动、该 effect **无清理函数**；
+ * **拆实例 / 注销读取器**只发生在宿主卸载 ⇒ 可见性翻转（切标签）不拆实例（AC-66②）。
  */
-export function MockScratchEditorHost({ pane, className }: MockScratchEditorHostProps) {
+export function MockScratchEditorHost({
+  pane,
+  visible = true,
+  className,
+}: MockScratchEditorHostProps) {
   const setFontSize = useScratchStore((state) => state.setFontSize);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const releaseAccessorRef = useRef<(() => void) | null>(null);
   const paneRef = useRef(pane);
   paneRef.current = pane;
 
   // 挂载时注册会话（真实实现是在 CM6 装载成功后注册）。
   // 若测试已预置会话，则**保留其正文**：真实路径下正文来自草稿还原 / 读文件，宿主不会清空它。
+  // 清理序对齐真实宿主 `ScratchEditorHost.tsx:531-544`：注销读取器 → 注销会话 → destroy 真实视图。
   useEffect(() => {
-    const existing = SESSIONS.get(pane.id);
-    const dispose = registerMockSession(pane.id, existing ? existing.getText() : '');
-    return dispose;
+    const paneId = pane.id;
+    const existing = SESSIONS.get(paneId);
+    const dispose = registerMockSession(paneId, existing ? existing.getText() : '');
+    return () => {
+      if (releaseAccessorRef.current) {
+        releaseAccessorRef.current();
+        releaseAccessorRef.current = null;
+      }
+      ACCESSORS.delete(paneId);
+      VIEWS.delete(paneId);
+      const view = viewRef.current;
+      viewRef.current = null;
+      dispose();
+      if (view) view.destroy();
+    };
   }, [pane.id]);
+
+  // 真实内核模式：**可见**时把会话挂到真实 `EditorView` 上（AC-66② 的判据来源）。
+  // ⚠ 本 effect **刻意没有清理函数** —— 可见性翻折不拆实例，与真实宿主一致。
+  useEffect(() => {
+    if (!realEditorViewsEnabled || !visible || viewRef.current) return;
+    const api = typeof window === 'undefined' ? null : window.__JFLOVE_CM__;
+    const container = containerRef.current;
+    if (!api || typeof api.EditorView !== 'function' || !container) return;
+    const session = SESSIONS.get(pane.id);
+    const view = new api.EditorView({
+      state: api.EditorState.create({ doc: session ? session.getText() : '' }),
+      parent: container,
+    });
+    viewRef.current = view;
+    VIEWS.set(pane.id, view);
+    // 与真实宿主同一条通路（草稿 / 自动保存读正文、光标、滚动都经它）
+    const accessor: ScratchContentAccessor = () => ({
+      text: view.state.doc.toString(),
+      caret: caretOfRealView(view),
+      scrollTop: view.scrollDOM.scrollTop,
+    });
+    releaseAccessorRef.current = registerScratchContentAccessor(pane.id, accessor);
+    ACCESSORS.set(pane.id, accessor);
+  }, [pane.id, visible]);
 
   // wheel：等价于 ScratchEditorHost.tsx 的 wheel effect
   useEffect(() => {
@@ -214,7 +366,7 @@ export function MockScratchEditorHost({ pane, className }: MockScratchEditorHost
       if (!event.ctrlKey) return;
       const current = useScratchStore
         .getState()
-        .panes.find((item) => item.id === paneRef.current.id);
+        .tabs.find((item) => item.id === paneRef.current.id);
       if (!current) return;
       const next = stepFontSize(
         current.fontSize,
@@ -235,11 +387,13 @@ export function MockScratchEditorHost({ pane, className }: MockScratchEditorHost
       ref={hostRef}
       className={['relative h-full w-full overflow-hidden', className].filter(Boolean).join(' ')}
       data-testid="scratch-editor-host-mock"
-      data-pane-id={pane.id}
+      data-host-pane-id={pane.id}
+      data-host-visible={visible ? 'on' : 'off'}
       data-show-line-numbers={pane.showLineNumbers ? 'on' : 'off'}
       data-word-wrap={pane.wordWrap ? 'on' : 'off'}
     >
       <div
+        ref={containerRef}
         className="h-full w-full overflow-hidden"
         data-cm-container={pane.id}
         style={{
@@ -257,28 +411,36 @@ export type MockHostComponent = ComponentType<MockScratchEditorHostProps>;
 
 // ── 夹具区：把「摆状态 + 渲染 + 同步」的重复动作收敛到一处 ─────────────────────────
 
-/** 清空窗格 store（每个用例前调用；状态字段对齐 ScratchState） */
+/** 清空标签 store（每个用例前调用；状态字段对齐 v1.6.1 的 ScratchState） */
 export function resetScratchStore(): void {
-  useScratchStore.setState({ panes: [], activePaneId: null });
+  useScratchStore.setState({ tabs: [], activeTabId: null });
 }
 
-/** 从 store 读窗格快照 */
-export function paneFromStore(paneId: string): ScratchPaneModel {
-  const found = useScratchStore.getState().panes.find((pane) => pane.id === paneId);
-  if (!found) throw new Error(`store 中找不到窗格 ${paneId}`);
+/** 从 store 读标签快照 */
+export function tabFromStore(tabId: string): ScratchTab {
+  const found = useScratchStore.getState().tabs.find((tab) => tab.id === tabId);
+  if (!found) throw new Error(`store 中找不到标签 ${tabId}`);
   return found;
 }
 
 /** 改替身会话的正文（真实实现里由 CM6 的 doc 持有） */
-export function setPaneText(paneId: string, text: string): void {
-  const session = SESSIONS.get(paneId);
-  if (!session) throw new Error(`没有已注册的会话：${paneId}`);
+export function setTabText(tabId: string, text: string): void {
+  const session = SESSIONS.get(tabId);
+  if (!session) throw new Error(`没有已注册的会话：${tabId}`);
   session.setText(text);
 }
 
+/**
+ * 旧名别名（v1.6.0 术语）。
+ *
+ * 保留原因：`scratch-view-diff.test.tsx` 尚未迁移（**不在本次改动白名单内**），它按旧名导入；
+ * 语义与 `setTabText` 完全相同。
+ */
+export const setPaneText = setTabText;
+
 /** 读替身会话当前正文 */
-export function paneTextOf(paneId: string): string {
-  return SESSIONS.get(paneId)?.getText() ?? '';
+export function tabTextOf(tabId: string): string {
+  return SESSIONS.get(tabId)?.getText() ?? '';
 }
 
 /** 读替身会话（不存在即报错，便于定位夹具问题） */
@@ -318,65 +480,68 @@ export function spyWindowListeners() {
   return spy;
 }
 
-/** `renderPaneInStore` 的返回句柄 */
-export interface PaneRenderHandle {
-  paneId: string;
+/** `renderTabInStore` 的返回句柄 */
+export interface TabRenderHandle {
+  tabId: string;
   container: HTMLElement;
   /** 读最新 store 快照 */
-  pane: () => ScratchPaneModel;
-  /** 用最新 store 状态重渲染（`ScratchPane` 的 `pane` 是 props，不会自己跟随 store） */
+  tab: () => ScratchTab;
+  /** 用最新 store 状态重渲染（对显式传 props 的组件是必要的；订阅 store 的组件可省） */
   sync: () => void;
 }
 
 /**
- * 在 store 里建窗格并渲染给定组件。
+ * 在 store 里建标签并渲染给定组件。
  *
- * `ScratchPane` 的 `pane` 来自 props，所以改 store 之后必须 `sync()` 重渲染，
- * 断言以 DOM 为准（这正是"视图模式真的被渲染"这类判据需要的口径）。
+ * v1.6.1：`EditorPanel` 只吃 `{ tabId, active }` 并从 store 自取标签状态，因此
+ * `sync()` 主要是给「组件仍靠 props 拿状态」的场景兜底；断言一律以 DOM 为准。
  */
-export function renderPaneInStore(
-  factory: (pane: ScratchPaneModel) => ReactElement,
-  init?: Partial<ScratchPaneModel>,
-): PaneRenderHandle {
+export function renderTabInStore(
+  factory: (tab: ScratchTab) => ReactElement,
+  init?: Partial<ScratchTab>,
+): TabRenderHandle {
   const createInit = { ...(init ?? {}) } as Parameters<
-    ReturnType<typeof useScratchStore.getState>['createPane']
+    ReturnType<typeof useScratchStore.getState>['createTab']
   >[0];
-  const paneId = useScratchStore.getState().createPane(createInit);
-  const view = render(factory(paneFromStore(paneId)));
+  const tabId = useScratchStore.getState().createTab(createInit);
+  const view = render(factory(tabFromStore(tabId)));
   return {
-    paneId,
+    tabId,
     container: view.container,
-    pane: () => paneFromStore(paneId),
-    sync: () => view.rerender(factory(paneFromStore(paneId))),
+    tab: () => tabFromStore(tabId),
+    sync: () => view.rerender(factory(tabFromStore(tabId))),
   };
 }
 
 /**
- * 只渲染替身宿主，让某个窗格拿到「活会话」（含内容存取器）。
+ * 只渲染替身宿主，让某个标签拿到「活会话」（含内容存取器）。
  *
- * 用途：AC-34「另一窗格」来源与 `scratch-store` 的内容存取器都要求会话真实存在，
- * 但又不需要整窗格外壳（避免把工具栏/视图区一起拖进来）。
+ * 用途：AC-34「另一标签页」来源与 `scratch-store` 的内容存取器都要求会话真实存在，
+ * 但又不需要整块编辑面板外壳（避免把工具栏/视图区一起拖进来）。
+ *
+ * 名字与返回字段保留 v1.6.0 的 `pane` 口径：消费方 `scratch-view-diff.test.tsx` 尚未迁移
+ * （不在本次改动白名单内）。
  */
-export function renderMockEditorHostPane(init?: Partial<ScratchPaneModel>): {
+export function renderMockEditorHostPane(init?: Partial<ScratchTab>): {
   paneId: string;
   container: HTMLElement;
-  pane: () => ScratchPaneModel;
+  pane: () => ScratchTab;
 } {
   const createInit = { ...(init ?? {}) } as Parameters<
-    ReturnType<typeof useScratchStore.getState>['createPane']
+    ReturnType<typeof useScratchStore.getState>['createTab']
   >[0];
-  const paneId = useScratchStore.getState().createPane(createInit);
+  const tabId = useScratchStore.getState().createTab(createInit);
   const view = render(
     <MockScratchEditorHost
       pane={{
-        id: paneId,
-        fontSize: paneFromStore(paneId).fontSize,
-        showLineNumbers: paneFromStore(paneId).showLineNumbers,
-        wordWrap: paneFromStore(paneId).wordWrap,
+        id: tabId,
+        fontSize: tabFromStore(tabId).fontSize,
+        showLineNumbers: tabFromStore(tabId).showLineNumbers,
+        wordWrap: tabFromStore(tabId).wordWrap,
       }}
     />,
   );
-  return { paneId, container: view.container, pane: () => paneFromStore(paneId) };
+  return { paneId: tabId, container: view.container, pane: () => tabFromStore(tabId) };
 }
 
 /**
@@ -398,9 +563,9 @@ export function scratchEditorHostModuleMock(real: Record<string, unknown>): Reco
   };
 }
 
-/** 在窗格正文里输入（真实路径会写回会话；替身只改会话正文并发统计） */
+/** 在标签正文里输入（真实路径会写回会话；替身只改会话正文并发统计） */
 export function typeIntoPane(paneId: string, next: string): void {
-  setPaneText(paneId, next);
+  setTabText(paneId, next);
 }
 
 export { cleanup };

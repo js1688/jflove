@@ -30,7 +30,7 @@ import type { ScratchViewMode } from '../types/scratch';
 
 export const TYPES: Array<TypeEntry> = [
   { "ext": "json", "label": "JSON", "language": "json", "mime": ["application/json"] },
-  { "ext": "jsonc", "label": "JSON with Comments", "language": "json", "mime": ["application/json"] },
+  { "ext": "jsonc", "label": "带注释的 JSON", "language": "json", "mime": ["application/json"] },
   { "ext": "md", "label": "Markdown", "language": "markdown", "mime": ["text/markdown"] },
   { "ext": "markdown", "label": "Markdown", "language": "markdown", "mime": ["text/markdown"] },
   { "ext": "csv", "label": "CSV", "language": "text", "mime": ["text/csv"] },
@@ -44,7 +44,7 @@ export const TYPES: Array<TypeEntry> = [
   { "ext": "toml", "label": "TOML", "language": "text", "mime": ["text/plain"] },
   { "ext": "ini", "label": "INI", "language": "text", "mime": ["text/plain"] },
   { "ext": "conf", "label": "配置文件 (conf)", "language": "text", "mime": ["text/plain"] },
-  { "ext": "properties", "label": "Properties", "language": "text", "mime": ["text/plain"] },
+  { "ext": "properties", "label": "属性文件", "language": "text", "mime": ["text/plain"] },
   { "ext": "css", "label": "CSS", "language": "css", "mime": ["text/css"] },
   { "ext": "py", "label": "Python", "language": "python", "mime": ["text/x-python"] },
   { "ext": "js", "label": "JavaScript", "language": "javascript", "mime": ["text/javascript"] },
@@ -61,8 +61,8 @@ export const TYPES: Array<TypeEntry> = [
   { "ext": "cpp", "label": "C++", "language": "cpp", "mime": ["text/x-c++src"] },
   { "ext": "log", "label": "日志 (log)", "language": "text", "mime": ["text/plain"] },
   { "ext": "txt", "label": "纯文本 (txt)", "language": "text", "mime": ["text/plain"] },
-  { "ext": "diff", "label": "Diff", "language": "diff", "mime": ["text/x-diff"] },
-  { "ext": "patch", "label": "Patch", "language": "diff", "mime": ["text/x-diff"] }
+  { "ext": "diff", "label": "差异", "language": "diff", "mime": ["text/x-diff"] },
+  { "ext": "patch", "label": "补丁", "language": "diff", "mime": ["text/x-diff"] }
 ];
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -448,6 +448,162 @@ export const LANGUAGES: ScratchLanguage[] = Array.from(
 export const CAPABILITIES: ScratchCapability[] = Array.from(
   new Set(EXTENSIONS.flatMap((entry) => entry.capabilities)),
 );
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 显示名（界面文案）：**不参与** manifest 文本派生（派生只切 `TYPES` 字面量）。
+ *
+ * 证据：`scripts/gen_file_assoc_manifest.mjs` 只取 `export const TYPES` 之后**第一个** `[`
+ * 到配平 `]`，本段全部在它之外 ⇒ 改这里**不会**让 `--check` 变红（设计 §15.2.5 已核）。
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * 语言 id → 中文显示名（**唯一真相**，AC-74⑦）。
+ *
+ * ⚠ `text` 一档**故意不区分** csv / tsv —— 它由 `languageLabel(language, ext)` 的 `ext`
+ * 参数覆盖（`.txt` ⇒「纯文本 (txt)」、`.csv` ⇒「CSV」、`.tsv` ⇒「TSV」）。
+ * 覆盖集必须含 `ScratchLanguage` 的全部 20 个取值（新增语言时 tsc 会报缺键）。
+ */
+export const LANGUAGE_LABELS: Readonly<Record<ScratchLanguage, string>> = Object.freeze({
+  json: 'JSON',
+  markdown: 'Markdown',
+  text: '纯文本',
+  sql: 'SQL',
+  xml: 'XML',
+  html: 'HTML',
+  yaml: 'YAML',
+  css: 'CSS',
+  python: 'Python',
+  javascript: 'JavaScript',
+  typescript: 'TypeScript',
+  shell: 'Shell 脚本',
+  batch: '批处理',
+  powershell: 'PowerShell 脚本',
+  java: 'Java',
+  go: 'Go',
+  rust: 'Rust',
+  c: 'C',
+  cpp: 'C++',
+  diff: '差异对比',
+});
+
+/**
+ * 语言显示名（**ext 优先**，AC-74⑦ / 台账 B1 的误标修正）。
+ *
+ * 口径（三条，逐条对齐 AC-74⑦ 的判据）：
+ *   ① `language === 'text'` **且**给了 `ext` ⇒ 用类型表里该 ext 的 label
+ *      （`.txt` ⇒「纯文本 (txt)」、`.csv` ⇒「CSV」、`.tsv` ⇒「TSV」）⇒ 三者互不相同；
+ *   ② 其它 language ⇒ 用 `LANGUAGE_LABELS[language]`（与扩展名无关，`.py` 恒「Python」）；
+ *   ③ 两者都拿不到 ⇒ 回退 `language` 原文（**不编造**，与改造前的 `ScratchToolbar` 口径一致）。
+ *
+ * ⚠ **现状缺陷（改造前实测）**：只按 `language` 取「首个匹配 TYPES 项的 label」时，
+ * `csv` / `tsv` 都是 `language:'text'` ⇒ `text` 一档的**全部 8 个扩展名**
+ * （`txt` / `csv` / `tsv` / `log` / `toml` / `ini` / `conf` / `properties`）都显示「CSV」，
+ * 且 `.csv` 与 `.tsv` 无法区分。本函数按 ext 覆盖即修掉这条。
+ */
+export function languageLabel(language: string, ext?: string | null): string {
+  if (language === 'text' && ext) {
+    const normalized = normalizeExtension(ext);
+    const entry =
+      EXT_INFO_BY_EXT.get(normalized) ?? EXTENSIONS.find((item) => item.ext === normalized);
+    if (entry) return entry.label;
+  }
+  return LANGUAGE_LABELS[language as ScratchLanguage] ?? language;
+}
+
+/**
+ * SQL 方言 id → **专有名词白名单**（AC-74⑧ 允许业界通名 / 专有名词不计入失败）。
+ *
+ * 用**可判定白名单**表达"专有名词"，而不是主观判断：命中本集合的 id **保留原名**
+ * （若 `DIALECT_CN` 有业界固定大小写则用固定写法），但仍按 AC-74⑥ 拼上 `（id）`
+ * （该条要求"0 项的可见文本等于其内部英文 id 字面"）
+ * ⇒ `PostgreSQL（postgresql）`、`MySQL（mysql）`；未命中的走中文名（`Oracle PL/SQL（plsql）`）。
+ *
+ * ⚠ 覆盖面**必须**等于运行时 `api.formatters.sqlDialects` 全集（离线包实测 **21** 项，
+ * 见开发记录）：未覆盖的 id 只能在 `DIALECT_CN` 里逐项登记，否则 `sqlDialectLabel()`
+ * 会裸回退成英文 id ⇒ AC-74⑥ 失败。
+ */
+export const PROPER_NOUN_DIALECTS: ReadonlySet<string> = new Set([
+  'bigquery',
+  'clickhouse',
+  'duckdb',
+  'db2',
+  'db2i',
+  'hive',
+  'mariadb',
+  'mysql',
+  'n1ql',
+  'plsql',
+  'postgresql',
+  'redshift',
+  'singlestoredb',
+  'snowflake',
+  'spark',
+  'sql',
+  'sqlite',
+  'tidb',
+  'transactsql',
+  'trino',
+  'tsql',
+]);
+
+/**
+ * 需要**明确显示名**的方言（**必须覆盖**运行时 `formatters.sqlDialects` 全集）。
+ *
+ * ⚠ 取值空间由运行时全集钉死（离线包实测 **21** 项）：**每一项都必须在这里有着落**，
+ * 否则 `sqlDialectLabel()` 会回退成 id 原文 —— 那是"看起来配了、实际没本地化"的静默失败，
+ * 由 `__tests__/scratch-type-labels.test.ts` 的"全集遍历"断言拦住。
+ *
+ * 两种写法（`PROPER_NOUN_DIALECTS` 决定"是否专有名词"，本表给"显示什么"）：
+ *   - 专有名词 ⇒ 固定大小写（`MySQL（mysql）`、`PostgreSQL（postgresql）`）；
+ *   - 非专有名词 ⇒ 中文名 + `（id）`（`Oracle PL/SQL（plsql）`、`T-SQL（tsql）`）；
+ *   - 专有名词但无业界固定大小写（如 `sqlite`）⇒ 走"id 原名 + （id）"分支。
+ */
+const DIALECT_CN: Readonly<Record<string, string>> = Object.freeze({
+  // 专有名词（`PROPER_NOUN_DIALECTS` 成员；本表给固定大小写）
+  bigquery: 'BigQuery',
+  clickhouse: 'ClickHouse',
+  duckdb: 'DuckDB',
+  db2: 'DB2',
+  db2i: 'DB2i',
+  hive: 'Hive',
+  mariadb: 'MariaDB',
+  mysql: 'MySQL',
+  n1ql: 'N1QL',
+  postgresql: 'PostgreSQL',
+  redshift: 'Redshift',
+  singlestoredb: 'SingleStoreDB',
+  snowflake: 'Snowflake',
+  spark: 'Spark',
+  sql: '标准 SQL',
+  sqlite: 'SQLite',
+  tidb: 'TiDB',
+  transactsql: 'SQL Server（transactsql）',
+  trino: 'Trino',
+  // 名字是专有名词、但**中文文案里惯用中文描述**的两项（设计 §15.2.7 的 `DIALECT_CN` 原样）
+  plsql: 'Oracle 过程语言',
+  tsql: 'T-SQL 方言',
+});
+
+/**
+ * 方言显示名（AC-74⑥）。
+ *
+ * 写法 = 「中文名 / 专有名词 + `（id）`」：
+ *   - `DIALECT_CN` 有显示名 ⇒ `${显示名}（${id}）`（含 `MySQL（mysql）`、`Oracle PL/SQL（plsql）`）；
+ *   - 是专有名词但表里没给显示名 ⇒ `${id}（${id}）`（**不编造**，但仍满足"不得等于 id"）；
+ *   - 完全未知的 id ⇒ **回退 id 原文** —— 该分支会让 AC-74⑥ 的"全集遍历"失败，
+ *     是刻意的信号（新增方言必须登记），不是兜底。
+ *
+ * 为什么**所有**分支都拼 `（id）`：AC-74⑥ 与 ⑧ 存在张力 —— ⑧ 说专有名词"未命中不算失败"，
+ * ⑥ 说"0 项等于 id 字面" ⇒ 同时满足的唯一写法就是"原名 + （id）"。`value` 仍是原始 id，
+ * 格式化行为零变化（`toSqlFormatOptions` 逐字不变）。
+ */
+export function sqlDialectLabel(id: string): string {
+  const key = id.trim().toLowerCase();
+  const cn = DIALECT_CN[key];
+  if (cn) return `${cn}（${id}）`;
+  if (PROPER_NOUN_DIALECTS.has(key)) return `${id}（${id}）`;
+  return id;
+}
 
 const EXT_INFO_BY_EXT: Map<string, ScratchExtInfo> = new Map(
   EXTENSIONS.map((entry) => [entry.ext, entry]),

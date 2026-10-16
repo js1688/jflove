@@ -7,7 +7,7 @@ v1.5.1 要求其中至少 `src/pages/NoteEditPage.tsx` 与 `src/styles/component
 （需求 AC-15；审查报告 §十七第 4 条建议把这条约束也纳入门禁）。
 
 在此之前，这条约束只靠"人工比一次 sha256"维持 —— 没有可执行判据。
-本脚本把它变成 **命令 + 退出码**（依据：`.claude/skills/LESSONS.md` L12：
+本脚本把它变成 **命令 + 退出码**（依据：`.agents/skills/lessons/LESSONS.md` L12：
 "约束要绑定到可执行的检查，否则等于没写"）。
 
 用法：

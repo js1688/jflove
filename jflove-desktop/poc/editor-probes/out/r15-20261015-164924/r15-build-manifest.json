@@ -1,0 +1,74 @@
+﻿{
+    "builtAt":  "2026-10-15 16:50:04",
+    "gitHead":  "7add9d993f2f09e8b953905f2c0747e7123ab059",
+    "builtAssets":  [
+                        {
+                            "name":  "index-C81RcpFz.js",
+                            "bytes":  756493,
+                            "sha256_16":  "DAA437EEA5015DE6"
+                        },
+                        {
+                            "name":  "index-ClZAjzVd.css",
+                            "bytes":  70344,
+                            "sha256_16":  "01EC650874824F59"
+                        }
+                    ],
+    "sourceRevision":  [
+                           {
+                               "file":  "jflove-desktop/ui/src/layouts/DesktopLayout.tsx",
+                               "sha256_16":  "7B4C6FF8DCB21F8B",
+                               "mtime":  "2026-10-15 16:49:10"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/pages/LoginPage.tsx",
+                               "sha256_16":  "2DCF4D866DB62C49",
+                               "mtime":  "2026-10-10 02:39:04"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/utils/scratch/editor-gate.ts",
+                               "sha256_16":  "D69186268CCE81AC",
+                               "mtime":  "2026-10-15 16:45:45"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/utils/scratch/editor-open-paths.ts",
+                               "sha256_16":  "BF7BC8F7A16F0D44",
+                               "mtime":  "2026-10-15 16:44:51"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/utils/scratch/open-paths-queue.ts",
+                               "sha256_16":  "4099288E9AFD2D26",
+                               "mtime":  "2026-10-15 16:44:01"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/stores/scratch-store.ts",
+                               "sha256_16":  "29A54B11D5203CB7",
+                               "mtime":  "2026-10-15 16:44:21"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/components/scratch/ScratchTabBar.tsx",
+                               "sha256_16":  "C2AFAA8BB8FF47D6",
+                               "mtime":  "2026-10-15 10:02:56"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/components/scratch/ScratchTabOverflowMenu.tsx",
+                               "sha256_16":  "87C2AC02F9A3C39D",
+                               "mtime":  "2026-10-14 22:51:11"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/components/scratch/ScratchWorkspace.tsx",
+                               "sha256_16":  "E259DC651A1798A1",
+                               "mtime":  "2026-10-15 10:01:29"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/components/scratch/EditorPanel.tsx",
+                               "sha256_16":  "8E9FFCFD5068D4F4",
+                               "mtime":  "2026-10-14 22:55:49"
+                           },
+                           {
+                               "file":  "jflove-desktop/ui/src/utils/scratch/shortcut-runtime.ts",
+                               "sha256_16":  "58592099A1CC615E",
+                               "mtime":  "2026-10-14 22:51:19"
+                           }
+                       ],
+    "staleDistNotice":  "ui/dist (10:08) 早于 ui/src 的 16:44 编辑，故本次改用 --webui 指向本轮构建"
+}

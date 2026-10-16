@@ -1,0 +1,569 @@
+{
+  "probe": "r20-real-gui-keys",
+  "at": "2026-10-16T14:29:35",
+  "only": [
+    "P0",
+    "P1",
+    "K-NEWTAB",
+    "K-NEXTTAB",
+    "K-PREVTAB",
+    "K-TOOLBOX",
+    "K-DIFF",
+    "K-OPENFILE",
+    "K-CTRLD-REVERSE",
+    "H-NOHOST"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（无编辑器入口 / 无工作区 DOM）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "realWindow": true,
+        "hostActions": 47,
+        "state": {
+          "hash": "#/login",
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0,
+          "hasLoginForm": false
+        }
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "服务层真登录 + 重载 ⇒ 渲染层已登录；经生产通路开 2 个标签页（1 个激活面板、主窗口存活）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "pushedCount": 2,
+        "expectedTabCount": 2,
+        "tabCount": 2,
+        "order": [
+          "r20-key-a.txt",
+          "r20-key-b.txt"
+        ],
+        "activeTabId": null,
+        "activePanelCount": 1,
+        "hash": "#/editor",
+        "windowAlive": true
+      }
+    },
+    {
+      "id": "K-NEWTAB",
+      "desc": "`pane.new` = `Ctrl+N`（本轮新默认）：OS 级按键 ⇒ 标签数 +1",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "beforeTabCount": 2,
+        "afterTabCount": 3,
+        "expectedAfterTabCount": 3,
+        "reached": true,
+        "defaultPrevented": true,
+        "hostActionDeltaTotal": 0,
+        "hostActionDeltaFired": {},
+        "modalWidget": null,
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "n",
+            "code": "KeyN",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": true,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ],
+        "tabs": [
+          {
+            "id": "0a8afd7f-7cb2-4e77-914e-7eaa0ad4d2a9",
+            "active": false,
+            "dirty": false,
+            "title": "r20-key-a.txt"
+          },
+          {
+            "id": "4027041d-60ee-49fb-aae8-1eb12eb836d9",
+            "active": false,
+            "dirty": false,
+            "title": "r20-key-b.txt"
+          },
+          {
+            "id": "0beb1ad6-230e-4cde-8cb1-344d751a97ba",
+            "active": true,
+            "dirty": false,
+            "title": "未命名"
+          }
+        ]
+      }
+    },
+    {
+      "id": "K-NEXTTAB",
+      "desc": "`pane.next` = `Ctrl+PageDown`（本轮新默认）：激活项变到顺序里的下一个",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "order": [
+          "r20-key-a.txt",
+          "r20-key-b.txt",
+          "未命名"
+        ],
+        "clickFirst": {
+          "ok": true,
+          "clicked": "r20-key-a.txt"
+        },
+        "activeAtStart": "r20-key-a.txt",
+        "expectedActive": "r20-key-b.txt",
+        "activeAfter": "r20-key-b.txt",
+        "reached": true,
+        "defaultPrevented": true,
+        "hostActionDeltaTotal": 0,
+        "modalWidget": null,
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "PageDown",
+            "code": "PageDown",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": true,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "K-PREVTAB",
+      "desc": "`pane.prev` = `Ctrl+PageUp`（本轮新默认）：激活项回到原来的那个",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "order": [
+          "r20-key-a.txt",
+          "r20-key-b.txt",
+          "未命名"
+        ],
+        "activeBefore": "r20-key-b.txt",
+        "expectedActive": "r20-key-a.txt",
+        "activeAfter": "r20-key-a.txt",
+        "reached": true,
+        "defaultPrevented": true,
+        "hostActionDeltaTotal": 0,
+        "modalWidget": null,
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "PageUp",
+            "code": "PageUp",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": true,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "K-TOOLBOX",
+      "desc": "AC-75② / BL-51 守门：`view.toolbox` = `Ctrl+K`（本轮新默认）⇒ 工具箱弹框**真的出现**（`[data-toolbox-menu=\"true\"]` + 12 项可见）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "menuCountBefore": 0,
+        "menuCountAfter": 1,
+        "itemCountAfter": 12,
+        "visibleItemsAfter": 12,
+        "triggerAriaExpandedAfter": "true",
+        "menuInActivePanel": true,
+        "itemIds": [
+          "search",
+          "lines",
+          "case",
+          "escape",
+          "base64",
+          "json",
+          "markdown",
+          "csv",
+          "sql",
+          "xml",
+          "diff",
+          "font"
+        ],
+        "reached": true,
+        "defaultPrevented": true,
+        "hostActionDeltaTotal": 0,
+        "hostActionDeltaFired": {},
+        "modalWidget": null,
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "k",
+            "code": "KeyK",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": true,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ],
+        "screenshot": "r20-k-toolbox.png"
+      }
+    },
+    {
+      "id": "K-TOOLBOX-CLOSE",
+      "desc": "收尾（非判据）：`Esc` 关闭工具箱弹框（产品自己的关闭通路）",
+      "status": "PASS",
+      "gating": false,
+      "detail": {
+        "esc": {
+          "ok": true
+        },
+        "menuCountAfter": 0
+      }
+    },
+    {
+      "id": "K-DIFF",
+      "desc": "`view.diff` = `Ctrl+Shift+D`（本轮新默认，**不是** `Ctrl+D`）⇒ 两段文本对比视图**真的出现**（`第二段来源` + `关闭对比`）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": {
+          "hasSourceHeader": false,
+          "hasCloseButton": false,
+          "hasDiffHint": false,
+          "bodyChars": 353
+        },
+        "after": {
+          "hasSourceHeader": true,
+          "hasCloseButton": true,
+          "hasDiffHint": true,
+          "bodyChars": 405
+        },
+        "shiftSeenInCapture": true,
+        "reached": true,
+        "defaultPrevented": true,
+        "hostActionDeltaTotal": 0,
+        "hostActionDeltaFired": {},
+        "modalWidget": null,
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 4,
+            "phase": "capture",
+            "key": "D",
+            "code": "KeyD",
+            "ctrl": true,
+            "alt": false,
+            "shift": true,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": true,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ],
+        "screenshot": "r20-k-diff.png"
+      }
+    },
+    {
+      "id": "K-CTRLD-REVERSE",
+      "desc": "反向守门：`Ctrl+D` **不被我们抢走** —— 同一单词出现两次 + 1 个 range 的选区 ⇒ 按一次后 range 数 1 → 2（CM6 `selectNextOccurrence`），且 diff 面板未打开",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "setup": {
+          "ok": true,
+          "docCodePoints": 23,
+          "rangeCount": 1,
+          "selectedChars": 5
+        },
+        "rangeCountBefore": 1,
+        "rangesBefore": [
+          {
+            "from": 0,
+            "to": 5
+          }
+        ],
+        "rangeCountAfter": 2,
+        "rangesAfter": [
+          {
+            "from": 0,
+            "to": 5
+          },
+          {
+            "from": 11,
+            "to": 16
+          }
+        ],
+        "docCodePointsBefore": 23,
+        "docCodePointsAfter": 23,
+        "docFnv1a32Before": "8a2d71c8",
+        "docFnv1a32After": "8a2d71c8",
+        "diffOpenedByCtrlD": false,
+        "diffBeforeCtrlD": false,
+        "reached": true,
+        "defaultPrevented": false,
+        "hostActionDeltaTotal": 0,
+        "modalWidget": null,
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "d",
+            "code": "KeyD",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": false,
+            "targetTag": "DIV",
+            "targetInPanel": true,
+            "targetInCm": true,
+            "targetAttached": true,
+            "targetPath": [
+              "DIV[cm-content]",
+              "DIV",
+              "DIV[cm-editor]",
+              "DIV",
+              "DIV",
+              "DIV"
+            ],
+            "bodyYield": false
+          }
+        ],
+        "note": "`defaultPrevented` 是**window 捕获阶段**的读数；CM6 在更里层处理该键，故它可能为 false 而选区已扩到 2 个 range —— 判据取 range 数与「diff 面板没被打开」两者",
+        "screenshot": "r20-k-ctrld-reverse.png"
+      }
+    },
+    {
+      "id": "K-OPENFILE",
+      "desc": "`file.open` = `Ctrl+O`（本轮新默认）：渲染层**收到该键且被我们接管**（`defaultPrevented=true`）、**接管逻辑一路走到桥的原生对话框调用点**、宿主 47 项动作计数 = 0；**原生对话框里的选路径 SKIP**（无自动化接口）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "seam": {
+          "seamInstalled": true,
+          "originalIsCallable": true,
+          "seam": "src/bridge/editor.py::_open_file_names"
+        },
+        "seamCalled": true,
+        "seamCalls": [
+          {
+            "title": "打开文件",
+            "hasParent": false,
+            "hasFilter": false
+          }
+        ],
+        "reached": true,
+        "defaultPrevented": true,
+        "hostActionDeltaTotal": 0,
+        "hostActionDeltaFired": {},
+        "downloads": [],
+        "modalWidget": null,
+        "tabCountAfter": 3,
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "o",
+            "code": "KeyO",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": true,
+            "targetTag": "DIV",
+            "targetInPanel": true,
+            "targetInCm": true,
+            "targetAttached": true,
+            "targetPath": [
+              "DIV[cm-content]",
+              "DIV",
+              "DIV[cm-editor]",
+              "DIV",
+              "DIV",
+              "DIV"
+            ],
+            "bodyYield": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "K-OPENFILE-DIALOG",
+      "desc": "`Ctrl+O` 原生 `QFileDialog` 的**选路径 / 确认** —— **SKIP**：探针不注入产品源码、也不具备原生对话框自动化能力 ⇒ 不伪造成 PASS（与 r15 的 AC71-7 同一既有约定）",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "原生文件对话框无自动化接口；且从按键派发栈进 `exec()` 会让 `QTest.qWait` 永不返回（本轮实测卡死）⇒ 本判据走产品源码里公开标注的测试接缝",
+        "productCallSite": "src/bridge/editor.py:278 的 `_open_file_names`（:195 → `QFileDialog.getOpenFileNames`）",
+        "whatIsProven": "按键送达 + 我们接管（preventDefault）+ 接管逻辑一路走到对话框调用点（接缝被调用）+ 宿主 47 项动作计数 = 0 + 无宿主模态 + 窗口存活",
+        "whatIsSkipped": "对话框内部交互（选文件、点打开/取消）"
+      }
+    },
+    {
+      "id": "H-NOHOST",
+      "desc": "整个按键相位：宿主 47 项 `WebAction` 触发计数 = 0、无下载、无**残留**宿主模态、无 DOM 模态、主窗口存活（`Ctrl+O` 打开的原生对话框已由探针关闭，另见 K-OPENFILE）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "webActionTotalInKeyPhase": 0,
+        "webActionByActionInKeyPhase": {},
+        "instrumentedActionCount": 47,
+        "phaseBeforeReset": {},
+        "downloads": [],
+        "modalWidget": null,
+        "domDialogLabel": null,
+        "windowAlive": true
+      }
+    }
+  ],
+  "notes": [
+    "登录：{\"loggedIn\": true, \"hasToken\": true, \"sessionFileExists\": true, \"role\": \"admin\"}",
+    "重载后：{\"hash\": \"#/files\", \"navEditor\": true, \"workspaceCount\": 0, \"tabCount\": 0}",
+    "H-NOHOST 计数清零：清零前 {}"
+  ],
+  "platform": "",
+  "real_window": true,
+  "webui": {
+    "originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "indexExists": true,
+    "indexSha256Prefix": "38ee31510ab1aef6"
+  },
+  "requests": [
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-DCNfAnPR.js",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-D0fuOM-O.css",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html#/login",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-DCNfAnPR.js",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-D0fuOM-O.css",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-128.png",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/vendor/editor.bundle.js"
+  ],
+  "hostActionNames": [
+    "AlignCenter",
+    "AlignJustified",
+    "AlignLeft",
+    "AlignRight",
+    "Back",
+    "ChangeTextDirectionLTR",
+    "ChangeTextDirectionRTL",
+    "Copy",
+    "CopyImageToClipboard",
+    "CopyImageUrlToClipboard",
+    "CopyLinkToClipboard",
+    "CopyMediaUrlToClipboard",
+    "Cut",
+    "DownloadImageToDisk",
+    "DownloadLinkToDisk",
+    "DownloadMediaToDisk",
+    "ExitFullScreen",
+    "Forward",
+    "Indent",
+    "InsertOrderedList",
+    "InsertUnorderedList",
+    "InspectElement",
+    "OpenLinkInNewBackgroundTab",
+    "OpenLinkInNewTab",
+    "OpenLinkInNewWindow",
+    "OpenLinkInThisWindow",
+    "Outdent",
+    "Paste",
+    "PasteAndMatchStyle",
+    "Redo",
+    "Reload",
+    "ReloadAndBypassCache",
+    "RequestClose",
+    "SavePage",
+    "SelectAll",
+    "Stop",
+    "ToggleBold",
+    "ToggleItalic",
+    "ToggleMediaControls",
+    "ToggleMediaLoop",
+    "ToggleMediaMute",
+    "ToggleMediaPlayPause",
+    "ToggleStrikethrough",
+    "ToggleUnderline",
+    "Undo",
+    "Unselect",
+    "ViewSource"
+  ],
+  "vkAdded": [
+    "o",
+    "k",
+    "d",
+    "pagedown",
+    "pageup"
+  ],
+  "user_data_sandbox": "poc\\editor-probes\\out\\r20-20261016-stepC2\\.tmp_appdata",
+  "isolatedServer": {
+    "pid": 10740
+  }
+}

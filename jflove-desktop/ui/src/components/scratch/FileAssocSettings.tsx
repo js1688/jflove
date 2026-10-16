@@ -24,6 +24,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EXTENSIONS } from '../../config/scratch-types';
 import { scratchService } from '../../services/scratch-service';
 import type { FileAssocState } from '../../types/scratch';
+// 缺陷 L-7：共享「异常 → 文案」叶子模块（本组件不再自带一份实现）
+import { ERROR_FALLBACK, describeErrorWithFallback } from '../../utils/error-text';
 import { Button, toast } from '../ui';
 
 /** 平台显示名（只读展示用） */
@@ -33,10 +35,9 @@ const PLATFORM_LABEL: Record<FileAssocState['platform'], string> = {
   other: '未知平台',
 };
 
-/** 把异常转成可展示文案（后端错误文案优先；不含路径与内容，§7.4） */
-function describeError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  return '文件关联操作失败';
+/** 把异常转成可展示文案（后端错误文案优先；不含路径与内容，§7.4）—— 兜底文案保持抽取前原样 */
+function describeAssocError(error: unknown): string {
+  return describeErrorWithFallback(error, ERROR_FALLBACK.FILE_ASSOC);
 }
 
 /** 两个扩展名集合是否等价（顺序无关） */
@@ -65,7 +66,7 @@ export function FileAssocSettings() {
       setSelected(resp.selected);
     } catch (e) {
       setState(null);
-      setError(describeError(e));
+      setError(describeAssocError(e));
     } finally {
       setLoading(false);
     }
@@ -98,7 +99,7 @@ export function FileAssocSettings() {
       setState((prev) => (prev ? { ...prev, selected: resp.selected } : prev));
       toast.success('文件关联偏好已保存', '仅记录 JFLove 自己支持的扩展名，未修改系统默认程序');
     } catch (e) {
-      setError(describeError(e));
+      setError(describeAssocError(e));
     } finally {
       setSaving(false);
     }
@@ -116,15 +117,37 @@ export function FileAssocSettings() {
             : '当前平台不支持从应用内打开系统设置页，请手动打开系统「默认应用」设置'),
       );
     } catch (e) {
-      setError(describeError(e));
+      setError(describeAssocError(e));
     }
   }, []);
 
   return (
     <div className="flex flex-col gap-3">
-      {/* 语义说明（C-3：UI 文案必须写明不会修改系统默认程序 / 被唤起时一律打开） */}
+      {/* 语义说明（C-3：UI 文案必须写明不会修改系统默认程序 / 被唤起时一律打开）
+          v1.6.1 本轮（AC-79 / 设计 §15.7.2）：补齐【平台范围】与两点差异 ——
+          ① macOS 暂不支持；② Linux 侧尚未真机验证 + 需用户自行在桌面环境选默认程序，
+          与 Windows 的「设为默认」会**直接打开系统设置页**形成对照。 */}
       <div className="rounded-lg border border-line-subtle bg-sunken px-3 py-2 text-[11.5px] leading-relaxed text-muted">
         <div>
+          <span className="font-semibold">平台范围</span>：本功能在
+          <span className="font-semibold"> Windows </span>与
+          <span className="font-semibold"> Linux </span>可用；macOS{' '}
+          <span className="font-semibold">暂不支持</span>。
+        </div>
+        <div className="mt-0.5">
+          安装包会替你完成系统侧登记（Windows 写入「打开方式」候选；Linux 由 RPM 安装 MIME
+          声明与桌面项）。⚠ <span className="font-semibold">Linux 侧尚未真机验证</span>
+          ：如遇「打开方式」里看不到 JFLove，请反馈，我们会补验证与修复。
+        </div>
+        <div className="mt-0.5">
+          想让某类文件默认由 JFLove 打开，请点「设为默认」：
+          <span className="font-semibold">Windows </span>
+          会直接打开系统的「默认应用」设置页；
+          <span className="font-semibold">Linux </span>
+          不打开 Windows 设置页，而是给出指引 —— 请你在桌面环境的「默认应用」里
+          <span className="font-semibold">自行选择</span>（GNOME：设置 → 默认应用）。
+        </div>
+        <div className="mt-0.5">
           勾选只表示「JFLove 自己支持这些扩展名」，作为应用内偏好保存，
           <span className="font-semibold">不会修改、也不会抢占系统的默认程序</span>。
         </div>
@@ -132,10 +155,6 @@ export function FileAssocSettings() {
           文件被系统唤起时（双击 / 命令行 / 右键「打开方式」），
           <span className="font-semibold">无论是否勾选都会用 JFLove 打开</span>；
           勾选只影响应用内的候选过滤与提示。
-        </div>
-        <div className="mt-0.5">
-          想让某类文件默认由 JFLove 打开，请点「设为默认」，在系统设置里手动指定
-          （Windows 10/11 不允许程序静默改默认程序）。
         </div>
       </div>
 

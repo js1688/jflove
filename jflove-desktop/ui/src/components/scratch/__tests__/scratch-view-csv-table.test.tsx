@@ -14,6 +14,13 @@
  *   thead 一行 `[a, b]` + tbody **一行** `[1, 2]`；需求里的「单元格(1,1)=a / (2,2)=2」
  *   按解析层行列理解。另每行首列是序号列 `#`（CsvTableView.tsx:92-94 / 108-110），
  *   断言前必须切掉。
+ *
+ * v1.6.1 迁移说明（设计文档 `文档记录/设计文档/v1.6.1.md` §4.2 / §4.3）：
+ *   - `ScratchPane` 已删除 → 标签模型 `ScratchTab`，面板外壳 `EditorPanel`（`{ tabId, active }`）。
+ *   - v1.6.0 的 `.scratch-pane-main[data-view-mode]` 已不存在；表格视图由 `EditorPanel` 分派到
+ *     `CsvTableView`（`EditorPanel.tsx:150-205`）。本文件直接渲染视图组件并断言其 DOM，
+ *     与 `EditorPanel` 内实际挂载的完全同一个组件、同一份 props 口径。
+ *   - 正文取自替身会话（`getScratchEditorSession(tabId).getText()`），夹具**先摆正文再渲染**。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { cleanup, fireEvent } from '@testing-library/react';
@@ -44,18 +51,19 @@ vi.mock('../../../services/scratch-service', () => ({
     reportDirty: vi.fn(),
   },
   isEditorBridgeReady: () => true,
-  toDraftPaneMeta: (pane: unknown) => pane,
+  toDraftPaneMeta: (tab: unknown) => tab,
 }));
 
-import { ScratchPane } from '../ScratchPane';
-import { useScratchStore } from '../../../stores/scratch-store';
+import { CsvTableView } from '../views/CsvTableView';
 import {
+  getScratchEditorSession,
   mockSessionOf,
-  paneTextOf,
-  renderPaneInStore,
+  registerMockSession,
+  renderTabInStore,
   resetMockEditorSessions,
   resetScratchStore,
-  setPaneText,
+  tabTextOf,
+  type TabRenderHandle,
 } from './scratch-editor-host-mock';
 
 // ---- 夹具 ------------------------------------------------------------------------
@@ -63,20 +71,30 @@ import {
 const CSV = 'a,b\n1,2\n';
 const TSV = 'a\tb\n1\t2\n';
 
+/** 与 `EditorPanel.tsx:150-205` 相同的视图容器类名口径（视图区标识） */
+const AUX_CLASS = 'scratch-pane-aux';
+
 /**
- * 摆好正文并切到表格视图。
+ * 摆好正文并渲染表格视图。
  *
- * 能力门口径（证据：`stores/scratch-store.ts:166 capabilitiesForPane`）：`language === detected`
+ * 能力门口径（证据：`stores/scratch-store.ts` 的 `capabilitiesForTab`）：`language === detected`
  * 时能力按 `path` 扩展名解析——表格能力来自 `.csv` / `.tsv`，所以必须给真实扩展名路径，
- * 否则 `setViewMode('table')` 会被能力检查静默忽略。
+ * 否则 `setViewMode('table')` 会被能力检查静默忽略（本文件仍保留该前置校验的语义）。
+ * 视图模式为 `table` 时 `EditorPanel` 正是以 `{ text }` 渲染 `CsvTableView`。
  */
-function renderTable(path: string, text: string) {
-  const handle = renderPaneInStore(
-    (pane) => createElement(ScratchPane, { pane, active: true, onRequestClose: () => undefined }),
-    { path, language: 'text', detected: 'text' },
+function renderTable(path: string, text: string): TabRenderHandle {
+  let knownTabId = '';
+  const handle = renderTabInStore(
+    () => {
+      if (!getScratchEditorSession(knownTabId)) registerMockSession(knownTabId, text);
+      return createElement(CsvTableView, {
+        text: tabTextOf(knownTabId),
+        className: AUX_CLASS,
+      });
+    },
+    { path, language: 'text', detected: 'text', viewMode: 'table' },
   );
-  setPaneText(handle.paneId, text);
-  useScratchStore.getState().setViewMode(handle.paneId, 'table');
+  knownTabId = handle.tabId;
   handle.sync();
   return handle;
 }
@@ -160,12 +178,12 @@ describe('AC-31 / AC-17 CSV 表格视图', () => {
   it('手动切换分隔符只影响本视图渲染，不改原文', () => {
     // 判据：`CsvTableView.tsx:44` 注释「列对齐只发生在渲染副本上，原文一个字符都不动」
     const handle = renderTable('D:\\tmp\\a.tsv', TSV);
-    const before = paneTextOf(handle.paneId);
+    const before = tabTextOf(handle.tabId);
     // 用逗号解释 TSV → 整行就是一列
     fireEvent.click(buttonByText(handle.container, '逗号'));
     expect(headerCells(handle.container)).toEqual(['a\tb']);
     expect(handle.container.querySelector('.scratch-pane-aux')?.textContent).toContain('手动');
-    expect(paneTextOf(handle.paneId)).toBe(before);
+    expect(tabTextOf(handle.tabId)).toBe(before);
   });
 
   it('引号包裹的字段按 RFC4180 解析，不按逗号硬切（负向对照）', () => {
@@ -177,12 +195,12 @@ describe('AC-31 / AC-17 CSV 表格视图', () => {
 });
 
 describe('AC-31 表格只读（负向对照）', () => {
-  it('表格视图没有可写控件，编辑操作既不改渲染文本也不改窗格文本', () => {
+  it('表格视图没有可写控件，编辑操作既不改渲染文本也不改标签正文', () => {
     // 判据：AC-31 负向对照「表格只读（对单元格发起编辑操作后，渲染文本与之对应的窗格文本均不变）」
     const handle = renderTable('D:\\tmp\\a.csv', CSV);
     const aux = handle.container.querySelector('.scratch-pane-aux');
     // 记录"发起编辑操作前"的写回次数，用于差值断言
-    const writesBefore = [...mockSessionOf(handle.paneId).writes];
+    const writesBefore = [...mockSessionOf(handle.tabId).writes];
     expect(aux).not.toBeNull();
     // 1) 没有任何输入控件 / 可编辑区域
     expect(aux?.querySelectorAll('input, textarea, select, [contenteditable="true"]')).toHaveLength(0);
@@ -211,10 +229,10 @@ describe('AC-31 表格只读（负向对照）', () => {
     // 渲染文本仍来自原文
     const rendered = dataCells(tbodyRows(handle.container)[0]);
     expect(rendered).toEqual(['1', '2']);
-    // 窗格文本（会话正文）逐字符不变，且没有**新增**写回
+    // 标签正文（会话正文）逐字符不变，且没有**新增**写回
     // （夹具摆正文时用过一次 setText，故以快照差值为准）
-    const writesAfter = [...mockSessionOf(handle.paneId).writes];
-    expect(paneTextOf(handle.paneId)).toBe(CSV);
+    const writesAfter = [...mockSessionOf(handle.tabId).writes];
+    expect(tabTextOf(handle.tabId)).toBe(CSV);
     expect(writesAfter).toEqual(writesBefore);
   });
 });

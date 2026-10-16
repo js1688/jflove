@@ -6,7 +6,7 @@
   `jflove-desktop/packaging/windows/{jflove.iss,file-assoc.iss}`、`jflove-desktop/packaging/linux/*`、
   `jflove-desktop/ui/public/file-assoc.manifest.json`、`jflove-desktop/tests/test_gen_file_assoc_assets.py`
 - 负责验收标准：AC-43、AC-48a、AC-44、AC-B6、AC-B7
-- 纪律依据：`.claude/skills/code-review/SKILL.md` 纪律 7（门禁脚本要审判据）、纪律 8（以 X 为准确认 X 可信）、
+- 纪律依据：`.agents/skills/code-review/SKILL.md` 纪律 7（门禁脚本要审判据）、纪律 8（以 X 为准确认 X 可信）、
   `AGENTS.md` §8（桌面端交付形态 = 安装包）
 - 取证环境：所有破坏性验证一律在 `$env:TEMP\jf-audit\` 下的临时树/临时副本上进行，**未修改仓库内任何源码、资产或打包脚本**；
   每轮实验后 `git status --porcelain` 复核，仓库侧零改动（仅本报告文件与任务开始前既有的未跟踪项）。

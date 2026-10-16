@@ -1,0 +1,24 @@
+{
+  "probe": "r15-real-gui-ac64-ac71",
+  "at": "2026-10-15T16:50:12",
+  "only": [
+    "64",
+    "71",
+    "67",
+    "68"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳可构造（QtWebEngine + 桥 + 前端产物）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "load_ui": false,
+        "index_html": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261015-164924\\.tmp_webui\\index.html"
+      }
+    }
+  ],
+  "notes": [],
+  "platform": ""
+}

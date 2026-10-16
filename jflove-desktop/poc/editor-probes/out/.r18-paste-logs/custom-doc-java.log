@@ -1,0 +1,9 @@
+[env] java=21.0.9 os=Windows Server 2022 headlessProperty=null
+[env] graphicsEnvironmentIsHeadless=false
+[payload] flavorMode=custom withText=true htmlCodePoints=147 htmlUtf8Bytes=155 htmlFnv1a32=a6384784 plainCodePoints=21 plainUtf8Bytes=29 plainFnv1a32=d590af30
+[flavor] html=text/html; class=java.lang.String; charset=UTF-8 isSelectionHtml=false isAllHtml=false textUtilsFlavor=true
+[set] setContentsOk=true error=none elapsedMs=23
+[available] count=2 flavors=text/html; class=java.lang.String; charset=UTF-8 | application/x-java-serialized-object; class=java.lang.String
+[available] htmlAvailable=true stringAvailable=true
+[ready] 驻留 300 秒（延迟渲染：JVM 必须活着，否则读取方拿到空数据 ⇒ 假结论）
+[owner] lostOwnership（剪贴板所有权易主）

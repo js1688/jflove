@@ -12,62 +12,6 @@
  * 2. 颜色 / 圆角 / 阴影 / 动效一律引用 `tokens.css` 的语义变量 ⇒ 暗色主题零改动（AC-3）。
  * ============================================================ */
 
-/* ---------- 浮动层根（pointer-events: none，只有窗格与工具条恢复 auto）---------- */
-.scratch-layer {
-  position: absolute;
-  /* 顶部让出窗口标题栏（与 App.tsx 的 flex 列布局共存：绝对定位不占流） */
-  top: var(--header-h);
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 40;
-  pointer-events: none;
-}
-
-/* ---------- 单个窗格 ---------- */
-.scratch-pane {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  min-width: 320px; /* = PANE_MIN_WIDTH（store 侧同样钳制，这里兜视觉） */
-  min-height: 200px; /* = PANE_MIN_HEIGHT */
-  overflow: hidden;
-  pointer-events: auto;
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: var(--r-md);
-  box-shadow: var(--e3);
-}
-
-.scratch-pane-active {
-  border-color: var(--brand-400);
-  box-shadow: var(--e4);
-}
-
-/* 最小化：整窗收成标题栏高度（正文区与状态栏随之隐藏） */
-.scratch-pane-min {
-  height: auto;
-  min-height: 0;
-}
-
-.scratch-pane-max {
-  border-radius: 0;
-}
-
-/* 正文 + 状态栏的外壳：最小化时用 hidden 属性整块收起 */
-.scratch-pane-main {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* 作者样式会盖掉 UA 的 [hidden]（display:none），必须显式补回 */
-.scratch-pane-main[hidden] {
-  display: none;
-}
-
 /* CM6 宿主（`ScratchEditorHost` 的外层）：占满正文区剩余高度。
  * `flex: 1` = `1 1 0%`，用 flex-basis 覆盖宿主自带的 `h-full`（在列向 flex 里 basis 优先），
  * 从而给状态栏留出固定 24px —— 不依赖对方任何内部类名。 */
@@ -109,7 +53,7 @@
 }
 
 /* 作者样式里的 `display` 会盖掉 UA 的 `[hidden]`（display:none），必须显式补回
- * —— 理由同上面的 `.scratch-pane-main[hidden]`。 */
+ * —— 下面这两条槽位规则自身声明了 `display: flex`，属于必须补回的情形。 */
 .scratch-pane-host[hidden],
 .scratch-pane-aux[hidden] {
   display: none;
@@ -118,83 +62,6 @@
 /* 纯预览态没有左栏，分隔线不该贴在最左边 */
 .scratch-pane-body[data-pane-body='preview'] .scratch-pane-aux {
   border-left: none;
-}
-
-/* ---------- 标题栏 ---------- */
-.scratch-title {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  padding: 0 6px 0 10px;
-  background-color: var(--bg-sunken);
-  border-bottom: 1px solid var(--border-subtle);
-  cursor: default;
-  user-select: none;
-  /* 触屏 / 触控板拖动交给 Pointer Events，禁用浏览器手势抢占 */
-  touch-action: none;
-}
-
-.scratch-title-active {
-  background-image: var(--grad-brand-soft);
-}
-
-.scratch-title-name {
-  overflow: hidden;
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--fg-default);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.scratch-title-chip {
-  flex-shrink: 0;
-  padding: 0 5px;
-  font-size: 10px;
-  line-height: 16px;
-  color: var(--fg-muted);
-  background-color: var(--bg-hover);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--r-xs);
-}
-
-.scratch-title-dot {
-  flex-shrink: 0;
-  width: 7px;
-  height: 7px;
-  background-color: var(--accent-500);
-  border-radius: var(--r-full);
-}
-
-.scratch-title-grow {
-  flex: 1;
-  align-self: stretch;
-}
-
-.scratch-title-btn {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 26px;
-  height: 100%;
-  padding: 0;
-  color: var(--fg-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--r-xs);
-  transition: background-color var(--dur-fast) var(--ease-out-quint);
-}
-
-.scratch-title-btn:hover {
-  color: var(--fg-default);
-  background-color: var(--bg-hover);
-}
-
-.scratch-title-btn-close:hover {
-  color: #fff;
-  background-color: var(--danger-500);
 }
 
 /* ---------- 内容区（未挂载时的骨架；已挂载时为 CM6 宿主）---------- */
@@ -259,129 +126,311 @@
   color: var(--fg-subtle);
 }
 
-/* ---------- 8 向缩放 handle ---------- */
-.scratch-resize {
-  position: absolute;
-  z-index: 2;
-}
+/* ============================================================
+ * v1.6.1 顶部标签条（设计 §4.6 交互 / §4.2 DOM 契约）
+ *
+ * 归属：`ui/src/components/scratch/ScratchTabBar.tsx` 与
+ * `ScratchTabOverflowMenu.tsx` 专用（与前文同规则：**不写进 components.css / tokens.css**，
+ * 那两个是跨端门禁文件）。颜色 / 圆角 / 阴影 / 动效一律用 tokens.css 的语义变量 ⇒ 暗色零改动。
+ *
+ * ## 结构（三步走，滚动容器刻意不与菜单同层）
+ *
+ * ```
+ * .scratch-tab-bar            固定单行（flex-shrink:0），只做横向排布
+ * ├─ .scratch-tab-strip       唯一的滚动容器（overflow-x:auto）
+ * │  └─ .scratch-tab × N      标签（原生 button）
+ * ├─ .scratch-tab-new         新建标签页（常驻最右端）
+ * └─ .scratch-tab-overflow    溢出入口（常驻）
+ *    ├─ .scratch-tab-overflow-button
+ *    └─ .scratch-tab-overflow-menu  下拉（绝对定位，被上面的 overflow 容器裁不到）
+ * ```
+ *
+ * ## 为什么 `overflow-x: auto` 不在 `.scratch-tab-bar` 上（对契约的一处已知偏差）
+ *
+ * 契约原话是「根元素 `.scratch-tab-bar`：`flex-shrink: 0` + `overflow-x: auto`」。
+ * 但 `overflow-x: auto` 会把该元素变成**滚动容器**，而滚动容器会**裁剪其内所有绝对定位后代**
+ * （CSS 2.1 §11.1.1：后代的包含块在滚动容器内部 ⇒ 一起被裁）。下拉菜单正好是这种后代：
+ * 放进去不仅会被裁掉，`overflow-y` 还会因 `overflow-x` 非 visible 而计算成 `auto`，
+ * 在标签条上多出一条竖向滚动条。
+ * 因此：`flex-shrink: 0` 留在根元素（单行固定这一条语义不变），
+ * `overflow-x: auto` 落到内层 `.scratch-tab-strip`（唯一需要横向滚动的部分），
+ * 菜单与两个常驻按钮都在滚动容器**之外**。若父 agent 坚持逐字落在根元素上，
+ * 只能改用 portal / `position: fixed` 把菜单送出裁剪区（代价是坐标要 JS 计算）。
+ * ============================================================ */
 
-.scratch-resize-n,
-.scratch-resize-s {
-  right: 8px;
-  left: 8px;
-  height: 5px;
-  cursor: ns-resize;
-}
-
-.scratch-resize-n {
-  top: 0;
-}
-
-.scratch-resize-s {
-  bottom: 0;
-}
-
-.scratch-resize-e,
-.scratch-resize-w {
-  top: 8px;
-  bottom: 8px;
-  width: 5px;
-  cursor: ew-resize;
-}
-
-.scratch-resize-e {
-  right: 0;
-}
-
-.scratch-resize-w {
-  left: 0;
-}
-
-.scratch-resize-ne,
-.scratch-resize-nw,
-.scratch-resize-se,
-.scratch-resize-sw {
-  width: 12px;
-  height: 12px;
-}
-
-.scratch-resize-nw {
-  top: 0;
-  left: 0;
-  cursor: nwse-resize;
-}
-
-.scratch-resize-se {
-  right: 0;
-  bottom: 0;
-  cursor: nwse-resize;
-}
-
-.scratch-resize-ne {
-  top: 0;
-  right: 0;
-  cursor: nesw-resize;
-}
-
-.scratch-resize-sw {
-  bottom: 0;
-  left: 0;
-  cursor: nesw-resize;
-}
-
-/* ---------- 层内工具条（新建 / 打开 / 平铺 / 层叠）----------
- * 刻意用远高于窗格 z（store 的 zCounter 从 1 递增）的层级，
- * 保证被最大化窗格覆盖时仍可点击；位置固定在右下角，代价是与最大化窗格的
- * 状态栏右端有少量重叠（已用毛玻璃 + 半透明弱化）。
- */
-.scratch-toolbar {
-  position: absolute;
-  right: 12px;
-  bottom: 10px;
-  z-index: 9999;
+/* ---------- 标签条根：固定单行，永远不参与横向滚动 ---------- */
+.scratch-tab-bar {
   display: flex;
-  align-items: center;
+  flex-shrink: 0; /* 单行固定：不被工作区上下内容压扁（AC-67） */
+  align-items: stretch;
   gap: 2px;
-  padding: 3px;
-  pointer-events: auto;
-  background-color: var(--bg-glass);
-  border: 1px solid var(--border-default);
-  border-radius: var(--r-full);
-  box-shadow: var(--e2);
-  backdrop-filter: blur(10px);
+  height: 36px;
+  padding: 0 6px;
+  background-color: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+  user-select: none;
 }
 
-.scratch-tool-btn {
-  padding: 4px 10px;
-  font-size: 12px;
+/* ---------- 标签滚动区：唯一允许横向滚动的地方 ---------- */
+.scratch-tab-strip {
+  display: flex;
+  flex: 1 1 0%;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0; /* flex 子项默认 min-width:auto，不置 0 就不会出现横向滚动条 */
+  overflow-x: auto;
+  /* 显式 hidden：`overflow-x` 非 visible 时 `overflow-y: visible` 会被计算成 auto，
+   * 那样标签条会多出一条竖向滚动条。 */
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+/* ---------- 单个标签（原生 button） ---------- */
+.scratch-tab {
+  display: flex;
+  flex-shrink: 0; /* 标签自身不压缩：数量多时靠 strip 横向滚动 */
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 0 4px 0 10px;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1;
   color: var(--fg-muted);
-  background: transparent;
-  border: 0;
-  border-radius: var(--r-full);
+  background-color: transparent;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  cursor: default;
+  /* 触屏：按下标签即由 Pointer Events 接管拖拽排序，别让浏览器先去横向平移 */
+  touch-action: none;
   transition:
     background-color var(--dur-fast) var(--ease-out-quint),
     color var(--dur-fast) var(--ease-out-quint);
 }
 
-.scratch-tool-btn:hover {
+.scratch-tab:hover {
   color: var(--fg-default);
   background-color: var(--bg-hover);
 }
 
-.scratch-tool-sep {
-  width: 1px;
-  height: 14px;
-  margin: 0 2px;
-  background-color: var(--border-default);
+/* 激活项：与下方内容区连成一片，并用顶部一道品牌色描边做"当前页"提示（VSCode 式） */
+.scratch-tab-active {
+  color: var(--fg-default);
+  background-color: var(--bg-surface);
+  border-color: var(--border-default);
+  box-shadow: inset 0 2px 0 var(--brand-500);
 }
 
-/* ---------- 层内确认弹窗（关闭脏窗格的询问）----------
- * `components.css` 的 `.overlay` 是 `position:absolute; z-index:50`，而本层
- * ① 是 `pointer-events:none`（子元素会继承 none ⇒ 弹窗不可点），
- * ② 是独立层叠上下文（工具条的 z=9999 会盖住 z=50 的遮罩）。
- * 两处都必须在这里显式纠正 —— 这也是「不动 components.css」的代价，已注释备案。
- */
-.scratch-layer .overlay {
-  z-index: 10000;
-  pointer-events: auto;
+.scratch-tab-active:hover {
+  background-color: var(--bg-surface);
+}
+
+/* 标题：过长省略号（唯一可压缩的部分） */
+.scratch-tab-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 未保存圆点（标签条与溢出菜单共用同一个类名 ⇒ 定义一次） */
+.scratch-tab-dirty {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  background-color: var(--accent-500);
+  border-radius: var(--r-full);
+}
+
+/* ---------- 关闭按钮：hover 可见即可（不占视觉噪音） ---------- */
+.scratch-tab-close {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--fg-subtle);
+  background-color: transparent;
+  border: 0;
+  border-radius: var(--r-xs);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-out-quint),
+    background-color var(--dur-fast) var(--ease-out-quint);
+}
+
+.scratch-tab:hover .scratch-tab-close,
+.scratch-tab-active .scratch-tab-close,
+.scratch-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.scratch-tab-close:hover {
+  color: #fff;
+  background-color: var(--danger-500);
+}
+
+/* 无 hover 能力的设备（触屏）：一直显示关闭按钮，否则它永远点不到（透明但仍可点，易误触） */
+@media (hover: none) {
+  .scratch-tab-close {
+    opacity: 1;
+  }
+}
+
+/* 拖拽中的标签：半透明 + 抬起感，向用户表明"它正跟着指针走" */
+.scratch-tab-dragging {
+  background-color: var(--bg-hover);
+  box-shadow: var(--e2);
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+/* ---------- 常驻按钮：新建标签页 / 溢出入口 ---------- */
+.scratch-tab-new,
+.scratch-tab-overflow-button {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 28px;
+  padding: 0;
+  color: var(--fg-muted);
+  background-color: transparent;
+  border: 0;
+  border-radius: var(--r-xs);
+  transition:
+    background-color var(--dur-fast) var(--ease-out-quint),
+    color var(--dur-fast) var(--ease-out-quint);
+}
+
+.scratch-tab-new:hover,
+.scratch-tab-overflow-button:hover {
+  color: var(--fg-default);
+  background-color: var(--bg-hover);
+}
+
+/* ---------- 溢出下拉：定位基准 + 菜单本体 ---------- */
+.scratch-tab-overflow {
+  /* 定位基准：菜单是它的绝对定位后代，**不在**滚动容器内 ⇒ 永不被裁剪 */
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.scratch-tab-overflow-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 60; /* 盖住工作区正文（正文无 z-index，只要 > 0 即可） */
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 320px; /* 契约：列表可滚动 */
+  overflow-y: auto;
+  padding: 4px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  box-shadow: var(--e3);
+}
+
+/* ---------- 下拉项（全量标签，顺序 = 标签条顺序） ---------- */
+.scratch-tab-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--fg-default);
+  text-align: left;
+  background-color: transparent;
+  border: 0;
+  border-radius: var(--r-xs);
+  transition: background-color var(--dur-fast) var(--ease-out-quint);
+}
+
+.scratch-tab-overflow-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.scratch-tab-overflow-item-active {
+  color: var(--fg-brand);
+  background-color: var(--bg-active);
+  font-weight: 500;
+}
+
+.scratch-tab-overflow-icon {
+  flex-shrink: 0;
+  color: var(--fg-subtle);
+}
+
+.scratch-tab-overflow-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * v1.6.1：整页工作区（设计 §4.2 组件树 / §4.6 标签条与空态）
+ *
+ * 浮动窗格退役后，编辑器占满路由内容区：标签条固定在顶部（高度由
+ * `.scratch-tab-bar` 自己定），面板区撑满其余高度，二者之间不出现页面滚动条。
+ * 只加本版新增的类，v1.6.0 的 `.scratch-pane-*` 布局类保持原样复用（EditorPanel 仍在用）。
+ * ============================================================ */
+
+/* ---------- 工作区根：上下两段，禁止整体滚动（滚动交给内部面板） ---------- */
+.scratch-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- 面板区：撑满剩余高度；多个面板叠放，靠 `hidden` 切换可见性 ---------- */
+.scratch-workspace-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- 空态（AC-69：关掉最后一个标签页仍停留在工作区，而不是跳走） ---------- */
+.scratch-workspace-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+}
+
+.scratch-workspace-empty-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-default);
+}
+
+.scratch-workspace-empty-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+.scratch-workspace-empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
 }

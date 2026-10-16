@@ -1,0 +1,10 @@
+F6 真机负向对照：目标=jflove-desktop/src/ui/web_shell.py
+证据目录=D:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-f6neg
+[apply] sha256 前=8d3ed9b368747dd3 后=128d0c1a189eca2e 锚点命中=1
+[java] pid=2988 心跳=True 存活=True 等待 8.0s
+[probe] exit=1 用时 33.6s CLIP-AWT-REAL FAIL=True
+        detail={"status": "FAIL", "verdictNote": "paste-produced-nothing", "equalAnyAttempt": false, "attemptCount": 2, "doesQtSeeHtml": true, "clipboardUntouchedByProbe": true, "osKeyDeliveryOk": true, "docCodePointsAfter": 0, "expectationSource": "cf-unicodetext", "win32Formats": ["HTML Format", "CF_UNICODETEXT", "CF_TEXT", "UniformResourceLocator", "CF_LOCALE", "CF_OEMTEXT"]}
+[restore] sha=8d3ed9b368747dd3 字节一致=True git 状态一致=True
+[java] 收尾：{"wasAlive": true, "terminated": true}
+证据 JSON：D:\github\jflove\jflove-desktop\poc\editor-probes\out\r17-20261016-f6neg\r16-f6neg-control.json
+[OK] 变异后 CLIP-AWT-REAL 按预期 FAIL（粘贴 0 字符，且按键送达自检通过），源码已按字节还原

@@ -2,7 +2,7 @@
 
 > 审查范围：`049c20d..HEAD`（v1.6.0 全部改动）
 > 审查依据：`文档记录/需求文档/v1.6.0.md`（81 条 AC）、`文档记录/设计文档/v1.6.0.md`（1454 行）、`AGENTS.md`（含 §9 安全宪法）
-> 审查角色：code-review（`.claude/skills/code-review/SKILL.md`）
+> 审查角色：code-review（`.agents/skills/code-review/SKILL.md`）
 > 说明：本阶段**不修改任何代码**，仅输出结论与建议。
 
 ## 1. 范围与方法

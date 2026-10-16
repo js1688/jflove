@@ -28,36 +28,31 @@ export type LineEnding = 'lf' | 'crlf';
 /** 窗格视图模式（§4.1.2） */
 export type ScratchViewMode = 'edit' | 'preview' | 'split' | 'table' | 'tree';
 
-/** 窗格几何（§4.1.2 的 `geometry` 字段；`z` 为层级，越大越靠前） */
-export interface PaneGeometry {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  z: number;
-  /** 最小化标记 */
-  min: boolean;
-  /** 最大化标记 */
-  maxed: boolean;
-}
-
-/** 光标位置（1 基，用于草稿还原） */
-export interface PaneCaret {
+/**
+ * 光标位置（1 基，用于草稿还原）
+ *
+ * v1.6.1：由 `PaneCaret` 更名 —— 几何相关类型（`PaneGeometry`）随浮动窗格能力整体退役
+ * （设计 v1.6.1 §5.1 / DS-18），本文件不再有 `z` / `min` / `maxed` 等字段。
+ */
+export interface TabCaret {
   line: number;
   col: number;
 }
 
-// ── 窗格模型（§4.1.2）──
+// ── 标签页模型（v1.6.1 设计 §5.1）──
 
 /**
- * 单个编辑窗格的完整状态（草稿持久化的字段与之对齐）。
+ * 单个标签页（编辑面板）的完整状态（草稿持久化的字段与之对齐）。
+ *
+ * v1.6.1 变更：由 `ScratchPane` 改名并**删除 `geometry`** —— 标签条顺序取代几何/z 序，
+ * 顺序真相只有 `tabs` 数组一处（设计 §4.3 不变量 ④）。
  *
  * 注意：**这里没有 `text` 字段** —— 正文由 CM6 实例持有（`ScratchEditorHost`），
- * 未挂载窗格的初始正文走 `stores/scratch-store.ts` 的 `initialTexts` 暂存区，
+ * 未挂载标签的初始正文走 `stores/scratch-store.ts` 的 `initialTexts` 暂存区，
  * 避免同一份内容在渲染层存两份（AC-60 的内存判据）。
  */
-export interface ScratchPane {
-  /** `crypto.randomUUID()`，同时是草稿内容文件名 `pane-<id>.txt` */
+export interface ScratchTab {
+  /** `crypto.randomUUID()`，同时是草稿内容文件名 `pane-<id>.txt`（桥侧命名保持 `pane*`，DS-19） */
   id: string;
   /** 显示名：文件名 或「未命名」 */
   title: string;
@@ -73,9 +68,8 @@ export interface ScratchPane {
   /** F8 阈值降级 / `.diff` 类只读 */
   readOnly: boolean;
   dirty: boolean;
-  geometry: PaneGeometry;
   /** 1 基，用于还原 */
-  caret: PaneCaret;
+  caret: TabCaret;
   scrollTop: number;
   fontSize: number;
   showLineNumbers: boolean;
@@ -170,9 +164,13 @@ export interface StatPathResult {
 }
 
 /**
- * 草稿索引里的窗格元数据 = `editor.draftSave` 的 `pane` 字段（§7.1 #6 / #8）。
+ * 草稿索引里的标签页元数据 = `editor.draftSave` 的 `pane` 字段（§7.1 #6 / #8）。
  *
  * ⚠ 字段名是设计原文的**混合命名**（`lineEnd` 驼峰 + 其余下划线），不要改。
+ * ⚠ 桥侧命名保持 `pane*` / `PaneMeta`（DS-19）—— 渲染层用「标签页」语义，磁盘格式与桥参数不改名。
+ *
+ * v1.6.1（DS-30）：**删除 `geometry`**（几何退役），新增 3 个可选字段；
+ * 旧索引里的 `geometry` 由 Python 侧保留（读取侧原样透传），渲染层忽略即可。
  */
 export interface DraftPaneMeta {
   id: string;
@@ -183,12 +181,17 @@ export interface DraftPaneMeta {
   lineEnd: LineEnding;
   read_only: boolean;
   dirty: boolean;
-  geometry: PaneGeometry;
-  caret: PaneCaret;
+  caret: TabCaret;
   scroll_top: number;
   font_size: number;
   show_line_numbers: boolean;
   word_wrap: boolean;
+  /** v1.6.1 新增：视图模式（非法 / 缺失由 Python 侧落 `edit`） */
+  view_mode?: ScratchViewMode;
+  /** v1.6.1 新增：标签条顺序（0 基；旧索引无此字段 ⇒ 按数组顺序） */
+  order?: number;
+  /** v1.6.1 新增：是否为激活项（一批里至多一个 `true`） */
+  active?: boolean;
 }
 
 /** `editor.draftSave` 的返回 */

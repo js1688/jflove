@@ -1,0 +1,578 @@
+{
+  "probe": "r17-clipboard-cfhtml",
+  "at": "2026-10-16T13:13:39",
+  "only": [
+    "CLIP-AWT-REAL"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "realWindow": true,
+        "state": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0,
+          "cmBundle": false
+        }
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "隔离服务端就绪 + 服务层真登录 + 重载后渲染层已登录、工作区可用、恰好 1 个标签页",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "port": 49968,
+        "serverPid": 10816,
+        "login": {
+          "serverUrlSet": true,
+          "sessionReady": true,
+          "adminExistsBefore": false,
+          "adminExistsAfter": true,
+          "tokenPresentAfterInit": false,
+          "loggedInAfterInit": false,
+          "loggedIn": true,
+          "username": "r17probe",
+          "role": "admin",
+          "hasToken": true,
+          "sessionFileExists": true
+        },
+        "reload": {
+          "ok": true,
+          "tried": [
+            {
+              "via": "view.reload",
+              "ok": true
+            }
+          ]
+        },
+        "navEditorAfter": true,
+        "workspaceRootCount": 0,
+        "pushedOpenPaths": 1,
+        "fixtureName": "r17-clip-target.txt",
+        "tabState": {
+          "tabCount": 1,
+          "activePanelCount": 1,
+          "cmContentCount": 1,
+          "hash": "#/editor",
+          "activePanelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+          "cmBundle": true
+        }
+      }
+    },
+    {
+      "id": "SHAPE-AWT",
+      "desc": "跳过：本轮选择 CLIP-AWT-REAL（贴剪贴板上的**真实 AWT 载荷**），写合成载荷会覆盖它；此处只读留证真实载荷此刻的 Qt 形态",
+      "status": "SKIP",
+      "gating": true,
+      "detail": {
+        "why": "would-overwrite-real-payload",
+        "realClipboardQtShape": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 42,
+          "htmlUtf8Bytes": 42,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 14,
+          "textFnv1a32": "26c940ee",
+          "plainMatchesPayload": false,
+          "payloadMeta": {}
+        }
+      }
+    },
+    {
+      "id": "SHAPE-CHROMIUM",
+      "desc": "跳过：本轮选择 CLIP-AWT-REAL（同上，不写合成载荷）",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "would-overwrite-real-payload"
+      }
+    },
+    {
+      "id": "CLIP-AWT",
+      "desc": "粘贴判据（AWT）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中（--only）"
+    },
+    {
+      "id": "CLIP-CHROMIUM",
+      "desc": "粘贴判据（CHROMIUM）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中（--only）"
+    },
+    {
+      "id": "CLIP-TEXT",
+      "desc": "粘贴判据（TEXT）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中（--only）"
+    },
+    {
+      "id": "CLIP-EMPTY",
+      "desc": "粘贴判据（EMPTY）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中（--only）"
+    },
+    {
+      "id": "CLIP-HTMLONLY",
+      "desc": "粘贴判据（AWT-HTMLONLY）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中（--only）"
+    },
+    {
+      "id": "CLIP-DIVERGE",
+      "desc": "粘贴判据（AWT-DIVERGE）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "未选中（--only）"
+    },
+    {
+      "id": "AWT-CJK",
+      "desc": "中文载荷 ⇒ 粘贴成功",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "--no-cjk 或未选中（本轮只保留 ASCII 机制证据）"
+    },
+    {
+      "id": "CLIP-AWT-REAL",
+      "desc": "真实 AWT 载荷（JDK 自己写的 CF_HTML + 纯文本）⇒ OS 级 Ctrl+V 后正文逐字符等于剪贴板上的期望文本；探针**不写剪贴板**（最多两轮，结果都留证）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "kind": "AWT-REAL",
+        "focusBeforeClear": {
+          "ok": true,
+          "panelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+          "hasFocus": true,
+          "docLength": 0
+        },
+        "clearRetry": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+                "hasFocus": true,
+                "docCodePoints": 0,
+                "selectionMain": {
+                  "from": 0,
+                  "to": 0
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+            "hasFocus": true,
+            "docCodePoints": 0,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "osCtrlAPressed": true,
+        "clearedToEmpty": true,
+        "selectionAfterClear": {
+          "from": 0,
+          "to": 0
+        },
+        "baselineFnv1a32": "811c9dc5",
+        "baselineCodePoints": 0,
+        "pasteFocus": {
+          "ok": true,
+          "panelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+          "hasFocus": true,
+          "docCodePoints": 0,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "clipboardSequenceBeforePaste": 1498,
+        "clipboardSequenceAfterPaste": 1498,
+        "focusStateAfterPaste": {
+          "hasFocus": true,
+          "hidden": false,
+          "visibility": "visible",
+          "activeTag": "DIV",
+          "activeClass": "cm-content"
+        },
+        "after": {
+          "docCodePoints": 14,
+          "docUtf8Bytes": 14,
+          "docFnv1a32": "26c940ee",
+          "empty": false,
+          "hasFocus": true,
+          "selectionMain": {
+            "from": 14,
+            "to": 14
+          },
+          "r17Error": null
+        },
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 14,
+          "expectedCodePoints": 14,
+          "docCharUnits": 14,
+          "expectedCharUnits": 14
+        },
+        "expected": {
+          "codePoints": 14,
+          "utf8Bytes": 14,
+          "fnv1a32": "26c940ee"
+        },
+        "equal": true,
+        "windowAlive": true,
+        "shellHwnd": 722596,
+        "attempts": [
+          {
+            "round": 1,
+            "foregroundBeforePaste": 328362,
+            "foregroundIsShell": false,
+            "foregroundAfterPaste": 328362,
+            "equal": false,
+            "channel": "nothing",
+            "after": {
+              "docCodePoints": 0,
+              "docUtf8Bytes": 0,
+              "docFnv1a32": "811c9dc5",
+              "empty": true,
+              "hasFocus": true,
+              "selectionMain": {
+                "from": 0,
+                "to": 0
+              },
+              "r17Error": null
+            },
+            "compare": {
+              "equal": false,
+              "firstDiff": 0,
+              "docCodePoints": 0,
+              "expectedCodePoints": 14,
+              "docCharUnits": 0,
+              "expectedCharUnits": 14
+            },
+            "expected": {
+              "codePoints": 14,
+              "utf8Bytes": 14,
+              "fnv1a32": "26c940ee"
+            },
+            "pasteFocus": {
+              "ok": true,
+              "panelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+              "hasFocus": true,
+              "docCodePoints": 0,
+              "selectionMain": {
+                "from": 0,
+                "to": 0
+              }
+            },
+            "seqBefore": 1498,
+            "seqAfter": 1498,
+            "windowAlive": true
+          },
+          {
+            "round": 2,
+            "foregroundBeforePaste": 722596,
+            "foregroundIsShell": true,
+            "foregroundAfterPaste": 722596,
+            "equal": true,
+            "channel": "text-flavor",
+            "after": {
+              "docCodePoints": 14,
+              "docUtf8Bytes": 14,
+              "docFnv1a32": "26c940ee",
+              "empty": false,
+              "hasFocus": true,
+              "selectionMain": {
+                "from": 14,
+                "to": 14
+              },
+              "r17Error": null
+            },
+            "compare": {
+              "equal": true,
+              "firstDiff": -1,
+              "docCodePoints": 14,
+              "expectedCodePoints": 14,
+              "docCharUnits": 14,
+              "expectedCharUnits": 14
+            },
+            "expected": {
+              "codePoints": 14,
+              "utf8Bytes": 14,
+              "fnv1a32": "26c940ee"
+            },
+            "pasteFocus": {
+              "ok": true,
+              "panelId": "c33f9bf5-63d0-483d-a87d-7c42aba19da4",
+              "hasFocus": true,
+              "docCodePoints": 0,
+              "selectionMain": {
+                "from": 0,
+                "to": 0
+              }
+            },
+            "seqBefore": 1498,
+            "seqAfter": 1498,
+            "windowAlive": true
+          }
+        ],
+        "attemptCount": 2,
+        "equalFirstAttempt": false,
+        "equalAnyAttempt": true,
+        "expectation": {
+          "source": "cf-unicodetext",
+          "textCodePoints": 14,
+          "textUtf8Bytes": 14,
+          "textFnv1a32": "26c940ee",
+          "hadCrlf": false,
+          "htmlAvailable": true,
+          "htmlOffsets": null,
+          "htmlMarkerComment": false,
+          "htmlStartFragmentHeader": false
+        },
+        "win32ClipboardAtPasteTime": {
+          "formats": [
+            "HTML Format",
+            "CF_UNICODETEXT",
+            "CF_LOCALE",
+            "CF_TEXT",
+            "CF_OEMTEXT"
+          ],
+          "htmlAvailable": true,
+          "unicodeTextAvailable": true,
+          "oemTextAvailable": true,
+          "htmlBytes": 149,
+          "htmlSha256Prefix": "5cfa5d7cacac84e4",
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "offsets": {
+            "startHtml": 105,
+            "endHtml": 149,
+            "startFragment": 119,
+            "endFragment": 133
+          },
+          "hasMarkerComment": false,
+          "hasMarkerCommentLoose": false,
+          "hasEndMarkerComment": false,
+          "hasHtmlTag": true,
+          "hasBodyTag": true,
+          "lineEnding": "crlf",
+          "markerCount": 0,
+          "fragmentByOffsetOk": {
+            "ok": true,
+            "chunkUtf8Bytes": 14,
+            "chunkFnv1a32": "26c940ee",
+            "chunkIsWholeFragment": true,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 149,
+              "startFragment": 119,
+              "endFragment": 133
+            }
+          },
+          "startHtmlPointsAtHtmlTag": true,
+          "syntheticPayloadComparable": false,
+          "verdict": "awt-like-no-marker"
+        },
+        "qtShapeAtPasteTime": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 42,
+          "htmlUtf8Bytes": 42,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 14,
+          "textFnv1a32": "26c940ee",
+          "plainMatchesPayload": null
+        },
+        "clipboardSequenceBeforePasteRead": 1498,
+        "clipboardSequenceAfterPasteRead": 1498,
+        "clipboardUntouchedByProbe": true,
+        "hostWebActionCountAtThisPoint": 0,
+        "doesQtSeeHtml": true,
+        "doesQtSeeNonEmptyHtml": true,
+        "verdictNote": "paste-succeeded-on-second-attempt"
+      }
+    },
+    {
+      "id": "H-NOHOST",
+      "desc": "粘贴相位内宿主 47 项 WebAction 触发计数 = 0、无宿主模态、主窗口存活（计数已在粘贴相位起点清零；清零前的探针自身 Reload 另存于 detail）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "webActionTotalInPastePhase": 0,
+        "webActionByActionInPastePhase": {},
+        "webActionEventsInPastePhase": [],
+        "instrumentedActionCount": 47,
+        "phaseBeforeReset": {
+          "total": 1,
+          "byAction": {
+            "Reload": 1
+          },
+          "eventCount": 1,
+          "phase": "init"
+        },
+        "hostModalWidget": null,
+        "windowAlive": true,
+        "bridgeCounterInstallErrors": [],
+        "bridgeCallCounts": {
+          "editor.detectAndRead": 1,
+          "editor.writeText": 0,
+          "editor.draftSave": 0
+        }
+      }
+    }
+  ],
+  "notes": [
+    "H-NOHOST 计数清零：清零前 {\"total\": 1, \"byAction\": {\"Reload\": 1}, \"eventCount\": 1, \"phase\": \"init\"}",
+    "[CLIP-AWT-REAL] 期望文本来源=cf-unicodetext 长度=14 指纹=26c940ee hadCrlf=False（**不写剪贴板**）",
+    "[CLIP-AWT-REAL] 已等过外壳延迟重推（3s）再粘贴",
+    "[CLIP-AWT-REAL#1] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）",
+    "[CLIP-AWT-REAL] 第 1 轮：贴出 0 字符，foregroundIsShell=False，equal=False",
+    "[CLIP-AWT-REAL#2] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）",
+    "[CLIP-AWT-REAL] 第 2 轮：贴出 14 字符，foregroundIsShell=True，equal=True"
+  ],
+  "platform": "",
+  "real_window": true,
+  "cfHtmlFormatId": 49254,
+  "user_data_sandbox": "out\\r17-20261016-131259\\.tmp_appdata",
+  "isolatedServer": {
+    "pid": 10816,
+    "port": 49968
+  },
+  "webActionInstrumentation": {
+    "actionCount": 47,
+    "actionNames": [
+      "Back",
+      "Forward",
+      "Stop",
+      "Reload",
+      "Cut",
+      "Copy",
+      "Paste",
+      "Undo",
+      "Redo",
+      "SelectAll",
+      "ReloadAndBypassCache",
+      "PasteAndMatchStyle",
+      "OpenLinkInThisWindow",
+      "OpenLinkInNewWindow",
+      "OpenLinkInNewTab",
+      "CopyLinkToClipboard",
+      "DownloadLinkToDisk",
+      "CopyImageToClipboard",
+      "CopyImageUrlToClipboard",
+      "DownloadImageToDisk",
+      "CopyMediaUrlToClipboard",
+      "ToggleMediaControls",
+      "ToggleMediaLoop",
+      "ToggleMediaPlayPause",
+      "ToggleMediaMute",
+      "DownloadMediaToDisk",
+      "InspectElement",
+      "ExitFullScreen",
+      "RequestClose",
+      "Unselect",
+      "SavePage",
+      "OpenLinkInNewBackgroundTab",
+      "ViewSource",
+      "ToggleBold",
+      "ToggleItalic",
+      "ToggleUnderline",
+      "ToggleStrikethrough",
+      "AlignLeft",
+      "AlignCenter",
+      "AlignRight",
+      "AlignJustified",
+      "Indent",
+      "Outdent",
+      "InsertOrderedList",
+      "InsertUnorderedList",
+      "ChangeTextDirectionLTR",
+      "ChangeTextDirectionRTL"
+    ],
+    "totalInPastePhase": 0,
+    "byActionInPastePhase": {},
+    "phaseBeforeReset": {
+      "total": 1,
+      "byAction": {
+        "Reload": 1
+      },
+      "eventCount": 1,
+      "phase": "init"
+    }
+  },
+  "bridgeCallCounts": {
+    "editor.detectAndRead": 1,
+    "editor.writeText": 0,
+    "editor.draftSave": 0
+  }
+}

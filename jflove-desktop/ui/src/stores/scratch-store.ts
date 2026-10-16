@@ -1,18 +1,28 @@
 /**
- * 文本编辑器窗格状态管理（设计 v1.6.0 §4.1.2 / §4.1.3 / §6.2.2 / §6.3.2 / §7.2）
+ * 文本编辑器标签页状态管理（设计 v1.6.1 §4.3 / §4.5 / §4.8；承接 v1.6.0 §6.2.2 / §6.3.2 / §7.2）
  *
  * ## 一句话职责
  *
- * 窗格列表 / 几何（x,y,w,h,z,min,maxed）/ 层级聚焦 / 脏标记 / 目标路径 `path|null` /
+ * 标签页列表（**数组顺序 = 标签条顺序**）/ 激活项 / 脏标记 / 目标路径 `path|null` /
  * 草稿还原 / **1500 ms 防抖的自动保存与草稿写入**。
+ *
+ * ## v1.6.1 相对 v1.6.0 的模型迁移（DS-18）
+ *
+ * - `panes → tabs`、`activePaneId → activeTabId`；
+ * - **整体删除**：每个窗格的 `geometry`（x/y/w/h/z/min/maxed）、`zCounter`、`viewport`，
+ *   以及 `movePane` / `resizePane` / `toggleMinimize` / `toggleMaximize` / `tileAll` /
+ *   `cascadeAll` / `setViewport`（判据：`grep -rniE "tileAll|cascadeAll|movePane|resizePane|toggleMinimize|toggleMaximize"` = 0）；
+ * - **新增**：`openOrFocus`（同路径去重聚焦，AC-65）、`reorderTab`、`nextTab`、`prevTab`、`closeActiveTab`；
+ * - **桥与磁盘侧命名保持 `pane*`**（DS-19）：草稿文件名仍是 `pane-<id>.txt`，桥参数仍叫 `pane`，
+ *   只有渲染层用「标签页」语义 —— 这样既有的用户草稿**一份都不会丢**。
  *
  * ## 两条不可越界的红线
  *
  * 1. **自动保存只在 `path != null` 时写用户文件**（AC-40）：草稿形态（`path === null`）**永不**写
  *    用户文件系统，内容只进草稿库（`editor.draftSave` → `USER_DATA_DIR/storage/scratch/`）。
- * 2. **正文不进 store**：`text` 由 CM6 实例持有，store 只在两种时刻碰它 —— 新建窗格时的初始正文
+ * 2. **正文不进 store**：`text` 由 CM6 实例持有，store 只在两种时刻碰它 —— 新建标签时的初始正文
  *    暂存（`takeInitialText`）与防抖到点后的写盘（经 `registerScratchContentAccessor` 注册的读取器）。
- *    这样 10 个还原窗格也只占「1 份正文 + N 个 React 空壳」（AC-60 的内存判据）。
+ *    这样 10 个还原标签也只占「1 份正文 + N 个 React 空壳」（AC-60 / §4.8 的内存判据）。
  *
  * ## 防抖常量
  *
@@ -36,33 +46,10 @@ import {
 } from '../config/scratch-types';
 import type { ScratchCapability } from '../config/scratch-types';
 import { scratchService, toDraftPaneMeta } from '../services/scratch-service';
-import type {
-  DraftPaneMeta,
-  PaneCaret,
-  PaneGeometry,
-  ReadItem,
-  ScratchPane,
-  ScratchViewMode,
-} from '../types/scratch';
+import type { DraftPaneMeta, ReadItem, ScratchTab, ScratchViewMode, TabCaret } from '../types/scratch';
 import type { LineEnding, TextEncoding } from '../types/scratch';
-
-/** 窗格最小尺寸（缩放钳制，§4.1.2） */
-export const PANE_MIN_WIDTH = 320;
-export const PANE_MIN_HEIGHT = 200;
-
-/** 新建窗格的默认尺寸 */
-const DEFAULT_PANE_WIDTH = 720;
-const DEFAULT_PANE_HEIGHT = 480;
-
-/** 新建窗格的层叠起点 */
-const CASCADE_BASE_X = 60;
-const CASCADE_BASE_Y = 40;
-
-/** 层叠偏移（§4.1.2：固定偏移 24 px 递增） */
-const CASCADE_OFFSET = 24;
-
-/** 平铺间距（设计只说"互不重叠铺满可用区域"，取 4 px 保证边框可见） */
-const TILE_GAP = 4;
+// 缺陷 L-7：共享「异常 → 文案」叶子模块（本 store 不再自带一份实现）
+import { ERROR_FALLBACK, describeErrorWithFallback } from '../utils/error-text';
 
 /** 字号档位范围（F5.12 的 `Ctrl` + 滚轮缩放闭环） */
 const FONT_SIZE_MIN = 8;
@@ -93,34 +80,45 @@ export const AUTO_SAVE_DEBOUNCE_MS = readDebounceMs();
 
 // ── 模块级旁路表（不进 zustand 状态：内容读取器 / 计时器 / 编辑序号等不该触发重渲染）──
 
-/** 未挂载窗格的初始正文暂存区（挂载时 `takeInitialText` 取走并删除，避免双份内存） */
+/**
+ * 未挂载标签的初始正文暂存区（挂载时 `takeInitialText` 取走并删除，避免双份内存）。
+ *
+ * **生命周期四态**（AC-77 / 设计 §15.5.3 的表，改动本表前先读它）：
+ * | 阶段 | 状态 | 谁在动 |
+ * |------|------|--------|
+ * | ① 打开文件 | 写入 | `openOrFocus`（`:600` 附近的 `putInitialText`） |
+ * | ② 宿主挂载 | **取走即删** | `ScratchEditorHost` 的 `pane.id` effect（`takeInitialText`） |
+ * | ③ 宿主卸载 / 宿主 DOM 被换 | **写回**（覆盖式 + "标签仍存在"守卫） | `snapshotInitialText`（本文件） |
+ * | ④ 关闭标签 | 删除 | `closeTab`（下方的 `initialTexts.delete(id)`） |
+ *
+ * ⚠ ④ 与 ③ 的**物理顺序**是"先 `closeTab`（删）→ 面板卸载（可能想写）"，
+ * 靠 ③ 的 `tabs.find(...)` 守卫保证"已关闭的标签不会在内存里复活"。
+ * **不要**把守卫改成"看 `initialTexts.has(id)`"（那会在"从未挂载过、但已写入初始正文"的标签上误判）。
+ */
 const initialTexts = new Map<string, string>();
 
-/** 由窗格组件注册的正文读取器（`ScratchEditorHost` 挂载时注册，卸载时注销） */
+/** 由标签组件注册的正文读取器（`ScratchEditorHost` 挂载时注册，卸载时注销） */
 const contentAccessors = new Map<string, ScratchContentAccessor>();
 
-/** 每个窗格的编辑序号（防抖期间是否又发生过编辑，用于决定能否落下脏标记） */
+/** 每个标签的编辑序号（防抖期间是否又发生过编辑，用于决定能否落下脏标记） */
 const editSeqs = new Map<string, number>();
 
 /** 待触发的防抖计时器 */
 const flushTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-/** 最小化 / 最大化之前的几何（设计模型无此字段，故放旁路表，且**不持久化**） */
-const restoreGeometries = new Map<string, PaneGeometry>();
-
 /**
- * 窗格正文读取器：把 **CM6 实例的实时值**交给 store（store 不缓存正文）。
+ * 标签正文读取器：把 **CM6 实例的实时值**交给 store（store 不缓存正文）。
  *
  * `text` 必填；`caret` / `scrollTop` 用于草稿还原（缺省则沿用 store 里缓存的旧值）。
  */
 export type ScratchContentAccessor = () => {
   text: string;
-  caret?: PaneCaret;
+  caret?: TabCaret;
   scrollTop?: number;
 };
 
-/** 生成窗格 id（设计指定 `crypto.randomUUID()`；非安全上下文做一次兜底） */
-function newPaneId(): string {
+/** 生成标签 id（设计指定 `crypto.randomUUID()`；非安全上下文做一次兜底） */
+function newTabId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
@@ -132,10 +130,9 @@ function basenameOf(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
-/** 异常 → 展示文案（不含路径与内容） */
-function describeError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  return '保存失败';
+/** 异常 → 展示文案（不含路径与内容）—— 兜底文案 `'保存失败'` 保持抽取前原样 */
+function describeSaveError(error: unknown): string {
+  return describeErrorWithFallback(error, ERROR_FALLBACK.SAVE);
 }
 
 /** 视图模式是否被能力表允许（不可用则 `setViewMode` 不动，§4.1.2） */
@@ -157,67 +154,133 @@ export function isViewModeAllowed(mode: ScratchViewMode, capabilities: ScratchCa
 }
 
 /**
- * 取某个窗格生效的能力集。
+ * 取某个标签生效的能力集。
  *
  * 口径：**手动切过语言就以语言为准**（用户显式选择优先）；否则有目标路径时按扩展名查表
  * （csv 的语言是 `text`，但它的「表格视图」能力来自扩展名，必须按 ext 查才不会误禁）；
  * 草稿形态（无路径）退回语言并集（宽松兜底）。
  */
-export function capabilitiesForPane(pane: ScratchPane): ScratchCapability[] {
-  if (pane.language !== pane.detected) return getCapabilitiesForLanguage(pane.language);
-  if (pane.path) return resolveTypeForPath(pane.path).capabilities;
-  return getCapabilitiesForLanguage(pane.language);
+export function capabilitiesForTab(tab: ScratchTab): ScratchCapability[] {
+  if (tab.language !== tab.detected) return getCapabilitiesForLanguage(tab.language);
+  if (tab.path) return resolveTypeForPath(tab.path).capabilities;
+  return getCapabilitiesForLanguage(tab.language);
 }
 
 /** 注册正文读取器（返回注销函数；`ScratchEditorHost` 挂载/卸载时调用） */
 export function registerScratchContentAccessor(
-  paneId: string,
+  tabId: string,
   accessor: ScratchContentAccessor,
 ): () => void {
-  contentAccessors.set(paneId, accessor);
+  contentAccessors.set(tabId, accessor);
   return () => {
-    if (contentAccessors.get(paneId) === accessor) contentAccessors.delete(paneId);
+    if (contentAccessors.get(tabId) === accessor) contentAccessors.delete(tabId);
   };
 }
 
-/** 暂存未挂载窗格的初始正文（`applyReadResult` 用；草稿还原暂无此路径，见交付说明） */
-export function putInitialText(paneId: string, text: string): void {
-  initialTexts.set(paneId, text);
+/** 暂存未挂载标签的初始正文（`openOrFocus` 用；草稿还原暂无此路径，见交付说明） */
+export function putInitialText(tabId: string, text: string): void {
+  initialTexts.set(tabId, text);
 }
 
 /** 取走初始正文（**取走即删除**，全生命周期只交付一次） */
-export function takeInitialText(paneId: string): string | null {
-  const text = initialTexts.get(paneId);
+export function takeInitialText(tabId: string): string | null {
+  const text = initialTexts.get(tabId);
   if (text === undefined) return null;
-  initialTexts.delete(paneId);
+  initialTexts.delete(tabId);
   return text;
 }
 
+/** 初始正文暂存区里是否有该标签的待交付正文（**只查不取**，与 `takeInitialText` 正交） */
+export function hasInitialText(tabId: string): boolean {
+  return initialTexts.has(tabId);
+}
+
+/** 快照附带的光标 / 滚动（与 `ScratchContentAccessor` 的 `caret` / `scrollTop` **形状对齐**） */
+export interface InitialTextSnapshot {
+  /** 1 基光标（`TabCaret`：`{line, col}`，与 `types/scratch.ts` 的 `TabCaret` 逐字同形） */
+  caret?: TabCaret;
+  /** 像素滚动位置（草稿 `scroll_top` 的同一口径） */
+  scrollTop?: number;
+}
+
+/**
+ * **把一份"活正文"快照写回初始文本暂存区**（AC-77 的写侧修复；由 `ScratchEditorHost` 的
+ * callback ref 与 `pane.id` effect 的 cleanup 调用）。
+ *
+ * ## 语义（三条，缺一不可）
+ *
+ * 1. **只在标签仍然存在时写入**：路由卸载、宿主 DOM 被换、视图模式切换都会走这里，
+ *    而"关闭标签"（`closeTab`）已经 `initialTexts.delete(id)` —— 若此时无守卫地写入，
+ *    会让**已关闭的标签在内存里"复活"**（下次 `takeInitialText` 拿到一份属于死标签的正文，
+ *    且与 AC-59「放弃修改后不还原」冲突）。
+ * 2. **`set`（覆盖）而不是"只在缺失时写"**：同一标签在一个会话里可能卸载多次
+ *    （切菜单 → 回来 → 再切走），每次都应保留**最新**正文。
+ * 3. **不写日志、不打印正文**（`AGENTS.md §9.14`）：本函数**零日志**。
+ *
+ * ## 明确不保的东西
+ *
+ * **undo / redo 历史不在快照范围内**：CM6 的 history 活在 `EditorState` 里，`view.destroy()`
+ * 后无处可取；这里只交 `doc.toString()` 一份字符串。⇒ 重挂后 `Ctrl+Z` **不能**撤回卸载前的编辑。
+ * 这是**刻意的取舍**（要保 undo 就得让实例跨路由常驻，与 D27/DS-17 的"整页工作区"冲突）。
+ *
+ * @param tabId 标签 id（`ScratchTab.id`）
+ * @param text  实例当前正文（`view.state.doc.toString()`）
+ * @param meta  可选的光标 / 滚动；缺省时**不改** store 里 `tab.caret` / `tab.scrollTop`
+ */
+export function snapshotInitialText(
+  tabId: string,
+  text: string,
+  meta?: InitialTextSnapshot,
+): void {
+  const tab = useScratchStore.getState().tabs.find((item) => item.id === tabId);
+  if (!tab) return; // ① 守卫：标签已关闭 / 从不存在 ⇒ 不写入（防"死标签复活"）
+  initialTexts.set(tabId, text);
+  if (meta?.caret || typeof meta?.scrollTop === 'number') {
+    useScratchStore.setState((prev) => ({
+      tabs: prev.tabs.map((item) =>
+        item.id === tabId
+          ? {
+              ...item,
+              caret: meta.caret ?? item.caret,
+              scrollTop: typeof meta.scrollTop === 'number' ? meta.scrollTop : item.scrollTop,
+            }
+          : item,
+      ),
+    }));
+  }
+}
+
 interface ScratchState {
-  /** 全部窗格（按创建顺序；层级看 `geometry.z`） */
-  panes: ScratchPane[];
-  /** 当前聚焦窗格 id */
-  activePaneId: string | null;
-  /** 层级计数（`z = ++zCounter`，保证层叠顺序可读） */
-  zCounter: number;
-  /** 可用区域尺寸（平铺 / 层叠 / 最大化用；由 `ScratchPaneLayer` 上报） */
-  viewport: { w: number; h: number };
+  /** 全部标签页（**数组顺序 = 标签条顺序**，DS-18：不存在第二处顺序来源） */
+  tabs: ScratchTab[];
+  /** 当前激活标签 id；`tabs` 为空时必为 `null` */
+  activeTabId: string | null;
   /** 最近一次失败原因（自动保存 / 写回失败），供 UI 明确提示（AC-41） */
   lastError: string | null;
+  /**
+   * **待确认的关闭请求**（v1.6.1 施工补充，设计 §4.7 / AC-59）。
+   *
+   * 为什么放在 store 而不是工作区的 `useState`：`Ctrl+W` 的接管方是**模块级常驻**的快捷键运行时
+   * （`utils/scratch/shortcut-runtime.ts`，设计 13.2 U-8 的硬约束、AC-1 要求"任意路由页"可用），
+   * 它拿不到工作区的局部 state；由它调 `requestCloseTab(id)` 置位，工作区只负责把询问框渲染出来。
+   * `null` = 无待确认请求。
+   */
+  pendingCloseId: string | null;
 
-  // ── §7.2 的公开 action ──
-  /** 新建窗格（快捷键 / 打开文件 / 命令行路径入口**统一走它**），返回新窗格 id */
-  createPane: (init?: Partial<ScratchPane>) => string;
-  /** 关闭窗格（`dirty` 的询问由调用方负责；干净关闭顺带丢弃草稿） */
-  closePane: (id: string) => void;
-  /** 聚焦并置顶（`z = ++zCounter`；同时视为"被激活"→ 允许懒挂载） */
-  focusPane: (id: string) => void;
-  movePane: (id: string, dx: number, dy: number) => void;
-  resizePane: (id: string, w: number, h: number) => void;
-  toggleMinimize: (id: string) => void;
-  toggleMaximize: (id: string) => void;
-  tileAll: () => void;
-  cascadeAll: () => void;
+  // ── §4.3 的公开 action ──
+  /** 新建标签（**追加到末尾并激活**），返回新标签 id */
+  createTab: (init?: Partial<ScratchTab>) => string;
+  /** 关闭标签（`dirty` 的询问由调用方负责；干净关闭顺带丢弃草稿） */
+  closeTab: (id: string) => void;
+  /** 关闭当前激活标签（`Ctrl+W` 的目标） */
+  closeActiveTab: () => void;
+  /** 激活标签（同时视为"被激活"→ 允许懒挂载） */
+  setActiveTab: (id: string) => void;
+  /** 下一个 / 上一个标签（循环；空列表无操作） */
+  nextTab: () => void;
+  prevTab: () => void;
+  /** 拖拽排序：把 `from` 位置的标签移动到 `to` 位置（越界自动收敛） */
+  reorderTab: (from: number, to: number) => void;
   setLanguage: (id: string, language: string) => void;
   setViewMode: (id: string, mode: ScratchViewMode) => void;
   /** 脏标记（同时驱动草稿防抖与 Python 侧 `dirtyCount`） */
@@ -225,25 +288,27 @@ interface ScratchState {
   setFontSize: (id: string, fontSize: number) => void;
   toggleLineNumbers: (id: string) => void;
   toggleWordWrap: (id: string) => void;
-  /** 启动还原：**只登记状态，`mounted` 保持 false**（§4.1.3 懒挂载） */
+  /** 启动还原：**只登记状态，`mounted` 保持 false**（§4.8 懒挂载） */
   hydrateFromDrafts: (entries: DraftPaneMeta[]) => void;
-  /** 把 `editor.detectAndRead` 的 `ReadItem` 变成窗格；失败条目只记提示，返回 null */
-  applyReadResult: (item: ReadItem) => string | null;
+  /**
+   * 把 `editor.detectAndRead` 的 `ReadItem` 变成标签页；失败条目只记提示，返回 null。
+   *
+   * **同路径去重（AC-65）**：`path` 非空且与既有标签相等 ⇒ **只聚焦、不新建、不覆盖内容**。
+   */
+  openOrFocus: (item: ReadItem) => string | null;
 
-  // ── 施工面辅助 action（§7.2 未列，组件需要用；已在交付说明中登记）──
-  /** 懒挂载标记（IntersectionObserver / 激活时由 `ScratchPane` 置位） */
+  // ── 施工面辅助 action（组件需要用）──
+  /** 懒挂载标记（首次成为激活项时由工作区置位） */
   setMounted: (id: string, mounted: boolean) => void;
-  /** 上报可用区域尺寸（`ScratchPaneLayer` 挂载 / resize 时调用） */
-  setViewport: (w: number, h: number) => void;
   /** 立刻落盘所有待写内容（退出握手前调用；会清空全部防抖计时器） */
   flushPendingSaves: () => Promise<void>;
   /**
    * **手动保存**（AC-36 / AC-37）—— `Ctrl+S` / `Ctrl+Shift+S` 与"关闭前保存"统一走它。
    *
-   * - 窗格**从未落过盘**（`path === null`）或 `forceDialog`（= 另存为）⇒ 先弹**原生**保存对话框
+   * - 标签**从未落过盘**（`path === null`）或 `forceDialog`（= 另存为）⇒ 先弹**原生**保存对话框
    *   （`scratchService.pickSaveTarget`）；用户取消 ⇒ **磁盘零变化**且脏标记保持（AC-36）；
    * - 已有路径且非另存为 ⇒ **不弹任何对话框**，直接写回同一路径（AC-37）；
-   * - 只读窗格（`.diff` / `.patch` / 大文件降级，AC-19）直接拒绝，不产生任何写入；
+   * - 只读标签（`.diff` / `.patch` / 大文件降级，AC-19）直接拒绝，不产生任何写入；
    * - 成功 ⇒ 路径 / 标题 / 脏标记一起更新；失败 ⇒ 只给提示（`lastError`），内容与脏标记不变（AC-41）。
    *
    * @returns `true` = 真的写盘成功（取消 / 只读 / 写失败都是 `false`）
@@ -251,32 +316,51 @@ interface ScratchState {
   savePane: (id: string, options?: { forceDialog?: boolean }) => Promise<boolean>;
   /** 清掉最近一次错误提示 */
   clearError: () => void;
+  /**
+   * 记录一条用户可见的失败提示（v1.6.1 施工补充）。
+   *
+   * 用途：`utils/scratch/editor-open-paths.ts` 在**桥层整体失败**（`detectAndRead` 抛错，
+   * 例如桥未就绪）时也要有提示出口 —— 单条失败（`items[].ok:false`）已经由 `openOrFocus`
+   * 写进 `lastError`，这里补的是"整批都没跑起来"的情况。
+   */
+  setError: (message: string) => void;
+  /**
+   * 请求关闭某个标签（AC-59 / AC-70 的唯一入口）。
+   *
+   * - 标签**不脏** ⇒ 立即关闭（顺带丢弃草稿，DRY：与 `closeTab` 同语义）；
+   * - 标签**脏** ⇒ 只置 `pendingCloseId`，由工作区弹出「保存 / 放弃 / 取消」；
+   * - 已在待确认中的同一个标签 ⇒ **幂等**（防重入：快捷键与关闭按钮可能同帧各触发一次）；
+   * - 标签不存在 ⇒ 无操作。
+   */
+  requestCloseTab: (id: string) => void;
+  /** 收起关闭询问框（取消 / 已处理完），**不动标签** */
+  clearCloseRequest: () => void;
 }
 
 export const useScratchStore = create<ScratchState>((set, get) => {
-  /** 清掉某个窗格的防抖计时器 */
-  const clearFlushTimer = (paneId: string): void => {
-    const timer = flushTimers.get(paneId);
+  /** 清掉某个标签的防抖计时器 */
+  const clearFlushTimer = (tabId: string): void => {
+    const timer = flushTimers.get(tabId);
     if (timer !== undefined) {
       clearTimeout(timer);
-      flushTimers.delete(paneId);
+      flushTimers.delete(tabId);
     }
   };
 
-  /** 把脏窗格数量报给 Python（退出握手前置，AC-56）；失败不打扰用户 */
+  /** 把脏标签数量报给 Python（退出握手前置，AC-56）；失败不打扰用户 */
   const syncDirtyCount = (): void => {
-    const count = get().panes.filter((pane) => pane.dirty).length;
+    const count = get().tabs.filter((tab) => tab.dirty).length;
     void scratchService.reportDirty(count).catch(() => {});
   };
 
-  /** 防抖调度：同一窗格的连续编辑只保留最后一次 */
-  const scheduleFlush = (paneId: string): void => {
-    clearFlushTimer(paneId);
+  /** 防抖调度：同一标签的连续编辑只保留最后一次 */
+  const scheduleFlush = (tabId: string): void => {
+    clearFlushTimer(tabId);
     flushTimers.set(
-      paneId,
+      tabId,
       setTimeout(() => {
-        flushTimers.delete(paneId);
-        void flushPane(paneId);
+        flushTimers.delete(tabId);
+        void flushPane(tabId);
       }, AUTO_SAVE_DEBOUNCE_MS),
     );
   };
@@ -286,11 +370,11 @@ export const useScratchStore = create<ScratchState>((set, get) => {
    *
    * 失败语义（AC-41 / §6.2.2）：内容、脏标记、草稿**都不变**，只给明确提示。
    */
-  const flushPane = async (paneId: string): Promise<void> => {
-    const pane = get().panes.find((item) => item.id === paneId);
-    if (!pane || !pane.dirty) return; // 不脏不写（AC-54：内容不变再等一个周期，草稿 mtime 不变）
-    const accessor = contentAccessors.get(paneId);
-    if (!accessor) return; // 未挂载窗格没有正文可写
+  const flushPane = async (tabId: string): Promise<void> => {
+    const tab = get().tabs.find((item) => item.id === tabId);
+    if (!tab || !tab.dirty) return; // 不脏不写（AC-54：内容不变再等一个周期，草稿 mtime 不变）
+    const accessor = contentAccessors.get(tabId);
+    if (!accessor) return; // 未挂载标签没有正文可写
 
     let snapshot: ReturnType<ScratchContentAccessor>;
     try {
@@ -298,72 +382,54 @@ export const useScratchStore = create<ScratchState>((set, get) => {
     } catch {
       return;
     }
-    const seqAtStart = editSeqs.get(paneId) ?? 0;
+    const seqAtStart = editSeqs.get(tabId) ?? 0;
 
     try {
       // ① 草稿库：两种形态都写 —— 草稿形态的**唯一**落点（§6.3.2）
+      //    顺序 / 激活项取自当前 store（DS-30：渲染层写侧新增 3 字段）
+      const state = get();
+      const index = state.tabs.findIndex((item) => item.id === tabId);
       await scratchService.draftSave(
-        toDraftPaneMeta(pane, { caret: snapshot.caret, scrollTop: snapshot.scrollTop }),
+        toDraftPaneMeta(tab, {
+          caret: snapshot.caret,
+          scrollTop: snapshot.scrollTop,
+          order: index < 0 ? 0 : index,
+          active: state.activeTabId === tabId,
+        }),
         snapshot.text,
       );
       // ② 用户文件：仅 `path != null` 且非只读（AC-40 / AC-19）
-      const wroteUserFile = pane.path !== null && !pane.readOnly;
-      if (wroteUserFile && pane.path !== null) {
+      const wroteUserFile = tab.path !== null && !tab.readOnly;
+      if (wroteUserFile && tab.path !== null) {
         await scratchService.writeText({
-          path: pane.path,
+          path: tab.path,
           text: snapshot.text,
-          encoding: pane.encoding,
-          lineEnding: pane.lineEnding,
+          encoding: tab.encoding,
+          lineEnding: tab.lineEnding,
         });
       }
       // 写回成功且期间没有新编辑 ⇒ 脏标记落下；有编辑则保持，等下一轮防抖
-      if (wroteUserFile && (editSeqs.get(paneId) ?? 0) === seqAtStart) {
-        set((state) => ({
-          panes: state.panes.map((item) =>
-            item.id === paneId ? { ...item, dirty: false } : item,
-          ),
+      if (wroteUserFile && (editSeqs.get(tabId) ?? 0) === seqAtStart) {
+        set((state2) => ({
+          tabs: state2.tabs.map((item) => (item.id === tabId ? { ...item, dirty: false } : item)),
         }));
         syncDirtyCount();
       }
     } catch (error) {
-      set({ lastError: describeError(error) });
+      set({ lastError: describeSaveError(error) });
     }
   };
 
-  /** 新建窗格时的层叠落点（在可用区域内的固定起点 + 24 px 递进） */
-  const cascadeGeometryFor = (index: number): PaneGeometry => {
-    const { w: viewportW, h: viewportH } = get().viewport;
-    const step = (index % 8) * CASCADE_OFFSET;
-    const maxX = Math.max(0, viewportW - PANE_MIN_WIDTH);
-    const maxY = Math.max(0, viewportH - PANE_MIN_HEIGHT);
-    return {
-      x: Math.min(CASCADE_BASE_X + step, maxX),
-      y: Math.min(CASCADE_BASE_Y + step, maxY),
-      w: Math.min(DEFAULT_PANE_WIDTH, Math.max(PANE_MIN_WIDTH, viewportW)),
-      h: Math.min(DEFAULT_PANE_HEIGHT, Math.max(PANE_MIN_HEIGHT, viewportH)),
-      z: get().zCounter + 1,
-      min: false,
-      maxed: false,
-    };
-  };
-
   return {
-    panes: [],
-    activePaneId: null,
-    zCounter: 0,
-    viewport:
-      typeof window === 'undefined'
-        ? { w: 1280, h: 800 }
-        : { w: window.innerWidth, h: window.innerHeight },
+    tabs: [],
+    activeTabId: null,
     lastError: null,
+    pendingCloseId: null,
 
-    createPane: (init) => {
-      const current = get();
-      const z = current.zCounter + 1;
-      const geometry = init?.geometry ?? { ...cascadeGeometryFor(current.panes.length), z };
+    createTab: (init) => {
       const language = init?.language ?? 'text';
-      const pane: ScratchPane = {
-        id: init?.id ?? newPaneId(),
+      const tab: ScratchTab = {
+        id: init?.id ?? newTabId(),
         title: init?.title ?? '未命名',
         path: init?.path ?? null,
         language,
@@ -373,208 +439,106 @@ export const useScratchStore = create<ScratchState>((set, get) => {
         lineEnding: init?.lineEnding ?? 'lf',
         readOnly: init?.readOnly ?? false,
         dirty: init?.dirty ?? false,
-        geometry,
         caret: init?.caret ?? { line: 1, col: 1 },
         scrollTop: init?.scrollTop ?? 0,
         fontSize: init?.fontSize ?? DEFAULT_FONT_SIZE,
         showLineNumbers: init?.showLineNumbers ?? true,
         wordWrap: init?.wordWrap ?? false,
-        // 新建即当前激活窗格（§4.1.3 ②"窗格被激活"⇒ 允许建实例）；
+        // 新建即激活（§4.8：首次成为激活项 ⇒ 允许建实例）；
         // 还原路径走 hydrateFromDrafts，那里**保持 false**。
         mounted: init?.mounted ?? true,
       };
       set((state) => ({
-        panes: [...state.panes, pane],
-        zCounter: z,
-        activePaneId: pane.id,
+        // 新标签**追加到末尾并激活**（§4.3）
+        tabs: [...state.tabs, tab],
+        activeTabId: tab.id,
         lastError: null,
       }));
-      return pane.id;
+      return tab.id;
     },
 
-    closePane: (id) => {
-      const pane = get().panes.find((item) => item.id === id);
-      if (!pane) return;
+    closeTab: (id) => {
+      const tab = get().tabs.find((item) => item.id === id);
+      if (!tab) return;
       clearFlushTimer(id);
       contentAccessors.delete(id);
       editSeqs.delete(id);
       initialTexts.delete(id);
-      restoreGeometries.delete(id);
       set((state) => {
-        const panes = state.panes.filter((item) => item.id !== id);
-        const activePaneId =
-          state.activePaneId === id
-            ? (panes.reduce<ScratchPane | null>(
-                (top, item) => (top === null || item.geometry.z > top.geometry.z ? item : top),
-                null,
-              )?.id ?? null)
-            : state.activePaneId;
-        return { panes, activePaneId };
+        const index = state.tabs.findIndex((item) => item.id === id);
+        const tabs = state.tabs.filter((item) => item.id !== id);
+        let activeTabId = state.activeTabId;
+        if (state.activeTabId === id) {
+          // 关闭后激活项 = 原位置的**右邻**，无右邻则左邻，全空则 null（§4.3）
+          const neighbour = tabs[index] ?? tabs[index - 1] ?? null;
+          activeTabId = neighbour ? neighbour.id : null;
+        }
+        return {
+          tabs,
+          activeTabId,
+          // 关闭的正是"待确认关闭"的那个标签 ⇒ 询问框自然收起（防出现指向已消失标签的弹窗）
+          pendingCloseId: state.pendingCloseId === id ? null : state.pendingCloseId,
+        };
       });
-      // 干净关闭 ⇒ 不再需要草稿（否则重启会把已关的窗格又还原出来）。
-      // 脏窗格的去留由调用方决定：保存分支走 writeText，放弃分支由组件调 `editor.draftDiscard`。
-      if (!pane.dirty) {
+      // 干净关闭 ⇒ 不再需要草稿（否则重启会把已关的标签又还原出来）。
+      // 脏标签的去留由调用方决定：保存分支走 writeText，放弃分支由组件调 `editor.draftDiscard`。
+      if (!tab.dirty) {
         void scratchService.draftDiscard(id).catch(() => {});
       }
       syncDirtyCount();
     },
 
-    focusPane: (id) => {
-      const z = get().zCounter + 1;
+    closeActiveTab: () => {
+      const active = get().activeTabId;
+      if (active) get().closeTab(active);
+    },
+
+    setActiveTab: (id) => {
+      if (!get().tabs.some((item) => item.id === id)) return;
       set((state) => ({
-        zCounter: z,
-        activePaneId: id,
-        panes: state.panes.map((item) =>
-          item.id === id ? { ...item, geometry: { ...item.geometry, z }, mounted: true } : item,
-        ),
+        activeTabId: id,
+        // 激活即允许建实例（§4.8），此后保持挂载
+        tabs: state.tabs.map((item) => (item.id === id ? { ...item, mounted: true } : item)),
       }));
     },
 
-    movePane: (id, dx, dy) => {
-      set((state) => ({
-        panes: state.panes.map((item) => {
-          if (item.id !== id) return item;
-          const { w } = item.geometry;
-          // 保证窗格至少留一条可抓取的可见带（不限制在视口内，用户可以把窗格拖出去一部分）
-          const minX = -(w - PANE_MIN_WIDTH / 2);
-          const maxX = state.viewport.w - PANE_MIN_WIDTH / 2;
-          const minY = 0;
-          const maxY = Math.max(0, state.viewport.h - PANE_MIN_HEIGHT / 2);
-          return {
-            ...item,
-            geometry: {
-              ...item.geometry,
-              x: Math.min(Math.max(item.geometry.x + dx, minX), maxX),
-              y: Math.min(Math.max(item.geometry.y + dy, minY), maxY),
-            },
-          };
-        }),
-      }));
+    nextTab: () => {
+      const { tabs, activeTabId } = get();
+      if (tabs.length === 0) return;
+      const index = tabs.findIndex((item) => item.id === activeTabId);
+      const next = tabs[(index + 1) % tabs.length];
+      get().setActiveTab(next.id);
     },
 
-    resizePane: (id, w, h) => {
-      set((state) => ({
-        panes: state.panes.map((item) =>
-          item.id === id
-            ? {
-                ...item,
-                geometry: {
-                  ...item.geometry,
-                  w: Math.max(PANE_MIN_WIDTH, Math.round(w)),
-                  h: Math.max(PANE_MIN_HEIGHT, Math.round(h)),
-                },
-              }
-            : item,
-        ),
-      }));
+    prevTab: () => {
+      const { tabs, activeTabId } = get();
+      if (tabs.length === 0) return;
+      const index = tabs.findIndex((item) => item.id === activeTabId);
+      const prev = tabs[(index - 1 + tabs.length) % tabs.length];
+      get().setActiveTab(prev.id);
     },
 
-    toggleMinimize: (id) => {
-      const pane = get().panes.find((item) => item.id === id);
-      if (!pane) return;
-      if (!pane.geometry.min) restoreGeometries.set(id, { ...pane.geometry });
-      set((state) => ({
-        panes: state.panes.map((item) =>
-          item.id === id
-            ? { ...item, geometry: { ...item.geometry, min: !item.geometry.min } }
-            : item,
-        ),
-      }));
-    },
-
-    toggleMaximize: (id) => {
-      const pane = get().panes.find((item) => item.id === id);
-      if (!pane) return;
-      const z = get().zCounter + 1;
-      if (!pane.geometry.maxed) {
-        restoreGeometries.set(id, { ...pane.geometry });
-        const { w, h } = get().viewport;
-        set((state) => ({
-          zCounter: z,
-          activePaneId: id,
-          panes: state.panes.map((item) =>
-            item.id === id
-              ? {
-                  ...item,
-                  geometry: { x: 0, y: 0, w, h, z, min: false, maxed: true },
-                }
-              : item,
-          ),
-        }));
-        return;
-      }
-      const restored = restoreGeometries.get(id) ?? pane.geometry;
-      set((state) => ({
-        zCounter: z,
-        activePaneId: id,
-        panes: state.panes.map((item) =>
-          item.id === id
-            ? { ...item, geometry: { ...restored, z, min: false, maxed: false } }
-            : item,
-        ),
-      }));
-    },
-
-    tileAll: () => {
-      const targets = get().panes.filter((pane) => !pane.geometry.min);
-      if (targets.length === 0) return;
-      const cols = Math.max(1, Math.ceil(Math.sqrt(targets.length)));
-      const rows = Math.ceil(targets.length / cols);
-      const { w: viewportW, h: viewportH } = get().viewport;
-      const cellW = Math.max(PANE_MIN_WIDTH, Math.floor(viewportW / cols) - TILE_GAP);
-      const cellH = Math.max(PANE_MIN_HEIGHT, Math.floor(viewportH / rows) - TILE_GAP);
-      const targetIds = new Set(targets.map((pane) => pane.id));
-
-      set((state) => ({
-        panes: state.panes.map((item) => {
-          if (!targetIds.has(item.id)) return item;
-          const index = targets.findIndex((pane) => pane.id === item.id);
-          const col = index % cols;
-          const row = Math.floor(index / cols);
-          return {
-            ...item,
-            geometry: {
-              ...item.geometry,
-              x: col * (cellW + TILE_GAP),
-              y: row * (cellH + TILE_GAP),
-              w: cellW,
-              h: cellH,
-              maxed: false,
-            },
-          };
-        }),
-      }));
-    },
-
-    cascadeAll: () => {
-      const targets = get().panes.filter((pane) => !pane.geometry.min);
-      if (targets.length === 0) return;
-      const targetIds = new Set(targets.map((pane) => pane.id));
-      const { w: viewportW, h: viewportH } = get().viewport;
-
-      set((state) => ({
-        panes: state.panes.map((item) => {
-          if (!targetIds.has(item.id)) return item;
-          const index = targets.findIndex((pane) => pane.id === item.id);
-          const step = index * CASCADE_OFFSET;
-          return {
-            ...item,
-            geometry: {
-              ...item.geometry,
-              x: Math.min(CASCADE_BASE_X + step, Math.max(0, viewportW - PANE_MIN_WIDTH)),
-              y: Math.min(CASCADE_BASE_Y + step, Math.max(0, viewportH - PANE_MIN_HEIGHT)),
-              maxed: false,
-            },
-          };
-        }),
-      }));
+    reorderTab: (from, to) => {
+      set((state) => {
+        const length = state.tabs.length;
+        if (length < 2) return {};
+        if (!Number.isInteger(from) || !Number.isInteger(to)) return {};
+        const source = Math.min(Math.max(from, 0), length - 1);
+        const target = Math.min(Math.max(to, 0), length - 1);
+        if (source === target) return {};
+        const tabs = [...state.tabs];
+        const [moved] = tabs.splice(source, 1);
+        tabs.splice(target, 0, moved);
+        // 顺序即 `tabs` 数组顺序，激活项不受排序影响（§4.3 不变量 ③）
+        return { tabs };
+      });
     },
 
     setLanguage: (id, language) => {
       // 只接受类型表内的语言 id（§5.1 的 LANGUAGES 派生量）
       if (!LANGUAGES.some((item) => item === language)) return;
       set((state) => ({
-        panes: state.panes.map((item) => {
+        tabs: state.tabs.map((item) => {
           if (item.id !== id) return item;
           const capabilities = getCapabilitiesForLanguage(language);
           const viewMode = isViewModeAllowed(item.viewMode, capabilities)
@@ -588,10 +552,10 @@ export const useScratchStore = create<ScratchState>((set, get) => {
 
     setViewMode: (id, mode) => {
       set((state) => ({
-        panes: state.panes.map((item) => {
+        tabs: state.tabs.map((item) => {
           if (item.id !== id) return item;
           // 能力表校验：不可用则不动（§4.1.2）
-          if (!isViewModeAllowed(mode, capabilitiesForPane(item))) return item;
+          if (!isViewModeAllowed(mode, capabilitiesForTab(item))) return item;
           return { ...item, viewMode: mode };
         }),
       }));
@@ -601,7 +565,7 @@ export const useScratchStore = create<ScratchState>((set, get) => {
       // 编辑序号只增不减：用于判断异步写回期间是否又发生了编辑
       editSeqs.set(id, (editSeqs.get(id) ?? 0) + 1);
       set((state) => ({
-        panes: state.panes.map((item) => (item.id === id ? { ...item, dirty } : item)),
+        tabs: state.tabs.map((item) => (item.id === id ? { ...item, dirty } : item)),
       }));
       if (dirty) scheduleFlush(id);
       else clearFlushTimer(id);
@@ -611,13 +575,13 @@ export const useScratchStore = create<ScratchState>((set, get) => {
     setFontSize: (id, fontSize) => {
       const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(fontSize)));
       set((state) => ({
-        panes: state.panes.map((item) => (item.id === id ? { ...item, fontSize: clamped } : item)),
+        tabs: state.tabs.map((item) => (item.id === id ? { ...item, fontSize: clamped } : item)),
       }));
     },
 
     toggleLineNumbers: (id) => {
       set((state) => ({
-        panes: state.panes.map((item) =>
+        tabs: state.tabs.map((item) =>
           item.id === id ? { ...item, showLineNumbers: !item.showLineNumbers } : item,
         ),
       }));
@@ -625,69 +589,76 @@ export const useScratchStore = create<ScratchState>((set, get) => {
 
     toggleWordWrap: (id) => {
       set((state) => ({
-        panes: state.panes.map((item) =>
-          item.id === id ? { ...item, wordWrap: !item.wordWrap } : item,
-        ),
+        tabs: state.tabs.map((item) => (item.id === id ? { ...item, wordWrap: !item.wordWrap } : item)),
       }));
     },
 
     hydrateFromDrafts: (entries) => {
-      const restored: ScratchPane[] = [];
-      entries.forEach((meta) => {
+      // 归一 + 排序（DS-30：新索引带 `order`；旧索引无该字段 ⇒ 保持数组顺序）
+      const normalized = entries
+        .map((meta, index) => ({ meta, index }))
         // 索引可能被半截写入 / 被外部改坏：字段不合法就**跳过该条**（不阻塞启动，§6.3.2）
-        if (!meta || typeof meta.id !== 'string' || meta.id.length === 0) return;
-        const geometry = normalizeGeometry(meta.geometry);
-        restored.push({
-          id: meta.id,
-          title: typeof meta.title === 'string' && meta.title ? meta.title : '未命名',
-          path: typeof meta.path === 'string' && meta.path ? meta.path : null,
-          language: typeof meta.language === 'string' && meta.language ? meta.language : 'text',
-          detected: typeof meta.language === 'string' && meta.language ? meta.language : 'text',
-          viewMode: 'edit',
-          encoding: normalizeEncoding(meta.encoding),
-          lineEnding: normalizeLineEnding(meta.lineEnd),
-          readOnly: Boolean(meta.read_only),
-          dirty: Boolean(meta.dirty),
-          geometry,
-          caret: normalizeCaret(meta.caret),
-          scrollTop: typeof meta.scroll_top === 'number' ? meta.scroll_top : 0,
-          fontSize: typeof meta.font_size === 'number' ? meta.font_size : DEFAULT_FONT_SIZE,
-          showLineNumbers: meta.show_line_numbers !== false,
-          wordWrap: Boolean(meta.word_wrap),
-          // §4.1.3：还原阶段**只登记状态**，不建 CM6 实例
-          mounted: false,
-        });
-      });
+        .filter(({ meta }) => Boolean(meta) && typeof meta.id === 'string' && meta.id.length > 0);
+      const hasOrder = normalized.some(({ meta }) => Number.isFinite(meta.order));
+      const ordered = hasOrder
+        ? [...normalized].sort(
+            (a, b) => (Number(a.meta.order) || 0) - (Number(b.meta.order) || 0) || a.index - b.index,
+          )
+        : normalized;
+
+      const restored: ScratchTab[] = ordered.map(({ meta }) => ({
+        id: meta.id,
+        title: typeof meta.title === 'string' && meta.title ? meta.title : '未命名',
+        path: typeof meta.path === 'string' && meta.path ? meta.path : null,
+        language: typeof meta.language === 'string' && meta.language ? meta.language : 'text',
+        detected: typeof meta.language === 'string' && meta.language ? meta.language : 'text',
+        viewMode: normalizeViewMode(meta.view_mode),
+        encoding: normalizeEncoding(meta.encoding),
+        lineEnding: normalizeLineEnding(meta.lineEnd),
+        readOnly: Boolean(meta.read_only),
+        dirty: Boolean(meta.dirty),
+        caret: normalizeCaret(meta.caret),
+        scrollTop: typeof meta.scroll_top === 'number' ? meta.scroll_top : 0,
+        fontSize: typeof meta.font_size === 'number' ? meta.font_size : DEFAULT_FONT_SIZE,
+        showLineNumbers: meta.show_line_numbers !== false,
+        wordWrap: Boolean(meta.word_wrap),
+        // §4.8：还原阶段**只登记状态**，不建 CM6 实例
+        mounted: false,
+      }));
+
+      // 激活项：索引里 `active` 为真的第一条；都没有则第一条（AC-55 / 兼容判据）
+      const activeIndex = ordered.findIndex(({ meta }) => meta.active === true);
+      const preferredActiveId = restored[activeIndex >= 0 ? activeIndex : 0]?.id ?? null;
 
       set((state) => {
-        const existing = new Set(state.panes.map((item) => item.id));
+        const existing = new Set(state.tabs.map((item) => item.id));
         // 幂等：同 id 已在场则跳过（重复调用 / 事件重放都不会翻倍）
         const added = restored.filter((item) => !existing.has(item.id));
         if (added.length === 0) return {};
-        const panes = [...state.panes, ...added];
-        const top = panes.reduce<ScratchPane | null>(
-          (acc, item) => (acc === null || item.geometry.z > acc.geometry.z ? item : acc),
-          null,
-        );
         return {
-          panes,
-          activePaneId: state.activePaneId ?? top?.id ?? null,
-          zCounter: Math.max(state.zCounter, ...added.map((item) => item.geometry.z)),
+          tabs: [...state.tabs, ...added],
+          activeTabId: state.activeTabId ?? preferredActiveId,
         };
       });
     },
 
-    applyReadResult: (item) => {
+    openOrFocus: (item) => {
       if (!item.ok) {
         // 二进制 / 过大 / 编码不可判定 / 不存在：只提示（文案取自 Python，**不含完整路径**）
         set({ lastError: item.message || `${basenameOf(item.path)} 无法打开` });
         return null;
       }
+      // AC-65：同路径（`path` 非空且相等）⇒ 只聚焦已有标签，**不新建、不覆盖内容**
+      const existing = get().tabs.find((tab) => tab.path !== null && tab.path === item.path);
+      if (existing) {
+        get().setActiveTab(existing.id);
+        return existing.id;
+      }
       const info = resolveTypeForPath(item.path);
       // M-13 / AC-45：**打开文件**（双击关联 / 打开对话框 / 拖入）一律先落编辑器视图；
       // 类型表里的 `defaultViewMode`（如 `.csv` 的 `table`）只作为**切语言 / 切类型**时的
       // 推荐视图（见 `setLanguage` → `getDefaultViewModeForLanguage`），不决定打开态。
-      const id = get().createPane({
+      const id = get().createTab({
         title: item.name,
         path: item.path,
         language: item.language,
@@ -706,41 +677,36 @@ export const useScratchStore = create<ScratchState>((set, get) => {
 
     setMounted: (id, mounted) => {
       set((state) => ({
-        panes: state.panes.map((item) => (item.id === id ? { ...item, mounted } : item)),
+        tabs: state.tabs.map((item) => (item.id === id ? { ...item, mounted } : item)),
       }));
-    },
-
-    setViewport: (w, h) => {
-      if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return;
-      set({ viewport: { w: Math.round(w), h: Math.round(h) } });
     },
 
     flushPendingSaves: async () => {
       const pendingIds = Array.from(flushTimers.keys());
-      pendingIds.forEach((paneId) => clearFlushTimer(paneId));
-      await Promise.all(pendingIds.map((paneId) => flushPane(paneId)));
+      pendingIds.forEach((tabId) => clearFlushTimer(tabId));
+      await Promise.all(pendingIds.map((tabId) => flushPane(tabId)));
     },
 
     savePane: async (id, options) => {
-      const pane = get().panes.find((item) => item.id === id);
-      if (!pane) return false;
+      const tab = get().tabs.find((item) => item.id === id);
+      if (!tab) return false;
 
       /**
-       * 失败 / 取消的统一收尾：把该窗格的自动保存**重新排上队**（审查 M4）。
+       * 失败 / 取消的统一收尾：把该标签的自动保存**重新排上队**（审查 M4）。
        *
        * 写盘前会 `clearFlushTimer(id)`；若此后直接 `return false`，原本 1500 ms 后
        * 会把内容落到**草稿库**的那次 flush 也随之消失 —— 用户此时关进程，
        * 最后一次编辑既不进用户文件、也不进草稿库。仅在"仍脏且当前没有计时器"时补排。
        */
       const rescheduleFlush = (): false => {
-        const stillDirty = get().panes.find((item) => item.id === id)?.dirty ?? false;
+        const stillDirty = get().tabs.find((item) => item.id === id)?.dirty ?? false;
         if (stillDirty && !flushTimers.has(id)) scheduleFlush(id);
         return false;
       };
 
-      // 只读窗格（AC-19 / AC-52）：保存入口直接拒绝，连磁盘都不碰
-      if (pane.readOnly) {
-        set({ lastError: '只读窗格不支持保存' });
+      // 只读标签（AC-19 / AC-52）：保存入口直接拒绝，连磁盘都不碰
+      if (tab.readOnly) {
+        set({ lastError: '只读标签页不支持保存' });
         return rescheduleFlush();
       }
       const accessor = contentAccessors.get(id);
@@ -757,12 +723,12 @@ export const useScratchStore = create<ScratchState>((set, get) => {
       }
 
       // ① 目标路径：已有路径直接写回；草稿形态或"另存为"则弹**原生**保存对话框（AC-36）
-      let target = pane.path;
+      let target = tab.path;
       if (options?.forceDialog === true || target === null) {
         try {
-          target = await scratchService.pickSaveTarget(pane.title || undefined);
+          target = await scratchService.pickSaveTarget(tab.title || undefined);
         } catch (error) {
-          set({ lastError: describeError(error) });
+          set({ lastError: describeSaveError(error) });
           return rescheduleFlush();
         }
         // 取消：不产生任何写入、目录条目数不变、脏标记保持（AC-36 的"取消"路径）
@@ -784,11 +750,11 @@ export const useScratchStore = create<ScratchState>((set, get) => {
         result = (await scratchService.writeText({
           path: target,
           text: snapshot.text,
-          encoding: pane.encoding,
-          lineEnding: pane.lineEnding,
+          encoding: tab.encoding,
+          lineEnding: tab.lineEnding,
         })) as unknown as { ok?: boolean; reason?: string; error?: string } | null;
       } catch (error) {
-        set({ lastError: describeError(error) });
+        set({ lastError: describeSaveError(error) });
         return rescheduleFlush();
       }
       if (result?.ok !== true) {
@@ -799,7 +765,7 @@ export const useScratchStore = create<ScratchState>((set, get) => {
               ? '该文件被判定为只读，未写入'
               : reason === 'conflict'
                 ? '文件已在别处被修改，未覆盖'
-                : describeError(result?.error ?? '保存失败'),
+                : describeSaveError(result?.error ?? '保存失败'),
         });
         return rescheduleFlush();
       }
@@ -807,7 +773,7 @@ export const useScratchStore = create<ScratchState>((set, get) => {
       // ④ 成功：路径 / 标题（文件名）/ 脏标记一起落地；期间若又有编辑则保持脏，等下一轮防抖
       const stillClean = (editSeqs.get(id) ?? 0) === seqAtStart;
       set((state) => ({
-        panes: state.panes.map((item) =>
+        tabs: state.tabs.map((item) =>
           item.id === id
             ? {
                 ...item,
@@ -824,27 +790,31 @@ export const useScratchStore = create<ScratchState>((set, get) => {
     },
 
     clearError: () => set({ lastError: null }),
+    setError: (message) => set({ lastError: message }),
+
+    requestCloseTab: (id) => {
+      const { tabs, pendingCloseId, closeTab } = get();
+      const tab = tabs.find((item) => item.id === id);
+      if (!tab) return;
+      if (!tab.dirty) {
+        closeTab(id); // 干净关闭：顺带丢弃草稿（与 closeTab 同一语义，AC-59 的"无需询问"分支）
+        return;
+      }
+      if (pendingCloseId === id) return; // 幂等：已在询问中，不重复置位
+      set({ pendingCloseId: id });
+    },
+    clearCloseRequest: () => set({ pendingCloseId: null }),
   };
 });
 
 // ── 草稿条目字段的容错归一（索引损坏时不能让整次还原崩掉）──
 
-function normalizeGeometry(raw: PaneGeometry | undefined): PaneGeometry {
-  const source = raw ?? ({} as PaneGeometry);
-  const num = (value: unknown, fallback: number): number =>
-    typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-  return {
-    x: num(source.x, CASCADE_BASE_X),
-    y: num(source.y, CASCADE_BASE_Y),
-    w: Math.max(PANE_MIN_WIDTH, num(source.w, DEFAULT_PANE_WIDTH)),
-    h: Math.max(PANE_MIN_HEIGHT, num(source.h, DEFAULT_PANE_HEIGHT)),
-    z: num(source.z, 1),
-    min: Boolean(source.min),
-    maxed: Boolean(source.maxed),
-  };
+function normalizeViewMode(raw: ScratchViewMode | undefined): ScratchViewMode {
+  const allowed: ScratchViewMode[] = ['edit', 'preview', 'split', 'table', 'tree'];
+  return allowed.find((item) => item === raw) ?? 'edit';
 }
 
-function normalizeCaret(raw: PaneCaret | undefined): PaneCaret {
+function normalizeCaret(raw: TabCaret | undefined): TabCaret {
   const line = typeof raw?.line === 'number' && raw.line > 0 ? raw.line : 1;
   const col = typeof raw?.col === 'number' && raw.col > 0 ? raw.col : 1;
   return { line, col };
@@ -861,32 +831,32 @@ function normalizeLineEnding(raw: LineEnding | undefined): LineEnding {
 
 // ── 选择器（组件用，避免各写一份派生逻辑）──
 
-/** 选择器：脏窗格数量（退出握手 / 标题栏提示用） */
+/** 选择器：脏标签数量（退出握手 / 标题栏提示用） */
 export function selectDirtyCount(state: ScratchState): number {
-  return state.panes.filter((pane) => pane.dirty).length;
+  return state.tabs.filter((tab) => tab.dirty).length;
 }
 
-/** 选择器：当前聚焦窗格 */
-export function selectActivePane(state: ScratchState): ScratchPane | null {
-  if (!state.activePaneId) return null;
-  return state.panes.find((pane) => pane.id === state.activePaneId) ?? null;
+/** 选择器：当前激活标签 */
+export function selectActiveTab(state: ScratchState): ScratchTab | null {
+  if (!state.activeTabId) return null;
+  return state.tabs.find((tab) => tab.id === state.activeTabId) ?? null;
 }
 
-/** 选择器：按 id 取窗格（找不到返回 null） */
-export function selectPaneById(state: ScratchState, id: string): ScratchPane | null {
-  return state.panes.find((pane) => pane.id === id) ?? null;
+/** 选择器：按 id 取标签（找不到返回 null） */
+export function selectTabById(state: ScratchState, id: string): ScratchTab | null {
+  return state.tabs.find((tab) => tab.id === id) ?? null;
 }
 
-/** 选择器：某窗格是否具备某项能力（工具栏按能力禁用按钮用） */
-export function selectPaneHasCapability(
+/** 选择器：某标签是否具备某项能力（工具栏按能力禁用按钮用） */
+export function selectTabHasCapability(
   state: ScratchState,
   id: string,
   capability: ScratchCapability,
 ): boolean {
-  const pane = selectPaneById(state, id);
-  if (!pane) return false;
-  return hasCapability(resolveTypeForPath(pane.path ?? ''), capability);
+  const tab = selectTabById(state, id);
+  if (!tab) return false;
+  return hasCapability(resolveTypeForPath(tab.path ?? ''), capability);
 }
 
-/** 类型再导出：窗格模型（设计 §4.1.2 把它定义在 store 小节，这里保持同名导出） */
-export type { ScratchPane };
+/** 类型再导出：标签页模型（`ScratchTab`，v1.6.1 由 `ScratchPane` 更名） */
+export type { ScratchTab };

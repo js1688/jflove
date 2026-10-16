@@ -1,0 +1,5 @@
+38ee31510ab1aef65c6e012924d864918731d2d706b9c13a3307b177f5d4915d  ui\dist\index.html  1621
+e16092da745dcea349987963be1cf428b6e6366f885c4b67ef2873a388ab82d8  ui\dist\assets\index-DCNfAnPR.js  762015
+ecd77a4276f4a9ad9d58b02db893d1ef74f21d017b741219dcffda6ab73a63e3  ui\dist\assets\index-D0fuOM-O.css  70214
+builtAt  2026-10-16T14:00:14
+srcShortcutsTs  2026-10-16T13:40:04

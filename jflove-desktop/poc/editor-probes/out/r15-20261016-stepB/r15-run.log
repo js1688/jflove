@@ -1,0 +1,220 @@
+r15 真机探针 · 平台=(默认) · 真窗口=True · 判据=['64', '68', '67', '71']
+证据目录：poc\editor-probes\out\r15-20261016-stepB
+fixture：{"ac64": "r15-ac64-open.log", "ac71": "r15-ac71-offline.txt", "tabs": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "overflow": ["r15-12-overflow-fixture-01-tab-title.txt", "r15-12-overflow-fixture-02-tab-title.txt", "r15-12-overflow-fixture-03-tab-title.txt", "r15-12-overflow-fixture-04-tab-title.txt", "r15-12-overflow-fixture-05-tab-title.txt", "r15-12-overflow-fixture-06-tab-title.txt", "r15-12-overflow-fixture-07-tab-title.txt", "r15-12-overflow-fixture-08-tab-title.txt", "r15-12-overflow-fixture-09-tab-title.txt", "r15-12-overflow-fixture-10-tab-title.txt", "r15-12-overflow-fixture-11-tab-title.txt", "r15-12-overflow-fixture-12-tab-title.txt"]}
+前端产物根（--webui）：{"originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist", "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist", "indexExists": true, "indexSha256Prefix": "38ee31510ab1aef6"}
+venv-win\Scripts\python.exe : [2026-10-16 14:09:34] [INFO] [src.utils.input_method] ���뷨���ã�win32 ƽ̨ʹ��ϵͳԭ�� IME������
+ Qt ����������
+所在位置 行:1 字符: 169
++ ... esktop; & { venv-win\Scripts\python.exe poc\editor-probes\r15-real-gu ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([2026-10-16 14:...� Qt ����������:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[2026-10-16 14:09:35] [INFO] [src.ui.web_shell] ����Ĭ�϶���������ɣ�10/13 �����������������
+[2026-10-16 14:09:35] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 14:09:35] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:09:36] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 14:09:36] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] P0 真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区 DOM）
+       {"load_ui": true, "state": {"hash": "#/login", "connectButton": true, "passwordInputs": 0, "navEditor": false, "workspaceCount": 0, "tabCount": 0, "cmBundle": false}}
+[2026-10-16 14:09:37] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=251cfd23-bc6d-4ae8-85f3-6ae8c2131fc4
+[2026-10-16 14:09:38] [INFO] [src.services.auth_service] ����Ա�˺ų�ʼ���ɹ�: r15probe
+[ OK ] P1 隔离服务端就绪 + 桌面端服务层在隔离库上造管理员（**不登录** ⇒ 渲染层仍是未登录态）
+       {"port": 52188, "serverPid": 2372, "serverUrlSet": true, "sessionReady": true, "adminExistsBefore": false, "adminExistsAfter": true, "tokenPresentAfterInit": false, "loggedInAfterInit": false}
+[2026-10-16 14:09:38] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[2026-10-16 14:09:39] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 1 ����
+[2026-10-16 14:09:39] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[ OK ] AC64-1 AC-64 ①：未登录经「打开方式」唤起 ⇒ 只有登录面板（零标签页 / 零工作区 / 零 detectAndRead，含 1.5 s 重推后）
+       {"pushedCount": 1, "detectAndReadCalls": {"before": 0, "after": 0}, "before": {"hash": "#/login", "connectButton": true, "passwordInputs": 0, "tabCount": 0, "workspaceCount": 0}, "afterRetry": {"hash": "#/login", "connectButton": true, "passwordInputs": 0, "tabCount": 0, "workspaceCount": 0, "overflowButton": 0, "activePanelCount": 0}, "midTabCount": 0, "navEditor": false, "modalWidget": null, "screenshot": "r15-ac64-1-unlogged-panel.png"}
+[2026-10-16 14:09:41] [DEBUG] [src.bridge.bridge] ������ auth.key_exchange ������=['server_url']
+[2026-10-16 14:09:41] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=1df42a0a-805e-4e2d-99a9-f11a2278a880
+[2026-10-16 14:09:41] [DEBUG] [src.bridge.bridge] ������ meta.server_history_record ������=['url']
+[2026-10-16 14:09:41] [DEBUG] [src.bridge.bridge] ������ auth.admin_exists ������=[]
+[2026-10-16 14:09:42] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:09:42] [DEBUG] [src.bridge.bridge] ������ auth.login ������=['local_max_seconds', 'password', 'username'
+]
+[2026-10-16 14:09:43] [INFO] [src.services.auth_service] �û���¼�ɹ�: r15probe (role=admin)
+[2026-10-16 14:09:43] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:09:43] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:09:43] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:09:43] [INFO] [src.bridge.editor] ������ 1 �����ɹ� 1 ����
+[2026-10-16 14:09:43] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:09:43] [DEBUG] [src.bridge.bridge] ������ editor.draftList ������=[]
+[ OK ] AC64-2 AC-64 ②：**渲染层自己**完成登录（登录页 connect → login 三步；未重载页面）⇒ `location.hash === '#/editor'`、导航项「文本编辑器」成为激活项、恰好 1 个标签页
+       {"serverUrlPort": "52188", "steps": [{"step": "set-url", "el": {"ok": true, "same": true, "length": 22}}, {"step": "click-connect", "el": {"ok": true, "clicked": "连接服务端", "disabled": false}}, {"step": "await-login-step", "passwordInputs": 1, "initAdminButton": false, "loginButton": true}, {"step": "set-username", "el": {"ok": true, "same": true, "length": 8}}, {"step": "set-password", "el": {"ok": true, "sensitive": true}}, {"step": "click-login", "el": {"ok": true, "clicked": "登录", "disabled": false}}], "detectAndReadCallsBeforeLogin": 0, "detectAndReadCallsAfterLogin": 1, "landing": {"hash": "#/editor", "navEditor": true, "navEditorActive": true, "tabCount": 1, "workspaceCount": 1, "tabs": [{"id": "0533b2a0-a16d-4822-a3c4-3e929c1117f9", "title": "r15-ac64-open.log", "active": true, "dirt
+[ OK ] AC64-3 AC-64 ③：工作区恰好 1 个标签页、标题 = fixture 名（r15-ac64-open.log）、它同时是激活标签与激活面板（`data-editor-panel-active` 的 id 与之一致）
+       {"tabCount": 1, "tabs": [{"id": "0533b2a0-a16d-4822-a3c4-3e929c1117f9", "title": "r15-ac64-open.log", "active": true, "dirty": false}], "tabTitleEqualsFixtureName": true, "activePanelId": "0533b2a0-a16d-4822-a3c4-3e929c1117f9", "activePanelMatchesTab": true, "activePanelCount": 1, "navEditorActive": true, "hash": "#/editor", "doc": {"docCodePoints": 46, "docUtf8Bytes": 94, "docFnv1a32": "68ee32e5", "crlf": 0, "lf": 2}, "fixtureFingerprint": {"codePoints": 46, "utf8Bytes": 94, "fnv1a32": "68ee32e5", "crlf": 0, "lf": 2}, "compare": {"equal": true, "firstDiff": -1, "docCodePoints": 46, "expectedCodePoints": 46, "docCharUnits": 46, "expectedCharUnits": 46}, "statusBar": {"lineEnding": "LF", "encoding": "UTF-8", "language": "日志 (log)", "dirty": "已保存"}, "screenshot": "r15-ac64-3-content.png"}
+[ OK ] AC64-4 AC-64 ③：正文**逐字符等于** fixture（渲染层 JS 逐字符比对 + 独立 FNV-1a/字节数/码点数复核）
+       {"compare": {"equal": true, "firstDiff": -1, "docCodePoints": 46, "expectedCodePoints": 46, "docCharUnits": 46, "expectedCharUnits": 46}, "docHash": "68ee32e5", "fixtureHash": "68ee32e5", "docBytes": 94, "fixtureBytes": 94, "docCodePoints": 46, "fixtureCodePoints": 46}
+[FAIL] AC64-5 AC-64 ④：状态栏 编码 / 换行符 / 语言 与 fixture 一致（UTF-8 / LF / text）
+       {"statusBar": {"lineEnding": "LF", "encoding": "UTF-8", "language": "日志 (log)", "dirty": "已保存"}}
+[ OK ] AC71-1 AC-71 前提：服务端进程已退出且端口连接被拒（真的不可达）
+       {"port": 52188, "processExited": true, "returncode": 1, "connectionRefused": true, "refusedDetail": "TimeoutError: timed out", "ok": true}
+[2026-10-16 14:09:54] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:09:54] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[FAIL] AC71-2 AC-71 ①：离线状态 OS 级 Ctrl+Alt+N 新建标签页成功，并可输入内容（CM6 事务写入生效）
+       {"key": {"supported": true, "reached": true, "prevented": false}, "keyAttempts": [{"attempt": 1, "reached": true, "tabCount": 1}, {"attempt": 2, "reached": true, "tabCount": 1}, {"attempt": 3, "reached": true, "tabCount": 1}], "beforeTabCount": 1, "afterTabCount": 1, "insert": {"ok": true, "docLength": 56, "hasFocus": true}, "docCodePoints": 56, "status": {"lineEnding": "LF", "encoding": "UTF-8", "language": "日志 (log)", "dirty": "● 未保存"}, "windowAlive": true}
+[2026-10-16 14:09:54] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[2026-10-16 14:09:54] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:09:54] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:09:54] [INFO] [src.bridge.editor] ������ 1 �����ɹ� 1 ����
+[2026-10-16 14:09:55] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']
+[ OK ] AC71-3 AC-71 ②：离线经「打开方式」通路打开**已有路径**的 fixture（r15-ac71-offline.txt）为标签页
+       {"pushedCount": 1, "tabCount": 2, "tabCountBeforePush": 1, "expectedTabCount": 2, "tabCountAtPhaseStart": 1, "detectAndReadCalls": {"before": 1, "afterOpen": 2}, "hash": "#/editor", "sample": {"tag": "after-open-existing", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 2}, "detectAndReadLast": {"at": 1792130994.9407883, "pathCount": 1, "ok": true}, "dialogLabel": null, "screenshot": "r15-ac71-owned-offline.png"}
+[2026-10-16 14:09:55] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:09:55] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:09:55] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�
+[2026-10-16 14:09:56] [INFO] [src.services.scratch_service] �ݸ���д��: pane-0533b2a0-a16d-4822-a3c4-3e929c1117f9.txt (12
+2 �ֽ�)
+[2026-10-16 14:09:56] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'te
+xt']
+[2026-10-16 14:09:56] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 1 ����
+[2026-10-16 14:09:56] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[2026-10-16 14:09:56] [INFO] [src.services.editor_service] �ѱ����ļ�: r15-ac64-ope#ff14cf84 size=122
+[2026-10-16 14:09:56] [INFO] [src.bridge.editor] д���ļ� r15-ac64-ope#ff14cf84 ok=True
+[2026-10-16 14:09:56] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:09:56] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:09:56] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'te
+xt']
+[2026-10-16 14:09:57] [INFO] [src.services.editor_service] �ѱ����ļ�: r15-ac71-off#22f0c06c size=60
+[2026-10-16 14:09:57] [INFO] [src.bridge.editor] д���ļ� r15-ac71-off#22f0c06c ok=True
+[2026-10-16 14:09:57] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:09:57] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] AC71-4 AC-71 ①：离线 OS 级 Ctrl+S 把编辑内容写回磁盘（**字节级**比对 + 桥投递正文指纹一致）
+       {"focus": {"ok": true, "panelId": "df169388-4938-4f89-a00f-9cafeeb25f5c", "hasFocus": true, "docLength": 18}, "editAt": 1792130995.976, "keyAt": 1792130997.353, "latencyKeyToDiskSec": null, "latencyEditToDiskSec": null, "manualPathObservation": false, "manualPathNote": "**仅观察**：全局 `draftSave` 计数无法按标签归属，同相位其它无路径标签的防抖也会 +1 ⇒ 不作为判定依据。", "draftSaveCalls": {"before": 0, "after": 1}, "diskShaBefore": "674624e77ccd67555568810d2a9294976152e10fbe2dbfe674309811d6fb1fa7", "diskShaAfter": "7fb96b83e32b3ece1fa4f659b2961f661cf50528cbb13801b0966eb4a7d10fa0", "diskBytes": 60, "expectedFingerprint": {"codePoints": 40, "utf8Bytes": 60, "fnv1a32": "b582dfd0", "crlf": 0, "lf": 4}, "onDiskFingerprint": {"codePoints": 40, "utf8Bytes": 60, "fnv1a32": "b582dfd0", "crlf": 0, "lf": 4}, "diskTextEqualsExpected": tru
+[SKIP] OBS-SAVE-LATENCY 观察项：OS 级 Ctrl+S 的「按键 → 磁盘变化」时延（**不判**；只留痕，供与防抖时延对照） （观察项，不参与退出码）
+       {"latencyKeyToDiskSec": null, "latencyEditToDiskSec": null, "note": "本值含探针自身的桥往返开销（本机慢轮实测可达 2.4 s，快轮 0.2 s），**不能当作产品保存性能的度量**；判定已改用机制判据（`manualPath`）。"}
+[2026-10-16 14:10:09] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:09] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:11] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']
+[2026-10-16 14:10:11] [INFO] [src.services.scratch_service] �ݸ���д��: pane-df169388-4938-4f89-a00f-9cafeeb25f5c.txt (84
+ �ֽ�)
+[2026-10-16 14:10:11] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'te
+xt']
+[2026-10-16 14:10:11] [INFO] [src.services.editor_service] �ѱ����ļ�: r15-ac71-off#22f0c06c size=84
+[2026-10-16 14:10:11] [INFO] [src.bridge.editor] д���ļ� r15-ac71-off#22f0c06c ok=True
+[2026-10-16 14:10:11] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:11] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] OBS-DEBOUNCE 观察项（正对照）：同样一次编辑但**不按** Ctrl+S ⇒ 走 `flushPane` 防抖通路（`draftSave` +1）并最终写回磁盘 （观察项，不参与退出码）
+       {"insert": {"ok": true, "docLength": 64, "hasFocus": true}, "latencyEditToDiskSec": 2.125, "debounceCalls": {"draftSaveBefore": 1, "draftSaveAfter": 2, "writeTextBefore": 2, "writeTextAfter": 2}, "debounceRan": true, "cleanAfterContrast": true, "note": "判定用机制（`draftSave` +1 = 防抖通路），时延只留痕不判定；本值含探针自身的桥往返开销，不能当作产品防抖精度的度量。", "orderAfterContrast": ["r15-ac64-open.log", "r15-ac71-offline.txt"]}
+[2026-10-16 14:10:13] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:13] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] AC71-5 AC-71 ③：离线切标签（切走再切回，激活项确实跟着变）/ 关标签（关的是防抖写回后的**干净**标签 ⇒ 不触发关闭询问）
+       {"orderBefore": ["r15-ac64-open.log", "r15-ac71-offline.txt"], "switchTo": "r15-ac64-open.log", "switchAway": {"ok": true, "clicked": "r15-ac64-open.log", "width": 142, "left": 254}, "activeAfterAway": "r15-ac64-open.log", "switchBack": {"ok": true, "clicked": "r15-ac71-offline.txt", "width": 145, "left": 398}, "activeAfterBack": "r15-ac71-offline.txt", "sampleAfterSwitch": {"tag": "after-switch", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 2}, "sampleAfterClose": {"tag": "after-close", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 1}, "close": {"ok": true, "closed": "r15-ac71-offline.txt"}, "tabCountAfterClose": 1, "tabCountBeforeClose": 2, "cleanBeforeClose": true, "dirtyBeforeClose": [], 
+[ OK ] AC71-6 AC-71 ④：离线全程 hash **从不回到 #/login**、零 password 输入、零 DOM 模态、零宿主模态（无登录拦截、无阻塞式弹窗）
+       {"samples": [{"tag": "start", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 1}, {"tag": "after-new-tab", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 1}, {"tag": "after-new-tab", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 1}, {"tag": "after-new-tab", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 1}, {"tag": "after-type", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 1}, {"tag": "after-open-existing", "hash": "#/editor", "passwordInputs": 0, "dialogLabel": null, "modalWidget": null, "tabCount": 2}, {"tag": "after-ctrl-s", "hash": "#/editor", "pas
+[SKIP] AC71-7 AC-71 ③：「另存为」（Ctrl+Shift+S）—— **SKIP**：该动作经 `store.savePane(forceDialog)` 弹出**原生** `QFileDialog`，探针无法在不注入产品源码的前提下选择路径，无原生对话框自动化能力时不得伪造成 PASS
+       {"why": "原生保存对话框无自动化接口（探针不改产品源码、不用 stub 替换对话框）", "observedTabStillOpen": 1, "modalWidgetNow": null}
+  · 清理前序标签页（避免污染 AC-68 的 A/B/C 三标签前提）
+[2026-10-16 14:10:14] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:14] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-df169388-4938-4f89-a00f-9cafeeb25f5c.txt
+[2026-10-16 14:10:14] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:15] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��3 ������Դ=cli��
+[2026-10-16 14:10:15] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:10:15] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:10:15] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-0533b2a0-a16d-4822-a3c4-3e929c1117f9.txt
+[2026-10-16 14:10:15] [INFO] [src.bridge.editor] ������ 3 �����ɹ� 3 ����
+[2026-10-16 14:10:16] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 3 ����
+[2026-10-16 14:10:16] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��3 ������Դ=cli��
+[ OK ] AC68-1 AC-68 ①：合成 Pointer Events（4 px 阈值 / 跨中点 / 固定 pointerId）把 C 拖到最前 ⇒ 标签条顺序变为 C / A / B
+       {"pushedCount": 3, "openedTabCount": 3, "orderAfterOpen": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "activeAfterClickFirst": "r15-tab-a.txt", "orderBeforeDrag": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "dragDispatch": {"ok": true, "startX": 530, "endX": 255, "stepPx": 46, "steps": 6, "nativeObserved": {"pointerdown": 1, "pointermove": 6, "pointerup": 0}, "titlesBefore": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "orderAfterMoves": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "dragClassDuringDispatch": 0}, "observedDuringDrag": {"order": ["r15-tab-c.txt", "r15-tab-a.txt", "r15-tab-b.txt"], "dragClassCount": 1, "draggingTitle": "r15-tab-c.txt", "activeTitle": "r15-tab-a.txt"}, "dragUp": {"ok": true, "title": "r15-tab-c.txt"}, "orderAfterDrag": ["r15-t
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.bridge] ������ file_assoc.get ������=[]
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.bridge] ������ editor.shortcutsLoad ������=[]
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.bridge] ������ api.request ������=['body', 'method', 'path', 'plain']
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.bridge] ������ api.request ������=['body', 'method', 'path', 'plain']
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/virtual-disks������=False��
+[2026-10-16 14:10:18] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/notes/disk-config������=False��
+[2026-10-16 14:10:19] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:10:19] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']
+[2026-10-16 14:10:20] [WARNING] [src.bridge.bridge] ����Ӧ r45-1792131018442 ʧ�ܣ�HTTPConnectionPool(host='127.0.0.1', po
+rt=52188): Max retries exceeded with url: /api/v1/virtual-disks (Caused by NewConnectionError("HTTPConnection(host='127
+.0.0.1', port=52188): Failed to establish a new connection: [WinError 10061] ����Ŀ�����������ܾ����޷����ӡ�"))
+[2026-10-16 14:10:21] [WARNING] [src.bridge.bridge] ����Ӧ r46-1792131018442 ʧ�ܣ�HTTPConnectionPool(host='127.0.0.1', po
+rt=52188): Max retries exceeded with url: /api/v1/notes/disk-config (Caused by NewConnectionError("HTTPConnection(host=
+'127.0.0.1', port=52188): Failed to establish a new connection: [WinError 10061] ����Ŀ�����������ܾ����޷����ӡ�"))
+[2026-10-16 14:10:21] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�
+[ OK ] AC68-2 AC-68 ② + AC-77①（真机半边）：切到「设置」再回「文本编辑器」⇒ 标签顺序、激活项**与激活面板正文**均保持（未保存、未等防抖就切走 ⇒ 保的是**内存里的活正文**）
+       {"settingsHash": "#/settings", "settingsWorkspaceCount": 0, "orderBefore": ["r15-tab-c.txt", "r15-tab-a.txt", "r15-tab-b.txt"], "orderAfterBack": ["r15-tab-c.txt", "r15-tab-a.txt", "r15-tab-b.txt"], "activeBefore": "r15-tab-a.txt", "activeAfterBack": "r15-tab-a.txt", "tabCountAfterBack": 3, "orderKeepOk": true, "docKeepOk": true, "docInsert": {"ok": true, "markerCodePoints": 14, "docLengthAfterInsert": 31}, "docBeforeEdit": {"docCodePoints": 17, "docFnv1a32": "23e57547"}, "docAfterEdit": {"docCodePoints": 31, "docFnv1a32": "76b9dbe4"}, "docAfterBack": {"docCodePoints": 31, "docFnv1a32": "76b9dbe4", "r15Error": null}, "expectedAfterBack": {"docCodePoints": 31, "docFnv1a32": "76b9dbe4"}, "docEqualAfterBack": true, "docChangedByEdit": true, "docChangedFromBeforeEdit": true, "editToSwitchMs": 
+  · 清理标签页（让「第 12 个」= 恰好 12 个标签里的第 12 个，不含前序残留）
+[2026-10-16 14:10:21] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:21] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:21] [INFO] [src.services.scratch_service] �ݸ���д��: pane-9522cb2e-d8f3-4341-8400-a0228c979c3d.txt (35
+ �ֽ�)
+[2026-10-16 14:10:22] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:22] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:22] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:22] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-bf0a2c6b-6cb6-4698-8a1b-7201daa48175.txt
+[2026-10-16 14:10:22] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'te
+xt']
+[2026-10-16 14:10:22] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-9522cb2e-d8f3-4341-8400-a0228c979c3d.txt
+[2026-10-16 14:10:22] [INFO] [src.services.editor_service] �ѱ����ļ�: r15-tab-a.tx#8028284c size=35
+[2026-10-16 14:10:22] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:22] [INFO] [src.bridge.editor] д���ļ� r15-tab-a.tx#8028284c ok=True
+[2026-10-16 14:10:22] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:23] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��12 ������Դ=cli��
+[2026-10-16 14:10:23] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:10:23] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:10:23] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-3ad16ce9-77e4-4a07-8688-802149f8fccf.txt
+[2026-10-16 14:10:23] [INFO] [src.bridge.editor] ������ 12 �����ɹ� 12 ����
+[2026-10-16 14:10:24] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 12 ����
+[2026-10-16 14:10:24] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��12 ������Դ=cli��
+[ OK ] AC67-1 AC-67 ①：连续打开 12 个标签页 + 窗口缩到 920×620 ⇒ 标签条**真的溢出**（`scrollWidth > clientWidth`）且溢出入口存在
+       {"pushedCount": 12, "tabCount": 12, "innerWidthBefore": 1180, "innerWidthAfter": 920, "innerHeightAfter": 620, "overflowButtonCount": 1, "stripScrollWidth": 2422, "stripClientWidth": 600, "scrollable": true, "visibleCount": 2, "screenshot": "r15-ac67-overflowed.png"}
+[ OK ] AC67-2 AC-67 ①：点溢出入口 ⇒ 下拉列出**全量 12 项**（顺序同标签条，当前激活项带 `aria-checked`）
+       {"activeBeforeOpenMenu": "r15-12-overflow-fixture-01-tab-title.txt", "menuPresent": true, "itemCount": 12, "expected": 12, "items": [{"index": 0, "title": "r15-12-overflow-fixture-01-tab-title.txt", "id": "1b8052e6-e601-46ae-b5cb-f0583e37c0ed", "checked": true}, {"index": 1, "title": "r15-12-overflow-fixture-02-tab-title.txt", "id": "fe25cfe1-5a34-4ee0-88a8-d1ea0a711b17", "checked": false}, {"index": 2, "title": "r15-12-overflow-fixture-03-tab-title.txt", "id": "28f8ac9d-c8e1-45e9-8270-dca1fb584314", "checked": false}, {"index": 3, "title": "r15-12-overflow-fixture-04-tab-title.txt", "id": "71e4b0df-ca9b-4f8b-a066-2532fdf51e3d", "checked": false}, {"index": 4, "title": "r15-12-overflow-fixture-05-tab-title.txt", "id": "f75a9ce2-0d89-4e3d-93a3-17c06d07a88d", "checked": false}, {"index": 5, 
+[ OK ] AC67-3 AC-67 ②③：点下拉第 12 项 ⇒ 激活项 = 第 12 个、`[data-editor-panel-active="true"]` 的 id 与之一致、且该标签**几何可见**（几何断言，非存在性）
+       {"clickItem": {"ok": true, "index": 11, "title": "r15-12-overflow-fixture-12-tab-title.txt"}, "activeTitleAfter": "r15-12-overflow-fixture-12-tab-title.txt", "expectedTitle": "r15-12-overflow-fixture-12-tab-title.txt", "activePanelId": "b6d9e45f-0f0d-4470-ac97-f84d0144dfec", "activePanelCount": 1, "activeIndex": 11, "activeVisible": true, "stripLeft": 254, "stripRight": 854, "twelfthTab": {"index": 11, "title": "r15-12-overflow-fixture-12-tab-title.txt", "left": 654, "right": 854, "width": 200, "visible": true, "active": true}, "menuClosedAfterClick": true, "screenshot": "r15-ac67-twelfth-active.png"}
+[2026-10-16 14:10:28] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:28] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:28] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:28] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:28] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:28] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:28] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-1b8052e6-e601-46ae-b5cb-f0583e37c0ed.txt
+[2026-10-16 14:10:29] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-fe25cfe1-5a34-4ee0-88a8-d1ea0a711b17.txt
+[2026-10-16 14:10:29] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:29] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:29] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-28f8ac9d-c8e1-45e9-8270-dca1fb584314.txt
+[2026-10-16 14:10:29] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:29] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:29] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-71e4b0df-ca9b-4f8b-a066-2532fdf51e3d.txt
+[2026-10-16 14:10:30] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:30] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:30] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-f75a9ce2-0d89-4e3d-93a3-17c06d07a88d.txt
+[2026-10-16 14:10:30] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:30] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:30] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:30] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-1f451311-444e-46a0-9569-db707acadc10.txt
+[2026-10-16 14:10:30] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:31] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:31] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-983a70da-5c51-4221-9888-779c2d52b02e.txt
+[2026-10-16 14:10:31] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:31] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:31] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-733776ec-36eb-41f6-adff-e9be8ccd51c6.txt
+[2026-10-16 14:10:31] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:32] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:32] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-c20c4f41-06c9-4985-9e2f-e25577f4c391.txt
+[2026-10-16 14:10:32] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:32] [DEBUG] [src.bridge.bridge] ������ editor.draftDiscard ������=['paneId']
+[2026-10-16 14:10:32] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-9733198d-2a90-40ca-bc53-cd8c78dfd01b.txt
+[2026-10-16 14:10:32] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:10:34] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-190cefe2-dd1c-41af-bcd5-caf7b8575ee9.txt
+[2026-10-16 14:10:34] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[2026-10-16 14:10:34] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:10:34] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:10:34] [INFO] [src.services.scratch_service] �ݸ��Ѷ���: pane-b6d9e45f-0f0d-4470-ac97-f84d0144dfec.txt
+[2026-10-16 14:10:34] [INFO] [src.bridge.editor] ������ 1 �����ɹ� 1 ����
+[2026-10-16 14:10:35] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��11 ������Դ=cli��
+[2026-10-16 14:10:35] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:10:35] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:10:35] [INFO] [src.bridge.editor] ������ 11 �����ɹ� 11 ����
+[2026-10-16 14:10:35] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 12 ����
+[2026-10-16 14:10:35] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��1 ������Դ=cli��
+[2026-10-16 14:10:35] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��11 ������Դ=cli��
+[ OK ] MEM-R13 设计 R-13 观察项：12 个**激活过的**标签同时挂载 CM6 ⇒ 渲染进程 Working Set 增量（**不对内存绝对值下判据**；取不到就 SKIP，不编数字） （观察项，不参与退出码）
+       {"rendererExe": "QtWebEngineProcess.exe", "hostExe": "python.exe", "rendererRssMb1Tab": 170.9, "rendererRssMb12Tabs": 202.9, "rendererRssDeltaMb": 32.0, "rendererRssPerTabMb": 2.91, "cmContentCount1Tab": 1, "cmContentCount12Tabs": 12, "expectedCmContentCount": 12, "jsHeapAvailable": true, "jsHeapMb1Tab": 35.6, "jsHeapMb12Tabs": 35.6, "base": {"tag": "1-tab", "js": {"heapAvailable": true, "usedJSHeapMb": 35.6, "totalJSHeapMb": 35.6, "cmContentCount": 1, "panelCount": 1}, "renderer": {"supported": true, "processes": [{"pid": 4696, "exe": "qtwebengineprocess.exe", "workingSetMb": 170.9}], "count": 1, "totalMb": 170.9}, "host": {"supported": true, "processes": [{"pid": 7928, "exe": "python.exe", "workingSetMb": 3.7}, {"pid": 11768, "exe": "python.exe", "workingSetMb": 317.9}], "count": 2, "tot
+结果 JSON：poc\editor-probes\out\r15-20261016-stepB\r15-result.json
+退出码：1

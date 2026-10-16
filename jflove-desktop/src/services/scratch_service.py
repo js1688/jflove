@@ -66,6 +66,10 @@ _PANE_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,%d}$" % _PANE_ID_MAX_LEN)
 # 行尾取值（设计 §6.3.1 的 `line_end`）
 _LINE_END_VALUES = ("lf", "crlf")
 
+# 视图模式取值（设计 v1.6.1 §5.3 的 `view_mode`：白名单 5 值，非法 / 缺失 ⇒ `edit`）
+_VIEW_MODE_VALUES = ("edit", "preview", "split", "table", "tree")
+_VIEW_MODE_DEFAULT = "edit"
+
 # ── 并发闸门（模块级，进程内共用） ────────────────────────────────────
 # `_pane_locks`：同一 paneId 的「内容写 + 索引改」整体串行（队列 + 单飞，§6.3.2 末行）
 _pane_locks: dict[str, threading.Lock] = {}
@@ -231,6 +235,19 @@ def _as_optional_str(value: Any) -> str | None:
     return text or None
 
 
+def _as_view_mode(value: Any, default: str = _VIEW_MODE_DEFAULT) -> str:
+    """
+    视图模式归一（v1.6.1 §5.3）：只认白名单 5 值，非法 / 缺失一律退回 `default`。
+
+    宽松口径与 `line_end` 一致：渲染层发来未知值时**静默取默认值**，不抛错
+    （草稿元数据不是可信输入，不该因为一个模式串把整次保存打断）。
+    """
+    if not isinstance(value, str):
+        return default
+    text = value.strip().lower()
+    return text if text in _VIEW_MODE_VALUES else default
+
+
 def _normalize_geometry(raw: Any) -> dict[str, Any]:
     """窗格几何归一（v1 白名单字段；缺字段填中性默认值，由渲染层决定窗口策略）。"""
     source = raw if isinstance(raw, Mapping) else {}
@@ -258,7 +275,15 @@ def _normalize_pane_meta(pane: Mapping[str, Any], pane_id: str, now: float) -> d
     只保留 v1 白名单字段（未知字段丢弃，避免索引被渲染层任意键撑大）；
     桥参数名 `lineEnd` 与存储名 `line_end` 都接受，统一存 `line_end`。
 
-    :param pane: `editor.draftSave` 的 `pane` 参数
+    v1.6.1 §5.3（DS-30）向后兼容扩展 3 个**可选**字段：`view_mode`（白名单 5 值，
+    非法 / 缺失 ⇒ `"edit"`）、`order`（标签条顺序，缺失 ⇒ 0）、`active`（是否激活项，
+    缺失 ⇒ False）。`geometry` 分支**保留不动**（v1.6.0 旧索引里已有该字段，删掉会
+    破坏"读取侧原样透传"的既有行为；渲染层不再发送时它照旧填中性默认值）。
+
+    本函数**同时**是读取路径的归一入口（`_normalize_stored_meta` → 此处），
+    因此新增字段在「写入」与「读取（含旧索引）」两侧自动一致。
+
+    :param pane: `editor.draftSave` 的 `pane` 参数（或磁盘上的存储态条目）
     :param pane_id: 已校验的窗格 ID
     :param now: 本次写入时间戳（条目 `updated_at`）
     :returns: v1 条目字典
@@ -281,6 +306,10 @@ def _normalize_pane_meta(pane: Mapping[str, Any], pane_id: str, now: float) -> d
         "font_size": _as_int(pane.get("font_size"), 14),
         "show_line_numbers": _as_bool(pane.get("show_line_numbers"), True),
         "word_wrap": _as_bool(pane.get("word_wrap"), False),
+        # v1.6.1 新增（§5.3，均可选；旧索引缺失时取默认值）
+        "view_mode": _as_view_mode(pane.get("view_mode")),
+        "order": _as_int(pane.get("order"), 0),
+        "active": _as_bool(pane.get("active"), False),
         "updated_at": float(now),
     }
 
@@ -290,7 +319,8 @@ def _to_public_meta(meta: Mapping[str, Any]) -> dict[str, Any]:
     把存储态条目转成桥返回的 `PaneMeta`（§7.1 #6/#8）。
 
     存储名 `line_end`（§6.3.1）与桥参数名 `lineEnd`（§7.1）**同时给出**，
-    两类读取方都能直接取用；其余字段原样透传。
+    两类读取方都能直接取用；其余字段原样透传（含 v1.6.1 §5.3 的
+    `view_mode` / `order` / `active`，它们已由 `_normalize_pane_meta` 归一进存储条目）。
     """
     public = dict(meta)
     public["lineEnd"] = meta.get("line_end", "lf")
@@ -402,7 +432,14 @@ def _rebuild_index_entries(scratch: str, warnings: list[str]) -> dict[str, Any] 
 
 
 def _normalize_stored_meta(raw: Mapping[str, Any], pane_id: str) -> dict[str, Any]:
-    """把磁盘上的条目归一成 v1 结构（字段缺失 / 类型不可信时退回默认值）。"""
+    """
+    把磁盘上的条目归一成 v1 结构（字段缺失 / 类型不可信时退回默认值）。
+
+    **读取路径同样是白名单**（v1.6.1 §13.2 U-6 的结论）：本函数直接委托
+    :func:`_normalize_pane_meta`，与写入侧共用同一份字段白名单 ⇒ 白名单外的键会被
+    丢弃。因此 §5.3 的 3 个新字段只需加在 `_normalize_pane_meta` 一处，写入与读取
+    （含 v1.6.0 旧索引）两侧即同时生效，无需另改本函数或 `_normalize_index`。
+    """
     return _normalize_pane_meta(raw, pane_id, _as_number(raw.get("updated_at"), 0.0))
 
 

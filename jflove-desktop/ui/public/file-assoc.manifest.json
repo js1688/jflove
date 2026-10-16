@@ -3,7 +3,7 @@
   "generatedFrom": "config/scratch-types.ts",
   "types": [
     { "ext": "json", "label": "JSON", "language": "json", "mime": ["application/json"] },
-    { "ext": "jsonc", "label": "JSON with Comments", "language": "json", "mime": ["application/json"] },
+    { "ext": "jsonc", "label": "带注释的 JSON", "language": "json", "mime": ["application/json"] },
     { "ext": "md", "label": "Markdown", "language": "markdown", "mime": ["text/markdown"] },
     { "ext": "markdown", "label": "Markdown", "language": "markdown", "mime": ["text/markdown"] },
     { "ext": "csv", "label": "CSV", "language": "text", "mime": ["text/csv"] },
@@ -17,7 +17,7 @@
     { "ext": "toml", "label": "TOML", "language": "text", "mime": ["text/plain"] },
     { "ext": "ini", "label": "INI", "language": "text", "mime": ["text/plain"] },
     { "ext": "conf", "label": "配置文件 (conf)", "language": "text", "mime": ["text/plain"] },
-    { "ext": "properties", "label": "Properties", "language": "text", "mime": ["text/plain"] },
+    { "ext": "properties", "label": "属性文件", "language": "text", "mime": ["text/plain"] },
     { "ext": "css", "label": "CSS", "language": "css", "mime": ["text/css"] },
     { "ext": "py", "label": "Python", "language": "python", "mime": ["text/x-python"] },
     { "ext": "js", "label": "JavaScript", "language": "javascript", "mime": ["text/javascript"] },
@@ -34,7 +34,7 @@
     { "ext": "cpp", "label": "C++", "language": "cpp", "mime": ["text/x-c++src"] },
     { "ext": "log", "label": "日志 (log)", "language": "text", "mime": ["text/plain"] },
     { "ext": "txt", "label": "纯文本 (txt)", "language": "text", "mime": ["text/plain"] },
-    { "ext": "diff", "label": "Diff", "language": "diff", "mime": ["text/x-diff"] },
-    { "ext": "patch", "label": "Patch", "language": "diff", "mime": ["text/x-diff"] }
+    { "ext": "diff", "label": "差异", "language": "diff", "mime": ["text/x-diff"] },
+    { "ext": "patch", "label": "补丁", "language": "diff", "mime": ["text/x-diff"] }
   ]
 }

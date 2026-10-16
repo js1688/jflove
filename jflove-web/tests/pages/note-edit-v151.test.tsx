@@ -12,7 +12,7 @@
  *
  * 另外做**源码级结构断言**（`<details>` 底部折叠区必须消失、折叠状态不得落 localStorage）：
  * 这类"结构不能被后续改动悄悄还原"的约束，用文本断言比渲染断言更稳
- * （与 `tests/layouts/navigation-v150.test.ts` 同一套做法；`.claude/skills/LESSONS.md` L12）。
+ * （与 `tests/layouts/navigation-v150.test.ts` 同一套做法；`.agents/skills/lessons/LESSONS.md` L12）。
  *
  * 负向对照（L17 / L11）：
  *   - 把 `resolveInitialViewMode` 临时改成恒返回 `'split'` → 本文件必须失败；

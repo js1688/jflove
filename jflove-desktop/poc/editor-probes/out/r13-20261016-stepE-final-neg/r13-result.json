@@ -1,0 +1,579 @@
+{
+  "probe": "r13-ctrlw-takeover",
+  "at": "2026-10-16T14:44:52",
+  "negative_ac70": true,
+  "checks": [
+    {
+      "id": "H0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（无编辑器入口 / 无工作区 DOM）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "hostActions": 47,
+        "state": {
+          "hash": "#/login",
+          "navLabels": [],
+          "navEditor": false,
+          "workspaceCount": 0,
+          "emptyCount": 0,
+          "tabCount": 0,
+          "tabs": [],
+          "panelCount": 0,
+          "activePanelCount": 0,
+          "cmBundle": false,
+          "cmContentCount": 0,
+          "dialogLabel": null,
+          "dialogText": null,
+          "hasLoginForm": false,
+          "focused": true,
+          "hidden": false,
+          "bodyText": "登录\nJFLove\n\n所有通信均经过端到端加密，连接后自动交换临时会话密钥。\n\n服务端地址\n\n需填写完整的服务端地址（含协议与端口），例如 http://127.0.0.1:8989\n\n连接服务端\nv1.5.1"
+        }
+      }
+    },
+    {
+      "id": "H1",
+      "desc": "OS 级 Ctrl+W 投递到渲染层（探针监听读到 keydown；无需登录）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "install": {
+          "ok": true,
+          "already": false,
+          "installedAt": 1792133062199
+        },
+        "reached": true,
+        "ctrled": true,
+        "preventedWhenUnlogged": false,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "w",
+            "code": "KeyW",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": false,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ],
+        "attempts": 1,
+        "diag": {
+          "attempts": [
+            {
+              "n": 1,
+              "beforeMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "afterMods": {
+                "ctrl": false,
+                "shift": false,
+                "alt": false,
+                "win": false
+              },
+              "all": [
+                {
+                  "seq": 0,
+                  "phase": "capture",
+                  "key": "Control",
+                  "code": "ControlLeft",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "targetAttached": true,
+                  "targetPath": [
+                    "BODY",
+                    "HTML"
+                  ],
+                  "bodyYield": false
+                },
+                {
+                  "seq": 1,
+                  "phase": "bubble",
+                  "key": "Control",
+                  "code": "ControlLeft",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "targetAttached": true,
+                  "targetPath": [
+                    "BODY",
+                    "HTML"
+                  ],
+                  "bodyYield": false
+                },
+                {
+                  "seq": 2,
+                  "phase": "capture",
+                  "key": "w",
+                  "code": "KeyW",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "targetAttached": true,
+                  "targetPath": [
+                    "BODY",
+                    "HTML"
+                  ],
+                  "bodyYield": false
+                },
+                {
+                  "seq": 3,
+                  "phase": "bubble",
+                  "key": "w",
+                  "code": "KeyW",
+                  "ctrl": true,
+                  "alt": false,
+                  "shift": false,
+                  "meta": false,
+                  "isTrusted": true,
+                  "defaultPrevented": false,
+                  "targetTag": "BODY",
+                  "targetInPanel": false,
+                  "targetInCm": false,
+                  "targetAttached": true,
+                  "targetPath": [
+                    "BODY",
+                    "HTML"
+                  ],
+                  "bodyYield": false
+                }
+              ],
+              "logPresent": true
+            }
+          ],
+          "install": {
+            "ok": true,
+            "already": true,
+            "count": 0,
+            "installedAt": 1792133062199
+          },
+          "hit": 1
+        }
+      }
+    },
+    {
+      "id": "H2",
+      "desc": "未登录：Ctrl+W 到达渲染层但**不接管**（不 preventDefault）、零标签页、窗口不关（AC-63 ②）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "reached": true,
+        "defaultPrevented": false,
+        "windowAlive": true,
+        "state": {
+          "hash": "#/login",
+          "navLabels": [],
+          "navEditor": false,
+          "workspaceCount": 0,
+          "emptyCount": 0,
+          "tabCount": 0,
+          "tabs": [],
+          "panelCount": 0,
+          "activePanelCount": 0,
+          "cmBundle": false,
+          "cmContentCount": 0,
+          "dialogLabel": null,
+          "dialogText": null,
+          "hasLoginForm": false,
+          "focused": true,
+          "hidden": false,
+          "bodyText": "登录\nJFLove\n\n所有通信均经过端到端加密，连接后自动交换临时会话密钥。\n\n服务端地址\n\n需填写完整的服务端地址（含协议与端口），例如 http://127.0.0.1:8989\n\n连接服务端\nv1.5.1"
+        },
+        "host": {
+          "hostActionTotal": 0,
+          "hostActionsFired": {},
+          "downloads": [],
+          "modalWidget": null,
+          "shellVisible": true
+        },
+        "screenshot": "r13-h2-unlogged-ctrlw.png"
+      }
+    },
+    {
+      "id": "H2b",
+      "desc": "未登录：Ctrl+Alt+N 到达渲染层但零响应（不新建标签页、工作区不出现）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "reached": true,
+        "defaultPrevented": false,
+        "before": {
+          "tabCount": 0,
+          "workspaceCount": 0
+        },
+        "after": {
+          "tabCount": 0,
+          "workspaceCount": 0
+        },
+        "windowAlive": true,
+        "keys": [
+          {
+            "seq": 4,
+            "phase": "capture",
+            "key": "N",
+            "code": "KeyN",
+            "ctrl": true,
+            "alt": true,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": false,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "H3pre",
+      "desc": "隔离服务端 + 桌面端服务层真登录（key_exchange → init_admin → login）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "port": 53456,
+        "serverRoot": "poc\\editor-probes\\out\\r13-20261016-stepE-final-neg\\.tmp_server",
+        "serverPid": 6180,
+        "serverUrl": "http://127.0.0.1:53456",
+        "sessionReady": true,
+        "adminExistsBefore": false,
+        "adminExistsAfter": true,
+        "loggedIn": true,
+        "username": "r13probe",
+        "role": "admin",
+        "hasToken": true,
+        "expiresAtSet": true,
+        "sessionFileExists": true
+      }
+    },
+    {
+      "id": "H3a",
+      "desc": "登录后准入翻转：导航项出现、/editor 工作区可达且显示空态",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "afterReload": {
+          "hash": "#/files",
+          "navLabels": [
+            "文件管理",
+            "笔记管理",
+            "文本编辑器",
+            "同步管理",
+            "传输任务",
+            "用户管理",
+            "磁盘管理",
+            "权限配置",
+            "系统设置",
+            "安全状态",
+            "设置"
+          ],
+          "navEditor": true,
+          "workspaceCount": 0,
+          "emptyCount": 0,
+          "tabCount": 0,
+          "tabs": [],
+          "panelCount": 0,
+          "activePanelCount": 0,
+          "cmBundle": false,
+          "cmContentCount": 0,
+          "dialogLabel": null,
+          "dialogText": null,
+          "hasLoginForm": false,
+          "focused": true,
+          "hidden": false,
+          "bodyText": "文件管理\nJFLove\n私有云 · 端到端加密\n文件管理\n笔记管理\n文本编辑器\n同步管理\n传输任务\n管理\n用户管理\n磁盘管理\n权限配置\n系统设置\n安全状态\n设置\nR1\nr13probe\n管理员\n文件管理\n选择磁盘开始浏览",
+          "reload": {
+            "ok": true,
+            "tried": [
+              {
+                "via": "view.reload",
+                "ok": true
+              }
+            ]
+          }
+        },
+        "editor": {
+          "hash": "#/editor",
+          "navLabels": [
+            "文件管理",
+            "笔记管理",
+            "文本编辑器",
+            "同步管理",
+            "传输任务",
+            "用户管理",
+            "磁盘管理",
+            "权限配置",
+            "系统设置",
+            "安全状态",
+            "设置"
+          ],
+          "navEditor": true,
+          "workspaceCount": 1,
+          "emptyCount": 1,
+          "tabCount": 0,
+          "tabs": [],
+          "panelCount": 0,
+          "activePanelCount": 0,
+          "cmBundle": false,
+          "cmContentCount": 0,
+          "dialogLabel": null,
+          "dialogText": null,
+          "hasLoginForm": false,
+          "focused": true,
+          "hidden": false,
+          "bodyText": "JFLove\nJFLove\n私有云 · 端到端加密\n文件管理\n笔记管理\n文本编辑器\n同步管理\n传输任务\n管理\n用户管理\n磁盘管理\n权限配置\n系统设置\n安全状态\n设置\nR1\nr13probe\n管理员\n\n没有打开的标签页\n\n新建一个空白标签页，或者打开本地文件开始编辑。\n\n新建标签页\n打开文件"
+        },
+        "screenshot": "r13-h3a-gate-open.png"
+      }
+    },
+    {
+      "id": "H3b",
+      "desc": "已登录：OS 级 Ctrl+N 被渲染层接管并新建 1 个标签页（接管前置的阳性对照）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": {
+          "tabCount": 0
+        },
+        "after": {
+          "tabCount": 1,
+          "tabs": [
+            {
+              "id": "9e0b830b-93b7-402a-84d2-6798db6a9edd",
+              "active": true,
+              "dirty": false,
+              "title": "未命名"
+            }
+          ]
+        },
+        "defaultPrevented": true,
+        "keys": [
+          {
+            "seq": 2,
+            "phase": "capture",
+            "key": "n",
+            "code": "KeyN",
+            "ctrl": true,
+            "alt": false,
+            "shift": false,
+            "meta": false,
+            "isTrusted": true,
+            "defaultPrevented": true,
+            "targetTag": "BODY",
+            "targetInPanel": false,
+            "targetInCm": false,
+            "targetAttached": true,
+            "targetPath": [
+              "BODY",
+              "HTML"
+            ],
+            "bodyYield": false
+          }
+        ],
+        "windowAlive": true
+      }
+    },
+    {
+      "id": "H3c-neg",
+      "desc": "负向对照：注入「不接管」后，干净标签**未被**关闭（判据按预期失败）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": {
+          "tabCount": 1,
+          "tabs": [
+            {
+              "id": "9e0b830b-93b7-402a-84d2-6798db6a9edd",
+              "active": true,
+              "dirty": false,
+              "title": "未命名"
+            }
+          ],
+          "dirty": [
+            false
+          ]
+        },
+        "after": {
+          "tabCount": 1,
+          "tabs": [
+            {
+              "id": "9e0b830b-93b7-402a-84d2-6798db6a9edd",
+              "active": true,
+              "dirty": false,
+              "title": "未命名"
+            }
+          ],
+          "dialogLabel": null
+        },
+        "defaultPrevented": false,
+        "reached": true,
+        "host": {
+          "hostActionTotal": 0,
+          "hostActionsFired": {},
+          "downloads": [],
+          "modalWidget": null,
+          "shellVisible": true
+        },
+        "windowAlive": true
+      }
+    },
+    {
+      "id": "H3d-neg",
+      "desc": "负向对照：注入「不接管」后，脏标签**未**弹出关闭询问（判据按预期失败）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "promptLabel": null,
+        "defaultPrevented": false,
+        "after": {
+          "tabCount": 1,
+          "dialogLabel": null,
+          "tabs": [
+            {
+              "id": "9e0b830b-93b7-402a-84d2-6798db6a9edd",
+              "active": true,
+              "dirty": true,
+              "title": "未命名"
+            }
+          ]
+        },
+        "docLengthBefore": 9,
+        "docLengthAfter": 9
+      }
+    },
+    {
+      "id": "H5",
+      "desc": "负向对照注入点还原（`body.dataset.jfShortcutCapture` 已清）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "yield": null
+      }
+    },
+    {
+      "id": "H4",
+      "desc": "宿主零默认动作：全部可枚举 WebAction（47 项）触发计数 = 0、无下载、无宿主模态、主窗口存活",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "hostActionTotal": 0,
+        "hostActionsFired": {},
+        "downloads": [],
+        "modalWidget": null,
+        "shellVisible": true
+      }
+    }
+  ],
+  "notes": [
+    "负向注入（让路给宿主）：{'yield': '1'}"
+  ],
+  "platform": "",
+  "real_window": true,
+  "skip_login": false,
+  "requests": [
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-DCNfAnPR.js",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-D0fuOM-O.css",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/index.html#/login",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-DCNfAnPR.js",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/assets/index-D0fuOM-O.css",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-256.png",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/logo-128.png",
+    "file:///D:/github/jflove/jflove-desktop/ui/dist/vendor/editor.bundle.js"
+  ],
+  "requestsRemote": [],
+  "hostActionNames": [
+    "AlignCenter",
+    "AlignJustified",
+    "AlignLeft",
+    "AlignRight",
+    "Back",
+    "ChangeTextDirectionLTR",
+    "ChangeTextDirectionRTL",
+    "Copy",
+    "CopyImageToClipboard",
+    "CopyImageUrlToClipboard",
+    "CopyLinkToClipboard",
+    "CopyMediaUrlToClipboard",
+    "Cut",
+    "DownloadImageToDisk",
+    "DownloadLinkToDisk",
+    "DownloadMediaToDisk",
+    "ExitFullScreen",
+    "Forward",
+    "Indent",
+    "InsertOrderedList",
+    "InsertUnorderedList",
+    "InspectElement",
+    "OpenLinkInNewBackgroundTab",
+    "OpenLinkInNewTab",
+    "OpenLinkInNewWindow",
+    "OpenLinkInThisWindow",
+    "Outdent",
+    "Paste",
+    "PasteAndMatchStyle",
+    "Redo",
+    "Reload",
+    "ReloadAndBypassCache",
+    "RequestClose",
+    "SavePage",
+    "SelectAll",
+    "Stop",
+    "ToggleBold",
+    "ToggleItalic",
+    "ToggleMediaControls",
+    "ToggleMediaLoop",
+    "ToggleMediaMute",
+    "ToggleMediaPlayPause",
+    "ToggleStrikethrough",
+    "ToggleUnderline",
+    "Undo",
+    "Unselect",
+    "ViewSource"
+  ],
+  "user_data_sandbox": "poc\\editor-probes\\out\\r13-20261016-stepE-final-neg\\.tmp_appdata",
+  "isolatedServer": {
+    "pid": 6180
+  }
+}

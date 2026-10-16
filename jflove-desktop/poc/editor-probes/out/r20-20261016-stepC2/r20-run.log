@@ -1,0 +1,79 @@
+r20 真机探针 · 六项新默认键（F3）+ `Ctrl+D` 反向守门 · v1.6.1
+平台=(默认) · 真窗口=True · 判据=['P0', 'P1', 'K-NEWTAB', 'K-NEXTTAB', 'K-PREVTAB', 'K-TOOLBOX', 'K-DIFF', 'K-OPENFILE', 'K-CTRLD-REVERSE', 'H-NOHOST']
+证据目录：poc\editor-probes\out\r20-20261016-stepC2
+前端产物根（--webui）：{"originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist", "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist", "indexExists": true, "indexSha256Prefix": "38ee31510ab1aef6"}
+复用 r13 OS 级按键原语；补齐虚拟键：['o', 'k', 'd', 'pagedown', 'pageup']
+venv-win\Scripts\python.exe : [2026-10-16 14:28:56] [INFO] [src.utils.input_method] ���뷨���ã�win32 ƽ̨ʹ��ϵͳԭ�� IME������
+ Qt ����������
+所在位置 行:1 字符: 169
++ ... esktop; & { venv-win\Scripts\python.exe poc\editor-probes\r20-real-gu ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([2026-10-16 14:...� Qt ����������:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[2026-10-16 14:28:56] [INFO] [src.ui.web_shell] ����Ĭ�϶���������ɣ�10/13 �����������������
+[2026-10-16 14:28:57] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 14:28:57] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:28:57] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 14:28:58] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] P0 真外壳加载 v1.6.1 前端产物；初始态 = 未登录（无编辑器入口 / 无工作区 DOM）
+       {"load_ui": true, "realWindow": true, "hostActions": 47, "state": {"hash": "#/login", "navEditor": false, "workspaceCount": 0, "tabCount": 0, "hasLoginForm": false}}
+[2026-10-16 14:28:59] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=88c09921-b17a-4620-8c10-0f309f66718d
+[2026-10-16 14:28:59] [INFO] [src.services.auth_service] ����Ա�˺ų�ʼ���ɹ�: r20probe
+[2026-10-16 14:29:00] [INFO] [src.services.auth_service] �û���¼�ɹ�: r20probe (role=admin)
+[2026-10-16 14:29:00] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 14:29:00] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:29:00] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 14:29:06] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=cb6345ab-9975-42c3-9af4-013d969c21a4
+[2026-10-16 14:29:09] [INFO] [src.services.auth_service] ���¼�ָ��Ự�ɹ�: r20probe (role=admin)
+[2026-10-16 14:29:10] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:29:10] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:29:10] [DEBUG] [src.bridge.bridge] ������ api.request ������=['body', 'method', 'path', 'plain']
+[2026-10-16 14:29:10] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/files/disks������=False��
+  · 登录：{"loggedIn": true, "hasToken": true, "sessionFileExists": true, "role": "admin"}
+  · 重载后：{"hash": "#/files", "navEditor": true, "workspaceCount": 0, "tabCount": 0}
+[2026-10-16 14:29:11] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��2 ������Դ=cli��
+[2026-10-16 14:29:11] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:29:11] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:29:11] [INFO] [src.bridge.editor] ������ 2 �����ɹ� 2 ����
+[2026-10-16 14:29:11] [DEBUG] [src.bridge.bridge] ������ editor.draftList ������=[]
+[ OK ] P1 服务层真登录 + 重载 ⇒ 渲染层已登录；经生产通路开 2 个标签页（1 个激活面板、主窗口存活）
+       {"pushedCount": 2, "expectedTabCount": 2, "tabCount": 2, "order": ["r20-key-a.txt", "r20-key-b.txt"], "activeTabId": null, "activePanelCount": 1, "hash": "#/editor", "windowAlive": true}
+  · H-NOHOST 计数清零：清零前 {}
+[2026-10-16 14:29:12] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 2 ����
+[2026-10-16 14:29:12] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��2 ������Դ=cli��
+[ OK ] K-NEWTAB `pane.new` = `Ctrl+N`（本轮新默认）：OS 级按键 ⇒ 标签数 +1
+       {"beforeTabCount": 2, "afterTabCount": 3, "expectedAfterTabCount": 3, "reached": true, "defaultPrevented": true, "hostActionDeltaTotal": 0, "hostActionDeltaFired": {}, "modalWidget": null, "windowAlive": true, "keys": [{"seq": 2, "phase": "capture", "key": "n", "code": "KeyN", "ctrl": true, "alt": false, "shift": false, "meta": false, "isTrusted": true, "defaultPrevented": true, "targetTag": "BODY", "targetInPanel": false, "targetInCm": false, "targetAttached": true, "targetPath": ["BODY", "HTML"], "bodyYield": false}], "tabs": [{"id": "0a8afd7f-7cb2-4e77-914e-7eaa0ad4d2a9", "active": false, "dirty": false, "title": "r20-key-a.txt"}, {"id": "4027041d-60ee-49fb-aae8-1eb12eb836d9", "active": false, "dirty": false, "title": "r20-key-b.txt"}, {"id": "0beb1ad6-230e-4cde-8cb1-344d751a97ba", "active": true, "dirty": false, "title": "未命名"}]}
+[ OK ] K-NEXTTAB `pane.next` = `Ctrl+PageDown`（本轮新默认）：激活项变到顺序里的下一个
+       {"order": ["r20-key-a.txt", "r20-key-b.txt", "未命名"], "clickFirst": {"ok": true, "clicked": "r20-key-a.txt"}, "activeAtStart": "r20-key-a.txt", "expectedActive": "r20-key-b.txt", "activeAfter": "r20-key-b.txt", "reached": true, "defaultPrevented": true, "hostActionDeltaTotal": 0, "modalWidget": null, "windowAlive": true, "keys": [{"seq": 2, "phase": "capture", "key": "PageDown", "code": "PageDown", "ctrl": true, "alt": false, "shift": false, "meta": false, "isTrusted": true, "defaultPrevented": true, "targetTag": "BODY", "targetInPanel": false, "targetInCm": false, "targetAttached": true, "targetPath": ["BODY", "HTML"], "bodyYield": false}]}
+[ OK ] K-PREVTAB `pane.prev` = `Ctrl+PageUp`（本轮新默认）：激活项回到原来的那个
+       {"order": ["r20-key-a.txt", "r20-key-b.txt", "未命名"], "activeBefore": "r20-key-b.txt", "expectedActive": "r20-key-a.txt", "activeAfter": "r20-key-a.txt", "reached": true, "defaultPrevented": true, "hostActionDeltaTotal": 0, "modalWidget": null, "windowAlive": true, "keys": [{"seq": 2, "phase": "capture", "key": "PageUp", "code": "PageUp", "ctrl": true, "alt": false, "shift": false, "meta": false, "isTrusted": true, "defaultPrevented": true, "targetTag": "BODY", "targetInPanel": false, "targetInCm": false, "targetAttached": true, "targetPath": ["BODY", "HTML"], "bodyYield": false}]}
+[ OK ] K-TOOLBOX AC-75② / BL-51 守门：`view.toolbox` = `Ctrl+K`（本轮新默认）⇒ 工具箱弹框**真的出现**（`[data-toolbox-menu="true"]` + 12 项可见）
+       {"menuCountBefore": 0, "menuCountAfter": 1, "itemCountAfter": 12, "visibleItemsAfter": 12, "triggerAriaExpandedAfter": "true", "menuInActivePanel": true, "itemIds": ["search", "lines", "case", "escape", "base64", "json", "markdown", "csv", "sql", "xml", "diff", "font"], "reached": true, "defaultPrevented": true, "hostActionDeltaTotal": 0, "hostActionDeltaFired": {}, "modalWidget": null, "windowAlive": true, "keys": [{"seq": 2, "phase": "capture", "key": "k", "code": "KeyK", "ctrl": true, "alt": false, "shift": false, "meta": false, "isTrusted": true, "defaultPrevented": true, "targetTag": "BODY", "targetInPanel": false, "targetInCm": false, "targetAttached": true, "targetPath": ["BODY", "HTML"], "bodyYield": false}], "screenshot": "r20-k-toolbox.png"}
+[ OK ] K-TOOLBOX-CLOSE 收尾（非判据）：`Esc` 关闭工具箱弹框（产品自己的关闭通路） （观察项，不参与退出码）
+       {"esc": {"ok": true}, "menuCountAfter": 0}
+[ OK ] K-DIFF `view.diff` = `Ctrl+Shift+D`（本轮新默认，**不是** `Ctrl+D`）⇒ 两段文本对比视图**真的出现**（`第二段来源` + `关闭对比`）
+       {"before": {"hasSourceHeader": false, "hasCloseButton": false, "hasDiffHint": false, "bodyChars": 353}, "after": {"hasSourceHeader": true, "hasCloseButton": true, "hasDiffHint": true, "bodyChars": 405}, "shiftSeenInCapture": true, "reached": true, "defaultPrevented": true, "hostActionDeltaTotal": 0, "hostActionDeltaFired": {}, "modalWidget": null, "windowAlive": true, "keys": [{"seq": 4, "phase": "capture", "key": "D", "code": "KeyD", "ctrl": true, "alt": false, "shift": true, "meta": false, "isTrusted": true, "defaultPrevented": true, "targetTag": "BODY", "targetInPanel": false, "targetInCm": false, "targetAttached": true, "targetPath": ["BODY", "HTML"], "bodyYield": false}], "screenshot": "r20-k-diff.png"}
+[2026-10-16 14:29:29] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:29:29] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:29:30] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']
+[2026-10-16 14:29:31] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�
+[2026-10-16 14:29:31] [INFO] [src.services.scratch_service] �ݸ���д��: pane-0a8afd7f-7cb2-4e77-914e-7eaa0ad4d2a9.txt (23
+ �ֽ�)
+[2026-10-16 14:29:31] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'te
+xt']
+[2026-10-16 14:29:31] [INFO] [src.services.editor_service] �ѱ����ļ�: r20-key-a.tx#d52e7e52 size=24
+[2026-10-16 14:29:31] [INFO] [src.bridge.editor] д���ļ� r20-key-a.tx#d52e7e52 ok=True
+[2026-10-16 14:29:31] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:29:31] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] K-CTRLD-REVERSE 反向守门：`Ctrl+D` **不被我们抢走** —— 同一单词出现两次 + 1 个 range 的选区 ⇒ 按一次后 range 数 1 → 2（CM6 `selectNextOccurrence`），且 diff 面板未打开
+       {"setup": {"ok": true, "docCodePoints": 23, "rangeCount": 1, "selectedChars": 5}, "rangeCountBefore": 1, "rangesBefore": [{"from": 0, "to": 5}], "rangeCountAfter": 2, "rangesAfter": [{"from": 0, "to": 5}, {"from": 11, "to": 16}], "docCodePointsBefore": 23, "docCodePointsAfter": 23, "docFnv1a32Before": "8a2d71c8", "docFnv1a32After": "8a2d71c8", "diffOpenedByCtrlD": false, "diffBeforeCtrlD": false, "reached": true, "defaultPrevented": false, "hostActionDeltaTotal": 0, "modalWidget": null, "windowAlive": true, "keys": [{"seq": 2, "phase": "capture", "key": "d", "code": "KeyD", "ctrl": true, "alt": false, "shift": false, "meta": false, "isTrusted": true, "defaultPrevented": false, "targetTag": "DIV", "targetInPanel": true, "targetInCm": true, "targetAttached": true, "targetPath": ["DIV[cm-content]", "DIV", "DIV[cm-editor]", "DIV", "DIV", "DIV"], "bodyYield": false}], "note": "`defaultPrevented` 是**window 捕获阶段**的读数；CM6 在更里层处理该键，故它可能为 false 而选区已扩到 2 个 range —— 判据取 range 数与「diff 面板没被打开」两者", "screenshot": "r20-k-ctrld-reverse.png"}
+[2026-10-16 14:29:33] [DEBUG] [src.bridge.bridge] ������ editor.openDialog ������=['mode']
+[ OK ] K-OPENFILE `file.open` = `Ctrl+O`（本轮新默认）：渲染层**收到该键且被我们接管**（`defaultPrevented=true`）、**接管逻辑一路走到桥的原生对话框调用点**、宿主 47 项动作计数 = 0；**原生对话框里的选路径 SKIP**（无自动化接口）
+       {"seam": {"seamInstalled": true, "originalIsCallable": true, "seam": "src/bridge/editor.py::_open_file_names"}, "seamCalled": true, "seamCalls": [{"title": "打开文件", "hasParent": false, "hasFilter": false}], "reached": true, "defaultPrevented": true, "hostActionDeltaTotal": 0, "hostActionDeltaFired": {}, "downloads": [], "modalWidget": null, "tabCountAfter": 3, "windowAlive": true, "keys": [{"seq": 2, "phase": "capture", "key": "o", "code": "KeyO", "ctrl": true, "alt": false, "shift": false, "meta": false, "isTrusted": true, "defaultPrevented": true, "targetTag": "DIV", "targetInPanel": true, "targetInCm": true, "targetAttached": true, "targetPath": ["DIV[cm-content]", "DIV", "DIV[cm-editor]", "DIV", "DIV", "DIV"], "bodyYield": false}]}
+[SKIP] K-OPENFILE-DIALOG `Ctrl+O` 原生 `QFileDialog` 的**选路径 / 确认** —— **SKIP**：探针不注入产品源码、也不具备原生对话框自动化能力 ⇒ 不伪造成 PASS（与 r15 的 AC71-7 同一既有约定） （观察项，不参与退出码）
+       {"why": "原生文件对话框无自动化接口；且从按键派发栈进 `exec()` 会让 `QTest.qWait` 永不返回（本轮实测卡死）⇒ 本判据走产品源码里公开标注的测试接缝", "productCallSite": "src/bridge/editor.py:278 的 `_open_file_names`（:195 → `QFileDialog.getOpenFileNames`）", "whatIsProven": "按键送达 + 我们接管（preventDefault）+ 接管逻辑一路走到对话框调用点（接缝被调用）+ 宿主 47 项动作计数 = 0 + 无宿主模态 + 窗口存活", "whatIsSkipped": "对话框内部交互（选文件、点打开/取消）"}
+[ OK ] H-NOHOST 整个按键相位：宿主 47 项 `WebAction` 触发计数 = 0、无下载、无**残留**宿主模态、无 DOM 模态、主窗口存活（`Ctrl+O` 打开的原生对话框已由探针关闭，另见 K-OPENFILE）
+       {"webActionTotalInKeyPhase": 0, "webActionByActionInKeyPhase": {}, "instrumentedActionCount": 47, "phaseBeforeReset": {}, "downloads": [], "modalWidget": null, "domDialogLabel": null, "windowAlive": true}
+结果 JSON：poc\editor-probes\out\r20-20261016-stepC2\r20-result.json
+退出码：0

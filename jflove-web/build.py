@@ -1,7 +1,7 @@
 """
 jflove-web Docker 镜像构建脚本
 
-按 .claude/skills/devops/SKILL.md 约定：
+按 .agents/skills/devops/SKILL.md 约定：
   - Web 端发布产物为 docker 镜像（本地或 GitHub Actions 均可构建）
   - Docker 多阶段构建：Stage 1 node build（npm ci + npm run build）→ Stage 2 nginx serve
   - 构建前自检：package-lock.json 必须存在（保证 npm ci 可复现）

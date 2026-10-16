@@ -1,0 +1,63 @@
+==============================================================================
+r16 负向对照变异矩阵（v1.6.1）：故意改坏源码 ⇒ 判据必须失败
+仓库根：D:\github\jflove
+用例数：13（设计 §14.3 共 9 行 → 10 条；另含表外缺陷 R1 补牙 1 条 + 本轮 F5/F6 负向对照各 1 条）（baseline=on）
+==============================================================================
+
+── AC63-NAV-ALWAYS（AC-63① · 设计 §14.3 第 1 行 AC-63） :: jflove-desktop/ui/src/layouts/DesktopLayout.tsx
+   依据：导航项改成「始终渲染」⇒ 未登录零存在用例必须失败
+   [OK] 判据失败 exit=1 用时 2.3s｜基线:通过(2.3s)｜还原:sha 一致
+
+── AC64-DROP-QUEUE（AC-64③ · 设计 §14.3 第 2 行 AC-64） :: jflove-desktop/ui/src/utils/scratch/open-paths-queue.ts
+   依据：未登录时丢弃挂起的唤起请求（清队而非挂起）⇒「登录后自动打开」用例必须失败
+   [OK] 判据失败 exit=1 用时 2.1s｜基线:通过(2.2s)｜还原:sha 一致
+
+── AC65-NO-DEDUP（AC-65 · 设计 §14.3 第 3 行 AC-65） :: jflove-desktop/ui/src/stores/scratch-store.ts
+   依据：同路径不再查重、直接走「新开标签」分支 ⇒ 去重聚焦用例必须失败
+   [OK] 判据失败 exit=1 用时 2.1s｜基线:通过(2.1s)｜还原:sha 一致
+
+── AC66-UNMOUNT-PANEL（AC-66 · 设计 §14.3 第 4 行 AC-66） :: jflove-desktop/ui/src/components/scratch/ScratchWorkspace.tsx
+   依据：非激活面板被卸载（切走即丢 state）⇒ 状态保持用例必须失败
+   [OK] 判据失败 exit=1 用时 2.8s｜基线:通过(3.0s)｜还原:sha 一致
+
+── AC68-RESET-ON-UNMOUNT（AC-68② · 设计 §14.3 第 4 行 AC-66 / AC-68（同行拆出的 AC-68 一侧）） :: jflove-desktop/ui/src/components/scratch/ScratchWorkspace.tsx
+   依据：切路由（卸载工作区）时把内存标签状态重建 ⇒ 顺序 / 激活项保持用例必须失败
+   [OK] 判据失败 exit=1 用时 2.6s｜基线:通过(2.7s)｜还原:sha 一致
+
+── AC67-NO-OVERFLOW（AC-67 · 设计 §14.3 第 5 行 AC-67） :: jflove-desktop/ui/src/components/scratch/ScratchTabBar.tsx
+   依据：去掉溢出入口（按钮 + 下拉整体不渲染）⇒「能定位第 12 个」用例必须失败
+   [OK] 判据失败 exit=1 用时 2.6s｜基线:通过(2.6s)｜还原:sha 一致
+
+── AC70-NO-CAPTURE（AC-70①② · 设计 §14.3 第 6 行 AC-70（渲染层一半）） :: jflove-desktop/ui/src/utils/scratch/shortcut-runtime.ts
+   依据：命中后不 preventDefault / 不 stopPropagation ⇒ Ctrl+W 接管用例必须失败
+   [OK] 判据失败 exit=1 用时 2.5s｜基线:通过(2.4s)｜还原:sha 一致
+
+── AC71-SESSION-BEFORE-SAVE（AC-71①③ · 设计 §14.3 第 7 行 AC-71） :: jflove-desktop/ui/src/stores/scratch-store.ts
+   依据：保存前逐次校验会话（服务端不可达即拒写）⇒ 保存通路用例必须失败
+   [OK] 判据失败 exit=1 用时 2.2s｜基线:通过(2.2s)｜还原:sha 一致
+
+── AC72-DISCARD-ON-LOGOUT（AC-72③ · 设计 §14.3 第 8 行 AC-72） :: jflove-desktop/ui/src/components/scratch/ScratchWorkspace.tsx
+   依据：登出（门翻假）时清掉本机草稿 ⇒「不丢内容」用例必须失败
+   [OK] 判据失败 exit=1 用时 2.6s｜基线:通过(2.6s)｜还原:sha 一致
+
+── AC47-UNGATED（AC-47① · 设计 §14.3 第 9 行 AC-47（反转）） :: jflove-desktop/ui/src/utils/scratch/editor-gate.ts
+   依据：恢复 v1.6.0 行为（准入恒为真，未登录也能开编辑器）⇒ 准入用例必须失败
+   [OK] 判据失败 exit=1 用时 2.1s｜基线:通过(2.0s)｜还原:sha 一致
+
+── R1-LANDING-OVERRIDE（AC-64② · Phase 6 缺陷 R1（AC-64 ② 的落点判据）） :: jflove-desktop/ui/src/utils/scratch/editor-landing.ts
+   依据：落点判据恒为假 ⇒ 登录后回到首页而不是揭示编辑器，新回归用例必须失败
+   [OK] 判据失败 exit=1 用时 2.6s｜基线:通过(2.6s)｜还原:sha 一致
+
+── F5-SNAPSHOT-NOOP（AC-77① · 本轮修复 F5（AC-77① 渲染层写侧）） :: jflove-desktop/ui/src/stores/scratch-store.ts
+   依据：把 `snapshotInitialText` 的正文写回改成 no-op ⇒ 「编辑 → 卸载工作区 → 重挂」正文必须丢
+   [OK] 判据失败 exit=1 用时 3.0s｜基线:通过(3.1s)｜还原:sha 一致｜命中指纹:['scratch-editor-content-survival.test.tsx', 'failed']
+
+── F6-CLIPBOARD-NORMALIZE-OFF（F6 · 本轮修复 F6（外壳侧归一化开关）） :: jflove-desktop/src/ui/web_shell.py
+   依据：把 `CLIPBOARD_NORMALIZE_ENABLED` 关掉 ⇒ 单测（归一化行为 + 接线守门）必须失败
+   [OK] 判据失败 exit=1 用时 1.0s｜基线:通过(0.9s)｜还原:sha 一致｜命中指纹:['tests/test_v161_f6_clipboard_normalize.py', 'failed']
+
+==============================================================================
+被抓：13/13；未抓：0；错误：0
+[文件完整性] 9 个变异目标文件的 git 状态与开局逐行一致（变异全部还原）
+==============================================================================
+证据汇总：D:\github\jflove\jflove-desktop\poc\editor-probes\out\r16-20261016-stepA-recalib\r16-matrix.json

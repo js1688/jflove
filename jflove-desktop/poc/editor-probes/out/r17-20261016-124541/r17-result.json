@@ -1,0 +1,1590 @@
+{
+  "probe": "r17-clipboard-cfhtml",
+  "at": "2026-10-16T12:46:35",
+  "only": [
+    "P0",
+    "P1",
+    "SHAPE-AWT",
+    "CLIP-AWT",
+    "CLIP-CHROMIUM",
+    "CLIP-TEXT",
+    "CLIP-EMPTY",
+    "CLIP-HTMLONLY",
+    "CLIP-DIVERGE",
+    "H-NOHOST",
+    "AWT-CJK",
+    "USER-CLIP"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "realWindow": true,
+        "state": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0,
+          "cmBundle": false
+        }
+      }
+    },
+    {
+      "id": "USER-CLIP",
+      "desc": "只读观察真实来源（例如 IDEA）留在剪贴板上的 flavor 与 CF_HTML 头结构",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "formats": [],
+        "htmlAvailable": false,
+        "unicodeTextAvailable": false,
+        "oemTextAvailable": false,
+        "verdict": "no-html-flavor",
+        "clipboardSequence": 1160,
+        "note": "本判据只读、不写剪贴板；裸 Win32 枚举（不经 Qt，无隐式格式转换）。若 verdict=no-html-flavor ⇒ 当前剪贴板里没有 CF_HTML，请先在 IDEA 里复制一段代码再重跑本判据。"
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "隔离服务端就绪 + 服务层真登录 + 重载后渲染层已登录、工作区可用、恰好 1 个标签页",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "port": 64968,
+        "serverPid": 6352,
+        "login": {
+          "serverUrlSet": true,
+          "sessionReady": true,
+          "adminExistsBefore": false,
+          "adminExistsAfter": true,
+          "tokenPresentAfterInit": false,
+          "loggedInAfterInit": false,
+          "loggedIn": true,
+          "username": "r17probe",
+          "role": "admin",
+          "hasToken": true,
+          "sessionFileExists": true
+        },
+        "reload": {
+          "ok": true,
+          "tried": [
+            {
+              "via": "view.reload",
+              "ok": true
+            }
+          ]
+        },
+        "navEditorAfter": true,
+        "workspaceRootCount": 0,
+        "pushedOpenPaths": 1,
+        "fixtureName": "r17-clip-target.txt",
+        "tabState": {
+          "tabCount": 1,
+          "activePanelCount": 1,
+          "cmContentCount": 1,
+          "hash": "#/editor",
+          "activePanelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "cmBundle": true
+        }
+      }
+    },
+    {
+      "id": "SHAPE-AWT",
+      "desc": "AWT 风格载荷（无 <!--StartFragment-->）在 Qt 眼中的形态 = 有 text/html 但既无注释标记也无头偏移（M1 前提）；同时 Win32 侧按偏移切片复核通过（偏移算对了）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": true,
+          "textWritten": true,
+          "htmlUtf8Bytes": 177,
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "textUtf16Bytes": 86,
+          "textCodePoints": 42
+        },
+        "win32Readback": {
+          "htmlAvailable": true,
+          "textAvailable": true,
+          "htmlBytes": 176,
+          "htmlSha256Prefix": "64f0296f361c0faf",
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "offsets": {
+            "startHtml": 105,
+            "endHtml": 176,
+            "startFragment": 119,
+            "endFragment": 160
+          },
+          "fragmentByOffsetOk": {
+            "ok": true,
+            "chunkUtf8Bytes": 41,
+            "chunkFnv1a32": "83b07194",
+            "chunkIsWholeFragment": true,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 176,
+              "startFragment": 119,
+              "endFragment": 160
+            }
+          },
+          "textCodePoints": 42,
+          "textFnv1a32": "ecc2dbba"
+        },
+        "qtShape": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 69,
+          "htmlUtf8Bytes": 69,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "awt",
+            "hasMarkerComment": false,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 176,
+              "startFragment": 119,
+              "endFragment": 160
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 176,
+            "fragmentUtf8Bytes": 41,
+            "fragmentCodePoints": 41
+          }
+        },
+        "shapePassCriteria": {
+          "hasHtml": true,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false
+        }
+      }
+    },
+    {
+      "id": "SHAPE-CHROMIUM",
+      "desc": "对照：Chromium 风格载荷在 Qt 眼中**带** <!--StartFragment--> 标记",
+      "status": "PASS",
+      "gating": false,
+      "detail": {
+        "qtShape": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 105,
+          "htmlUtf8Bytes": 105,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": true,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c68746d6c3e3c626f64793e",
+          "htmlSuffix12Hex": "626f64793e3c2f68746d6c3e",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "chromium",
+            "hasMarkerComment": true,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 210,
+              "startFragment": 137,
+              "endFragment": 178
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 210,
+            "fragmentUtf8Bytes": 41,
+            "fragmentCodePoints": 41
+          }
+        }
+      }
+    },
+    {
+      "id": "CLIP-AWT",
+      "desc": "OS 级 Ctrl+V（AWT 风格载荷）⇒ 正文逐字符等于剪贴板 text/plain",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "kind": "AWT",
+        "focusBeforeClear": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docLength": 0
+        },
+        "clearRetry": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+                "hasFocus": true,
+                "docCodePoints": 0,
+                "selectionMain": {
+                  "from": 0,
+                  "to": 0
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "hasFocus": true,
+            "docCodePoints": 0,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "osCtrlAPressed": true,
+        "clearedToEmpty": true,
+        "selectionAfterClear": {
+          "from": 0,
+          "to": 0
+        },
+        "baselineFnv1a32": "811c9dc5",
+        "baselineCodePoints": 0,
+        "pasteFocus": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docCodePoints": 0,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "clipboardSequenceBeforePaste": 1178,
+        "clipboardSequenceAfterPaste": 1178,
+        "focusStateAfterPaste": {
+          "hasFocus": true,
+          "hidden": false,
+          "visibility": "visible",
+          "activeTag": "DIV",
+          "activeClass": "cm-content"
+        },
+        "after": {
+          "docCodePoints": 42,
+          "docUtf8Bytes": 42,
+          "docFnv1a32": "ecc2dbba",
+          "empty": false,
+          "hasFocus": true,
+          "selectionMain": {
+            "from": 42,
+            "to": 42
+          },
+          "r17Error": null
+        },
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 42,
+          "expectedCodePoints": 42,
+          "docCharUnits": 42,
+          "expectedCharUnits": 42
+        },
+        "expected": {
+          "codePoints": 42,
+          "utf8Bytes": 42,
+          "fnv1a32": "ecc2dbba"
+        },
+        "equal": true,
+        "windowAlive": true,
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": true,
+          "textWritten": true,
+          "htmlUtf8Bytes": 177,
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "textUtf16Bytes": 86,
+          "textCodePoints": 42
+        },
+        "win32ClipboardFormats": [
+          "HTML Format",
+          "CF_UNICODETEXT",
+          "CF_LOCALE",
+          "CF_TEXT",
+          "CF_OEMTEXT"
+        ],
+        "qtShapeAtPasteTime": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 69,
+          "htmlUtf8Bytes": 69,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "awt",
+            "hasMarkerComment": false,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 176,
+              "startFragment": 119,
+              "endFragment": 160
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 176,
+            "fragmentUtf8Bytes": 41,
+            "fragmentCodePoints": 41
+          }
+        },
+        "docBeforeAnyKey": {
+          "docCodePoints": 0,
+          "docFnv1a32": "811c9dc5",
+          "empty": true
+        },
+        "hostWebActionCountAtThisPoint": 0,
+        "channel": "text-flavor"
+      }
+    },
+    {
+      "id": "CLIP-CHROMIUM",
+      "desc": "OS 级 Ctrl+V（CHROMIUM 风格载荷）⇒ 正文逐字符等于剪贴板 text/plain",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "kind": "CHROMIUM",
+        "focusBeforeClear": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docLength": 42
+        },
+        "clearRetry": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+                "hasFocus": true,
+                "docCodePoints": 42,
+                "selectionMain": {
+                  "from": 42,
+                  "to": 42
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "hasFocus": true,
+            "docCodePoints": 42,
+            "selectionMain": {
+              "from": 42,
+              "to": 42
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "osCtrlAPressed": true,
+        "clearedToEmpty": true,
+        "selectionAfterClear": {
+          "from": 0,
+          "to": 0
+        },
+        "baselineFnv1a32": "811c9dc5",
+        "baselineCodePoints": 0,
+        "pasteFocus": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docCodePoints": 0,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "clipboardSequenceBeforePaste": 1184,
+        "clipboardSequenceAfterPaste": 1184,
+        "focusStateAfterPaste": {
+          "hasFocus": true,
+          "hidden": false,
+          "visibility": "visible",
+          "activeTag": "DIV",
+          "activeClass": "cm-content"
+        },
+        "after": {
+          "docCodePoints": 42,
+          "docUtf8Bytes": 42,
+          "docFnv1a32": "ecc2dbba",
+          "empty": false,
+          "hasFocus": true,
+          "selectionMain": {
+            "from": 42,
+            "to": 42
+          },
+          "r17Error": null
+        },
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 42,
+          "expectedCodePoints": 42,
+          "docCharUnits": 42,
+          "expectedCharUnits": 42
+        },
+        "expected": {
+          "codePoints": 42,
+          "utf8Bytes": 42,
+          "fnv1a32": "ecc2dbba"
+        },
+        "equal": true,
+        "windowAlive": true,
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": true,
+          "textWritten": true,
+          "htmlUtf8Bytes": 211,
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "textUtf16Bytes": 86,
+          "textCodePoints": 42
+        },
+        "win32ClipboardFormats": [
+          "HTML Format",
+          "CF_UNICODETEXT",
+          "CF_LOCALE",
+          "CF_TEXT",
+          "CF_OEMTEXT"
+        ],
+        "qtShapeAtPasteTime": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 105,
+          "htmlUtf8Bytes": 105,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": true,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c68746d6c3e3c626f64793e",
+          "htmlSuffix12Hex": "626f64793e3c2f68746d6c3e",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "chromium",
+            "hasMarkerComment": true,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 210,
+              "startFragment": 137,
+              "endFragment": 178
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 210,
+            "fragmentUtf8Bytes": 41,
+            "fragmentCodePoints": 41
+          }
+        },
+        "docBeforeAnyKey": {
+          "docCodePoints": 42,
+          "docFnv1a32": "ecc2dbba",
+          "empty": false
+        },
+        "hostWebActionCountAtThisPoint": 0,
+        "channel": "text-flavor"
+      }
+    },
+    {
+      "id": "CLIP-TEXT",
+      "desc": "OS 级 Ctrl+V（TEXT 风格载荷）⇒ 正文逐字符等于剪贴板 text/plain",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "kind": "TEXT",
+        "focusBeforeClear": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docLength": 42
+        },
+        "clearRetry": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+                "hasFocus": true,
+                "docCodePoints": 42,
+                "selectionMain": {
+                  "from": 42,
+                  "to": 42
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "hasFocus": true,
+            "docCodePoints": 42,
+            "selectionMain": {
+              "from": 42,
+              "to": 42
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "osCtrlAPressed": true,
+        "clearedToEmpty": true,
+        "selectionAfterClear": {
+          "from": 0,
+          "to": 0
+        },
+        "baselineFnv1a32": "811c9dc5",
+        "baselineCodePoints": 0,
+        "pasteFocus": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docCodePoints": 0,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "clipboardSequenceBeforePaste": 1189,
+        "clipboardSequenceAfterPaste": 1189,
+        "focusStateAfterPaste": {
+          "hasFocus": true,
+          "hidden": false,
+          "visibility": "visible",
+          "activeTag": "DIV",
+          "activeClass": "cm-content"
+        },
+        "after": {
+          "docCodePoints": 42,
+          "docUtf8Bytes": 42,
+          "docFnv1a32": "ecc2dbba",
+          "empty": false,
+          "hasFocus": true,
+          "selectionMain": {
+            "from": 42,
+            "to": 42
+          },
+          "r17Error": null
+        },
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 42,
+          "expectedCodePoints": 42,
+          "docCharUnits": 42,
+          "expectedCharUnits": 42
+        },
+        "expected": {
+          "codePoints": 42,
+          "utf8Bytes": 42,
+          "fnv1a32": "ecc2dbba"
+        },
+        "equal": true,
+        "windowAlive": true,
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": false,
+          "textWritten": true,
+          "textUtf16Bytes": 86,
+          "textCodePoints": 42
+        },
+        "win32ClipboardFormats": [
+          "CF_UNICODETEXT",
+          "CF_LOCALE",
+          "CF_TEXT",
+          "CF_OEMTEXT"
+        ],
+        "qtShapeAtPasteTime": {
+          "formats": [
+            "text/plain"
+          ],
+          "hasHtml": false,
+          "hasText": true,
+          "htmlChars": 0,
+          "htmlUtf8Bytes": 0,
+          "htmlLowerHasTag": false,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "",
+          "htmlSuffix12Hex": "",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {}
+        },
+        "docBeforeAnyKey": {
+          "docCodePoints": 42,
+          "docFnv1a32": "ecc2dbba",
+          "empty": false
+        },
+        "hostWebActionCountAtThisPoint": 0,
+        "channel": "text-flavor"
+      }
+    },
+    {
+      "id": "CLIP-EMPTY",
+      "desc": "清空剪贴板后 Ctrl+V ⇒ 正文不变、无异常、窗口存活",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "kind": "EMPTY",
+        "baselineSetup": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+                "hasFocus": true,
+                "docCodePoints": 42,
+                "selectionMain": {
+                  "from": 42,
+                  "to": 42
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "hasFocus": true,
+            "docCodePoints": 42,
+            "selectionMain": {
+              "from": 42,
+              "to": 42
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "preconditionDocNonEmpty": true,
+        "docBefore": {
+          "docCodePoints": 19,
+          "docFnv1a32": "44706b5f",
+          "empty": false,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "docAfter": {
+          "docCodePoints": 19,
+          "docFnv1a32": "44706b5f",
+          "empty": false,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          },
+          "r17Error": null
+        },
+        "unchanged": true,
+        "clipboardSequenceBeforePaste": 1190,
+        "clipboardSequenceAfterPaste": 1190,
+        "focusBefore": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docLength": 19
+        },
+        "injectFocus": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docCodePoints": 19,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "windowAlive": true,
+        "pass": true,
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": false,
+          "textWritten": false
+        },
+        "win32ClipboardFormats": [],
+        "qtShapeAtPasteTime": {
+          "formats": [],
+          "hasHtml": false,
+          "hasText": false,
+          "htmlChars": 0,
+          "htmlUtf8Bytes": 0,
+          "htmlLowerHasTag": false,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "",
+          "htmlSuffix12Hex": "",
+          "textChars": 0,
+          "textFnv1a32": "811c9dc5",
+          "plainMatchesPayload": true,
+          "payloadMeta": {}
+        },
+        "docBeforeAnyKey": {
+          "docCodePoints": 42,
+          "docFnv1a32": "ecc2dbba",
+          "empty": false
+        },
+        "hostWebActionCountAtThisPoint": 0,
+        "channel": "other"
+      }
+    },
+    {
+      "id": "CLIP-HTMLONLY",
+      "desc": "隔离实验：AWT 风格 CF_HTML **无** CF_UNICODETEXT 时 Ctrl+V ⇒ 正文应逐字符等于期望纯文本（若 FAIL ⇒ HTML 通路确实被 M1 打空）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "kind": "AWT-HTMLONLY",
+        "focusBeforeClear": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docLength": 19
+        },
+        "clearRetry": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+                "hasFocus": true,
+                "docCodePoints": 19,
+                "selectionMain": {
+                  "from": 0,
+                  "to": 0
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "hasFocus": true,
+            "docCodePoints": 19,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "osCtrlAPressed": true,
+        "clearedToEmpty": true,
+        "selectionAfterClear": {
+          "from": 0,
+          "to": 0
+        },
+        "baselineFnv1a32": "811c9dc5",
+        "baselineCodePoints": 0,
+        "pasteFocus": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docCodePoints": 0,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "clipboardSequenceBeforePaste": 1192,
+        "clipboardSequenceAfterPaste": 1192,
+        "focusStateAfterPaste": {
+          "hasFocus": true,
+          "hidden": false,
+          "visibility": "visible",
+          "activeTag": "DIV",
+          "activeClass": "cm-content"
+        },
+        "after": {
+          "docCodePoints": 0,
+          "docUtf8Bytes": 0,
+          "docFnv1a32": "811c9dc5",
+          "empty": true,
+          "hasFocus": true,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          },
+          "r17Error": null
+        },
+        "compare": {
+          "equal": false,
+          "firstDiff": 0,
+          "docCodePoints": 0,
+          "expectedCodePoints": 42,
+          "docCharUnits": 0,
+          "expectedCharUnits": 42
+        },
+        "expected": {
+          "codePoints": 42,
+          "utf8Bytes": 42,
+          "fnv1a32": "ecc2dbba"
+        },
+        "equal": false,
+        "windowAlive": true,
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": true,
+          "textWritten": false,
+          "htmlUtf8Bytes": 177,
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d"
+        },
+        "win32ClipboardFormats": [
+          "HTML Format"
+        ],
+        "qtShapeAtPasteTime": {
+          "formats": [
+            "text/html"
+          ],
+          "hasHtml": true,
+          "hasText": false,
+          "htmlChars": 69,
+          "htmlUtf8Bytes": 69,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 0,
+          "textFnv1a32": "811c9dc5",
+          "plainMatchesPayload": false,
+          "payloadMeta": {
+            "style": "awt",
+            "hasMarkerComment": false,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 176,
+              "startFragment": 119,
+              "endFragment": 160
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 176,
+            "fragmentUtf8Bytes": 41,
+            "fragmentCodePoints": 41
+          }
+        },
+        "docBeforeAnyKey": {
+          "docCodePoints": 19,
+          "docFnv1a32": "44706b5f",
+          "empty": false
+        },
+        "hostWebActionCountAtThisPoint": 0,
+        "channel": "nothing"
+      }
+    },
+    {
+      "id": "CLIP-DIVERGE",
+      "desc": "双通路判别：CF_HTML 片段与 CF_UNICODETEXT **内容不同** ⇒ 看正文贴出哪一个",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "kind": "AWT-DIVERGE",
+        "focusBeforeClear": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docLength": 0
+        },
+        "clearRetry": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+                "hasFocus": true,
+                "docCodePoints": 0,
+                "selectionMain": {
+                  "from": 0,
+                  "to": 0
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "hasFocus": true,
+            "docCodePoints": 0,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "osCtrlAPressed": true,
+        "clearedToEmpty": true,
+        "selectionAfterClear": {
+          "from": 0,
+          "to": 0
+        },
+        "baselineFnv1a32": "811c9dc5",
+        "baselineCodePoints": 0,
+        "pasteFocus": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docCodePoints": 0,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "clipboardSequenceBeforePaste": 1198,
+        "clipboardSequenceAfterPaste": 1198,
+        "focusStateAfterPaste": {
+          "hasFocus": true,
+          "hidden": false,
+          "visibility": "visible",
+          "activeTag": "DIV",
+          "activeClass": "cm-content"
+        },
+        "after": {
+          "docCodePoints": 42,
+          "docUtf8Bytes": 42,
+          "docFnv1a32": "ecc2dbba",
+          "empty": false,
+          "hasFocus": true,
+          "selectionMain": {
+            "from": 42,
+            "to": 42
+          },
+          "r17Error": null
+        },
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 42,
+          "expectedCodePoints": 42,
+          "docCharUnits": 42,
+          "expectedCharUnits": 42
+        },
+        "expected": {
+          "codePoints": 42,
+          "utf8Bytes": 42,
+          "fnv1a32": "ecc2dbba"
+        },
+        "equal": true,
+        "windowAlive": true,
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": true,
+          "textWritten": true,
+          "htmlUtf8Bytes": 157,
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "textUtf16Bytes": 86,
+          "textCodePoints": 42
+        },
+        "win32ClipboardFormats": [
+          "HTML Format",
+          "CF_UNICODETEXT",
+          "CF_LOCALE",
+          "CF_TEXT",
+          "CF_OEMTEXT"
+        ],
+        "qtShapeAtPasteTime": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 49,
+          "htmlUtf8Bytes": 49,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "awt",
+            "hasMarkerComment": false,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 156,
+              "startFragment": 119,
+              "endFragment": 140
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 156,
+            "fragmentUtf8Bytes": 21,
+            "fragmentCodePoints": 21
+          }
+        },
+        "docBeforeAnyKey": {
+          "docCodePoints": 0,
+          "docFnv1a32": "811c9dc5",
+          "empty": true
+        },
+        "hostWebActionCountAtThisPoint": 0,
+        "channel": "text-flavor"
+      }
+    },
+    {
+      "id": "AWT-CJK",
+      "desc": "中文载荷（UTF-8 字节偏移、无注释标记）⇒ OS 级 Ctrl+V 后正文逐字符相等",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "kind": "AWT-CJK",
+        "focusBeforeClear": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docLength": 42
+        },
+        "clearRetry": {
+          "ok": true,
+          "attempts": [
+            {
+              "round": 1,
+              "focus": {
+                "ok": true,
+                "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+                "hasFocus": true,
+                "docCodePoints": 42,
+                "selectionMain": {
+                  "from": 42,
+                  "to": 42
+                }
+              },
+              "pageFocus": {
+                "hasFocus": true,
+                "hidden": false,
+                "visibility": "visible",
+                "activeTag": "DIV",
+                "activeClass": "cm-content"
+              },
+              "pressed": true,
+              "docCodePoints": 0,
+              "empty": true
+            }
+          ],
+          "focus": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "hasFocus": true,
+            "docCodePoints": 42,
+            "selectionMain": {
+              "from": 42,
+              "to": 42
+            }
+          },
+          "pageFocus": {
+            "hasFocus": true,
+            "hidden": false,
+            "visibility": "visible",
+            "activeTag": "DIV",
+            "activeClass": "cm-content"
+          },
+          "before": {
+            "ok": true,
+            "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+            "docCodePoints": 0,
+            "docUtf8Bytes": 0,
+            "docFnv1a32": "811c9dc5",
+            "docCharUnits": 0,
+            "empty": true,
+            "hasFocus": true,
+            "selectionMain": {
+              "from": 0,
+              "to": 0
+            },
+            "domFocused": true
+          }
+        },
+        "osCtrlAPressed": true,
+        "clearedToEmpty": true,
+        "selectionAfterClear": {
+          "from": 0,
+          "to": 0
+        },
+        "baselineFnv1a32": "811c9dc5",
+        "baselineCodePoints": 0,
+        "pasteFocus": {
+          "ok": true,
+          "panelId": "f928961a-3c19-491a-a04f-6990e8951f43",
+          "hasFocus": true,
+          "docCodePoints": 0,
+          "selectionMain": {
+            "from": 0,
+            "to": 0
+          }
+        },
+        "clipboardSequenceBeforePaste": 1204,
+        "clipboardSequenceAfterPaste": 1204,
+        "focusStateAfterPaste": {
+          "hasFocus": true,
+          "hidden": false,
+          "visibility": "visible",
+          "activeTag": "DIV",
+          "activeClass": "cm-content"
+        },
+        "after": {
+          "docCodePoints": 30,
+          "docUtf8Bytes": 66,
+          "docFnv1a32": "ca5bbf11",
+          "empty": false,
+          "hasFocus": true,
+          "selectionMain": {
+            "from": 30,
+            "to": 30
+          },
+          "r17Error": null
+        },
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 30,
+          "expectedCodePoints": 30,
+          "docCharUnits": 30,
+          "expectedCharUnits": 30
+        },
+        "expected": {
+          "codePoints": 30,
+          "utf8Bytes": 66,
+          "fnv1a32": "ca5bbf11"
+        },
+        "equal": true,
+        "windowAlive": true,
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": true,
+          "textWritten": true,
+          "htmlUtf8Bytes": 201,
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "textUtf16Bytes": 62,
+          "textCodePoints": 30
+        },
+        "win32Readback": {
+          "htmlAvailable": true,
+          "textAvailable": true,
+          "htmlBytes": 200,
+          "htmlSha256Prefix": "2ea4e1a830e52c9f",
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "offsets": {
+            "startHtml": 105,
+            "endHtml": 200,
+            "startFragment": 119,
+            "endFragment": 184
+          },
+          "fragmentByOffsetOk": {
+            "ok": true,
+            "chunkUtf8Bytes": 65,
+            "chunkFnv1a32": "d7a93341",
+            "chunkIsWholeFragment": true,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 200,
+              "startFragment": 119,
+              "endFragment": 184
+            }
+          },
+          "textCodePoints": 30,
+          "textFnv1a32": "ca5bbf11"
+        },
+        "qtShape": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 57,
+          "htmlUtf8Bytes": 93,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 30,
+          "textFnv1a32": "ca5bbf11",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "awt",
+            "hasMarkerComment": false,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 200,
+              "startFragment": 119,
+              "endFragment": 184
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 200,
+            "fragmentUtf8Bytes": 65,
+            "fragmentCodePoints": 29
+          }
+        }
+      }
+    },
+    {
+      "id": "H-NOHOST",
+      "desc": "粘贴相位内宿主 47 项 WebAction 触发计数 = 0、无宿主模态、主窗口存活（计数已在粘贴相位起点清零；清零前的探针自身 Reload 另存于 detail）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "webActionTotalInPastePhase": 0,
+        "webActionByActionInPastePhase": {},
+        "webActionEventsInPastePhase": [],
+        "instrumentedActionCount": 47,
+        "phaseBeforeReset": {
+          "total": 1,
+          "byAction": {
+            "Reload": 1
+          },
+          "eventCount": 1,
+          "phase": "init"
+        },
+        "hostModalWidget": null,
+        "windowAlive": true,
+        "bridgeCounterInstallErrors": [],
+        "bridgeCallCounts": {
+          "editor.detectAndRead": 1,
+          "editor.writeText": 6,
+          "editor.draftSave": 6
+        }
+      }
+    }
+  ],
+  "notes": [
+    "H-NOHOST 计数清零：清零前 {\"total\": 1, \"byAction\": {\"Reload\": 1}, \"eventCount\": 1, \"phase\": \"init\"}",
+    "[CLIP-AWT] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）",
+    "[CLIP-CHROMIUM] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）",
+    "[CLIP-TEXT] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）",
+    "[CLIP-EMPTY] 剪贴板为空 ⇒ 按键前后正文必须完全一致",
+    "[CLIP-HTMLONLY] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）",
+    "[CLIP-DIVERGE] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）",
+    "[AWT-CJK] 落焦点 + 清空正文（OS 级 Ctrl+A / Backspace，自校验重试）"
+  ],
+  "platform": "",
+  "real_window": true,
+  "cfHtmlFormatId": 49254,
+  "user_data_sandbox": "out\\r17-20261016-124541\\.tmp_appdata",
+  "isolatedServer": {
+    "pid": 6352,
+    "port": 64968
+  },
+  "webActionInstrumentation": {
+    "actionCount": 47,
+    "actionNames": [
+      "Back",
+      "Forward",
+      "Stop",
+      "Reload",
+      "Cut",
+      "Copy",
+      "Paste",
+      "Undo",
+      "Redo",
+      "SelectAll",
+      "ReloadAndBypassCache",
+      "PasteAndMatchStyle",
+      "OpenLinkInThisWindow",
+      "OpenLinkInNewWindow",
+      "OpenLinkInNewTab",
+      "CopyLinkToClipboard",
+      "DownloadLinkToDisk",
+      "CopyImageToClipboard",
+      "CopyImageUrlToClipboard",
+      "DownloadImageToDisk",
+      "CopyMediaUrlToClipboard",
+      "ToggleMediaControls",
+      "ToggleMediaLoop",
+      "ToggleMediaPlayPause",
+      "ToggleMediaMute",
+      "DownloadMediaToDisk",
+      "InspectElement",
+      "ExitFullScreen",
+      "RequestClose",
+      "Unselect",
+      "SavePage",
+      "OpenLinkInNewBackgroundTab",
+      "ViewSource",
+      "ToggleBold",
+      "ToggleItalic",
+      "ToggleUnderline",
+      "ToggleStrikethrough",
+      "AlignLeft",
+      "AlignCenter",
+      "AlignRight",
+      "AlignJustified",
+      "Indent",
+      "Outdent",
+      "InsertOrderedList",
+      "InsertUnorderedList",
+      "ChangeTextDirectionLTR",
+      "ChangeTextDirectionRTL"
+    ],
+    "totalInPastePhase": 0,
+    "byActionInPastePhase": {},
+    "phaseBeforeReset": {
+      "total": 1,
+      "byAction": {
+        "Reload": 1
+      },
+      "eventCount": 1,
+      "phase": "init"
+    }
+  },
+  "bridgeCallCounts": {
+    "editor.detectAndRead": 1,
+    "editor.writeText": 6,
+    "editor.draftSave": 6
+  }
+}

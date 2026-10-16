@@ -1,0 +1,832 @@
+{
+  "probe": "r15-real-gui-ac64-ac71",
+  "at": "2026-10-15T22:14:13",
+  "only": [
+    "64",
+    "71",
+    "67",
+    "68"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区 DOM）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "state": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0,
+          "cmBundle": false
+        }
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "隔离服务端就绪 + 桌面端服务层在隔离库上造管理员（**不登录** ⇒ 渲染层仍是未登录态）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "port": 57079,
+        "serverPid": 8172,
+        "serverUrlSet": true,
+        "sessionReady": true,
+        "adminExistsBefore": false,
+        "adminExistsAfter": true,
+        "tokenPresentAfterInit": false,
+        "loggedInAfterInit": false
+      }
+    },
+    {
+      "id": "AC64-1",
+      "desc": "AC-64 ①：未登录经「打开方式」唤起 ⇒ 只有登录面板（零标签页 / 零工作区 / 零 detectAndRead，含 1.5 s 重推后）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "pushedCount": 1,
+        "detectAndReadCalls": {
+          "before": 0,
+          "after": 0
+        },
+        "before": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "tabCount": 0,
+          "workspaceCount": 0
+        },
+        "afterRetry": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "tabCount": 0,
+          "workspaceCount": 0,
+          "overflowButton": 0,
+          "activePanelCount": 0
+        },
+        "midTabCount": 0,
+        "navEditor": false,
+        "modalWidget": null,
+        "screenshot": "r15-ac64-1-unlogged-panel.png"
+      }
+    },
+    {
+      "id": "AC64-2",
+      "desc": "AC-64 ②：**渲染层自己**完成登录（登录页 connect → login 三步；未重载页面）⇒ `location.hash === '#/editor'`、导航项「文本编辑器」成为激活项、恰好 1 个标签页",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "serverUrlPort": "57079",
+        "steps": [
+          {
+            "step": "set-url",
+            "el": {
+              "ok": true,
+              "same": true,
+              "length": 22
+            }
+          },
+          {
+            "step": "click-connect",
+            "el": {
+              "ok": true,
+              "clicked": "连接服务端",
+              "disabled": false
+            }
+          },
+          {
+            "step": "await-login-step",
+            "passwordInputs": 1,
+            "initAdminButton": false,
+            "loginButton": true
+          },
+          {
+            "step": "set-username",
+            "el": {
+              "ok": true,
+              "same": true,
+              "length": 8
+            }
+          },
+          {
+            "step": "set-password",
+            "el": {
+              "ok": true,
+              "sensitive": true
+            }
+          },
+          {
+            "step": "click-login",
+            "el": {
+              "ok": true,
+              "clicked": "登录",
+              "disabled": false
+            }
+          }
+        ],
+        "detectAndReadCallsBeforeLogin": 0,
+        "detectAndReadCallsAfterLogin": 1,
+        "landing": {
+          "hash": "#/editor",
+          "navEditor": true,
+          "navEditorActive": true,
+          "tabCount": 1,
+          "workspaceCount": 1,
+          "tabs": [
+            {
+              "id": "ec4f0ed6-fc53-4c58-ad7b-4becfe21a385",
+              "title": "r15-ac64-open.log",
+              "active": true,
+              "dirty": false
+            }
+          ],
+          "passwordInputs": 0,
+          "activePanelCount": 1,
+          "activePanelId": "ec4f0ed6-fc53-4c58-ad7b-4becfe21a385"
+        },
+        "diagnosticManualNavigate": {},
+        "screenshot": "r15-ac64-2-after-login.png"
+      }
+    },
+    {
+      "id": "AC64-3",
+      "desc": "AC-64 ③：工作区恰好 1 个标签页、标题 = fixture 名（r15-ac64-open.log）、它同时是激活标签与激活面板（`data-editor-panel-active` 的 id 与之一致）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "tabCount": 1,
+        "tabs": [
+          {
+            "id": "ec4f0ed6-fc53-4c58-ad7b-4becfe21a385",
+            "title": "r15-ac64-open.log",
+            "active": true,
+            "dirty": false
+          }
+        ],
+        "tabTitleEqualsFixtureName": true,
+        "activePanelId": "ec4f0ed6-fc53-4c58-ad7b-4becfe21a385",
+        "activePanelMatchesTab": true,
+        "activePanelCount": 1,
+        "navEditorActive": true,
+        "hash": "#/editor",
+        "doc": {
+          "docCodePoints": 46,
+          "docUtf8Bytes": 94,
+          "docFnv1a32": "68ee32e5",
+          "crlf": 0,
+          "lf": 2
+        },
+        "fixtureFingerprint": {
+          "codePoints": 46,
+          "utf8Bytes": 94,
+          "fnv1a32": "68ee32e5",
+          "crlf": 0,
+          "lf": 2
+        },
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 46,
+          "expectedCodePoints": 46,
+          "docCharUnits": 46,
+          "expectedCharUnits": 46
+        },
+        "statusBar": {
+          "lineEnding": "LF",
+          "encoding": "UTF-8",
+          "language": "text",
+          "dirty": "已保存"
+        },
+        "screenshot": "r15-ac64-3-content.png"
+      }
+    },
+    {
+      "id": "AC64-4",
+      "desc": "AC-64 ③：正文**逐字符等于** fixture（渲染层 JS 逐字符比对 + 独立 FNV-1a/字节数/码点数复核）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "compare": {
+          "equal": true,
+          "firstDiff": -1,
+          "docCodePoints": 46,
+          "expectedCodePoints": 46,
+          "docCharUnits": 46,
+          "expectedCharUnits": 46
+        },
+        "docHash": "68ee32e5",
+        "fixtureHash": "68ee32e5",
+        "docBytes": 94,
+        "fixtureBytes": 94,
+        "docCodePoints": 46,
+        "fixtureCodePoints": 46
+      }
+    },
+    {
+      "id": "AC64-5",
+      "desc": "AC-64 ④：状态栏 编码 / 换行符 / 语言 与 fixture 一致（UTF-8 / LF / text）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "statusBar": {
+          "lineEnding": "LF",
+          "encoding": "UTF-8",
+          "language": "text",
+          "dirty": "已保存"
+        }
+      }
+    },
+    {
+      "id": "AC71-1",
+      "desc": "AC-71 前提：服务端进程已退出且端口连接被拒（真的不可达）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "port": 57079,
+        "processExited": true,
+        "returncode": 1,
+        "connectionRefused": true,
+        "refusedDetail": "TimeoutError: timed out",
+        "ok": true
+      }
+    },
+    {
+      "id": "AC71-2",
+      "desc": "AC-71 ①：离线状态 OS 级 Ctrl+Alt+N 新建标签页成功，并可输入内容（CM6 事务写入生效）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "key": {
+          "supported": true,
+          "reached": true,
+          "prevented": true
+        },
+        "keyAttempts": [
+          {
+            "attempt": 1,
+            "reached": true,
+            "tabCount": 2
+          }
+        ],
+        "beforeTabCount": 1,
+        "afterTabCount": 2,
+        "insert": {
+          "ok": true,
+          "docLength": 10,
+          "hasFocus": true
+        },
+        "docCodePoints": 10,
+        "status": {
+          "lineEnding": "LF",
+          "encoding": "UTF-8",
+          "language": "text",
+          "dirty": "● 未保存"
+        },
+        "windowAlive": true
+      }
+    },
+    {
+      "id": "AC71-3",
+      "desc": "AC-71 ②：离线经「打开方式」通路打开**已有路径**的 fixture（r15-ac71-offline.txt）为标签页",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "pushedCount": 1,
+        "tabCount": 3,
+        "tabCountBeforePush": 2,
+        "expectedTabCount": 3,
+        "tabCountAtPhaseStart": 1,
+        "detectAndReadCalls": {
+          "before": 1,
+          "afterOpen": 2
+        },
+        "hash": "#/editor",
+        "sample": {
+          "tag": "after-open-existing",
+          "hash": "#/editor",
+          "passwordInputs": 0,
+          "dialogLabel": null,
+          "modalWidget": null,
+          "tabCount": 3
+        },
+        "detectAndReadLast": {
+          "at": 1792073615.9056127,
+          "pathCount": 1
+        },
+        "dialogLabel": null,
+        "screenshot": "r15-ac71-owned-offline.png"
+      }
+    },
+    {
+      "id": "AC71-4",
+      "desc": "AC-71 ①：离线 OS 级 Ctrl+S 把编辑内容写回磁盘（**字节级**比对通过；时延 < 1.2 s ⇒ 不可能是 1500 ms 防抖自动写回）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "focus": {
+          "ok": true,
+          "panelId": "1f35ec13-4d15-41e9-8dc5-4a5d9e9d3253",
+          "hasFocus": true,
+          "docLength": 18
+        },
+        "editAt": 1792073616.93,
+        "keyAt": 1792073618.687,
+        "latencyKeyToDiskSec": 0.205,
+        "latencyEditToDiskSec": 1.962,
+        "diskChangedBeforeSave": false,
+        "diskShaBefore": "674624e77ccd67555568810d2a9294976152e10fbe2dbfe674309811d6fb1fa7",
+        "diskShaBeforeSave": "674624e77ccd67555568810d2a9294976152e10fbe2dbfe674309811d6fb1fa7",
+        "diskShaAfter": "7fb96b83e32b3ece1fa4f659b2961f661cf50528cbb13801b0966eb4a7d10fa0",
+        "diskBytes": 60,
+        "expectedFingerprint": {
+          "codePoints": 40,
+          "utf8Bytes": 60,
+          "fnv1a32": "b582dfd0",
+          "crlf": 0,
+          "lf": 4
+        },
+        "onDiskFingerprint": {
+          "codePoints": 40,
+          "utf8Bytes": 60,
+          "fnv1a32": "b582dfd0",
+          "crlf": 0,
+          "lf": 4
+        },
+        "diskTextEqualsExpected": true,
+        "writeTextCalls": {
+          "before": 0,
+          "after": 1,
+          "last": {
+            "textLen": 40,
+            "textFnv1a32": "b582dfd0"
+          }
+        },
+        "key": {
+          "reached": true,
+          "prevented": true,
+          "targetInPanel": true,
+          "targetInCm": true
+        },
+        "screenshot": "r15-ac71-saved-offline.png"
+      }
+    },
+    {
+      "id": "OBS-DEBOUNCE",
+      "desc": "观察项（正对照）：同样一次编辑但**不按** Ctrl+S ⇒ 磁盘只在防抖 1500 ms 之后才变",
+      "status": "FAIL",
+      "gating": false,
+      "detail": {
+        "insert": {
+          "ok": true,
+          "docLength": 64,
+          "hasFocus": true
+        },
+        "latencyEditToDiskSec": null,
+        "debounceCalls": {
+          "draftSaveBefore": 1,
+          "draftSaveAfter": 2,
+          "writeTextBefore": 1,
+          "writeTextAfter": 1
+        },
+        "prompt": "对照 AC71-4 的 < 1.2 s（有区分度才说明 AC71-4 的时延判据不是巧合）",
+        "orderAfterContrast": [
+          "r15-ac64-open.log",
+          "未命名",
+          "r15-ac71-offline.txt"
+        ]
+      }
+    },
+    {
+      "id": "AC71-5",
+      "desc": "AC-71 ③：离线切标签（切走再切回，激活项确实跟着变）/ 关标签（关的是防抖写回后的**干净**标签 ⇒ 不触发关闭询问）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "orderBefore": [
+          "r15-ac64-open.log",
+          "未命名",
+          "r15-ac71-offline.txt"
+        ],
+        "switchTo": "r15-ac64-open.log",
+        "switchAway": {
+          "ok": true,
+          "clicked": "r15-ac64-open.log",
+          "width": 142,
+          "left": 254
+        },
+        "activeAfterAway": "r15-ac64-open.log",
+        "switchBack": {
+          "ok": true,
+          "clicked": "r15-ac71-offline.txt",
+          "width": 158,
+          "left": 491
+        },
+        "activeAfterBack": "r15-ac71-offline.txt",
+        "sampleAfterSwitch": {
+          "tag": "after-switch",
+          "hash": "#/editor",
+          "passwordInputs": 0,
+          "dialogLabel": null,
+          "modalWidget": null,
+          "tabCount": 3
+        },
+        "sampleAfterClose": {
+          "tag": "after-close",
+          "hash": "#/editor",
+          "passwordInputs": 0,
+          "dialogLabel": "关闭标签页",
+          "modalWidget": null,
+          "tabCount": 3
+        },
+        "close": {
+          "ok": true,
+          "closed": "r15-ac71-offline.txt"
+        },
+        "tabCountAfterClose": 3,
+        "tabCountBeforeClose": 3,
+        "expectedTabCount": 2,
+        "dialogLabel": "关闭标签页"
+      }
+    },
+    {
+      "id": "AC71-6",
+      "desc": "AC-71 ④：离线全程 hash **从不回到 #/login**、零 password 输入、零 DOM 模态、零宿主模态（无登录拦截、无阻塞式弹窗）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "samples": [
+          {
+            "tag": "start",
+            "hash": "#/editor",
+            "passwordInputs": 0,
+            "dialogLabel": null,
+            "modalWidget": null,
+            "tabCount": 1
+          },
+          {
+            "tag": "after-new-tab",
+            "hash": "#/editor",
+            "passwordInputs": 0,
+            "dialogLabel": null,
+            "modalWidget": null,
+            "tabCount": 2
+          },
+          {
+            "tag": "after-type",
+            "hash": "#/editor",
+            "passwordInputs": 0,
+            "dialogLabel": null,
+            "modalWidget": null,
+            "tabCount": 2
+          },
+          {
+            "tag": "after-open-existing",
+            "hash": "#/editor",
+            "passwordInputs": 0,
+            "dialogLabel": null,
+            "modalWidget": null,
+            "tabCount": 3
+          },
+          {
+            "tag": "after-ctrl-s",
+            "hash": "#/editor",
+            "passwordInputs": 0,
+            "dialogLabel": null,
+            "modalWidget": null,
+            "tabCount": 3
+          },
+          {
+            "tag": "after-switch",
+            "hash": "#/editor",
+            "passwordInputs": 0,
+            "dialogLabel": null,
+            "modalWidget": null,
+            "tabCount": 3
+          },
+          {
+            "tag": "after-close",
+            "hash": "#/editor",
+            "passwordInputs": 0,
+            "dialogLabel": "关闭标签页",
+            "modalWidget": null,
+            "tabCount": 3
+          }
+        ],
+        "hashes": [
+          "#/editor",
+          "#/editor",
+          "#/editor",
+          "#/editor",
+          "#/editor",
+          "#/editor",
+          "#/editor"
+        ],
+        "windowAlive": true
+      }
+    },
+    {
+      "id": "AC71-7",
+      "desc": "AC-71 ③：「另存为」（Ctrl+Shift+S）—— **SKIP**：该动作经 `store.savePane(forceDialog)` 弹出**原生** `QFileDialog`，探针无法在不注入产品源码的前提下选择路径，无原生对话框自动化能力时不得伪造成 PASS",
+      "status": "SKIP",
+      "gating": true,
+      "detail": {
+        "why": "原生保存对话框无自动化接口（探针不改产品源码、不用 stub 替换对话框）",
+        "observedTabStillOpen": 3,
+        "modalWidgetNow": null
+      }
+    },
+    {
+      "id": "AC68-1",
+      "desc": "AC-68 ①：合成 Pointer Events（4 px 阈值 / 跨中点 / 固定 pointerId）把 C 拖到最前 ⇒ 标签条顺序变为 C / A / B",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "pushedCount": 3,
+        "openedTabCount": 3,
+        "orderAfterOpen": [
+          "r15-tab-a.txt",
+          "r15-tab-b.txt",
+          "r15-tab-c.txt"
+        ],
+        "activeAfterClickFirst": "r15-tab-a.txt",
+        "orderBeforeDrag": [
+          "r15-tab-a.txt",
+          "r15-tab-b.txt",
+          "r15-tab-c.txt"
+        ],
+        "dragDispatch": {
+          "ok": true,
+          "startX": 531,
+          "endX": 255,
+          "stepPx": 46,
+          "steps": 6,
+          "nativeObserved": {
+            "pointerdown": 1,
+            "pointermove": 6,
+            "pointerup": 0
+          },
+          "titlesBefore": [
+            "r15-tab-a.txt",
+            "r15-tab-b.txt",
+            "r15-tab-c.txt"
+          ],
+          "orderAfterMoves": [
+            "r15-tab-a.txt",
+            "r15-tab-b.txt",
+            "r15-tab-c.txt"
+          ],
+          "dragClassDuringDispatch": 0
+        },
+        "observedDuringDrag": {
+          "order": [
+            "r15-tab-c.txt",
+            "r15-tab-a.txt",
+            "r15-tab-b.txt"
+          ],
+          "dragClassCount": 1,
+          "draggingTitle": "r15-tab-c.txt",
+          "activeTitle": "r15-tab-a.txt"
+        },
+        "dragUp": {
+          "ok": true,
+          "title": "r15-tab-c.txt"
+        },
+        "orderAfterDrag": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "targetOrder": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "activeAfterDrag": "r15-tab-a.txt",
+        "pointerEventSupported": true,
+        "screenshot": "r15-ac68-after-drag.png"
+      }
+    },
+    {
+      "id": "AC68-2",
+      "desc": "AC-68 ②：切到「设置」再回「文本编辑器」⇒ 标签顺序与激活项均保持（store 在模块级，不随路由卸载）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "settingsHash": "#/settings",
+        "settingsWorkspaceCount": 0,
+        "orderBefore": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "orderAfterBack": [
+          "r15-tab-c.txt",
+          "r15-tab-a.txt",
+          "r15-tab-b.txt"
+        ],
+        "activeBefore": "r15-tab-a.txt",
+        "activeAfterBack": "r15-tab-a.txt",
+        "tabCountAfterBack": 3,
+        "screenshot": "r15-ac68-after-route-return.png"
+      }
+    },
+    {
+      "id": "AC67-1",
+      "desc": "AC-67 ①：连续打开 12 个标签页 + 窗口缩到 920×620 ⇒ 标签条**真的溢出**（`scrollWidth > clientWidth`）且溢出入口存在",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "pushedCount": 12,
+        "tabCount": 12,
+        "innerWidthBefore": 1180,
+        "innerWidthAfter": 920,
+        "innerHeightAfter": 620,
+        "overflowButtonCount": 1,
+        "stripScrollWidth": 2422,
+        "stripClientWidth": 600,
+        "scrollable": true,
+        "visibleCount": 2,
+        "screenshot": "r15-ac67-overflowed.png"
+      }
+    },
+    {
+      "id": "AC67-2",
+      "desc": "AC-67 ①：点溢出入口 ⇒ 下拉列出**全量 12 项**（顺序同标签条，当前激活项带 `aria-checked`）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "activeBeforeOpenMenu": "r15-12-overflow-fixture-01-tab-title.txt",
+        "menuPresent": true,
+        "itemCount": 12,
+        "expected": 12,
+        "items": [
+          {
+            "index": 0,
+            "title": "r15-12-overflow-fixture-01-tab-title.txt",
+            "id": "41c9eb57-e1de-4bf3-8a89-f7ff7457842a",
+            "checked": true
+          },
+          {
+            "index": 1,
+            "title": "r15-12-overflow-fixture-02-tab-title.txt",
+            "id": "fbc6b7d7-f2cd-4afe-b736-d828444a122c",
+            "checked": false
+          },
+          {
+            "index": 2,
+            "title": "r15-12-overflow-fixture-03-tab-title.txt",
+            "id": "7c74c111-d82d-4fda-8721-be4204cd9320",
+            "checked": false
+          },
+          {
+            "index": 3,
+            "title": "r15-12-overflow-fixture-04-tab-title.txt",
+            "id": "d8bdf252-d9ac-465a-8221-bb0933b6bb73",
+            "checked": false
+          },
+          {
+            "index": 4,
+            "title": "r15-12-overflow-fixture-05-tab-title.txt",
+            "id": "96271bd0-bf6f-4ab7-bf14-dbde1554dfbf",
+            "checked": false
+          },
+          {
+            "index": 5,
+            "title": "r15-12-overflow-fixture-06-tab-title.txt",
+            "id": "dfc95bd6-fb39-44df-b345-3da946e41e50",
+            "checked": false
+          },
+          {
+            "index": 6,
+            "title": "r15-12-overflow-fixture-07-tab-title.txt",
+            "id": "4280c436-5ae1-4a4e-ab36-f8512097b968",
+            "checked": false
+          },
+          {
+            "index": 7,
+            "title": "r15-12-overflow-fixture-08-tab-title.txt",
+            "id": "d6fb437b-e6a9-49c5-a2f4-8768594b9de1",
+            "checked": false
+          },
+          {
+            "index": 8,
+            "title": "r15-12-overflow-fixture-09-tab-title.txt",
+            "id": "867de797-6faf-4294-9630-54a45012330b",
+            "checked": false
+          },
+          {
+            "index": 9,
+            "title": "r15-12-overflow-fixture-10-tab-title.txt",
+            "id": "fe6166e1-63ac-4f97-9fae-b50bae685289",
+            "checked": false
+          },
+          {
+            "index": 10,
+            "title": "r15-12-overflow-fixture-11-tab-title.txt",
+            "id": "3a14401b-d900-4112-8b95-04bfa68971ab",
+            "checked": false
+          },
+          {
+            "index": 11,
+            "title": "r15-12-overflow-fixture-12-tab-title.txt",
+            "id": "33e25db3-87d1-41fb-804e-fe0e6d7be7c6",
+            "checked": false
+          }
+        ],
+        "firstChecked": [
+          true,
+          false,
+          false
+        ],
+        "screenshot": "r15-ac67-overflow-menu.png"
+      }
+    },
+    {
+      "id": "AC67-3",
+      "desc": "AC-67 ②③：点下拉第 12 项 ⇒ 激活项 = 第 12 个、`[data-editor-panel-active=\"true\"]` 的 id 与之一致、且该标签**几何可见**（几何断言，非存在性）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "clickItem": {
+          "ok": true,
+          "index": 11,
+          "title": "r15-12-overflow-fixture-12-tab-title.txt"
+        },
+        "activeTitleAfter": "r15-12-overflow-fixture-12-tab-title.txt",
+        "expectedTitle": "r15-12-overflow-fixture-12-tab-title.txt",
+        "activePanelId": "33e25db3-87d1-41fb-804e-fe0e6d7be7c6",
+        "activePanelCount": 1,
+        "activeIndex": 11,
+        "activeVisible": true,
+        "stripLeft": 254,
+        "stripRight": 854,
+        "twelfthTab": {
+          "index": 11,
+          "title": "r15-12-overflow-fixture-12-tab-title.txt",
+          "left": 654,
+          "right": 854,
+          "width": 200,
+          "visible": true,
+          "active": true
+        },
+        "menuClosedAfterClick": true,
+        "screenshot": "r15-ac67-twelfth-active.png"
+      }
+    }
+  ],
+  "notes": [
+    "清理前序标签页（避免污染 AC-68 的 A/B/C 三标签前提）",
+    "清理标签页（让「第 12 个」= 恰好 12 个标签里的第 12 个，不含前序残留）"
+  ],
+  "platform": "",
+  "real_window": true,
+  "skip_login": false,
+  "fixtureNames": {
+    "ac64": "r15-ac64-open.log",
+    "ac71": "r15-ac71-offline.txt",
+    "tabs": [
+      "r15-tab-a.txt",
+      "r15-tab-b.txt",
+      "r15-tab-c.txt"
+    ],
+    "overflow": [
+      "r15-12-overflow-fixture-01-tab-title.txt",
+      "r15-12-overflow-fixture-02-tab-title.txt",
+      "r15-12-overflow-fixture-03-tab-title.txt",
+      "r15-12-overflow-fixture-04-tab-title.txt",
+      "r15-12-overflow-fixture-05-tab-title.txt",
+      "r15-12-overflow-fixture-06-tab-title.txt",
+      "r15-12-overflow-fixture-07-tab-title.txt",
+      "r15-12-overflow-fixture-08-tab-title.txt",
+      "r15-12-overflow-fixture-09-tab-title.txt",
+      "r15-12-overflow-fixture-10-tab-title.txt",
+      "r15-12-overflow-fixture-11-tab-title.txt",
+      "r15-12-overflow-fixture-12-tab-title.txt"
+    ]
+  },
+  "bridgeCallCounts": {
+    "editor.detectAndRead": 4,
+    "editor.writeText": 1,
+    "editor.draftSave": 2
+  },
+  "bridgeInstallErrors": [],
+  "remoteRequests": [],
+  "remoteRequestCount": 0,
+  "localRequestCount": 6,
+  "user_data_sandbox": "poc\\editor-probes\\out\\r15-20261015-221309\\.tmp_appdata",
+  "webRootPatch": {
+    "originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "indexExists": true,
+    "indexSha256Prefix": "f8aa0fd2f8998557"
+  },
+  "isolatedServer": {
+    "pid": 8172,
+    "port": 57079
+  }
+}

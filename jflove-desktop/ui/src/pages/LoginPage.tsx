@@ -2,10 +2,14 @@
  * 登录页（桌面端）
  *
  * 视觉与交互**逐字取自 Web 端** `jflove-web/src/pages/LoginPage.tsx`，
- * 只改了 3 处桌面端特有的语义（均已在下载代码中就地标注）：
+ * 只改了 4 处桌面端特有的语义（均已在下载代码中就地标注）：
  *   1. 桌面端不存在"同源"：服务端地址必须显式填写完整地址；
  *   2. 地址为空时直接禁用连接按钮（空串在桌面端不是合法输入）；
- *   3. 地址历史来自 Python（`%APPDATA%\JFLove\storage\server_history.json`）。
+ *   3. 地址历史来自 Python（`%APPDATA%\JFLove\storage\server_history.json`）；
+ *   4. **登录后的落点**由 `editor-landing.ts`（零依赖的叶子模块，落点判据的唯一真相）决定
+ *      （Web 端没有"外部唤起文件"，因此永远回首页）：有挂起的外部唤起 ⇒ 落 `/editor`（AC-64 ②），
+ *      否则回 `/`。取判据走叶子模块而不是 `editor-open-paths.ts`，是为了不形成
+ *      `LoginPage → editor-open-paths → config/routes → LoginPage` 的模块环（缺陷 R2）。
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -17,6 +21,7 @@ import { SESSION_TTL_OPTIONS, SESSION_TTL_DEFAULT, APP_VERSION } from '../config
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Icon, Button } from '../components/ui';
 import { ServerUrlInput } from '../components/desktop/ServerUrlInput';
+import { EDITOR_ROUTE, editorRevealPendingOnLogin } from '../utils/scratch/editor-landing';
 
 type Step = 'connect' | 'init-admin' | 'login';
 
@@ -40,9 +45,14 @@ export function LoginPage() {
     setServerHistory(serverHistoryService.listHistory());
   }, []);
 
-  // 已登录则跳转首页
+  // 已登录则跳转：有「外部唤起」在等 ⇒ 落点定在编辑器（AC-64 ②），否则回首页。
+  //
+  // ⚠ 判据来自 `utils/scratch/editor-landing.ts` 的**唯一落点判据**（缺陷 R1 的回修 / R2 的搬家）：
+  //    本页**不能**自己去读 `pendingOpenPaths()` —— zustand 的登录订阅回调是**同步**的，
+  //    它已经先一步 `flushOpenPaths()` 把队列清空；本 effect 跑在它之后，读到的永远是 0。
+  //    落点只允许有一个所有者：接线方写下判据，本页只消费。
   useEffect(() => {
-    if (isLoggedIn) navigate('/', { replace: true });
+    if (isLoggedIn) navigate(editorRevealPendingOnLogin() ? EDITOR_ROUTE : '/', { replace: true });
   }, [isLoggedIn, navigate]);
 
   // 密钥交换 + 检测管理员

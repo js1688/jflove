@@ -79,11 +79,6 @@ export function splitMermaidBlocks(content: string): MdSegment[] {
   return segments;
 }
 
-/** 文档中是否含 mermaid 图表（用于决定是否加载渲染引擎） */
-export function hasMermaidBlock(content: string): boolean {
-  return /^\s*```+\s*mermaid\s*$/im.test(content);
-}
-
 /* ==================== marked 配置 ==================== */
 
 /** 危险的 URL 协议（与 DOMPurify 的默认策略配合，做第二道拦截） */

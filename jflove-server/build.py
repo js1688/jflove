@@ -1,7 +1,7 @@
 """
 jflove-server Docker 镜像构建脚本
 
-按 .claude/skills/devops/SKILL.md 约定：
+按 .agents/skills/devops/SKILL.md 约定：
   - 后端发布产物为 docker 镜像（本地或 GitHub Actions 均可构建）
   - 版本号单一来源：仓库根 version.json（本脚本不再硬编码版本号）
   - 镜像支持挂载数据库，也支持镜像内置空表结构 DB 启动

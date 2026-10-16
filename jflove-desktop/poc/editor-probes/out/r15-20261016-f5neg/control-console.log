@@ -1,0 +1,17 @@
+F5 真机负向对照：目标=jflove-desktop/ui/src/stores/scratch-store.ts
+证据目录=D:\github\jflove\jflove-desktop\poc\editor-probes\out\r15-20261016-f5neg
+构建产物=D:\github\jflove\jflove-desktop\poc\editor-probes\out\r15-20261016-f5neg\.tmp_webui\webui
+[apply] sha256 前=6cff80c819b5acb0 后=4bea0929c95dc101 锚点命中=1 备份=.tmp_f5neg_original.bin
+[build] exit=0 用时 4.8s index=True sha=7c0056f78f2406dc
+[probe] exit=3221226505 用时 24.4s AC68-2 FAIL=True
+        [2026-10-16 14:13:28] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/virtual-disks������=False��
+        [2026-10-16 14:13:28] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/notes/disk-config������=False��
+        [2026-10-16 14:13:29] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+        [2026-10-16 14:13:29] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']
+        [2026-10-16 14:13:31] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�
+        [2026-10-16 14:13:31] [INFO] [src.services.scratch_service] �ݸ���д��: pane-312e57a8-95a3-4d22-88bd-8c33fc4c2372.txt (0 �ֽ�)
+        [2026-10-16 14:13:31] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'text']
+        QThread: Destroyed while thread '' is still running
+[restore] sha=6cff80c819b5acb0 字节一致=True git 状态一致=True
+证据 JSON：D:\github\jflove\jflove-desktop\poc\editor-probes\out\r15-20261016-f5neg\r16-f5neg-control.json
+[OK] 变异后 AC68-2 按预期 FAIL，且源码已按字节还原

@@ -129,6 +129,16 @@ export interface EditorState {
   readonly selection: EditorSelection;
   /** 只读（`.diff` 只读预览 / 大文件降级，设计 §6.2.2） */
   readonly readOnly: boolean;
+  /**
+   * 取本地化短语（`@codemirror/state` 的 `phrase`）。
+   *
+   * - 键集 = 离线包里 `phrase("…")` 的字面量（实测 **31 条**，见
+   *   `utils/scratch/editor-phrases.ts` 的键集清单与取证命令）；
+   * - `values` 用于替换键里的 `$` 占位符（实测：`phrase('$ unchanged lines', 7)`
+   *   ⇒ `"7 unchanged lines"`，换中文表后 `"未更改的 7 行"`）；
+   * - 找不到键时**返回键本身**（实测），因此"漏翻译"表现为英文而不是空串。
+   */
+  phrase(key: string, ...values: readonly unknown[]): string;
   /** 取某个 facet 的当前值 */
   facet<Value>(facet: StateFacet<Value>): Value;
   /** 从当前状态派生新状态（不提交给视图；视图侧用 `view.dispatch`） */
@@ -150,6 +160,15 @@ export interface EditorStateStatic {
   readonly allowMultipleSelections: StateFacet<boolean>;
   /** 换行符分片 */
   readonly lineSeparator: StateFacet<string | undefined>;
+  /**
+   * 本地化短语 facet（`@codemirror/state` 的 `phrases`；AC-74 的唯一正确装配方式）。
+   *
+   * ⚠ **只在离线包里真的存在时才可用** —— 宿主侧一律经
+   * `utils/scratch/editor-phrases.ts::installEditorPhrases()` **防御式**读取（缺失 ⇒ 空数组），
+   * **不要**在别处直接 `api.EditorState.phrases.of(...)`。
+   * 取值优先级：facet 输入数组里**靠前的扩展胜出**（实测，不是靠后覆盖）。
+   */
+  readonly phrases: StateFacet<Record<string, string>>;
 }
 
 /* ============================ EditorView ============================ */

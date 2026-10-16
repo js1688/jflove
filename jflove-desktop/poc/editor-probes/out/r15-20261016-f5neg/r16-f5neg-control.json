@@ -1,0 +1,61 @@
+{
+  "probe": {
+    "argv": [
+      "D:\\github\\jflove\\jflove-desktop\\venv-win\\Scripts\\python.exe",
+      "poc/editor-probes/r15-real-gui-ac64-ac71.py",
+      "--only",
+      "68",
+      "--webui",
+      "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\.tmp_webui\\webui",
+      "--out",
+      "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\f5neg-mutated"
+    ],
+    "exit": 3221226505,
+    "costSec": 24.4,
+    "log": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\r15-f5neg-mutated.log",
+    "probeOut": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\f5neg-mutated",
+    "ac68Lines": [
+      "[FAIL] AC68-2 AC-68 ② + AC-77①（真机半边）：切到「设置」再回「文本编辑器」⇒ 标签顺序、激活项**与激活面板正文**均保持（未保存、未等防抖就切走 ⇒ 保的是**内存里的活正文**）"
+    ],
+    "ac68Failed": true,
+    "tail": "[2026-10-16 14:13:28] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/virtual-disks������=False��\n[2026-10-16 14:13:28] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/notes/disk-config������=False��\n[2026-10-16 14:13:29] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]\n[2026-10-16 14:13:29] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']\n[2026-10-16 14:13:31] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�\n[2026-10-16 14:13:31] [INFO] [src.services.scratch_service] �ݸ���д��: pane-312e57a8-95a3-4d22-88bd-8c33fc4c2372.txt (0 �ֽ�)\n[2026-10-16 14:13:31] [DEBUG] [src.bridge.bridge] ������ editor.writeText ������=['encoding', 'lineEnding', 'path', 'text']\nQThread: Destroyed while thread '' is still running"
+  },
+  "target": "jflove-desktop/ui/src/stores/scratch-store.ts",
+  "at": "2026-10-16T14:13:04",
+  "apply": {
+    "sha256Before": "6cff80c819b5acb06ff1fa873bbeb6ee1dcd6a149320941e7ffe9660e961c0b3",
+    "sha256Mutated": "4bea0929c95dc101c27a5b0e0c56e4f8ad597dbf67464429cb1ce4fed848c3ee",
+    "backup": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\.tmp_f5neg_original.bin",
+    "backupSha256": "6cff80c819b5acb06ff1fa873bbeb6ee1dcd6a149320941e7ffe9660e961c0b3",
+    "anchorHits": 1,
+    "sizeBefore": 37678,
+    "sizeMutated": 37614,
+    "gitStatusBefore": "M jflove-desktop/ui/src/stores/scratch-store.ts"
+  },
+  "build": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.EXE",
+      "node_modules/vite/bin/vite.js",
+      "build",
+      "--outDir",
+      "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\.tmp_webui\\webui",
+      "--emptyOutDir"
+    ],
+    "exit": 0,
+    "costSec": 4.8,
+    "log": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\vite-build-mutated.log",
+    "webui": "D:\\github\\jflove\\jflove-desktop\\poc\\editor-probes\\out\\r15-20261016-f5neg\\.tmp_webui\\webui",
+    "indexExists": true,
+    "indexSha256": "7c0056f78f2406dcf02ad159e329ec47768f6a4aab83f5e1e3a38ecf2e1ba67a",
+    "tail": "../poc/editor-probes/out/r15-20261016-f5neg/.tmp_webui/webui/assets/index-CI0x_I7h.js   761.96 kB │ gzip: 244.59 kB\n✓ built in 4.15s\n(!) Some chunks are larger than 500 kB after minification. Consider:\n- Using dynamic import() to code-split the application\n- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit."
+  },
+  "restore": {
+    "sha256Restored": "6cff80c819b5acb06ff1fa873bbeb6ee1dcd6a149320941e7ffe9660e961c0b3",
+    "sha256Backup": "6cff80c819b5acb06ff1fa873bbeb6ee1dcd6a149320941e7ffe9660e961c0b3",
+    "bytesEqual": true,
+    "shaEqual": true,
+    "gitStatusAfter": "M jflove-desktop/ui/src/stores/scratch-store.ts",
+    "gitStatusUnchanged": true,
+    "ok": true
+  }
+}

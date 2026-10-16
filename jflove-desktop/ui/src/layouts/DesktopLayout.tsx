@@ -15,6 +15,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router';
 import { useAuthStore } from '../stores/auth-store';
 import { APP_NAME } from '../config/constants';
 import { Icon, IconButton, type IconName } from '../components/ui';
+import { useEditorGate } from '../utils/scratch/editor-gate';
 
 interface NavEntry {
   path: string;
@@ -22,12 +23,18 @@ interface NavEntry {
   icon: IconName;
   /** 精确匹配（用于 /files、/notes 这类需要前缀匹配的例外） */
   prefix?: boolean;
+  /** 需要「文本编辑器准入」（DS-16 消费点之一）：未登录 / 会话过期时该入口**零存在**（AC-63 ①） */
+  requiresEditor?: boolean;
 }
 
 /** 主导航 */
 const NAV_ITEMS: NavEntry[] = [
   { path: '/files', label: '文件管理', icon: 'files', prefix: true },
   { path: '/notes', label: '笔记管理', icon: 'notes', prefix: true },
+  // 文本编辑器工作区（v1.6.1 DS-26）：紧邻记事类入口，便于发现；图标 `code` 在 IconName 白名单内。
+  // 可见性由 `useEditorGate()` 决定（DS-16 的四个消费点之一）——虽然本组件只在 `RequireAuth` 内渲染，
+  // 但"未登录 ⇒ 入口零存在"（AC-63 ①）是**准入判据**，不该依赖"组件恰好没挂载"来成立（U-8 同款理由）。
+  { path: '/editor', label: '文本编辑器', icon: 'code', requiresEditor: true },
   { path: '/sync', label: '同步管理', icon: 'sync' },
   // v1.5.0 修复：底部导航 6→5 后「修复中心」并入传输页的第二个页签，
   // 这里不能继续保留独立导航项 —— 否则同一个功能在侧栏和页签里各有一个入口，
@@ -61,6 +68,9 @@ export function DesktopLayout() {
   const { username, role, isAdmin } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
   const isActive = useIsActive();
+  /** 文本编辑器准入（未登录 / 会话过期 ⇒ 「文本编辑器」导航项不渲染，AC-63 ①） */
+  const canUseEditor = useEditorGate();
+  const navItems = NAV_ITEMS.filter((item) => !item.requiresEditor || canUseEditor);
 
   const renderItem = (item: NavEntry) => {
     const active = isActive(item);
@@ -119,7 +129,7 @@ export function DesktopLayout() {
 
         {/* 导航 */}
         <nav className="relative z-[1] flex-1 overflow-y-auto px-3 pt-2 pb-4">
-          <div className="flex flex-col gap-0.5">{NAV_ITEMS.map(renderItem)}</div>
+          <div className="flex flex-col gap-0.5">{navItems.map(renderItem)}</div>
 
           {isAdmin && (
             <>

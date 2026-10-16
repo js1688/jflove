@@ -37,17 +37,19 @@ HOTKEY_TOKENS: tuple[str, ...] = (
 )
 
 #: 扫描面必须覆盖到的哨兵文件（防止跳目录规则把整块代码排除掉）
+#: v1.6.1：浮窗层 `ScratchPaneLayer.tsx` 已删除（设计 v1.6.1 §4.2 / DS-22），
+#: 应用级快捷键监听搬到模块级运行时 `utils/scratch/shortcut-runtime.ts` ⇒ 哨兵换点。
 REQUIRED_IN_SCOPE: tuple[str, ...] = (
     "jflove-desktop/src/bridge/editor.py",
     "jflove-desktop/src/ui/web_shell.py",
-    "jflove-desktop/ui/src/components/scratch/ScratchPaneLayer.tsx",
+    "jflove-desktop/ui/src/utils/scratch/shortcut-runtime.ts",
     "jflove-server/src/main.py",
     "jflove-app/lib/main.dart",
     "jflove-web/src/App.tsx",
 )
 
-PANE_LAYER = (
-    DESKTOP_ROOT / "ui" / "src" / "components" / "scratch" / "ScratchPaneLayer.tsx"
+SHORTCUT_RUNTIME = (
+    DESKTOP_ROOT / "ui" / "src" / "utils" / "scratch" / "shortcut-runtime.ts"
 )
 SHORTCUTS_DIALOG = (
     DESKTOP_ROOT / "ui" / "src" / "components" / "scratch" / "ShortcutsSettingsDialog.tsx"
@@ -96,11 +98,13 @@ class TestShortcutListenerStaysDomScoped:
     """AC-8 的另一半：快捷键只挂 DOM 监听，且挂之前先自查焦点与可见性"""
 
     def test_应用级快捷键走_window_捕获阶段(self):
-        text = PANE_LAYER.read_text(encoding="utf-8")
-        assert "window.addEventListener('keydown', onKeyDown, true)" in text, (
+        """v1.6.1：监听搬到了模块级运行时 `utils/scratch/shortcut-runtime.ts`
+        （`ScratchPaneLayer.tsx` 已删除；常驻理由见该文件头与设计 §4.7 / 13.2 U-8）。"""
+        text = SHORTCUT_RUNTIME.read_text(encoding="utf-8")
+        assert "window.addEventListener('keydown', listener, true)" in text, (
             "应用级快捷键必须挂在 window 的**捕获阶段**（第三参数 true）"
         )
-        assert "window.removeEventListener('keydown', onKeyDown, true)" in text, (
+        assert "window.removeEventListener('keydown', listener, true)" in text, (
             "卸载时必须以同样的捕获参数摘掉监听，否则会残留"
         )
         assert "!document.hasFocus() || document.hidden" in text, (

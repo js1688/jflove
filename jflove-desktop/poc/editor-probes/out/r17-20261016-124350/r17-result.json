@@ -1,0 +1,133 @@
+{
+  "probe": "r17-clipboard-cfhtml",
+  "at": "2026-10-16T12:43:54",
+  "only": [
+    "USER-CLIP"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "realWindow": true,
+        "state": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0,
+          "cmBundle": false
+        }
+      }
+    },
+    {
+      "id": "USER-CLIP",
+      "desc": "只读观察真实来源（例如 IDEA）留在剪贴板上的 flavor 与 CF_HTML 头结构",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "formats": [],
+        "htmlAvailable": false,
+        "unicodeTextAvailable": false,
+        "oemTextAvailable": false,
+        "verdict": "no-html-flavor",
+        "clipboardSequence": 1114,
+        "note": "本判据只读、不写剪贴板；裸 Win32 枚举（不经 Qt，无隐式格式转换）。若 verdict=no-html-flavor ⇒ 当前剪贴板里没有 CF_HTML，请先在 IDEA 里复制一段代码再重跑本判据。"
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "隔离服务端就绪 + 真登录 + 工作区可用",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "本轮未选中任何需要渲染层的判据（例如 --only USER-CLIP）"
+    },
+    {
+      "id": "H-NOHOST",
+      "desc": "粘贴相位内宿主 WebAction 计数 = 0",
+      "status": "SKIP",
+      "gating": false,
+      "detail": "本轮没有粘贴相位"
+    }
+  ],
+  "notes": [
+    "未进入粘贴相位；WebAction 计数：{\"total\": 0, \"byAction\": {}, \"eventCount\": 0, \"phase\": \"init\"}"
+  ],
+  "platform": "",
+  "real_window": true,
+  "cfHtmlFormatId": 49254,
+  "user_data_sandbox": "out\\r17-20261016-124350\\.tmp_appdata",
+  "isolatedServer": {
+    "pid": null,
+    "port": 0
+  },
+  "webActionInstrumentation": {
+    "actionCount": 47,
+    "actionNames": [
+      "Back",
+      "Forward",
+      "Stop",
+      "Reload",
+      "Cut",
+      "Copy",
+      "Paste",
+      "Undo",
+      "Redo",
+      "SelectAll",
+      "ReloadAndBypassCache",
+      "PasteAndMatchStyle",
+      "OpenLinkInThisWindow",
+      "OpenLinkInNewWindow",
+      "OpenLinkInNewTab",
+      "CopyLinkToClipboard",
+      "DownloadLinkToDisk",
+      "CopyImageToClipboard",
+      "CopyImageUrlToClipboard",
+      "DownloadImageToDisk",
+      "CopyMediaUrlToClipboard",
+      "ToggleMediaControls",
+      "ToggleMediaLoop",
+      "ToggleMediaPlayPause",
+      "ToggleMediaMute",
+      "DownloadMediaToDisk",
+      "InspectElement",
+      "ExitFullScreen",
+      "RequestClose",
+      "Unselect",
+      "SavePage",
+      "OpenLinkInNewBackgroundTab",
+      "ViewSource",
+      "ToggleBold",
+      "ToggleItalic",
+      "ToggleUnderline",
+      "ToggleStrikethrough",
+      "AlignLeft",
+      "AlignCenter",
+      "AlignRight",
+      "AlignJustified",
+      "Indent",
+      "Outdent",
+      "InsertOrderedList",
+      "InsertUnorderedList",
+      "ChangeTextDirectionLTR",
+      "ChangeTextDirectionRTL"
+    ],
+    "totalInPastePhase": 0,
+    "byActionInPastePhase": {},
+    "phaseBeforeReset": {
+      "total": 0,
+      "byAction": {},
+      "eventCount": 0,
+      "phase": "init"
+    }
+  },
+  "bridgeCallCounts": {
+    "editor.detectAndRead": 0,
+    "editor.writeText": 0,
+    "editor.draftSave": 0
+  }
+}

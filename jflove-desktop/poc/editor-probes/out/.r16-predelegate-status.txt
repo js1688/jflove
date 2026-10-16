@@ -1,0 +1,122 @@
+﻿ D .claude/skills/LESSONS.md
+ D .claude/skills/backend/SKILL.md
+ D .claude/skills/code-review/SKILL.md
+ D .claude/skills/cross-platform-desktop/SKILL.md
+ D .claude/skills/cross-platform-mobile/SKILL.md
+ D .claude/skills/designer/SKILL.md
+ D .claude/skills/devops/SKILL.md
+ D .claude/skills/pmo/SKILL.md
+ D .claude/skills/product/SKILL.md
+ D .claude/skills/testing/SKILL.md
+ D .claude/skills/web-frontend/SKILL.md
+ M .editorconfig
+ M AGENTS.md
+ M README.md
+ M jflove-desktop/README.md
+ M jflove-desktop/build.py
+ M jflove-desktop/src/services/scratch_service.py
+ M jflove-desktop/src/utils/single_instance.py
+ M jflove-desktop/tests/test_v160_phase6_hotkeys.py
+ M jflove-desktop/tests/test_v160_phase6_offline.py
+ M jflove-desktop/ui/src/App.tsx
+ M jflove-desktop/ui/src/__tests__/scratch-save-decision.test.tsx
+ M jflove-desktop/ui/src/components/scratch/QuitConfirmDialog.tsx
+ M jflove-desktop/ui/src/components/scratch/ScratchEditorHost.tsx
+ D jflove-desktop/ui/src/components/scratch/ScratchPane.tsx
+ D jflove-desktop/ui/src/components/scratch/ScratchPaneLayer.tsx
+ D jflove-desktop/ui/src/components/scratch/ScratchPaneStatusBar.tsx
+ D jflove-desktop/ui/src/components/scratch/ScratchPaneTitleBar.tsx
+ M jflove-desktop/ui/src/components/scratch/ScratchToolbar.tsx
+ M jflove-desktop/ui/src/components/scratch/ShortcutsSettingsDialog.tsx
+ M jflove-desktop/ui/src/components/scratch/__tests__/scratch-editor-host-mock.tsx
+RM jflove-desktop/ui/src/components/scratch/__tests__/scratch-pane-font-view.test.tsx -> jflove-desktop/ui/src/components/scratch/__tests__/scratch-editor-panel-font-view.test.tsx
+RM jflove-desktop/ui/src/components/scratch/__tests__/scratch-pane-render.test.tsx -> jflove-desktop/ui/src/components/scratch/__tests__/scratch-editor-panel-render.test.tsx
+ M jflove-desktop/ui/src/components/scratch/__tests__/scratch-shortcut-capture-yield.test.tsx
+ M jflove-desktop/ui/src/components/scratch/__tests__/scratch-view-csv-table.test.tsx
+ M jflove-desktop/ui/src/components/scratch/__tests__/scratch-view-diff.test.tsx
+ M jflove-desktop/ui/src/components/scratch/__tests__/scratch-views-markdown-json.test.tsx
+ M jflove-desktop/ui/src/components/scratch/__tests__/shortcut-intercept-ac10.test.tsx
+ M jflove-desktop/ui/src/components/scratch/index.ts
+ M jflove-desktop/ui/src/components/scratch/views/DiffView.tsx
+ M jflove-desktop/ui/src/components/scratch/views/MarkdownSplitView.tsx
+ M jflove-desktop/ui/src/config/__tests__/shortcut-normalize.test.ts
+ M jflove-desktop/ui/src/config/constants.ts
+ M jflove-desktop/ui/src/config/routes.tsx
+ M jflove-desktop/ui/src/config/shortcuts.ts
+ M jflove-desktop/ui/src/layouts/DesktopLayout.tsx
+ M jflove-desktop/ui/src/pages/NoteEditPage.tsx
+ M jflove-desktop/ui/src/pages/SettingsPage.tsx
+ M jflove-desktop/ui/src/services/scratch-service.ts
+ M jflove-desktop/ui/src/stores/__tests__/scratch-store-save.test.ts
+ M jflove-desktop/ui/src/stores/scratch-store.ts
+ M jflove-desktop/ui/src/stores/shortcut-store.ts
+ M jflove-desktop/ui/src/styles/scratch-editor.css
+ M jflove-desktop/ui/src/types/scratch.ts
+ M jflove-desktop/ui/src/utils/scratch/open-paths-queue.ts
+ M jflove-server/build.py
+ M jflove-web/build.py
+ M jflove-web/src/pages/NoteEditPage.tsx
+ M jflove-web/tests/layouts/brand-logo-v151.test.ts
+ M jflove-web/tests/pages/note-edit-v151.test.tsx
+ M scripts/check_logo_sync.py
+ M scripts/check_web_desktop_parity.py
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/Web\347\253\257\345\274\200\345\217\221\350\256\260\345\275\225/v1.5.0-\346\216\245\345\217\243\351\207\215\345\244\215\350\260\203\347\224\250\350\257\212\346\226\255.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/Web\347\253\257\345\274\200\345\217\221\350\256\260\345\275\225/v1.5.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/Web\347\253\257\345\274\200\345\217\221\350\256\260\345\275\225/v1.5.1.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/_parts/A0-bridge-shell.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/_parts/A3-packaging-scripts.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/_parts/A4-desktop-ui.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/_parts/_method.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/_parts/_scope.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/v1.5.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/v1.5.1.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/v1.6.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\345\220\216\347\253\257\345\274\200\345\217\221\350\256\260\345\275\225/v1.5.1.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\346\241\214\351\235\242\347\253\257\345\274\200\345\217\221\350\256\260\345\275\225/v1.5.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\346\265\213\350\257\225\346\212\245\345\221\212/v1.5.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\346\265\213\350\257\225\346\212\245\345\221\212/v1.5.1.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\347\211\210\346\234\254\345\217\221\345\270\203\350\256\260\345\275\225/v1.2.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\347\247\273\345\212\250\347\253\257\345\274\200\345\217\221\350\256\260\345\275\225/v1.5.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\350\256\276\350\256\241\346\226\207\346\241\243/v1.5.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\350\256\276\350\256\241\346\226\207\346\241\243/v1.5.1.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\350\256\276\350\256\241\346\226\207\346\241\243/v1.6.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\351\234\200\346\261\202\346\226\207\346\241\243/v1.5.0.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\351\241\271\347\233\256\347\256\241\347\220\206\350\256\260\345\275\225/BACKLOG.md"
+ M "\346\226\207\346\241\243\350\256\260\345\275\225/\351\241\271\347\233\256\347\256\241\347\220\206\350\256\260\345\275\225/v1.5.1.md"
+?? .agents/
+?? jflove-desktop/poc/editor-probes/out/.r15-current-out
+?? jflove-desktop/poc/editor-probes/out/.r16-predelegate-status.txt
+?? jflove-desktop/poc/editor-probes/out/r13-20261015-093731/
+?? jflove-desktop/poc/editor-probes/out/r13-20261015-094202-neg/
+?? jflove-desktop/poc/editor-probes/out/r13-20261015-100824/
+?? jflove-desktop/poc/editor-probes/out/r13-20261015-100921-neg/
+?? jflove-desktop/poc/editor-probes/out/r13-negative-run.log
+?? jflove-desktop/poc/editor-probes/out/r13-postfix-run.log
+?? jflove-desktop/poc/editor-probes/out/r15-20261015-164924/
+?? jflove-desktop/poc/editor-probes/r13-ctrlw-takeover.py
+?? jflove-desktop/poc/editor-probes/r15-real-gui-ac64-ac71.py
+?? jflove-desktop/tests/test_scratch_index_v161.py
+?? jflove-desktop/ui/src/components/scratch/EditorPanel.tsx
+?? jflove-desktop/ui/src/components/scratch/ScratchEditorStatusBar.tsx
+?? jflove-desktop/ui/src/components/scratch/ScratchTabBar.tsx
+?? jflove-desktop/ui/src/components/scratch/ScratchTabOverflowMenu.tsx
+?? jflove-desktop/ui/src/components/scratch/ScratchWorkspace.tsx
+?? jflove-desktop/ui/src/components/scratch/ScratchWorkspaceEmpty.tsx
+?? jflove-desktop/ui/src/components/scratch/__tests__/scratch-tab-bar.test.tsx
+?? jflove-desktop/ui/src/components/scratch/__tests__/scratch-tab-reorder.test.tsx
+?? jflove-desktop/ui/src/components/scratch/__tests__/scratch-tab-switch-state.test.tsx
+?? jflove-desktop/ui/src/components/scratch/__tests__/scratch-workspace-gate.test.tsx
+?? jflove-desktop/ui/src/components/scratch/__tests__/shortcut-runtime-intercept.test.tsx
+?? jflove-desktop/ui/src/layouts/__tests__/
+?? jflove-desktop/ui/src/utils/scratch/__tests__/editor-gate.test.ts
+?? jflove-desktop/ui/src/utils/scratch/__tests__/editor-open-paths-gate.test.ts
+?? jflove-desktop/ui/src/utils/scratch/editor-gate.ts
+?? jflove-desktop/ui/src/utils/scratch/editor-open-paths.ts
+?? jflove-desktop/ui/src/utils/scratch/shortcut-runtime.ts
+?? jflove-desktop/ui/vitest-final.log
+?? jflove-desktop/ui/vitest-full.log
+?? scripts/check_skills.py
+?? "\346\226\207\346\241\243\350\256\260\345\275\225/\344\273\243\347\240\201\345\256\241\346\237\245\346\212\245\345\221\212/v1.6.1.md"
+?? "\346\226\207\346\241\243\350\256\260\345\275\225/\346\241\214\351\235\242\347\253\257\345\274\200\345\217\221\350\256\260\345\275\225/v1.6.1.md"
+?? "\346\226\207\346\241\243\350\256\260\345\275\225/\350\256\276\350\256\241\346\226\207\346\241\243/v1.6.1.md"
+?? "\346\226\207\346\241\243\350\256\260\345\275\225/\351\234\200\346\261\202\346\226\207\346\241\243/v1.6.1.md"

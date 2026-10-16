@@ -1,0 +1,119 @@
+﻿=== v1.6.1 Phase 6 收尾轮（2026-10-15 晚，全部代码改动落定后）===
+[gate] npx tsc --noEmit
+tsc exit=0
+[gate] npm run lint
+
+> jflove-desktop-ui@1.5.1 lint
+> eslint src/
+
+lint exit=0
+[gate] npx vitest run
+
+ RUN  v5.0.4 D:/github/jflove/jflove-desktop/ui
+
+ ✓ src/layouts/__tests__/desktop-layout-gate.test.tsx (5 tests) 278ms
+ ✓ src/components/scratch/__tests__/shortcut-runtime-intercept.test.tsx (25 tests) 481ms
+ ✓ src/pages/__tests__/login-page-landing.test.tsx (4 tests) 629ms
+   ✓ 真实路由图守门（R2 消环后仍留）：LoginPage 只依赖叶子 editor-landing，路由图可完整求值 (1)
+     ✓ ④真实路由图能被完整求值（不得在模块求值期抛 TDZ / 循环依赖崩溃） 431ms
+ ✓ src/components/scratch/__tests__/scratch-workspace-gate.test.tsx (10 tests) 1001ms
+   ✓ AC-63 ③④ 未登录零渲染、零还原（草稿不被读出） (2)
+     ✓ AC-63③④：未登录（无有效会话）⇒ 工作区/标签条/面板零渲染，且 draftList 0 次 510ms
+ ✓ src/components/scratch/__tests__/scratch-tab-reorder.test.tsx (7 tests) 609ms
+ ✓ src/components/scratch/__tests__/scratch-tab-bar.test.tsx (10 tests) 651ms
+   ✓ AC-67 标签溢出可及（12 标签 + 下拉入口） (2)
+     ✓ AC-67①②③：溢出入口常驻于滚动容器之外，可列出 12 项；点第 12 项 ⇒ 激活项/面板锚点/scrollIntoView 三证齐备 428ms
+ ✓ src/components/scratch/__tests__/scratch-tab-switch-state.test.tsx (7 tests) 1324ms
+   ✓ AC-66② A 的光标位置与滚动位置与离开前相同（真实 CM6 取值，直接断言） (2)
+     ✓ AC-66②：切到 C 再切回 A 后仍是**同一个**真实 EditorView（面板里也是同一个 .cm-editor 节点），state.selection.main.head 与 scrollDOM.scrollTop 逐值不变 705ms
+ ✓ src/stores/__tests__/scratch-store-save.test.ts (29 tests) 54ms
+ ✓ src/utils/scratch/__tests__/editor-gate.test.ts (15 tests) 20ms
+ ✓ src/utils/scratch/__tests__/editor-open-paths-gate.test.ts (10 tests) 44ms
+ ✓ src/components/scratch/__tests__/scratch-editor-panel-render.test.tsx (14 tests) 736ms
+   ✓ S-5 / AC-23 工具栏真的在 DOM 里，且工具箱覆盖全部 12 项 (2)
+     ✓ 工具箱菜单项覆盖 TOOLBOX_ITEMS 的全部 12 项，且无时间戳类功能 354ms
+node.exe : stderr | src/utils/scratch/__tests__/toolbox-xml.test.ts > AC-33 ① 格式化保住注释与 CDATA（离线包真实现） > 【负向对照】格式化不得产出非法 
+XML：输出同样能过 `ET.fromstring`
+所在位置 行:1 字符: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (stderr | src/ut...`ET.fromstring`:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[AC-33] Python 判据使用：系统 PATH 上的 python（python）
+
+ ✓ src/components/scratch/__tests__/scratch-editor-panel-font-view.test.tsx (8 tests) 1216ms
+   ✓ AC-35 Ctrl + 滚轮缩放字号 (5)
+     ✓ 向上（deltaY < 0）增大字号，且界面可读值与 store 同步 414ms
+ ✓ src/utils/scratch/__tests__/toolbox-xml.test.ts (21 tests) 761ms
+ ✓ src/__tests__/scratch-save-decision.test.tsx (14 tests) 1508ms
+   ✓ AC-36 / AC-37 显式保存入口（Ctrl+S → store.savePane） (6)
+     ✓ 阳性对照：应用级快捷键监听确实在跑（Ctrl+Alt+N → 新建标签页，且工作区真实渲染） 337ms
+ ✓ src/utils/scratch/__tests__/block-select-ac11.test.ts (6 tests) 283ms
+ ✓ src/components/scratch/__tests__/scratch-view-diff.test.tsx (6 tests) 565ms
+   ✓ AC-34 第二段来源 (5)
+     ✓ 另一标签页：选一个已挂载标签页 → 右侧文本进 MergeView，相同行 a 不被标记（负向对照） 424ms
+ ✓ src/components/scratch/__tests__/shortcut-intercept-ac10.test.tsx (25 tests) 445ms
+ ✓ src/components/scratch/__tests__/scratch-block-select-keymap.test.ts (4 tests) 248ms
+ ✓ src/utils/scratch/__tests__/block-select-keys-ac13.test.ts (4 tests) 278ms
+ ✓ src/utils/scratch/__tests__/block-select-keys-host.test.ts (16 tests) 257ms
+ ✓ src/components/scratch/__tests__/scratch-views-markdown-json.test.tsx (7 tests) 214ms
+ ✓ src/components/scratch/__tests__/scratch-view-csv-table.test.tsx (5 tests) 171ms
+ ✓ src/components/scratch/__tests__/scratch-shortcut-capture-yield.test.tsx (8 tests) 300ms
+ ✓ src/utils/scratch/__tests__/toolbox-sql.test.ts (11 tests) 154ms
+ ✓ src/config/__tests__/shortcut-normalize.test.ts (21 tests) 41ms
+ ✓ src/utils/__tests__/error-text.test.ts (21 tests) 21ms
+ ✓ src/utils/scratch/__tests__/editor-landing.test.ts (6 tests) 17ms
+ ✓ src/stores/__tests__/block-select-modifier-ac12.test.ts (6 tests) 15ms
+ ✓ src/utils/scratch/__tests__/toolbox-json.test.ts (9 tests) 11ms
+ ✓ src/utils/scratch/__tests__/toolbox-case.test.ts (7 tests) 8ms
+ ✓ src/utils/scratch/__tests__/toolbox-lines.test.ts (6 tests) 11ms
+ ✓ src/utils/scratch/__tests__/toolbox-escape.test.ts (10 tests) 8ms
+ ✓ src/utils/scratch/__tests__/toolbox-base64.test.ts (6 tests) 7ms
+
+ Test Files  33 passed (33)
+      Tests  351 passed | 12 expected fail (363)
+   Start at  22:54:05
+   Duration  13.90s (environment 67%, tests 15%, setup 10%, import 5%, transform 2%)
+
+Environment  jsdom was created 33 times · 55.00s total, 67% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
+vitest exit=0
+[gate] npx vite build
+vite v6.4.3 building for production...
+transforming...
+✓ 1745 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.62 kB │ gzip:   1.02 kB
+dist/assets/index-D0fuOM-O.css   70.21 kB │ gzip:  13.44 kB
+dist/assets/index-DOdnZXIP.js   756.77 kB │ gzip: 242.53 kB
+node.exe : 
+所在位置 行:1 字符: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-m
+anualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.06s
+vite build exit=0
+[gate] python -m flake8 src/ tests/ --max-line-length=99
+desktop flake8 exit=0
+[gate] python -m pytest tests/ -q
+..........................................x............................. [ 91%]
+.............................................                            [100%]
+548 passed, 1 xfailed in 6.75s
+desktop pytest exit=0
+[gate] flake8 poc/editor-probes/r1*.py
+poc flake8 exit=0
+�о�6|ScratchPaneLayer|ScratchPaneTitleBar|data-scratch-pane|��=16|��ע��=0
+�о�7|tileAll|cascadeAll|movePane|resizePane|toggleMinimize|zCounter|setViewport|��=0|��ע��=0
+�о�8|\b(fetch|XMLHttpRequest|axios)\s*\(|��=1|��ע��=0
+�ϼư�ע�ͺ��������=0

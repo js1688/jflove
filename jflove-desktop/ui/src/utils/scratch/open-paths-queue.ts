@@ -4,17 +4,21 @@
  * ## 为什么需要它（设计 §7.5 的问题陈述）
  *
  * `main.tsx` 是「先 `await bootstrap()`（内部有桥调用，量级 10² ms）→ 再 `createRoot().render()`」。
- * 于是「进程启动」到「`ScratchPaneLayer` 挂载并订阅事件」之间存在一个窗口期：
+ * 于是「进程启动」到「工作区挂载并订阅事件」之间存在一个窗口期：
  * `desktop-bridge.ts` 的 `eventPushed` 处理器只投递给**已注册**的 handler
  * （`desktop-bridge.ts:127-137`，无 handler 时直接 return）⇒ 该窗口内推送的命令行路径**会被丢弃**。
  *
  * 本模块的对策（设计 §7.5 的**双保险之①**）：
  *   1. **模块顶层**就调 `onBridgeEvent('editor.openPaths', …)` 把事件写进队列 —— `onBridgeEvent`
  *      只要求 `window` 存在，**不要求桥握手完成**（注册表是模块级的，握手后事件照常到达）；
- *      本模块由 `App.tsx → ScratchPaneLayer` 静态 import，而 ESM 的 import 求值发生在
+ *      本模块由 `App.tsx` 静态 import（v1.6.1：与 `editor-open-paths.ts` /
+ *      `shortcut-runtime.ts` 同一手法），而 ESM 的 import 求值发生在
  *      `main.tsx` 的 `void bootstrap()` **之前** ⇒ 注册先于 `bootstrap()` 的 await。
- *   2. UI 就绪后由 `ScratchPaneLayer` 调 `onOpenPaths(handler)` + `flushOpenPaths()`
- *      把积压路径**按序**交给 `editor.detectAndRead` 建窗格（见 §4.1.3 懒挂载）。
+ *   2. UI 就绪后由 `editor-open-paths.ts` 里的消费者调 `onOpenPaths(handler)` + `flushOpenPaths()`
+ *      把积压路径**按序**交给 `editor.detectAndRead` 建标签页（见 §4.1.3 懒挂载）。
+ *   3. **v1.6.1 新增**：`setOpenPathsGate()` 打准入闸 —— 未登录时 `flushOpenPaths()` 首行直接
+ *      返回 `[]`，队列与 `delivered` 都不动（AC-64 ③：登录成功后自动打开，路径不丢）；
+ *      判门必须在投递之前，否则 `rememberDelivered` 会让重试被去重拒绝（设计 §4.4）。
  *
  * ## 队列口径（设计 §7.5 判据）
  *
@@ -56,8 +60,26 @@ const delivered = new Set<string>();
 /** `delivered` 的插入顺序（用于裁剪到 `MAX_DELIVERED_KEYS`） */
 let deliveredOrder: string[] = [];
 
-/** 消费者集合（正常情况下只有 `ScratchPaneLayer` 一个） */
+/** 消费者集合（正常情况下只有 `editor-open-paths.ts` 一个） */
 const handlers = new Set<OpenPathsHandler>();
+
+/**
+ * 投递前的**登录门**（设计 v1.6.1 §4.4 / DS-20）。
+ *
+ * 默认 `() => true`（保持 v1.6.0 语义，既有测试不受影响）；由 `editor-open-paths.ts`
+ * 接线成 `currentEditorGate` —— 未登录时队列**挂起**，登录成功后由登录态订阅兑现。
+ *
+ * ⚠ **判门必须放在投递之前**（`flushOpenPaths` 首行），不能放在消费者里：
+ * `flushOpenPaths` 会把交付的路径记入 `delivered`（`:124`），而 `enqueueOpenPaths` 对
+ * `delivered` 命中**拒绝入队**（`:98`）⇒「先投递、消费者发现没登录再退回」会让路径**永久丢失**。
+ * 先判门、后投递，队列与去重表都不动，才能"挂起到登录成功"。
+ */
+let gate: () => boolean = () => true;
+
+/** 设置投递前的登录门（由 `editor-open-paths.ts` 接线；传 `() => true` 即恢复开放） */
+export function setOpenPathsGate(next: () => boolean): void {
+  gate = typeof next === 'function' ? next : () => true;
+}
 
 /** 因超出上限被丢弃的条数（只暴露数字，不含路径） */
 let dropped = 0;
@@ -111,12 +133,15 @@ export function enqueueOpenPaths(
 /**
  * 消费队列：把积压路径**按序**交给已注册的消费者。
  *
- * - 无消费者时**保持队列不变**（等 `ScratchPaneLayer` 挂载后再 flush，§7.5 ②）；
+ * - **首行判登录门**（v1.6.1 DS-20）：未登录时直接返回空数组，**队列与 `delivered` 都不动**，
+ *   请求挂起到登录成功后再兑现（AC-64）；
+ * - 无消费者时**保持队列不变**（等工作区挂载后再 flush，§7.5 ②）；
  * - 有消费者时一次性交付，并把这批路径移入 `delivered`（此后重复推送不再入队）。
  *
- * @returns 本次交付的路径数组（无消费者 / 空队列返回空数组）
+ * @returns 本次交付的路径数组（被门拦下 / 无消费者 / 空队列返回空数组）
  */
 export function flushOpenPaths(source: OpenPathsPayload['source'] = 'cli'): string[] {
+  if (!gate()) return [];
   if (handlers.size === 0 || pending.length === 0) return [];
   const batch = pending;
   pending = [];
@@ -127,9 +152,10 @@ export function flushOpenPaths(source: OpenPathsPayload['source'] = 'cli'): stri
 }
 
 /**
- * 注册消费者（`ScratchPaneLayer` 挂载时调用）。
+ * 注册消费者（工作区挂载时调用）。
  *
  * 注册即尝试 flush：若「事件早于 UI」的积压还在，这里立刻补投（§7.5 ② 的判据）。
+ * 注意 flush 首行有登录门 —— 未登录时注册不会把请求投出去，也不会丢（DS-20）。
  *
  * @returns 注销函数
  */

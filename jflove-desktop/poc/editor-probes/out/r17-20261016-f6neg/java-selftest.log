@@ -1,0 +1,10 @@
+[env] java=21.0.9 os=Windows Server 2022 headlessProperty=null
+[env] graphicsEnvironmentIsHeadless=false
+[payload] flavorMode=all withText=true htmlCodePoints=25 htmlUtf8Bytes=25 htmlFnv1a32=c1bcee6d plainCodePoints=18 plainUtf8Bytes=18 plainFnv1a32=f79b2ca2
+[flavor] html=text/html; document=all; class=java.lang.String; charset=Unicode isSelectionHtml=false isAllHtml=true textUtilsFlavor=true
+[set] setContentsOk=true error=none elapsedMs=16
+[available] count=2 flavors=text/html; document=all; class=java.lang.String; charset=Unicode | application/x-java-serialized-object; class=java.lang.String
+[available] htmlAvailable=true stringAvailable=true
+[ready] 驻留 60 秒（延迟渲染：JVM 必须活着，否则读取方拿到空数据 ⇒ 假结论）
+[hb] t=5s phase=holding served={"text/html; document=all; class=java.lang.String; charset=Unicode":1,"application/x-java-serialized-object; class=java.lang.String":3}
+[hb] t=10s phase=holding served={"text/html; document=all; class=java.lang.String; charset=Unicode":1,"application/x-java-serialized-object; class=java.lang.String":3}

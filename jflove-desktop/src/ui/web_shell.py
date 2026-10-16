@@ -33,6 +33,15 @@ Qt 6.11 **没有** `QWebEnginePage.actions()`；`QWebEngineView.actions()` 实�
 **对哨兵取 action 会崩（Windows 0xC0000005）**。
 因此本模块**只**按**名字白名单**逐项 `view.pageAction(...)`，绝不按下标遍历 `actions()`。
 
+## 粘贴前剪贴板归一化（v1.6.1 · F6「IDEA 复制的代码贴不进来」）
+
+真凶是剪贴板上的 `UniformResourceLocator`（`CFSTR_INETURL`，Qt 侧 `text/uri-list`）：
+**只要它在，QtWebEngine 的 `Ctrl+V` 就贴出 0 字符**（r18 单变量对照矩阵实测，与 CF_HTML
+标记 / 偏移无关）。Java/AWT（IDEA）**必然**写它。本模块因此在用户按 `Ctrl+V` 时把剪贴板
+**重写成 `CF_HTML` + `CF_UNICODETEXT`**，然后**放行**默认粘贴（不吞键、不自己插文本）。
+详见 `PasteClipboardNormalizer` / `CLIPBOARD_URI_LIST_FORMAT` 的中文注释与
+`poc/editor-probes/r17-clipboard-cfhtml.py --only CLIP-AWT-REAL` 的真机判据。
+
 ## 导航边界（S-3 / 安全宪法 §9.6）
 
 桥（`qt.webChannelTransport`）对**同一 profile 上的任意文档**都可见，与来源无关
@@ -56,6 +65,7 @@ from PySide6.QtCore import (
     QEvent,
     QFile,
     QIODevice,
+    QMimeData,
     QObject,
     QThread,
     Qt,
@@ -64,7 +74,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeyEvent, QKeySequence
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (
     QWebEnginePage,
@@ -199,6 +209,328 @@ def disable_host_actions(view) -> int:
         len(HOST_ACTIONS_TO_DISABLE),
     )
     return handled
+
+
+# ── 粘贴前剪贴板归一化（v1.6.1 · F6：IDEA / AWT 复制的代码贴不进编辑器） ──────
+
+#: 「坏形态」格式名：Win32 的 `UniformResourceLocator`（`CFSTR_INETURL`）在 Qt 侧的 MIME 名。
+#:
+#: ## 真凶（r18 单变量对照矩阵**实测**，不是推测）
+#:
+#: 取证工具与证据：`poc/editor-probes/AwtClipHtml.java`（JDK 自己写真实 AWT 载荷）+
+#: `poc/editor-probes/r17-clipboard-cfhtml.py --only CLIP-AWT-REAL`（真机判据），
+#: 对照矩阵见该探针模块文档的「r18 实测结论」与 `out/.r18-*.jsonl`：
+#:
+#: - 裸 Win32 写 `CF_HTML` + `CF_UNICODETEXT`（**不带**本格式）⇒ 贴出纯文本；
+#: - 再加一个**自定义**格式 ⇒ 仍贴出纯文本；
+#: - 只加 `UniformResourceLocator`（`file:///` 或 `https://` 都试过）⇒ **0 字符**；
+#: - 真实 AWT 载荷 6 种变体、甚至「AWT 只写纯文本（连 `CF_HTML` 都没有）」⇒ **全 0 字符**；
+#: - 把 AWT 载荷读回来**重写成「只有 `CF_HTML` + `CF_UNICODETEXT`」**⇒ 第 1 轮就贴出来。
+#:
+#: ⇒ **只要剪贴板上存在这个格式，QtWebEngine 的 `Ctrl+V` 就贴出 0 字符。**
+#: Java/AWT（IDEA 用 `Clipboard.setContents`）**必然**写它，格式表固定为
+#: `HTML Format / CF_UNICODETEXT / CF_TEXT / UniformResourceLocator / CF_LOCALE / CF_OEMTEXT`。
+#: 与 `CF_HTML` 的标记 / 偏移**无关**（**不是** QTBUG-118121，已排除）；渲染层 CM6
+#: 本来就只读 `text/plain`（离线包实测），所以「渲染层接管粘贴」修不了这个场景。
+#: 上游至今未修 ⇒ 只能在外壳（本模块）侧绕开。QtWebEngine 内部**为何**在 `text/uri-list`
+#: 存在时判空**未做插桩**，本模块只按现象处理（诚实边界）。
+CLIPBOARD_URI_LIST_FORMAT = "text/uri-list"
+
+#: 「真实文本内容」格式名（Qt 对 Win32 `CF_UNICODETEXT` / `CF_TEXT` 的映射名）。
+#:
+#: 为什么要单独判它、而不直接信 `QMimeData.text()`：**Qt 的 `text()` 会在没有 `text/plain`
+#: 时回落到 `text/uri-list`**。本机实测（裸 Win32 只写 `CF_HDROP`，= 资源管理器"复制文件"）：
+#: Qt 眼里**只有** `text/uri-list`（`hasHtml()=False`、`hasFormat("text/plain")=False`），
+#: 但 `text()` 却回一段 `file:///D:/…` 字符串。若照它重写，就会把用户的**文件复制**
+#: 变成一段纯文本（之后在资源管理器里粘贴不再是复制文件）—— 这是**不可接受**的副作用。
+#: ⇒ 判据必须是"剪贴板上**确实有** `text/plain` 或 `text/html`"，而不是"`text()` 非空"。
+CLIPBOARD_TEXT_FORMAT = "text/plain"
+
+#: 「文件列表」格式名 —— Win32 的 `CF_HDROP`（**复制文件**）在 Qt 侧的暴露名。
+#:
+#: ## 为什么归一化前必须先看它（审查报告 v1.6.1 §15.4 的 **L-11**）
+#:
+#: 设计 §15.6.7 的安全边界 #3 字面是"**只**做『删掉会打空粘贴的那一项格式』"，
+#: 而本模块的实现是"**重建成**只有 `CF_HTML` + `CF_UNICODETEXT`"。这两者在"载荷恰好只有
+#: `text/html` + `text/plain` + `text/uri-list` 三项"时**等价**（r17 实测的真实 AWT 载荷
+#: 就是这三项），但**不等价于"混合载荷"**：若剪贴板**同时含 `CF_HDROP`（复制文件）与文本**
+#: （例如在"文件 + 文本"混合复制、或某些应用同时写文件列表与文本时），重建会把
+#: **文件列表一起丢掉** ⇒ 之后在资源管理器里粘贴不再是"复制文件"。
+#:
+#: 用户裁决接受的副作用**只限于 URL 格式**（设计 §15.6.7 边界 #3）⇒ 这里加**守卫**：
+#: 只要剪贴板含文件列表，就**直接跳过归一化**（返回 `skipped`，一个字节都不动）。
+#: 代价是"文件 + 文本混合载荷"下 F6 的粘贴修复不生效（该类载荷不是用户反馈的场景），
+#: 收益是**绝不破坏文件复制**（数据安全优先于便利性）。
+#:
+#: Qt 在 Windows 上把原生格式暴露为 `application/x-qt-windows-mime;value="<NAME>"`，
+#: 故这里直接写该名字判定；`hasUrls()` 这条判据**必须收窄**（它只要见到 `text/uri-list`
+#: 就为真，连 `https://` 纯 URL 字符串也是 `True`），收窄方式与实测见 `_has_file_list()`。
+CLIPBOARD_HDROP_FORMAT = 'application/x-qt-windows-mime;value="CF_HDROP"'
+
+
+def _has_file_list(mime: QMimeData) -> bool:
+    """
+    剪贴板是否带了**文件列表**（Win32 `CF_HDROP`，= 资源管理器"复制文件"）？
+
+    ## ⚠ 为什么**不能**只看 `hasUrls()`（实测踩坑，2026-10-16，本机复核过）
+
+    Qt 的 `QMimeData.hasUrls()` 只要**有 `text/uri-list` 就为真**，连纯 URL 字符串都是
+    `True`（实测 `setData('text/uri-list', b'https://example.invalid/')` ⇒ `hasUrls()=True`）；
+    而"真实 AWT 载荷"（IDEA 复制文本，**恰恰是 F6 要归一化的那一类**）也带
+    `text/uri-list`（`file:///…`）⇒ **拿 `hasUrls()` 当判据会让 F6 的修复被整体跳过**
+    （本批实测：加上 `hasUrls()` 后既有 9 条单测全红，其中就包括"AWT 三格式必须归一化"）。
+    ⇒ 设计 §15.6.7 建议的 `hasUrls()` 在本实现里**必须收窄**，只用它做**兜底**：
+
+    ## 本实现的判据
+
+    ① **原生格式名 `application/x-qt-windows-mime;value="CF_HDROP"` 在场** —— 这是 Windows 上
+       "复制文件"的**权威标志**（L-11 的修法原文点名它；`hasFormat` 是 O(格式数) 的字符串比对，
+       无性能问题）；
+    ② **`hasUrls()` 为真 且 平台不是 Windows** 时也判"有文件列表" —— 非 Windows 上
+       `text/uri-list` 本来就是"复制文件"的常规载体，而 `CF_HDROP` 不存在；
+       该分支在 Win32 上**恒不生效**（也就**不可能**误伤 AWT 载荷），
+       属于"万一有人把 `CLIPBOARD_NORMALIZE_ENABLED` 放开到 Linux"时的纵深防御。
+
+    任一判定抛错都按"有"处理 —— 数据安全优先（宁可少归一化一次，也不丢用户的文件列表）。
+
+    :param mime: 当前剪贴板的 `QMimeData`
+    :returns: 含文件列表 ⇒ `True`（调用方**不得**改写剪贴板）
+    """
+    try:
+        if mime.hasFormat(CLIPBOARD_HDROP_FORMAT):
+            return True
+    except Exception as exc:  # noqa: BLE001 - 判不了就当"有"，避免误伤文件复制
+        logger.debug("剪贴板归一化：CF_HDROP 判定失败（%s）", type(exc).__name__)
+        return True
+    if sys.platform == "win32":
+        return False
+    try:
+        return bool(mime.hasUrls())
+    except Exception as exc:  # noqa: BLE001 - 同上
+        logger.debug("剪贴板归一化：hasUrls() 判定失败（%s）", type(exc).__name__)
+        return True
+
+
+#: 归一化是否生效的平台。真凶 `CFSTR_INETURL` 是 **Win32 专有**格式；其它平台一律不动剪贴板
+#: （X11 上 `text/uri-list` 是**复制文件**的常规载体，改写它会破坏"复制文件"的语义）。
+CLIPBOARD_NORMALIZE_ENABLED = sys.platform == "win32"
+
+
+def build_paste_safe_mime_data(mime: QMimeData | None) -> QMimeData | None:
+    """
+    把剪贴板内容重建成「QtWebEngine 能正常粘贴」的形态：**只留 `CF_HTML` + `CF_UNICODETEXT`**。
+
+    ## 为什么是"重建成这两个格式"而不是"从原 `QMimeData` 里删掉一个格式"
+
+    实测（r17 探针 `CLIP-AWT-REAL` 的 `qtShapeAtPasteTime.formats`）显示，Qt 眼中真实 AWT
+    载荷**只有三个**格式：`["text/html", "text/plain", "text/uri-list"]`。
+    因此「只剔掉 `text/uri-list`、保留其余」与「重建成 `CF_HTML` + `CF_UNICODETEXT`」
+    **在 Qt 能力面内是同一件事**（可执行的剔除法还必须绕过 Qt 直接操作 Win32 剪贴板，
+    风险远大于收益）。所以这里采用后者 —— 也正是 r18 矩阵里**已被实测有效**的那条做法。
+
+    HTML 取 Qt 已经处理过的 `mime.html()`：即便原始 `CF_HTML` 是"无 `<!--StartFragment-->`
+    注释标记"的 AWT 风格，Qt 重建 `CF_HTML` 时会补上该标记，Blink 的 HTML 通路随之恢复；
+    而纯文本 flavor 同时存在时，Blink 走 `text/plain`（r17 `CLIP-DIVERGE` 实测 `channel=text-flavor`）。
+
+    :param mime: 当前剪贴板的 `QMimeData`
+    :returns: 新的 `QMimeData`；**没有任何可粘贴内容**（html 与 text 都为空）时返回 `None`
+        —— 调用方此时**不得**重写剪贴板（重写等于把剪贴板清空）
+
+    ## 必须**显式**看格式、不能只看 `text()`
+
+    见 `CLIPBOARD_TEXT_FORMAT` 的注释：`QMimeData.text()` 在没有 `text/plain` 时会回落到
+    `text/uri-list`。资源管理器"复制文件"（`CF_HDROP`）实测就是"只有 `text/uri-list`"，
+    此时必须返回 `None` —— **绝不**把用户的文件复制改写成一段文本。
+    """
+    if mime is None:
+        return None
+    try:
+        has_html = bool(mime.hasHtml())
+        has_text = bool(mime.hasFormat(CLIPBOARD_TEXT_FORMAT))
+        if not has_html and not has_text:
+            return None  # 只有 `text/uri-list`（例如文件复制）：不是"可粘贴的文本"，不动它
+        html = (mime.html() or "") if has_html else ""
+        text = (mime.text() or "") if has_text else ""
+    except Exception as exc:  # noqa: BLE001 - 读不到就当作"无可粘贴内容"，静默降级
+        logger.debug("剪贴板归一化：读取内容失败（%s）", type(exc).__name__)
+        return None
+    if not html and not text:
+        return None
+    fresh = QMimeData()
+    if html:
+        fresh.setHtml(html)  # → Win32 `HTML Format`（Qt 写回时会带完整 CF_HTML 头）
+    if text:
+        fresh.setText(text)  # → Win32 `CF_UNICODETEXT`
+    return fresh
+
+
+def normalize_clipboard_for_paste(clipboard) -> dict:
+    """
+    若剪贴板处于坏形态，就把它重写成能被 QtWebEngine 正常粘贴的形态；否则**一个字节都不动**。
+
+    **外科手术式**：只在"确实含 `text/uri-list` **且** 确实有可粘贴的 html / text
+    **且 不含文件列表（`CF_HDROP` / `hasUrls()`）**"时写入一次，
+    其余任何情况（正常文本复制、空剪贴板、只有 URI 列表的文件复制、
+    **文件列表 + 文本的混合载荷**）都**不碰**剪贴板。
+
+    最后一条是 **L-11**（审查报告 v1.6.1 §15.4）的守卫：重建式归一化会连文件列表一起
+    丢掉 ⇒ 含文件列表时直接 `skipped`，理由 `has-file-list`（详见 `CLIPBOARD_HDROP_FORMAT`
+    与 `_has_file_list()` 的注释）。
+
+    :param clipboard: 鸭子类型（`QClipboard` 或单测注入的假对象），需提供
+        `mimeData()` 与 `setMimeData(QMimeData)`
+    :returns: 结果描述字典，**只含动作 / 原因 / 布尔 / 长度**（不含剪贴板正文，
+        满足 `AGENTS.md §9.14`，可直接进日志）。唯一的例外是 `mimeData` 键：它是刚写进去的
+        `QMimeData` **对象本身**（供调用方保活用；**禁止**把它格式化进日志）
+    """
+    result: dict = {
+        "action": "skipped",
+        "reason": "",
+        "hasHtml": False,
+        "textChars": 0,
+        "mimeData": None,
+    }
+    if clipboard is None:
+        result["reason"] = "no-clipboard"
+        return result
+    try:
+        mime = clipboard.mimeData()
+    except Exception as exc:  # noqa: BLE001 - 读剪贴板失败 ⇒ 静默降级（不改粘贴行为）
+        logger.debug("剪贴板归一化：mimeData() 失败（%s）", type(exc).__name__)
+        result["reason"] = "mime-unavailable"
+        return result
+    if mime is None:
+        result["reason"] = "no-mime-data"  # 空剪贴板（无平台剪贴板时也会走到这里）
+        return result
+    try:
+        has_uri_list = bool(mime.hasFormat(CLIPBOARD_URI_LIST_FORMAT))
+    except Exception as exc:  # noqa: BLE001 - 判不了就当没有 ⇒ 不动剪贴板
+        logger.debug("剪贴板归一化：格式判定失败（%s）", type(exc).__name__)
+        result["reason"] = "format-check-failed"
+        return result
+    if not has_uri_list:
+        # **正常文本复制粘贴走这条**：绝不触碰系统剪贴板（连读内容都不需要）
+        result["reason"] = "no-uri-list"
+        return result
+
+    # **L-11 守卫（数据安全优先）**：剪贴板含**文件列表**（`CF_HDROP` / `hasUrls()`）时
+    # **直接跳过归一化** —— 重建式归一化会连文件列表一起丢掉，把"复制文件"降级成纯文本。
+    # 用户裁决接受的副作用只限于 URL 格式（设计 §15.6.7 边界 #3）⇒ 混合载荷一律不动。
+    if _has_file_list(mime):
+        result["reason"] = "has-file-list"
+        return result
+
+    fresh = build_paste_safe_mime_data(mime)
+    if fresh is None:
+        result["reason"] = "no-payload"
+        return result
+    result["hasHtml"] = bool(fresh.hasHtml())
+    result["textChars"] = len(fresh.text() or "")
+    try:
+        clipboard.setMimeData(fresh)
+    except Exception as exc:  # noqa: BLE001 - 重写失败 ⇒ 静默降级：不改默认粘贴行为、不弹错
+        logger.debug("剪贴板归一化：setMimeData() 失败（%s）", type(exc).__name__)
+        result["action"] = "failed"
+        result["reason"] = "write-failed"
+        return result
+    result["action"] = "rewritten"
+    result["reason"] = "uri-list-removed"
+    result["mimeData"] = fresh
+    return result
+
+
+class PasteClipboardNormalizer(QObject):
+    """
+    应用级事件过滤器：**只在用户真的按下 `Ctrl+V` 的那一刻**把坏形态剪贴板归一化，然后放行。
+
+    ## 挂钩点为什么是"应用级事件过滤器"（而不是 `DropAwareWebView.keyPressEvent`）
+
+    `QWebEngineView` 的按键**落在 focusProxy（渲染 widget）**上，`QWebEngineView`/`QWidget`
+    自身的 `keyPressEvent` **收不到** Ctrl+V（本项目已有 BL-51「配了没反应」的前车之鉴）。
+    应用级过滤器经 `QCoreApplication::notify` 分发链到达，**对任何接收者都可见**，
+    且必然早于接收者自己的 `event()`（渲染 widget 的 `keyPressEvent` 才把按键送进 Chromium），
+    因此在"粘贴发生之前"改写剪贴板是可靠的。
+    r17 真机判据的日志计数（`_rewrite_count`）就是"它真的触发过"的证据。
+
+    ## 三条不可越界的纪律
+
+    1. **绝不吞键**：`eventFilter` 恒返回 `False` ⇒ 默认粘贴照常发生（不自己插文本、不改粘贴语义）；
+    2. **只在真需要时动剪贴板**：本应用窗口处于活动状态 **且** 剪贴板确实含
+       `text/uri-list` **且** 有可粘贴内容 —— 正常文本复制粘贴**绝不触碰**系统剪贴板；
+    3. **失败静默降级**：任何异常只记 `DEBUG`（无正文），不改剪贴板、不改变默认粘贴行为、不弹错。
+    """
+
+    def __init__(self, window) -> None:
+        super().__init__(window)
+        self._window = window
+        #: 重入保护：`setMimeData()` 会发 `dataChanged`；本类**没有**连它，这里是纵深防御
+        self._normalizing = False
+        #: 最近一次重写的 `QMimeData` 引用（防 PySide6 提前回收剪贴板仍持有的对象）
+        self._rewritten_mime: QMimeData | None = None
+        #: 见 `PasteClipboardNormalizer` 文档：诊断/自证用计数（**不含任何正文**）
+        self._paste_key_count = 0
+        self._rewrite_count = 0
+
+    @property
+    def paste_key_count(self) -> int:
+        """本过滤器见过的 `Ctrl+V` 按键次数（不论是否改写）"""
+        return self._paste_key_count
+
+    @property
+    def rewrite_count(self) -> int:
+        """真正重写过剪贴板的次数（`CLIP-AWT-REAL` 判据靠它自证"钩子触发过"）"""
+        return self._rewrite_count
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt 虚函数名
+        """Qt 事件过滤器入口：任何内部异常都不得影响默认粘贴（吞掉异常并放行）"""
+        try:
+            self._on_event(event)
+        except Exception as exc:  # noqa: BLE001 - 过滤器抛异常会波及整个事件分发
+            logger.debug("粘贴归一化过滤器异常（忽略）：%s", type(exc).__name__)
+        return False  # **永不吞键**：让默认粘贴照常发生
+
+    def _on_event(self, event) -> None:
+        """判定"这次是不是一次真正会发生粘贴的 Ctrl+V"，是则归一化剪贴板"""
+        if not CLIPBOARD_NORMALIZE_ENABLED:
+            return
+        if event.type() != QEvent.Type.KeyPress:
+            return
+        if not isinstance(event, QKeyEvent):
+            return
+        if not event.matches(QKeySequence.StandardKey.Paste):
+            return
+        if event.isAutoRepeat():  # 长按重复不算新的粘贴意图
+            return
+        self._paste_key_count += 1
+        if not self._window.isActiveWindow():
+            # 窗口不在活动态 ⇒ 这次按键不会贴进本应用，剪贴板必须原样不动
+            logger.debug("粘贴归一化：Ctrl+V 到达但本窗口非活动，剪贴板不动")
+            return
+        if self._normalizing:  # 纵深防御：理论不可达（本类不连 dataChanged）
+            return
+        self._normalizing = True
+        try:
+            result = normalize_clipboard_for_paste(QGuiApplication.clipboard())
+        finally:
+            self._normalizing = False
+        if result.get("action") == "rewritten":
+            self._rewrite_count += 1
+            # 保活：剪贴板持有该对象，但 PySide6 的所有权归属不保证 ⇒ 自己再拿一份引用
+            self._rewritten_mime = result.get("mimeData")
+            # 日志**只**有计数 / 布尔 / 长度，无正文（AGENTS.md §9.14）
+            logger.info(
+                "粘贴前剪贴板归一化：第 %d 次改写（剔除 text/uri-list，"
+                "重建 CF_HTML+CF_UNICODETEXT；hasHtml=%s，textChars=%d）",
+                self._rewrite_count,
+                result.get("hasHtml"),
+                result.get("textChars"),
+            )
+        else:
+            logger.debug(
+                "粘贴归一化：本次无需改写（action=%s，reason=%s）",
+                result.get("action"),
+                result.get("reason"),
+            )
 
 
 # ── 退出握手常量（设计 §6.4） ─────────────────────────────────
@@ -546,6 +878,13 @@ class WebShell(QMainWindow):
         self.view.page().setWebChannel(self.channel)
 
         self._inject_qwebchannel_js()
+
+        # 粘贴前剪贴板归一化（F6）：**应用级**过滤器 —— 见 PasteClipboardNormalizer 的文档，
+        # 为什么不能挂在 `DropAwareWebView.keyPressEvent`（按键落在渲染 widget 的 focusProxy 上）。
+        self.paste_normalizer = PasteClipboardNormalizer(self)
+        _app = QApplication.instance()
+        if _app is not None:
+            _app.installEventFilter(self.paste_normalizer)
 
     # ── 原生媒体浮层联动（#3） ────────────────────
 

@@ -1,5 +1,5 @@
 /**
- * 文本编辑器快捷键表（设计 v1.6.0 §4.2）—— **默认键位 + 中文功能说明 + 冲突检测元数据**
+ * 文本编辑器快捷键表（设计 v1.6.1 §4.7 / v1.6.0 §4.2）—— **默认键位 + 中文功能说明 + 冲突检测元数据**
  *
  * ## 定位
  *
@@ -9,8 +9,8 @@
  *
  * ## 硬口径
  *
- * 1. **20 项，逐项对齐 §4.2.1 的默认键位表**（U-13 已确认 20 项全部采纳，见设计 §11 U-13）；
- *    默认值改动**只改本文件**（R-4 的缓解措施）。
+ * 1. **18 项，逐项对齐 v1.6.1 §4.7 的默认键位表**（v1.6.0 的 20 项 − 作废「平铺」「层叠」2 项；
+ *    3 项改名、1 项改默认键）—— 默认值改动**只改本文件**（R-4 的缓解措施）。
  * 2. **不注册任何全局热键**（AC-8 / F2.5）：本文件只声明数据，唯一的事件入口是
  *    `keyboardEventToShortcut(ev)`（纯函数）；应用级监听由组件挂在 `window` 的**捕获阶段**，
  *    窗口失焦即失效（§4.2.2）。
@@ -20,17 +20,18 @@
 
 import type { BlockSelectModifier } from '../types/scratch';
 
-/** 作用域：`window` = 任意路由页都响应；`pane` = 仅窗格 DOM 内响应（§4.2.2） */
+/**
+ * 作用域：`window` = 任意路由页都响应（v1.6.1 §4.7「应用」）；
+ * `pane` = 仅编辑面板 DOM 内响应（v1.6.1 §4.7「编辑面板聚焦」）。
+ */
 export type ShortcutScope = 'window' | 'pane';
 
-/** 20 个功能 id（§4.2.1 表逐项对齐） */
+/** 18 个功能 id（v1.6.1 §4.7 表逐项对齐） */
 export type ShortcutId =
   | 'pane.new'
   | 'pane.close'
   | 'pane.next'
   | 'pane.prev'
-  | 'pane.tile'
-  | 'pane.cascade'
   | 'file.open'
   | 'file.save'
   | 'file.saveAs'
@@ -81,7 +82,7 @@ export const MODIFIER_KEYS = ['Ctrl', 'Alt', 'Shift', 'Meta'] as const;
 /** 块选择修饰键对应的功能 id（`scratch-store` / `shortcut-store` 都要引它，避免各写字符串） */
 export const BLOCK_SELECT_MODIFIER_ID: ShortcutId = 'edit.blockSelectModifier';
 
-/** 块选择修饰键的默认值（§4.2.1 第 14 项 / §6.1.2） */
+/** 块选择修饰键的默认值（v1.6.1 §4.7 第 12 项 / v1.6.0 §6.1.2） */
 export const DEFAULT_BLOCK_SELECT_MODIFIER: BlockSelectModifier = 'Alt';
 
 /** 快捷键偏好文件（**由 Python 侧读写**，渲染层不拼路径） */
@@ -97,72 +98,91 @@ export const SHORTCUTS_VERSION = 1;
 export const EDITOR_KEYMAP_RESERVED: readonly string[] = ['Ctrl+Enter', 'Ctrl+Space'];
 
 /**
- * 默认键位表（20 项，逐项对齐 §4.2.1）。
+ * 默认键位表（18 项，逐项对齐 v1.6.1 §4.7）。
  *
- * ⚠ 顺序即设计表的行序（1 → 20），便于逐项核对。
+ * ⚠ 顺序即设计表的行序（1 → 18），便于逐项核对。
+ *
+ * ## v1.6.1 本轮（用户实测反馈 F3 / AC-75 / 裁决 V-3）只改了 **6 项**默认键
+ *
+ * | id | 原默认 | 新默认 |
+ * |----|--------|--------|
+ * | `pane.new` | `Ctrl+Alt+N` | `Ctrl+N` |
+ * | `file.open` | `Ctrl+Alt+O` | `Ctrl+O` |
+ * | `pane.next` | `Ctrl+Alt+ArrowRight` | `Ctrl+PageDown` |
+ * | `pane.prev` | `Ctrl+Alt+ArrowLeft` | `Ctrl+PageUp` |
+ * | `view.toolbox` | `Ctrl+Alt+K` | `Ctrl+K` |
+ * | `view.diff` | `Ctrl+Alt+D` | `Ctrl+Shift+D` |
+ *
+ * 理由：旧值抢系统键（`Ctrl+Alt+*` 与常见输入法 / 系统快捷方式冲突）。
+ *
+ * ⚠ **`view.diff` 由 `Ctrl+D` 更正为 `Ctrl+Shift+D`**（用户裁决）：CM6 `searchKeymap` 的
+ * `Mod-d`（Windows = `Ctrl+D`）处理器**就是** `selectNextOccurrence` —— "选中下一个相同词"
+ * 是各家编辑器的通用键位，**必须留给编辑器**；而运行时在 **window 捕获阶段**
+ * `preventDefault + stopPropagation`（`utils/scratch/shortcut-runtime.ts`）⇒ 配成 `Ctrl+D`
+ * 会直接**抢掉**编辑器那个功能。`Ctrl+Shift+D` 在**全部 8 张 keymap** 里 **0 命中**，故改用它。
+ *
+ * 其余 **12 项一字不动**（`Ctrl+W` / `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+Shift+V` / `Ctrl+F` /
+ * `Ctrl+G` / `Ctrl+/` / `Alt` / `Ctrl+=` / `Ctrl+-` / `Ctrl+0` / `Alt+Z`）。
+ *
+ * **本轮 `SHORTCUTS_VERSION` 保持 `1`、不做配置迁移**：`toOverrides`（下方）会剔除与默认值
+ * 相同的项 ⇒ 从没改过键的用户，`shortcuts.json` 里**根本没有这 6 个 id** ⇒ 新默认值自动生效
+ * （AC-75⑤）；用户改过的项由 `withOverrides` 的覆盖值优先保住（AC-75⑦）。
+ *
+ * 键位可行性（离线包 + 源码双向复核，证据见开发记录）：
+ *   - `Ctrl+K`/`Ctrl+N`/`Ctrl+O` 在**实际装配的 6 张 keymap** 里 0 命中
+ *     （唯一来源 `emacsStyleKeymap` **未被装配**）；
+ *   - **`Ctrl+D` 必须留给编辑器**（见上表 `view.diff` 一行）；`Ctrl+Shift+D` 在**全部 8 张
+ *     keymap** 里 0 命中 ⇒ 选它；
+ *   - 裸 `PageDown`/`PageUp` 被 3 张表占用 ⇒ 必须用 `Ctrl+` 前缀版本（`Ctrl+PageDown`/`PageUp` 0 命中）；
+ *   - `KEY_ALIASES` 已含 `pageup`/`pagedown` ⇒ **不需要**补归一化（`defaultKey` 与
+ *     `meta.normalizedDefault` 因此逐字相同）。
  */
 export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   {
     id: 'pane.new',
-    label: '新建编辑窗格',
-    description: '在当前位置打开一个新的浮动编辑窗格，内容为空',
-    defaultKey: 'Ctrl+Alt+N',
+    label: '新建标签页',
+    description: '在当前编辑器工作区中打开一个新的空白标签页',
+    defaultKey: 'Ctrl+N',
     scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+N', modifierOnly: false },
+    meta: { normalizedDefault: 'Ctrl+N', modifierOnly: false },
   },
   {
     id: 'pane.close',
-    label: '关闭当前窗格',
-    description: '关闭当前聚焦的编辑窗格；内容未保存时会先询问',
-    defaultKey: 'Ctrl+Alt+W',
+    label: '关闭当前标签页',
+    description: '关闭当前聚焦的标签页；内容未保存时会先询问',
+    defaultKey: 'Ctrl+W',
     scope: 'pane',
-    meta: { normalizedDefault: 'Ctrl+Alt+W', modifierOnly: false },
+    meta: { normalizedDefault: 'Ctrl+W', modifierOnly: false },
   },
   {
     id: 'pane.next',
-    label: '切换到下一个窗格',
-    description: '把焦点移到层级中的下一个窗格，并把它置为最前',
-    defaultKey: 'Ctrl+Alt+ArrowRight',
+    label: '下一个标签页',
+    description: '按标签条顺序切换到下一个标签页，并把它置为当前激活项',
+    defaultKey: 'Ctrl+PageDown',
     scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+Right', modifierOnly: false },
+    meta: { normalizedDefault: 'Ctrl+PageDown', modifierOnly: false },
   },
   {
     id: 'pane.prev',
-    label: '切换到上一个窗格',
-    description: '把焦点移到层级中的上一个窗格，并把它置为最前',
-    defaultKey: 'Ctrl+Alt+ArrowLeft',
+    label: '上一个标签页',
+    description: '按标签条顺序切换到上一个标签页，并把它置为当前激活项',
+    defaultKey: 'Ctrl+PageUp',
     scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+Left', modifierOnly: false },
-  },
-  {
-    id: 'pane.tile',
-    label: '平铺全部窗格',
-    description: '让所有窗格互不重叠地铺满可用区域',
-    defaultKey: 'Ctrl+Alt+T',
-    scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+T', modifierOnly: false },
-  },
-  {
-    id: 'pane.cascade',
-    label: '层叠全部窗格',
-    description: '把所有窗格按固定偏移依次堆叠，层级顺序清晰可读',
-    defaultKey: 'Ctrl+Alt+C',
-    scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+C', modifierOnly: false },
+    meta: { normalizedDefault: 'Ctrl+PageUp', modifierOnly: false },
   },
   {
     id: 'file.open',
     label: '打开本地文件',
-    description: '弹出原生文件对话框选择本机文件，校验通过后在新窗格打开',
-    defaultKey: 'Ctrl+Alt+O',
+    description: '弹出原生文件对话框选择本机文件，校验通过后在新标签页打开',
+    defaultKey: 'Ctrl+O',
     scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+O', modifierOnly: false },
+    meta: { normalizedDefault: 'Ctrl+O', modifierOnly: false },
   },
   {
     id: 'file.save',
     label: '保存',
     description:
-      '已有路径的文件直接写回；从未保存过的窗格弹出原生对话框指定位置与文件名',
+      '已有路径的文件直接写回；从未保存过的标签页弹出原生对话框指定位置与文件名',
     defaultKey: 'Ctrl+S',
     scope: 'pane',
     meta: { normalizedDefault: 'Ctrl+S', modifierOnly: false },
@@ -219,22 +239,24 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
     id: 'view.toolbox',
     label: '打开工具箱',
     description: '打开 12 项文字处理工具箱菜单',
-    defaultKey: 'Ctrl+Alt+K',
+    defaultKey: 'Ctrl+K',
     scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+K', modifierOnly: false },
+    meta: { normalizedDefault: 'Ctrl+K', modifierOnly: false },
   },
   {
     id: 'view.diff',
     label: '两段文本对比',
-    description: '打开 diff 面板，第二段可来自剪贴板、另一个窗格或本地文件',
-    defaultKey: 'Ctrl+Alt+D',
+    description: '打开 diff 面板，第二段可来自剪贴板、另一个标签页或本地文件',
+    // `Ctrl+Shift+D`（**不是** `Ctrl+D`）：`Ctrl+D` 是 CM6 `searchKeymap` 的 `selectNextOccurrence`
+    // （"选中下一个相同词"），必须留给编辑器；`Ctrl+Shift+D` 在全部 8 张 keymap 里 0 命中。
+    defaultKey: 'Ctrl+Shift+D',
     scope: 'window',
-    meta: { normalizedDefault: 'Ctrl+Alt+D', modifierOnly: false },
+    meta: { normalizedDefault: 'Ctrl+Shift+D', modifierOnly: false },
   },
   {
     id: 'view.zoomIn',
     label: '增大字号',
-    description: '把当前窗格的字号调大一档',
+    description: '把当前编辑面板的字号调大一档',
     defaultKey: 'Ctrl+=',
     scope: 'pane',
     meta: { normalizedDefault: 'Ctrl+=', modifierOnly: false },
@@ -242,7 +264,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   {
     id: 'view.zoomOut',
     label: '减小字号',
-    description: '把当前窗格的字号调小一档',
+    description: '把当前编辑面板的字号调小一档',
     defaultKey: 'Ctrl+-',
     scope: 'pane',
     meta: { normalizedDefault: 'Ctrl+-', modifierOnly: false },
@@ -250,7 +272,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   {
     id: 'view.zoomReset',
     label: '重置字号',
-    description: '把当前窗格字号恢复到默认值',
+    description: '把当前编辑面板字号恢复到默认值',
     defaultKey: 'Ctrl+0',
     scope: 'pane',
     meta: { normalizedDefault: 'Ctrl+0', modifierOnly: false },
@@ -258,7 +280,7 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
   {
     id: 'view.toggleWordWrap',
     label: '切换自动换行',
-    description: '开启或关闭当前窗格的自动换行',
+    description: '开启或关闭当前编辑面板的自动换行',
     defaultKey: 'Alt+Z',
     scope: 'pane',
     meta: { normalizedDefault: 'Alt+Z', modifierOnly: false },
@@ -268,10 +290,19 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
 /** 全部功能 id（按表序） */
 export const SHORTCUT_IDS: readonly ShortcutId[] = SHORTCUT_DEFS.map((def) => def.id);
 
-/** 默认键位映射（`id` → 默认键），供 store 计算「与默认值不同」的覆盖项 */
+/**
+ * 默认键位映射（`id` → 默认键），供 store 计算「与默认值不同」的覆盖项。
+ *
+ * ⚠ **必须取归一化形态**（`meta.normalizedDefault`），不能取 `def.defaultKey` 原文：
+ * 事件侧的 `keyboardEventToShortcut()` 产出的是归一化弦（`formatShortcut`），
+ * 而 `def.defaultKey` 里方向键写的是 `ArrowRight/ArrowLeft`、归一化后是 `Right/Left`
+ * ⇒ store 取原文会让 `getBinding(id) === chord` **永不成立**（v1.6.0 的 N-1 死键，
+ * 本版 Phase 5 审查 S-2 修掉：`pane.next` / `pane.prev` 两个默认键从此真实生效）。
+ * 一致性由 `defaultNormalizationConsistent()`（`:521`）守着，两处必须同源。
+ */
 export const DEFAULT_BINDINGS: Readonly<Record<string, string>> = Object.freeze(
   SHORTCUT_DEFS.reduce<Record<string, string>>((acc, def) => {
-    acc[def.id] = def.defaultKey;
+    acc[def.id] = def.meta.normalizedDefault;
     return acc;
   }, {}),
 );
@@ -382,7 +413,7 @@ export function formatShortcut(chord: ShortcutChord): string {
   // **仅修饰键**的 chord（块选择修饰键专用，形如 `{alt:true, key:'Alt'}`）：
   // 它的键名本身就是那个修饰键，若再按修饰键输出一次就会得到 `Alt+Alt` —— 那既让
   // `normalizeShortcut` 不幂等（`normalizeShortcut('Alt') !== 'Alt'`），又会被 store 的
-  // 修饰键白名单拒收，导致第 14 项**永远改不了键**并把伪 override 写进 shortcuts.json。
+  // 修饰键白名单拒收，导致第 12 项**永远改不了键**并把伪 override 写进 shortcuts.json。
   // 故此处对"与 key 同名的那个修饰位"去重（非修饰键的 key 永不等于修饰名，故无副作用）。
   const keyIsModifier = (MODIFIER_KEYS as readonly string[]).includes(chord.key);
   const parts: string[] = [];

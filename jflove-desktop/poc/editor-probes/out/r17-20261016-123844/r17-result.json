@@ -1,0 +1,332 @@
+{
+  "probe": "r17-clipboard-cfhtml",
+  "at": "2026-10-16T12:39:10",
+  "only": [
+    "P0",
+    "P1",
+    "SHAPE-AWT",
+    "CLIP-AWT",
+    "CLIP-CHROMIUM",
+    "CLIP-TEXT",
+    "CLIP-EMPTY",
+    "H-NOHOST",
+    "AWT-CJK"
+  ],
+  "checks": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "realWindow": true,
+        "state": {
+          "hash": "#/login",
+          "connectButton": true,
+          "passwordInputs": 0,
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0,
+          "cmBundle": false
+        }
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "隔离服务端就绪 + 服务层真登录 + 重载后渲染层已登录、工作区可用、恰好 1 个标签页",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "port": 64600,
+        "serverPid": 8176,
+        "login": {
+          "serverUrlSet": true,
+          "sessionReady": true,
+          "adminExistsBefore": false,
+          "adminExistsAfter": true,
+          "tokenPresentAfterInit": false,
+          "loggedInAfterInit": false,
+          "loggedIn": true,
+          "username": "r17probe",
+          "role": "admin",
+          "hasToken": true,
+          "sessionFileExists": true
+        },
+        "reload": {
+          "ok": true,
+          "tried": [
+            {
+              "via": "view.reload",
+              "ok": true
+            }
+          ]
+        },
+        "navEditorAfter": true,
+        "workspaceCount": 0,
+        "pushedOpenPaths": 1,
+        "fixtureName": "r17-clip-target.txt",
+        "tabState": {
+          "tabCount": 1,
+          "activePanelCount": 1,
+          "cmContentCount": 1,
+          "hash": "#/editor",
+          "activePanelId": "08b0a196-d5a5-4f7d-91b6-f26dc3f51fc9"
+        }
+      }
+    },
+    {
+      "id": "SHAPE-AWT",
+      "desc": "AWT 风格载荷（无 <!--StartFragment-->）在 Qt 眼中的形态 = 有 text/html 但既无注释标记也无头偏移（M1 前提）；同时 Win32 侧按偏移切片复核通过（偏移算对了）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "setClipboard": {
+          "cfHtmlFormatId": 49254,
+          "opened": true,
+          "closed": true,
+          "htmlWritten": true,
+          "textWritten": true,
+          "htmlUtf8Bytes": 177,
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "textUtf16Bytes": 86,
+          "textCodePoints": 42
+        },
+        "win32Readback": {
+          "htmlAvailable": true,
+          "textAvailable": true,
+          "htmlBytes": 176,
+          "htmlSha256Prefix": "64f0296f361c0faf",
+          "htmlPrefix12Hex": "56657273696f6e3a312e300d",
+          "offsets": {
+            "startHtml": 105,
+            "endHtml": 176,
+            "startFragment": 119,
+            "endFragment": 160
+          },
+          "fragmentByOffsetOk": {
+            "ok": true,
+            "chunkUtf8Bytes": 41,
+            "chunkFnv1a32": "83b07194",
+            "chunkIsWholeFragment": true,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 176,
+              "startFragment": 119,
+              "endFragment": 160
+            }
+          },
+          "textCodePoints": 42,
+          "textFnv1a32": "ecc2dbba"
+        },
+        "qtShape": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 69,
+          "htmlUtf8Bytes": 69,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c48544d4c3e3c424f44593e",
+          "htmlSuffix12Hex": "424f44593e3c2f48544d4c3e",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "awt",
+            "hasMarkerComment": false,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 176,
+              "startFragment": 119,
+              "endFragment": 160
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 176,
+            "fragmentUtf8Bytes": 41,
+            "fragmentCodePoints": 41
+          }
+        },
+        "shapePassCriteria": {
+          "hasHtml": true,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": false,
+          "htmlHasStartFragmentHeader": false
+        }
+      }
+    },
+    {
+      "id": "SHAPE-CHROMIUM",
+      "desc": "对照：Chromium 风格载荷在 Qt 眼中**带** <!--StartFragment--> 标记",
+      "status": "PASS",
+      "gating": false,
+      "detail": {
+        "qtShape": {
+          "formats": [
+            "text/html",
+            "text/plain"
+          ],
+          "hasHtml": true,
+          "hasText": true,
+          "htmlChars": 105,
+          "htmlUtf8Bytes": 105,
+          "htmlLowerHasTag": true,
+          "htmlHasMarkerComment": true,
+          "htmlHasStartFragmentHeader": false,
+          "htmlHasEndFragmentHeader": false,
+          "htmlPrefix12Hex": "3c68746d6c3e3c626f64793e",
+          "htmlSuffix12Hex": "626f64793e3c2f68746d6c3e",
+          "textChars": 42,
+          "textFnv1a32": "ecc2dbba",
+          "plainMatchesPayload": true,
+          "payloadMeta": {
+            "style": "chromium",
+            "hasMarkerComment": true,
+            "offsets": {
+              "startHtml": 105,
+              "endHtml": 210,
+              "startFragment": 137,
+              "endFragment": 178
+            },
+            "offsetsAreByteBased": true,
+            "payloadUtf8Bytes": 210,
+            "fragmentUtf8Bytes": 41,
+            "fragmentCodePoints": 41
+          }
+        }
+      }
+    },
+    {
+      "id": "CLIP-AWT",
+      "desc": "粘贴判据（AWT）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "P1 未建立（渲染层未进入可用工作区）"
+    },
+    {
+      "id": "CLIP-CHROMIUM",
+      "desc": "粘贴判据（CHROMIUM）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "P1 未建立（渲染层未进入可用工作区）"
+    },
+    {
+      "id": "CLIP-TEXT",
+      "desc": "粘贴判据（TEXT）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "P1 未建立（渲染层未进入可用工作区）"
+    },
+    {
+      "id": "CLIP-EMPTY",
+      "desc": "粘贴判据（EMPTY）",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "P1 未建立（渲染层未进入可用工作区）"
+    },
+    {
+      "id": "AWT-CJK",
+      "desc": "中文载荷（无注释标记）⇒ 粘贴成功",
+      "status": "SKIP",
+      "gating": true,
+      "detail": "P1 未建立"
+    },
+    {
+      "id": "H-NOHOST",
+      "desc": "全程宿主 47 项 WebAction 触发计数 = 0、无宿主模态、主窗口存活",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "webActionTotal": 1,
+        "webActionByAction": {
+          "Reload": 1
+        },
+        "webActionEventCount": 1,
+        "instrumentedActionCount": 47,
+        "hostModalWidget": null,
+        "windowAlive": true,
+        "bridgeCounterInstallErrors": [],
+        "bridgeCallCounts": {
+          "editor.detectAndRead": 1,
+          "editor.writeText": 0,
+          "editor.draftSave": 0
+        }
+      }
+    }
+  ],
+  "notes": [],
+  "platform": "",
+  "real_window": true,
+  "cfHtmlFormatId": 49254,
+  "user_data_sandbox": "out\\r17-20261016-123844\\.tmp_appdata",
+  "isolatedServer": {
+    "pid": 8176,
+    "port": 64600
+  },
+  "webActionInstrumentation": {
+    "actionCount": 47,
+    "actionNames": [
+      "Back",
+      "Forward",
+      "Stop",
+      "Reload",
+      "Cut",
+      "Copy",
+      "Paste",
+      "Undo",
+      "Redo",
+      "SelectAll",
+      "ReloadAndBypassCache",
+      "PasteAndMatchStyle",
+      "OpenLinkInThisWindow",
+      "OpenLinkInNewWindow",
+      "OpenLinkInNewTab",
+      "CopyLinkToClipboard",
+      "DownloadLinkToDisk",
+      "CopyImageToClipboard",
+      "CopyImageUrlToClipboard",
+      "DownloadImageToDisk",
+      "CopyMediaUrlToClipboard",
+      "ToggleMediaControls",
+      "ToggleMediaLoop",
+      "ToggleMediaPlayPause",
+      "ToggleMediaMute",
+      "DownloadMediaToDisk",
+      "InspectElement",
+      "ExitFullScreen",
+      "RequestClose",
+      "Unselect",
+      "SavePage",
+      "OpenLinkInNewBackgroundTab",
+      "ViewSource",
+      "ToggleBold",
+      "ToggleItalic",
+      "ToggleUnderline",
+      "ToggleStrikethrough",
+      "AlignLeft",
+      "AlignCenter",
+      "AlignRight",
+      "AlignJustified",
+      "Indent",
+      "Outdent",
+      "InsertOrderedList",
+      "InsertUnorderedList",
+      "ChangeTextDirectionLTR",
+      "ChangeTextDirectionRTL"
+    ],
+    "total": 1,
+    "byAction": {
+      "Reload": 1
+    }
+  },
+  "bridgeCallCounts": {
+    "editor.detectAndRead": 1,
+    "editor.writeText": 0,
+    "editor.draftSave": 0
+  }
+}

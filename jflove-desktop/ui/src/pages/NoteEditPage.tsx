@@ -21,7 +21,7 @@ type ViewMode = 'edit' | 'preview' | 'split';
  * - 空 / 纯空白 → `'edit'`：新建的目的就是写。
  *
  * 抽成**纯函数并 export**：默认模式判定是本版本的核心行为，抽出来才能被单测直接覆盖
- * （`.claude/skills/LESSONS.md` L25）。
+ * （`.agents/skills/lessons/LESSONS.md` L25）。
  */
 export function resolveInitialViewMode(content: string): ViewMode {
   return content.trim() !== '' ? 'preview' : 'edit';

@@ -1,0 +1,96 @@
+r15 真机探针 · 平台=(默认) · 真窗口=True · 判据=['68']
+证据目录：poc\editor-probes\out\r15-20261016-f5neg-restored
+fixture：{"ac64": "r15-ac64-open.log", "ac71": "r15-ac71-offline.txt", "tabs": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "overflow": ["r15-12-overflow-fixture-01-tab-title.txt", "r15-12-overflow-fixture-02-tab-title.txt", "r15-12-overflow-fixture-03-tab-title.txt", "r15-12-overflow-fixture-04-tab-title.txt", "r15-12-overflow-fixture-05-tab-title.txt", "r15-12-overflow-fixture-06-tab-title.txt", "r15-12-overflow-fixture-07-tab-title.txt", "r15-12-overflow-fixture-08-tab-title.txt", "r15-12-overflow-fixture-09-tab-title.txt", "r15-12-overflow-fixture-10-tab-title.txt", "r15-12-overflow-fixture-11-tab-title.txt", "r15-12-overflow-fixture-12-tab-title.txt"]}
+前端产物根（--webui）：{"originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist", "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist", "indexExists": true, "indexSha256Prefix": "38ee31510ab1aef6"}
+venv-win\Scripts\python.exe : [2026-10-16 14:15:19] [INFO] [src.utils.input_method] ���뷨���ã�win32 ƽ̨ʹ��ϵͳԭ�� IME������
+ Qt ����������
+所在位置 行:1 字符: 275
++ ... ntinue; & { venv-win\Scripts\python.exe poc\editor-probes\r15-real-gu ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([2026-10-16 14:...� Qt ����������:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[2026-10-16 14:15:20] [INFO] [src.ui.web_shell] ����Ĭ�϶���������ɣ�10/13 �����������������
+[2026-10-16 14:15:20] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 14:15:20] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:15:21] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 14:15:21] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[ OK ] P0 真外壳加载 v1.6.1 前端产物；初始态 = 未登录（登录面板 / 无编辑器入口 / 无工作区 DOM）
+       {"load_ui": true, "state": {"hash": "#/login", "connectButton": true, "passwordInputs": 0, "navEditor": false, "workspaceCount": 0, "tabCount": 0, "cmBundle": false}}
+[2026-10-16 14:15:22] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=4abd6047-333f-437d-91cd-bac6fe0f39a4
+[2026-10-16 14:15:23] [INFO] [src.services.auth_service] ����Ա�˺ų�ʼ���ɹ�: r15probe
+[ OK ] P1 隔离服务端就绪 + 桌面端服务层在隔离库上造管理员（**不登录** ⇒ 渲染层仍是未登录态）
+       {"port": 52430, "serverPid": 8264, "serverUrlSet": true, "sessionReady": true, "adminExistsBefore": false, "adminExistsAfter": true, "tokenPresentAfterInit": false, "loggedInAfterInit": false}
+[SKIP] AC64-1 AC-64 ①（未登录唤起 ⇒ 只有登录面板）
+       "未选中 64"
+[SKIP] AC64-2 AC-64 ②（渲染层自己登录）
+       "未选中 64"
+[SKIP] AC64-3 AC-64 ③（1 个激活标签页）
+       "未选中 64"
+[SKIP] AC64-4 AC-64 ③（正文逐字符相等）
+       "未选中 64"
+[SKIP] AC64-5 AC-64 ④（状态栏一致）
+       "未选中 64"
+[2026-10-16 14:15:23] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=d7e25f38-4cf2-4812-a4e1-d058c35b3776
+[2026-10-16 14:15:23] [INFO] [src.services.auth_service] �û���¼�ɹ�: r15probe (role=admin)
+[2026-10-16 14:15:23] [DEBUG] [src.bridge.bridge] ������ transfer.list ������=[]
+[2026-10-16 14:15:23] [DEBUG] [src.bridge.bridge] ������ meta.server_history ������=[]
+[2026-10-16 14:15:23] [DEBUG] [src.bridge.bridge] ������ auth.restore_session ������=[]
+[2026-10-16 14:15:30] [INFO] [src.services.auth_service] ��Կ������ɣ�session_id=10d99853-bcc8-45c7-b067-592c68cbb317
+[2026-10-16 14:15:33] [INFO] [src.services.auth_service] ���¼�ָ��Ự�ɹ�: r15probe (role=admin)
+[2026-10-16 14:15:34] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:15:34] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:15:34] [DEBUG] [src.bridge.bridge] ������ api.request ������=['body', 'method', 'path', 'plain']
+[2026-10-16 14:15:34] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/files/disks������=False��
+[ OK ] P2 AC-71/67/68 前置：Python 侧真登录（桌面端服务层）+ 重载页面 ⇒ 渲染层进入已登录态（本条不要求渲染层登录，故与 AC-64 无关）
+       {"login": {"serverUrlSet": true, "sessionReady": true, "adminExistsBefore": true, "adminExistsAfter": true, "tokenPresentAfterInit": false, "loggedInAfterInit": false, "loggedIn": true, "username": "r15probe", "role": "admin", "hasToken": true, "sessionFileExists": true}, "beforeReloadNavEditor": false, "reload": {"ok": true, "tried": [{"via": "view.reload", "ok": true}]}, "navEditorAfter": true, "hashAfter": "#/files", "passwordInputsAfter": 0}
+[SKIP] AC71-1 AC-71 前提：服务端不可达
+       "未选中 71"
+[SKIP] AC71-2 AC-71 ①：离线新建 + 输入
+       "未选中 71"
+[SKIP] AC71-3 AC-71 ②：离线打开已有路径文件
+       "未选中 71"
+[SKIP] AC71-4 AC-71 ①：离线 Ctrl+S 写回磁盘
+       "未选中 71"
+[SKIP] AC71-5 AC-71 ③：离线切 / 关标签
+       "未选中 71"
+[SKIP] AC71-6 AC-71 ④：无登录拦截 / 无阻塞弹窗
+       "未选中 71"
+[SKIP] AC71-7 AC-71 ③：另存为（SKIP：原生对话框）
+       "未选中 71"
+  · 清理前序标签页（避免污染 AC-68 的 A/B/C 三标签前提）
+[2026-10-16 14:15:35] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��3 ������Դ=cli��
+[2026-10-16 14:15:35] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:15:35] [DEBUG] [src.bridge.bridge] ������ editor.detectAndRead ������=['paths']
+[2026-10-16 14:15:35] [INFO] [src.bridge.editor] ������ 3 �����ɹ� 3 ����
+[2026-10-16 14:15:35] [DEBUG] [src.bridge.bridge] ������ editor.draftList ������=[]
+[2026-10-16 14:15:36] [INFO] [src.ui.web_shell] �ⲿ·����������ִδ������������һ�Σ��� 3 ����
+[2026-10-16 14:15:36] [INFO] [src.ui.web_shell] �ⲿ·���������� editor.openPaths��3 ������Դ=cli��
+[ OK ] AC68-1 AC-68 ①：合成 Pointer Events（4 px 阈值 / 跨中点 / 固定 pointerId）把 C 拖到最前 ⇒ 标签条顺序变为 C / A / B
+       {"pushedCount": 3, "openedTabCount": 3, "orderAfterOpen": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "activeAfterClickFirst": "r15-tab-a.txt", "orderBeforeDrag": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "dragDispatch": {"ok": true, "startX": 530, "endX": 255, "stepPx": 46, "steps": 6, "nativeObserved": {"pointerdown": 1, "pointermove": 6, "pointerup": 0}, "titlesBefore": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "orderAfterMoves": ["r15-tab-a.txt", "r15-tab-b.txt", "r15-tab-c.txt"], "dragClassDuringDispatch": 0}, "observedDuringDrag": {"order": ["r15-tab-c.txt", "r15-tab-a.txt", "r15-tab-b.txt"], "dragClassCount": 1, "draggingTitle": "r15-tab-c.txt", "activeTitle": "r15-tab-a.txt"}, "dragUp": {"ok": true, "title": "r15-tab-c.txt"}, "orderAfterDrag": ["r15-t
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.bridge] ������ editor.reportDirty ������=['count']
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.bridge] ������ file_assoc.get ������=[]
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.bridge] ������ editor.shortcutsLoad ������=[]
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.bridge] ������ api.request ������=['body', 'method', 'path', 'plain']
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.bridge] ������ api.request ������=['body', 'method', 'path', 'plain']
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/virtual-disks������=False��
+[2026-10-16 14:15:38] [DEBUG] [src.bridge.api_gateway] ��ת�� HTTP GET /api/v1/notes/disk-config������=False��
+[2026-10-16 14:15:39] [DEBUG] [src.bridge.bridge] ������ media.close ������=[]
+[2026-10-16 14:15:39] [DEBUG] [src.bridge.bridge] ������ editor.draftSave ������=['content', 'pane']
+[ OK ] AC68-2 AC-68 ② + AC-77①（真机半边）：切到「设置」再回「文本编辑器」⇒ 标签顺序、激活项**与激活面板正文**均保持（未保存、未等防抖就切走 ⇒ 保的是**内存里的活正文**）
+       {"settingsHash": "#/settings", "settingsWorkspaceCount": 0, "orderBefore": ["r15-tab-c.txt", "r15-tab-a.txt", "r15-tab-b.txt"], "orderAfterBack": ["r15-tab-c.txt", "r15-tab-a.txt", "r15-tab-b.txt"], "activeBefore": "r15-tab-a.txt", "activeAfterBack": "r15-tab-a.txt", "tabCountAfterBack": 3, "orderKeepOk": true, "docKeepOk": true, "docInsert": {"ok": true, "markerCodePoints": 14, "docLengthAfterInsert": 31}, "docBeforeEdit": {"docCodePoints": 17, "docFnv1a32": "23e57547"}, "docAfterEdit": {"docCodePoints": 31, "docFnv1a32": "76b9dbe4"}, "docAfterBack": {"docCodePoints": 31, "docFnv1a32": "76b9dbe4", "r15Error": null}, "expectedAfterBack": {"docCodePoints": 31, "docFnv1a32": "76b9dbe4"}, "docEqualAfterBack": true, "docChangedByEdit": true, "docChangedFromBeforeEdit": true, "editToSwitchMs": 
+[SKIP] AC67-1 AC-67 ①：12 标签溢出
+       "未选中 67"
+[SKIP] AC67-2 AC-67 ①：溢出下拉列出全量
+       "未选中 67"
+[SKIP] AC67-3 AC-67 ②③：选中第 12 个 + 几何可见
+       "未选中 67"
+[SKIP] MEM-R13 设计 R-13 观察项：12 标签内存读数 （观察项，不参与退出码）
+       "未选中 67（内存读数复用该相位的已登录态）"
+[2026-10-16 14:15:41] [WARNING] [src.services.scratch_service] �ݸ����������ã��Ѱ��ݸ��Ŀ¼�ؽ� 1 ����Ŀ���������ڣ�
+结果 JSON：poc\editor-probes\out\r15-20261016-f5neg-restored\r15-result.json
+退出码：0
+[2026-10-16 14:15:41] [INFO] [src.services.scratch_service] �ݸ���д��: pane-918a86ad-c027-47d2-adad-f11a27f5867b.txt (35
+ �ֽ�)

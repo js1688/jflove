@@ -35,15 +35,15 @@ import type {
   OpenDialogParams,
   OpenDialogResult,
   OpenPathsPayload,
-  PaneCaret,
   QuitPendingResult,
   QuitRequestedPayload,
   ReadItem,
-  ScratchPane,
+  ScratchTab,
   ShortcutsFileV1,
   ShortcutsSaveResult,
   StatPathResult,
   SystemDefaultsResult,
+  TabCaret,
   WriteTextParams,
   WriteTextResult,
 } from '../types/scratch';
@@ -54,29 +54,36 @@ export function isEditorBridgeReady(): boolean {
 }
 
 /**
- * 把窗格状态转成草稿桥方法要求的 `pane` 字段（§7.1 #6 / #8 的混合命名）。
+ * 把标签页状态转成草稿桥方法要求的 `pane` 字段（§7.1 #6 / #8 的混合命名）。
  *
- * `caret` / `scrollTop` 允许由调用方覆盖（CM6 的实时值比 store 里缓存的更新）。
+ * `caret` / `scrollTop` / `order` / `active` 允许由调用方覆盖（CM6 的实时值与当前顺序
+ * 比 store 里缓存的更新）。
+ *
+ * v1.6.1（DS-30）：**不再发送 `geometry`**（几何退役；Python 侧缺失时填中性默认值），
+ * 新增 `view_mode` / `order` / `active` 三个字段 —— 注意 Python 侧索引写入是**白名单**归一，
+ * 这 3 个字段必须先在 `src/services/scratch_service.py` 登记，否则会被静默丢弃。
  */
 export function toDraftPaneMeta(
-  pane: ScratchPane,
-  override?: { caret?: PaneCaret; scrollTop?: number },
+  tab: ScratchTab,
+  override?: { caret?: TabCaret; scrollTop?: number; order?: number; active?: boolean },
 ): DraftPaneMeta {
   return {
-    id: pane.id,
-    title: pane.title,
-    path: pane.path,
-    language: pane.language,
-    encoding: pane.encoding,
-    lineEnd: pane.lineEnding,
-    read_only: pane.readOnly,
-    dirty: pane.dirty,
-    geometry: { ...pane.geometry },
-    caret: { ...(override?.caret ?? pane.caret) },
-    scroll_top: override?.scrollTop ?? pane.scrollTop,
-    font_size: pane.fontSize,
-    show_line_numbers: pane.showLineNumbers,
-    word_wrap: pane.wordWrap,
+    id: tab.id,
+    title: tab.title,
+    path: tab.path,
+    language: tab.language,
+    encoding: tab.encoding,
+    lineEnd: tab.lineEnding,
+    read_only: tab.readOnly,
+    dirty: tab.dirty,
+    caret: { ...(override?.caret ?? tab.caret) },
+    scroll_top: override?.scrollTop ?? tab.scrollTop,
+    font_size: tab.fontSize,
+    show_line_numbers: tab.showLineNumbers,
+    word_wrap: tab.wordWrap,
+    view_mode: tab.viewMode,
+    order: override?.order ?? 0,
+    active: override?.active ?? false,
   };
 }
 
