@@ -39,8 +39,8 @@ description: "前端工程师，负责 jflove-web 浏览器端应用开发（Rea
 - **加密信封格式**（与后端/桌面端/移动端完全一致）：`{"nonce": "<Base64 12B>", "ciphertext": "<Base64>"}`
 - **GET 只读接口**：浏览器禁止 GET 携带 body，将加密信封放入 URL query（`?nonce=...&ciphertext=...`），query 中仅含密文、**不含任何明文业务参数**。
 - **流式帧格式**（文件下载）：`[4B 大端长度][12B nonce][密文+16B Poly1305 tag]`，通过 `ReadableStream` 逐帧解析（`stream-frame.ts`）。
-- **流式预览（v1.4.0+，现状）**：加密文件流经 `stream-frame.ts` 逐帧解密后交给 **MSE 主路径**（`playWithMSE`，`src/utils/media-source-player.ts`），HTTP/HTTPS 均可边下边播 + seek。
-  > ⚠ **更正（v1.5.1）**：本条此前描述的是 v1.3.1 的 Service Worker 方案。实测：`src/sw/` 目录**不存在**、`vite.config.ts:6-7` 明确写着「移除 Service Worker 流式代理……删除 sw 插件与 sw 双入口」、构建产物**无 `dist/sw.js`**。请不要再按「SW 双入口 / `/jflove-stream/<token>` / `stream-proxy.ts`」检索或扩展代码。
+- **流式预览**：加密文件流经 `stream-frame.ts` 逐帧解密后交给 **MSE 主路径**（`playWithMSE`，`src/utils/media-source-player.ts`），HTTP/HTTPS 均可边下边播 + seek。
+  > ⚠ `src/sw/` 目录**不存在**（构建产物也无 `dist/sw.js`）：不要再按「SW 双入口 / `/jflove-stream/<token>` / `stream-proxy.ts`」检索或扩展代码。
 - **session_key 与 JWT 严禁出现在 `console.log` / 调试输出 / DOM 属性中**。开发模式下如需调试，只输出 `nonce` 前 4 字节的 Base64 片段。
 
 ## 项目结构约定
@@ -48,7 +48,7 @@ description: "前端工程师，负责 jflove-web 浏览器端应用开发（Rea
 参见 `AGENTS.md §3` jflove-web 目录结构。关键分层（当前实际结构）：
 
 - `src/utils/` — 加密（crypto / hash / hash-fallback）、HTTP（http-client）、会话（session）、流式帧解析（stream-frame）、**MSE 播放（media-source-player，边下边播主路径）**、Markdown（markdown / markdown-insert）、展示辅助（file-visual / format）、**mermaid 渲染子模块（`utils/mermaid/`，8 个文件：cache / config / loader / matrix / renderer / sanitize / tokens / types）**
-- （v1.4.0 起**不存在** `src/sw/` 与 `dist/sw.js`：流式预览统一走 MSE，见上）
+- （**不存在** `src/sw/` 与 `dist/sw.js`：流式预览统一走 MSE，见上）
 - `src/styles/` — 全局样式（`tokens.css` 设计令牌 / `theme.css` 亮暗主题 / `components.css` 组件样式）；其中 `src/styles/components.css` 与 `src/styles/tokens.css` 与桌面端 `jflove-desktop/ui/src/styles/` 下的同名文件**必须逐字节一致**（见 §边界约束）
 - `src/services/` — **10 个业务 service**（auth / config / disk / file / note / permission / repair / server_history / sync / user），对标桌面端 `services/`，统一通过 http-client 通信
 - `src/stores/` — Zustand 状态管理（6 个 store：auth / file / note / settings / theme / transfer），按功能域拆分
@@ -122,13 +122,12 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 
 > **通用经验库**：见 `.agents/skills/lessons/LESSONS.md`（静默失败、编码陷阱等跨角色经验，开工前先扫一眼）。
 
-## Web 端专属硬约束（v1.5.0 实测踩出来的）
+## Web 端专属硬约束
 
 1. **接口错误必须让用户看到**
    页面里所有会发请求的 handler 必须 `try/catch`，并用 `toast.error(标题, e.message)` 展示；
    **失败时不要关闭弹窗**（保留已填内容便于修正重试）。
-   反面案例：v1.5.0 有 9 处 handler 是**裸 `await`**，接口报错被静默吞掉 ——
-   用户反馈「添加重名用户应该报错但 Web 端没有任何提示（安卓端有）」。
+   裸 `await` 会把接口报错静默吞掉（用户看到"操作没反应、也没有提示"）。
    回归保障：`tests/error-visibility.test.ts` 会**静态扫描**全量源码找裸 await，不要跳过它。
 
 2. **默认同源，不要写死绝对地址**
@@ -162,7 +161,7 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 8. **dev server 只监听 IPv6**
    Vite 在本机只绑 `::1`，自动化脚本一律用 `http://localhost:3000`，**不要用 `127.0.0.1`**（会连不上）。
 
-9. **全局 `*` + `!important` 不得覆盖第三方渲染库依赖的属性**（v1.5.0 最贵的一个坑）
+9. **全局 `*` + `!important` 不得覆盖第三方渲染库依赖的属性**
    反面案例：为无障碍写的
    `@media (prefers-reduced-motion: reduce) { * { transition-duration:.01ms!important } }`
    **改变了 mermaid 的几何** —— 当该偏好生效时（Windows「关闭动画效果」、无头浏览器默认值都会命中），
@@ -176,8 +175,8 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 
 10. **媒体/系统偏好类结论必须显式枚举，不能吃环境默认值**
     无头浏览器**默认报告 `prefers-reduced-motion: reduce`** —— 上面那条 CSS 只在 reduce 下生效，
-    于是"只在无头里测"会得到与真实用户相反的结论（v1.5.0 因此把"我们自己的 CSS 问题"
-    误判成"mermaid 引擎缺陷"，白做了一整套替代方案）。
+    于是"只在无头里测"会得到与真实用户相反的结论（会把"我们自己的 CSS 问题"误判成"引擎缺陷"，
+    白做一整套替代方案）。
     - 自动化里用 CDP `Emulation.setEmulatedMedia` **显式**指定该维度的每个取值，各测一遍；
     - 同页对比多种设置时**每次开新页面**（渲染结果有内存缓存，否则第二次读的是缓存）；
     - 下"这是库的缺陷"这种重结论前，先问：**还有哪个环境维度没被枚举？**
@@ -191,8 +190,8 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
     不要单用 `inverse(parentCTM)`。
 
 12. **渲染后处理必须"先插 DOM 再量"**
-    v1.5.0 的尺寸归一化曾经是**死代码**：它对着一个空容器 `querySelector('svg')`，
-    永远返回 `null`，于是"重新测量"从未生效，五类图的文字一直被裁掉却没人发现。
+    反面案例：尺寸归一化曾对着一个空容器 `querySelector('svg')`，永远返回 `null`，
+    于是"重新测量"从未生效、五类图的文字一直被裁掉却没人发现（**死代码**）。
     任何"渲染后量一次再修正"的逻辑，都要断言**元素已在文档里**，并加一条
     "调用顺序"的静态断言锁死（见 `tests/utils/mermaid-geometry.test.ts`）。
 
@@ -269,7 +268,7 @@ docker run -p 8080:80 jflove-web:<版本号>
 - [ ] 流式帧解析：文件下载可逐帧解密
 - [ ] 视频/音频边下边播：MSE 主路径（`playWithMSE`）在 HTTP 与 HTTPS 下均可播放 + seek
 - [ ] 设置页「关于」显示版本号与 package.json 一致（**唯一真相 = 仓库根 `version.json`**，`python scripts/sync_version.py` 同步）
-- [ ] Docker 镜像可正常启动并访问；`dist/` 含 index.html / assets / `logo-*.png`（**无 `sw.js`**，v1.4.0 起已移除）
+- [ ] Docker 镜像可正常启动并访问；`dist/` 含 index.html / assets / `logo-*.png`（**无 `sw.js`**）
 
 ## 安全宪法
 

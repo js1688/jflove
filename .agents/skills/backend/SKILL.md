@@ -13,7 +13,7 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
 ## 技术栈（模块特有）
 
 - 语言：Python 3.14+
-- Web 框架：FastAPI；接口规范：OpenAPI；已启用 CORS 中间件（v1.3.0+，`allow_origins=["*"]`，`allow_credentials=False`）
+- Web 框架：FastAPI；接口规范：OpenAPI；已启用 CORS 中间件（`allow_origins=["*"]`，`allow_credentials=False`）
 - 数据库：SQLite3（开发库 `jflove-db/jflove-dev.db`）
 - 认证：PyJWT（ES256）
 - 加密：cryptography（ChaCha20-Poly1305 / ECDH X25519）
@@ -24,7 +24,7 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
 - 异常：全局异常处理 + 友好提示
 - 性能：耗时操作使用 asyncio / 多线程
 
-## 加密中间件要点（v1.3.0+）
+## 加密中间件要点
 
 - `decrypt_request_body` 支持**双通道**：优先请求体加密信封；请求体为空时从 URL query 读取 `nonce`/`ciphertext`（Web 端浏览器 GET 无法携带 body）。
 - 新增/修改接口时保持该行为，禁止改回仅 body 通道。
@@ -45,7 +45,7 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
 > **通用经验库**：见 `.agents/skills/lessons/LESSONS.md`（静默失败、编码陷阱等跨角色经验，开工前先扫一眼）。
 
-## 数据库变更硬约束（v1.5.0 实测踩出来的）
+## 数据库变更硬约束
 
 1. **软删除 + 唯一约束会互相打架**
    `AGENTS.md §5.2` 要求每张表都有 `deleted_at`（软删除），而**列级 `UNIQUE` 不区分是否删除**：
@@ -55,8 +55,8 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
    - 查重语句必须与约束**同口径**：若约束只看活跃行，查重也必须只看活跃行，
      否则会出现"查重通过 → INSERT 撞约束 → 抛数据库原始错误"；
    - 拿到行之后仍要**显式判断 `deleted_at`**，历史行绝不允许登录。
-   - 反面案例（v1.5.0）：`users.username` 原是列级 `UNIQUE` + 查重带 `deleted_at IS NULL`，
-     口径不一致，管理员删号后无法重建同名，报的是 `UNIQUE constraint failed`。
+   - 反面案例：`users.username` 用列级 `UNIQUE` + 查重带 `deleted_at IS NULL`，
+     口径不一致 ⇒ 管理员删号后无法重建同名，报的是 `UNIQUE constraint failed`。
 
 2. **改结构前先问 `init_db()` 兜不兜得住**
    `init_db()` 的运行时迁移只会**加表 / 加列 / 建索引**，**管不到"去掉约束"**这类既有结构变更

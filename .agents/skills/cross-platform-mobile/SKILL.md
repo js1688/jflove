@@ -31,7 +31,7 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 - **首版 Android-only**：保留 `android/`，删除 ios/macos/windows/linux/web
 - **加密实现陷阱**：见下方「⚠️ 加密实现陷阱」节
 
-### 启动图标（`ic_launcher`）规范（v1.6.1 后实测修订）
+### 启动图标（`ic_launcher`）规范
 
 **母版是 `jflove-desktop/images/icon.png`（2048×2048）**，Android 各密度目录里的 `ic_launcher.png`
 必须是**按密度降采样后的对应尺寸**，不能把母版原样复制过去：
@@ -75,7 +75,7 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 - 严格按设计文档实现，不做超出设计范围的扩展。
 - **API 对齐（强制）**：每个 service 的接口路径、HTTP method、请求体字段名、响应字段名**必须与设计文档的「调用的后端接口」表格完全一致**。开发前先读设计文档中的接口对照表和服务端 `jflove-server/src/controllers/` 下的对应 controller 确认参数和路径，不可猜测 HTTP method。
 - 平台差异通过 `dart:io` 的 `Platform.isAndroid` / `Platform.isIOS` 或条件导入隔离，避免在业务代码中混用平台逻辑。
-- **首版 Android-only**：只保留 `android/`（ios/macos/windows/linux/web 目录已删除）；
+- **首版 Android-only**：只有 `android/`（ios/macos/windows/linux/web 目录**不存在**）；
   只需确保 `flutter build apk --debug` 通过，iOS/鸿蒙代码路径预留但暂不编译验证。
   - 鸿蒙预留：使用条件导入或 feature flag 隔离，**不直接使用 `Platform.isHarmonyOS`**（该 API 仅存在于 `flutter_ohos` 社区插件中，标准 Flutter 不提供）。
 - 所有后端调用统一封装在 `lib/utils/http_service.dart`，UI 层和 `lib/services/` 层禁止直接 `import 'package:dio/dio.dart'` 或直接 HTTP 请求。
@@ -85,7 +85,7 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
 > **通用经验库**：见 `.agents/skills/lessons/LESSONS.md`（静默失败、编码陷阱等跨角色经验，开工前先扫一眼）。
 
-### ⚠️ UI 与渲染硬约束（v1.5.0 实测踩出来的）
+### ⚠️ UI 与渲染硬约束
 
 1. **工具栏按钮不能被横向滚动挤出屏幕**
    用户反馈「笔记本没有插入图表功能」—— 代码和 APK 都有，但按钮排在**横向滚动工具栏的第 10 位**，

@@ -12,8 +12,8 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 ## 技术约束
 
 - 测试框架：pytest（后端/桌面端）；`flutter_test`（移动端，**无 mockito**——pubspec 仅 flutter_test + flutter_lints）；Vitest + React Testing Library（Web 端）
-- **桌面端 UI 测试**：v1.5.0 换轨为 Web UI（QtWebEngine 渲染 `jflove-desktop/ui/`）后，**原生 UI 探针
-  （PySide6 `QtTest` 驱动的页面/控件测试）已随换轨删除**，`jflove-desktop/tests/` 现只覆盖 Python 侧
+- **桌面端 UI 测试**：桌面端界面是 Web UI（QtWebEngine 渲染 `jflove-desktop/ui/`），
+  **原生 UI 探针（PySide6 `QtTest` 驱动的页面/控件测试）已不存在**：`jflove-desktop/tests/` 只覆盖 Python 侧
   （服务层 / 桥 / 流代理 / 会话 / 打包脚本）。前端工程 `ui/` **未接入测试**：
   `jflove-desktop/ui/package.json` 只有 `dev` / `build` / `preview` / `lint`，**没有 `test` 脚本**，
   `jflove-desktop/ui/tests/` 也**不存在** ⇒ 桌面端界面回归目前靠 `npm run lint && npm run build`
@@ -33,27 +33,26 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
 > **通用经验库**：见 `.agents/skills/lessons/LESSONS.md`（静默失败、编码陷阱、无头环境边界等跨角色经验，开工前先扫一眼）。
 
-## 测试设计纪律（v1.5.0 复盘新增）
+## 测试设计纪律
 
 1. **不要把"当前的错误行为"锁成期望值**
-   写断言前先问：**这是期望行为还是现状行为？** v1.5.0 有测试把
-   「SVG 清洗会删掉 `<foreignObject>`」「模板注释里写占位符导致 bundle 内联两次」
-   写成了期望 —— 等于把 bug 固化，修好后测试反而失败。
+   写断言前先问：**这是期望行为还是现状行为？** 把「清洗会删掉 `<foreignObject>`」
+   「模板注释里写占位符导致 bundle 内联两次」这类现状写成期望 —— 等于把 bug 固化，修好后测试反而失败。
    现状是坏的 → 写成"已知缺陷"并**显式标注待修**；修完必须**把断言反转**成期望行为，而不是删掉。
 
 2. **静态扫描类用例要保留**
    "新写的页面又忘了 try/catch""颜色又硬编码了""页面 objectName 又重名了"这类回归，
    只有**扫全量源码**才拦得住。已建立的扫描用例（Web 端 `tests/error-visibility.test.ts` 错误可见性、
    移动端 `test/design_tokens_test.dart` 设计令牌）不要为了省时间跳过。
-   ⚠️ **桌面端当前没有 UI 扫描用例**：原生 UI 时代的导航/令牌扫描探针已随 v1.5.0 换轨删除
-   （实测 `jflove-desktop/tests/` 下无导航/令牌扫描，`jflove-desktop/ui/package.json` 也没有 `test` 脚本、
-   `ui/tests/` 不存在）。桌面端前端的同源一致性改由 `scripts/check_web_desktop_parity.py` /
+   ⚠️ **桌面端当前没有 UI 扫描用例**（`jflove-desktop/tests/` 下无导航/令牌扫描，
+   `jflove-desktop/ui/package.json` 也没有 `test` 脚本、`ui/tests/` 不存在）。
+   桌面端前端的同源一致性改由 `scripts/check_web_desktop_parity.py` /
    `scripts/check_logo_sync.py` 两个门禁脚本守（退出码 0 为判据，见 `devops` / `cross-platform-desktop` 技能）。
 
 3. **断言要打在"会静默出错"的地方**
    优先级：产物尺寸/几何 > 像素色值 > 存在性。
-   存在性断言最弱 —— 离屏控件 `find.byTooltip` 也能找到。v1.5.0 的「插入图表按钮找不到」
-   就是：控件在树里、但被挤出可视区，只有**几何/命中测试**才测得出来。
+   存在性断言最弱 —— 离屏控件 `find.byTooltip` 也能找到；「按钮找不到」这类问题
+   往往是控件在树里、但被挤出可视区，只有**几何/命中测试**才测得出来。
 
 4. **必须含中文输入的用例**
    编码问题只在非 ASCII 路径上暴露（Windows 子系统默认 gbk）。
