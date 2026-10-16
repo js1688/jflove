@@ -1,6 +1,6 @@
 # P0-2 PoC：JS ↔ Python 桥（QWebChannel）+ 真实加密调用
 
-> 对应计划：`plans/desktop-webui-migration-v1.5.0.md` §3 Phase 0 / P0-2
+> 设计依据：`文档记录/设计文档/v1.5.0.md` §3.2 + `文档记录/桌面端开发记录/v1.5.0.md` §1.3 / §3.2
 > 状态：**已验证通过（30/30 自动断言）**，可交互体验
 
 ## 1. 这个 PoC 要回答什么

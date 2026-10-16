@@ -1,7 +1,7 @@
 """
 JS ↔ Python 桥（QWebChannel）—— 桌面端 UI 的唯一能力出口
 
-设计约束（P0-2 已验证，见 `plans/desktop-webui-migration-v1.5.0.md`）：
+设计约束（见 `文档记录/设计文档/v1.5.0.md` §3.2 桌面端、`文档记录/桌面端开发记录/v1.5.0.md` §3.2）：
 
 1. **JS 不碰网络**：所有数据经此桥交给 `src/services/*` 与
    `src/utils/http_client.py`（宪法 §9.5.16）。renderer 没有网络出口。

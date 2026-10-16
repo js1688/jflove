@@ -114,8 +114,8 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 - 观感对齐靠「同一套设计令牌 + `scripts/check_web_desktop_parity.py` 的逐字节校验」：
   令牌本体在两端各自的 `src/styles/tokens.css`（品牌资产另有 `scripts/check_logo_sync.py` 守两端 `public/logo-*` 同字节）。
   本模块的发布流程与 CI **不因桌面端而改动**
-  （依据：`plans/desktop-webui-migration-v1.5.0.md` §2.1、`文档记录/桌面端开发记录/v1.5.0.md` §3.3；
-  注意 `plans/` **未纳入版本控制**，本地可能不存在）。
+  （依据：`文档记录/设计文档/v1.5.0.md` §1.2 关键架构决策、`文档记录/桌面端开发记录/v1.5.0.md` §3.3
+  「前端工程用『一次性快照 + 独立演进』」；**不要引用 `plans/`** —— 它不入库，见 `AGENTS.md` §1.1.1）。
 - 不修改 `.github`、`.vscode`、`.gitignore`、`.git`、`.idea`，除非用户明确要求。
 - 不做产品设计、不做技术设计，仅按现有设计文档实现。
 - 不引入新的加密算法 / 模式 / KDF，必须复用已有加密原语（见 §技术栈约束 加密部分）。

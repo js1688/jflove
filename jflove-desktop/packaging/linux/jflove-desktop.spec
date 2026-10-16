@@ -22,7 +22,8 @@
 # 若将来改为从源码构建，请删掉这一行以恢复发行版检查。
 %global __os_install_post %{nil}
 
-# FHS 布局（见 plans/desktop-packaging-onedir-installer-rpm-v1.5.0.md §4.2）
+# FHS 布局（RPM 产物的硬规则见 `AGENTS.md` §8.2；构建/验收留档见
+#           `文档记录/桌面端开发记录/v1.5.0.md` §4.5「Linux 环境验收（用户侧）」）
 %global jflove_libdir %{_prefix}/lib/jflove
 %global jflove_docdir %{_docdir}/jflove-desktop
 %global jflove_payload %{_sourcedir}/JFLove

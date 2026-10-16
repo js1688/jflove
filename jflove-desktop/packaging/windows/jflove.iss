@@ -7,7 +7,8 @@
 ; 手动编译也可以，但**必须**传版本号（版本号唯一真相 = 仓库根 version.json）：
 ;     iscc /DAppVersion=1.5.0 jflove.iss
 ;
-; 设计要求（见 plans/desktop-packaging-onedir-installer-rpm-v1.5.0.md §3.2）：
+; 设计要求（安装包形态的硬规则见 `AGENTS.md` §8.2；实测打包留档见
+;           `文档记录/桌面端开发记录/v1.5.0.md` §4.3「打包验证（v1.5.0 起为安装包形态）」）：
 ;   - 版本号绝不硬编码：未传 /DAppVersion 直接编译报错
 ;   - 安装目录 {autopf}\JFLove；无管理员权限时向导可退化为「仅当前用户」安装
 ;     （Inno 6 语义：非管理员模式下 {autopf} 自动解析为用户目录）

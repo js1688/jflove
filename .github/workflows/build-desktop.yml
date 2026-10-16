@@ -2,7 +2,8 @@ name: Build Desktop (PyInstaller onedir + 安装包)
 
 # 桌面端线上构建：复用各模块 build.py（版本一致性校验 + secret 扫描 + Mermaid 资源门禁）。
 #
-# 产物形态（v1.5.0 起，由 plans/desktop-packaging-onedir-installer-rpm-v1.5.0.md 定稿）：
+# 产物形态（v1.5.0 起，硬规则见 AGENTS.md §8.2「桌面端交付形态 = 安装包」；
+#           实测留档见 文档记录/桌面端开发记录/v1.5.0.md §4.3「打包验证（v1.5.0 起为安装包形态）」）：
 #   · Windows job：onedir 目录 → Inno Setup 安装包 JFLove-<ver>-win64-setup.exe + 便携 zip
 #   · Linux job（Fedora 容器）：onedir 目录 → RPM jflove-desktop-<ver>-1.fc<N>.x86_64.rpm
 # 为什么不再用 onefile 单文件：onefile 每次启动都要把数百 MB（含 QtWebEngine）解压到

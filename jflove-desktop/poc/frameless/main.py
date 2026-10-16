@@ -1,7 +1,7 @@
 """
 P0-1 PoC：无边框窗口 + Web 自绘标题栏
 
-验证目标（对应 plans/desktop-webui-migration-v1.5.0.md §3 Phase 0 P0-1）：
+验证目标（见 `文档记录/设计文档/v1.5.0.md` §3.2 桌面端 —— 无边框外壳 + Web 自绘标题栏）：
   1. 去掉 Qt 原生外框（FramelessWindowHint），窗口外观完全由 Web 绘制
   2. Web 自绘标题栏的「最小化 / 最大化-还原 / 关闭」三个按钮可用
   3. 标题栏拖拽移动窗口（startSystemMove，交由系统接管 → Windows 上同时获得贴靠）
