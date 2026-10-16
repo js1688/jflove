@@ -75,12 +75,20 @@ jflove-app/android/key.properties
 jflove-app/android/**/*.keystore
 jflove-app/android/**/*.jks
 
-# Windows 系统工件
-$null
-
 # 桌面端 PoC：护栏临时文件（含会话令牌/测试账号口令，严禁入库）与自动化截图
 jflove-desktop/poc/**/.tmp_*
 jflove-desktop/poc/login-shell/out/
 
-# 桌面端前端：Mermaid 离线包由 build.py::ensure_mermaid_bundle() 生成（三端共用，不入库）
+# 桌面端前端：离线 vendor 包由脚本生成（mermaid 由 scripts/build_mermaid_bundle.mjs + 
+# build.py::ensure_mermaid_bundle() 产出/复制；editor 包同理）—— 整个目录不入库
 jflove-desktop/ui/public/vendor/
+
+# 说明（有意跟踪，勿"顺手清理"）——
+#   jflove-web/public/vendor/mermaid.bundle.js + mermaid.version.json
+#   jflove-app/assets/mermaid/mermaid.bundle.js
+# 这两处目前**受版本控制**，因为 CI 在对应 job 里没有生成步骤：
+#   build-web.yml 直接 `cd jflove-web && python build.py`（Dockerfile `COPY . .` 后 `npm run build`）；
+#   build-app.yml 直接 `flutter build apk --release`。
+# ⇒ 现在删掉它们会**直接弄崩 web 与 app 的线上构建**。
+# 若将来要统一成"三端都生成、都不入库"（可省 6.7 MB），必须**同时**给两个 workflow 补生成步骤，
+# 并保持与 scripts/build_mermaid_bundle.mjs 的 TARGETS 一致；改完必须实跑一次对应 workflow 才算数。
