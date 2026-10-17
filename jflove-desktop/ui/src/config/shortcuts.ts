@@ -19,14 +19,19 @@
  */
 
 import type { BlockSelectModifier } from '../types/scratch';
+// 类型专用导入（`import type` 在运行期被完全擦除 ⇒ 不存在 config ↔ utils 的运行期依赖环）
+import type { ToolboxItemId } from '../utils/scratch/toolbox';
 
 /**
  * 作用域：`window` = 任意路由页都响应（v1.6.1 §4.7「应用」）；
  * `pane` = 仅编辑面板 DOM 内响应（v1.6.1 §4.7「编辑面板聚焦」）。
+ *
+ * v1.6.2（需求 F16 / D38）：设置页按本字段分**两组** —— `window` = 「应用级」、
+ * `pane` = 「文本编辑器级」（工具箱的 11 项快捷键也归后者）。
  */
 export type ShortcutScope = 'window' | 'pane';
 
-/** 18 个功能 id（v1.6.1 §4.7 表逐项对齐） */
+/** 18 个功能 id（v1.6.1 §4.7 表逐项对齐）+ v1.6.2 新增 11 个工具箱项（F14） */
 export type ShortcutId =
   | 'pane.new'
   | 'pane.close'
@@ -45,7 +50,19 @@ export type ShortcutId =
   | 'view.zoomIn'
   | 'view.zoomOut'
   | 'view.zoomReset'
-  | 'view.toggleWordWrap';
+  | 'view.toggleWordWrap'
+  // ── v1.6.2（F14 / AC-88）：工具箱 11 项（第 12 项 `diff` 沿用上面的 `view.diff`） ──
+  | 'toolbox.search'
+  | 'toolbox.lines'
+  | 'toolbox.case'
+  | 'toolbox.escape'
+  | 'toolbox.base64'
+  | 'toolbox.json'
+  | 'toolbox.markdown'
+  | 'toolbox.csv'
+  | 'toolbox.sql'
+  | 'toolbox.xml'
+  | 'toolbox.font';
 
 /** 冲突检测 / 匹配用的归一化组合 */
 export interface ShortcutChord {
@@ -285,7 +302,166 @@ export const SHORTCUT_DEFS: readonly ShortcutDef[] = [
     scope: 'pane',
     meta: { normalizedDefault: 'Alt+Z', modifierOnly: false },
   },
+  // ── v1.6.2（F14 / AC-88）：工具箱 **11 项**快捷键，全部 `scope: 'pane'` ───────────
+  //    口径（设计 DS-53）：
+  //    ① **作用域 = 编辑面板聚焦**（用户原话"只作用在当前的框内"）⇒ `pane`；
+  //    ② 语义 = 该项的**首选动作**（唯一真相表 `TOOLBOX_PRIMARY_ACTION`）；
+  //    ③ 第 12 项（两段文本对比）**不在这里**：它沿用既有的 `view.diff`（`Ctrl+Shift+D`，
+  //       `window` 作用域、已被真机 `r20` 验证）—— 同一个动作登记两条键会误导用户；
+  //    ④ 键位逐项与既有 18 项比对**无同键**（`Ctrl+Shift+D` 归 `view.diff`），
+  //       且都不在 `EDITOR_KEYMAP_RESERVED`（`Ctrl+Enter` / `Ctrl+Space`）里。
+  {
+    id: 'toolbox.search',
+    label: '工具箱 · 查找 / 替换面板',
+    description: '打开当前编辑面板的查找 / 替换面板（默认只搜当前标签页）',
+    defaultKey: 'Ctrl+Shift+F',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+F', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.lines',
+    label: '工具箱 · 行排序',
+    description: '把当前编辑面板的正文按 Unicode 码点升序排序（大小写敏感）',
+    // `Ctrl+Shift+P`（**不是** `Ctrl+Shift+L`）：`Mod-Shift-l` 就在**已装配的** `searchKeymap` 里
+    // （`selectSelectionMatches` = 选中所有相同项）；我们的运行时在 window **捕获**阶段
+    // `preventDefault + stopPropagation` ⇒ 配成 `Shift+L` 会直接**抢掉**编辑器那个功能
+    // （与 v1.6.1 把 `Ctrl+D` 让回 CM6 是同一条纪律）。
+    // 选 `P` 的理由：① 离线包 67 条键位里 0 命中；② 宿主 47 项 WebAction 真机判据增量为 0；
+    // ③ 中文记忆点 = 「排序（PaiXu）」。
+    defaultKey: 'Ctrl+Shift+P',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+P', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.case',
+    label: '工具箱 · 转大写',
+    description: '把当前编辑面板的正文整体转为大写',
+    defaultKey: 'Ctrl+Shift+U',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+U', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.escape',
+    label: '工具箱 · JSON 转义',
+    description: '把当前编辑面板的正文按 JSON 字符串规则转义',
+    defaultKey: 'Ctrl+Shift+E',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+E', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.base64',
+    label: '工具箱 · Base64 编码',
+    description: '把当前编辑面板的正文按 UTF-8 做 Base64 编码',
+    defaultKey: 'Ctrl+Shift+B',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+B', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.json',
+    label: '工具箱 · JSON 格式化',
+    description: '把当前编辑面板的正文按 2 空格缩进格式化（非法 JSON 只提示）',
+    defaultKey: 'Ctrl+Shift+J',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+J', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.markdown',
+    label: '工具箱 · Markdown 预览',
+    description: '把当前编辑面板切到 Markdown 预览视图（仅 Markdown 类文档可用）',
+    defaultKey: 'Ctrl+Shift+M',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+M', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.csv',
+    label: '工具箱 · 表格视图',
+    description: '把当前编辑面板切到 CSV / TSV 只读表格视图',
+    defaultKey: 'Ctrl+Shift+T',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+T', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.sql',
+    label: '工具箱 · SQL 美化',
+    description: '按当前 SQL 配置美化编辑面板正文（方言 / 关键字大小写 / 缩进）',
+    defaultKey: 'Ctrl+Shift+Q',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+Q', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.xml',
+    label: '工具箱 · XML 格式化',
+    description: '按严格模式格式化编辑面板正文中的 XML（非法 XML 只提示）',
+    defaultKey: 'Ctrl+Shift+X',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+X', modifierOnly: false },
+  },
+  {
+    id: 'toolbox.font',
+    label: '工具箱 · 放大字号',
+    description: '把当前编辑面板的字号调大一档（与工具箱「A+」同一动作）',
+    defaultKey: 'Ctrl+Shift+O',
+    scope: 'pane',
+    meta: { normalizedDefault: 'Ctrl+Shift+O', modifierOnly: false },
+  },
 ];
+
+/**
+ * 工具箱项 → 承担它的快捷键 id（v1.6.2 · F14 / AC-88 / AC-90）。
+ *
+ * **12 项全部覆盖**：11 项是新登记的 `toolbox.*`；第 12 项（`diff`，两段文本对比）
+ * 由既有 `view.diff` 承担（不新增条目，见 `SHORTCUT_DEFS` 里的说明）。
+ *
+ * 消费方：`utils/scratch/shortcut-runtime.ts`（按键 → 面板请求）与
+ * `components/scratch/ScratchToolbar.tsx`（弹框里显示该键位）。**唯一真相**。
+ */
+export const TOOLBOX_ITEM_SHORTCUT: Readonly<Partial<Record<ToolboxItemId, ShortcutId>>> =
+  Object.freeze({
+    search: 'toolbox.search',
+    lines: 'toolbox.lines',
+    case: 'toolbox.case',
+    escape: 'toolbox.escape',
+    base64: 'toolbox.base64',
+    json: 'toolbox.json',
+    markdown: 'toolbox.markdown',
+    csv: 'toolbox.csv',
+    sql: 'toolbox.sql',
+    xml: 'toolbox.xml',
+    diff: 'view.diff',
+    font: 'toolbox.font',
+  });
+
+/**
+ * 设置页的**分组**（v1.6.2 · F16 / D38：用户裁决"只要分应用级和文本编辑器级"）。
+ *
+ * 组顺序即界面顺序；组内条目 = `SHORTCUT_DEFS` 里 `scope` 相同的项（不重复登记名单）。
+ */
+export const SHORTCUT_SCOPE_GROUPS: readonly {
+  scope: ShortcutScope;
+  title: string;
+  subtitle: string;
+  description: string;
+}[] = [
+  {
+    scope: 'window',
+    title: '应用级',
+    subtitle: '任意页面生效',
+    description:
+      '不需要焦点落在编辑器里：在任意页面按下都会响应（其中"新建标签页""打开本地文件"会先把界面切到编辑器工作区）。',
+  },
+  {
+    scope: 'pane',
+    title: '文本编辑器级',
+    subtitle: '仅编辑面板聚焦时生效',
+    description:
+      '只有当焦点在某个编辑面板内（正文 / 工具栏 / 状态栏）时响应；焦点在左侧菜单或其它页面上时按键不生效、也不会被吞掉。工具箱 12 项的能力在这里。',
+  },
+];
+
+/** 取某一作用域的全部条目（设置页按组渲染 + AC-97① 的判据） */
+export function shortcutsOfScope(scope: ShortcutScope): readonly ShortcutDef[] {
+  return SHORTCUT_DEFS.filter((def) => def.scope === scope);
+}
 
 /** 全部功能 id（按表序） */
 export const SHORTCUT_IDS: readonly ShortcutId[] = SHORTCUT_DEFS.map((def) => def.id);
@@ -507,30 +683,77 @@ export interface ShortcutConflict {
 }
 
 /**
- * 全表冲突检测（§4.2.2 / AC-9）。
+ * 冲突检测（§4.2.2 / AC-9 + **v1.6.2 F16 / AC-97**）。
  *
- * 入参是**生效键位**映射（`id` → 键位，含默认值与用户覆盖值）；返回空数组 = 无冲突。
+ * ## 分组口径（v1.6.2 变更）
+ *
+ * 分桶键 = **`作用域 + 归一化键位`**（v1.6.1 只按键位）：
+ *
+ * - **同一作用域内**同一个键被多项占用 ⇒ 是**冲突**（`save()` 拒绝保存，AC-97③）；
+ * - **不同作用域**用同一个键 ⇒ **不是冲突**：两者不会同时触发（焦点在编辑面板内时
+ *   面板作用域生效，否则应用作用域生效）⇒ 由 `findCrossScopeKeyNotes()` 给**提示**但不阻断
+ *   （AC-97④）。这是"工具箱快捷键与应用级快捷键隔离配置"（用户需求 F16）的应有语义。
+ *
  * 非法键位单独成组（`key` 为原字符串）也算冲突，避免"配了个按不出来的键"蒙混过关。
  */
 export function findConflictingShortcuts(bindings: Record<string, string>): ShortcutConflict[] {
   const grouped = new Map<string, string[]>();
   Object.keys(bindings).forEach((id) => {
-    if (!getShortcutDef(id)) return; // 未知 id（旧版残留）不参与冲突
+    const def = getShortcutDef(id);
+    if (!def) return; // 未知 id（旧版残留）不参与冲突
     const raw = bindings[id];
     const normalized = normalizeShortcut(raw);
-    const bucketKey = normalized ?? `非法键位:${raw}`;
+    const bucketKey = `${def.scope}#${normalized ?? `非法键位:${raw}`}`;
     const bucket = grouped.get(bucketKey);
     if (bucket) bucket.push(id);
     else grouped.set(bucketKey, [id]);
   });
 
   const conflicts: ShortcutConflict[] = [];
-  grouped.forEach((ids, key) => {
+  grouped.forEach((ids, bucketKey) => {
     if (ids.length > 1) {
+      // `bucketKey` 形如 `<scope>#<key>`；对外仍只暴露键位本身（展示层不关心作用域前缀）
+      const key = bucketKey.slice(bucketKey.indexOf('#') + 1);
       conflicts.push({ key, ids, reservedByEditor: EDITOR_KEYMAP_RESERVED.includes(key) });
     }
   });
   return conflicts;
+}
+
+/** 跨作用域同键的**提示**项（不阻断保存；v1.6.2 F16 / AC-97④） */
+export interface ShortcutCrossScopeNote {
+  /** 归一化后的键位（展示时用 `formatShortcutForDisplay`） */
+  key: string;
+  /** 占用该键位的功能 id（**分属不同作用域**，≥ 2 个） */
+  ids: string[];
+}
+
+/**
+ * 跨作用域同键的提示（**不阻断**保存）。
+ *
+ * 与 `findConflictingShortcuts` 的分工：那个管"同作用域内必须唯一"，这个管
+ * "不同作用域撞键了，告诉用户一声，并说明**不会同时触发**"。
+ */
+export function findCrossScopeKeyNotes(bindings: Record<string, string>): ShortcutCrossScopeNote[] {
+  const grouped = new Map<string, { id: string; scope: ShortcutScope }[]>();
+  Object.keys(bindings).forEach((id) => {
+    const def = getShortcutDef(id);
+    if (!def) return;
+    const normalized = normalizeShortcut(bindings[id]);
+    if (!normalized) return; // 非法键位由冲突检测单独报，这里不重复
+    const bucket = grouped.get(normalized);
+    const entry = { id, scope: def.scope };
+    if (bucket) bucket.push(entry);
+    else grouped.set(normalized, [entry]);
+  });
+
+  const notes: ShortcutCrossScopeNote[] = [];
+  grouped.forEach((entries, key) => {
+    if (entries.length < 2) return;
+    const scopes = new Set(entries.map((entry) => entry.scope));
+    if (scopes.size > 1) notes.push({ key, ids: entries.map((entry) => entry.id) });
+  });
+  return notes;
 }
 
 /**

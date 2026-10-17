@@ -1,0 +1,1255 @@
+{
+  "generatedAt": "2026-10-16T21:36:56",
+  "criteria": [
+    "P0",
+    "P1",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "K-OUT",
+    "C-INPUT",
+    "C-EDIT",
+    "C-PLAIN",
+    "H",
+    "K-F",
+    "K-P",
+    "K-U",
+    "K-E",
+    "K-B",
+    "K-J",
+    "K-M",
+    "K-T",
+    "K-Q",
+    "K-X",
+    "K-O"
+  ],
+  "results": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.2 产物；初始态 = 未登录",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "realWindow": true,
+        "hostActions": 47,
+        "state": {
+          "hash": "#/login",
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0
+        }
+      }
+    },
+    {
+      "id": "C-INPUT",
+      "desc": "输入框右击 ⇒ 仍给**中文**菜单（唯一例外，D35②）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "seen": true,
+        "menuCount": 1,
+        "labels": [
+          "撤销",
+          "重做",
+          "",
+          "剪切",
+          "复制",
+          "粘贴",
+          "",
+          "全选"
+        ],
+        "enabled": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          true,
+          true
+        ],
+        "englishItems": [],
+        "allCjk": true,
+        "expectMenu": true,
+        "point": {
+          "ok": true,
+          "x": 1033,
+          "y": 743,
+          "rect": {
+            "x": 590.0000152587891,
+            "y": 424.5982360839844,
+            "w": 354.8571472167969,
+            "h": 38,
+            "hitTag": "INPUT",
+            "hitText": ""
+          },
+          "origin": [
+            0,
+            0
+          ],
+          "dpr": 1.75,
+          "windowSize": [
+            1180,
+            760
+          ]
+        }
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "服务层真登录 + 重载 ⇒ 渲染层已登录（编辑器入口可见）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "navEditor": true,
+        "tabCount": 0
+      }
+    },
+    {
+      "id": "M1",
+      "desc": "**真鼠标**点「工具箱」⇒ 弹框出现且 12 项可见",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "click": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 1202,
+            "y": 188,
+            "rect": {
+              "x": 687.0580902099609,
+              "y": 107.14286041259766,
+              "w": 117.54464721679688,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "工具箱（12 项） ▾"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "state": {
+          "menuCount": 1,
+          "itemCount": 12,
+          "visibleItems": 12,
+          "triggerAriaExpanded": "true",
+          "menuInActivePanel": true
+        },
+        "shot": "r22-m1-toolbox-open.png"
+      }
+    },
+    {
+      "id": "M2",
+      "desc": "**真鼠标**点「排序」⇒ 正文真的变成 `a\\nb`（本版核心缺陷的回归判据）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "click": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 789,
+            "y": 299,
+            "rect": {
+              "x": 450.5714416503906,
+              "y": 170.57144165039062,
+              "w": 36,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "排序"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "before": "b\na",
+        "after": "a\nb",
+        "changed": true,
+        "status": "已排序（2 行）",
+        "menuStillOpen": false,
+        "shot": "r22-m2-after-sort.png"
+      }
+    },
+    {
+      "id": "M4",
+      "desc": "动作后工具栏出现**中文**结果提示（含数字）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "status": "已排序（2 行）",
+        "menuClosed": true
+      }
+    },
+    {
+      "id": "M3",
+      "desc": "**真鼠标**点「打开对比」⇒ 覆盖层铺满编辑面板（高度 ≥ 90%）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "openMenu": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 1202,
+            "y": 188,
+            "rect": {
+              "x": 687.0580902099609,
+              "y": 107.14286041259766,
+              "w": 117.54464721679688,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "工具箱（12 项） ▾"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "click": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 810,
+            "y": 753,
+            "rect": {
+              "x": 462.57144355773926,
+              "y": 430.0000305175781,
+              "w": 60.000003814697266,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "打开对比"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "geometry": {
+          "overlay": true,
+          "panel": true,
+          "overlayRect": [
+            248.00001525878906,
+            92.00000762939453,
+            932.0000610351562,
+            668
+          ],
+          "panelRect": [
+            248.00001525878906,
+            92.00000762939453,
+            932.0000610351562,
+            668
+          ],
+          "toolbarBottom": 122.85715103149414,
+          "heightRatio": 1,
+          "coversToolbarArea": false,
+          "closeButton": true
+        },
+        "shot": "r22-m3-diff-overlay.png"
+      }
+    },
+    {
+      "id": "K-F",
+      "desc": "`Ctrl+Shift+F`（查找 / 替换面板）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "alpha\nbeta\n\n",
+        "after": "alpha\nbeta\n\n",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "panel",
+        "ok": true,
+        "shortcutId": "toolbox.search",
+        "key": "Ctrl+Shift+F",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "5fa1b111-f221-4979-8c6a-c779d6af313a"
+          ],
+          "cmContentCount": 2,
+          "panelCount": 2,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt"
+          ]
+        },
+        "status": "1:1选中 0 字符总 11 字符（含换行符）UTF-8CRLF纯文本 (txt)已保存",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-P",
+      "desc": "`Ctrl+Shift+P`（行排序）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "alpha\nbeta\n\n",
+        "after": "\n\nalpha\nbeta",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "changed",
+        "ok": true,
+        "shortcutId": "toolbox.lines",
+        "key": "Ctrl+Shift+P",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "5fa1b111-f221-4979-8c6a-c779d6af313a"
+          ],
+          "cmContentCount": 2,
+          "panelCount": 2,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt"
+          ]
+        },
+        "status": "已排序（3 行）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-U",
+      "desc": "`Ctrl+Shift+U`（转大写）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "aB",
+        "after": "AB",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "text:AB",
+        "ok": true,
+        "shortcutId": "toolbox.case",
+        "key": "Ctrl+Shift+U",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "d13a0c06-e949-4fd6-be9c-7dc4298ac417"
+          ],
+          "cmContentCount": 3,
+          "panelCount": 3,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt"
+          ]
+        },
+        "status": "已转大写（2 字符）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-E",
+      "desc": "`Ctrl+Shift+E`（JSON 转义）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "a\"b",
+        "after": "a\\\"b",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "text:\\\"",
+        "ok": true,
+        "shortcutId": "toolbox.escape",
+        "key": "Ctrl+Shift+E",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "42a41235-c2de-40c3-b401-2db1c307a09f"
+          ],
+          "cmContentCount": 4,
+          "panelCount": 4,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt"
+          ]
+        },
+        "status": "已JSON 转义（4 字符）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-B",
+      "desc": "`Ctrl+Shift+B`（Base64 编码）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "ab",
+        "after": "YWI=",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "text:YWI=",
+        "ok": true,
+        "shortcutId": "toolbox.base64",
+        "key": "Ctrl+Shift+B",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "0aa6af94-d693-4697-9d41-d6bc7558a8f4"
+          ],
+          "cmContentCount": 5,
+          "panelCount": 5,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt",
+            "k-base64.txt"
+          ]
+        },
+        "status": "已Base64 编码（4 字符）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-J",
+      "desc": "`Ctrl+Shift+J`（JSON 格式化）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "{\"a\":1}",
+        "after": "{\n \"a\": 1\n}",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "changed",
+        "ok": true,
+        "shortcutId": "toolbox.json",
+        "key": "Ctrl+Shift+J",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "55d592ff-5bd7-4fb2-b85a-b759d679ecfa"
+          ],
+          "cmContentCount": 6,
+          "panelCount": 6,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt",
+            "k-base64.txt",
+            "k-json.txt"
+          ]
+        },
+        "status": "已格式化 JSON（12 字符）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-M",
+      "desc": "`Ctrl+Shift+M`（Markdown 预览）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "# T\n\n",
+        "after": "# T",
+        "viewMode": "preview",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "view:preview",
+        "ok": true,
+        "shortcutId": "toolbox.markdown",
+        "key": "Ctrl+Shift+M",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "1be59ca6-ff5a-41b2-8252-0df36d6bf9ba"
+          ],
+          "cmContentCount": 7,
+          "panelCount": 7,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt",
+            "k-base64.txt",
+            "k-json.txt",
+            "k-markdown.md"
+          ]
+        },
+        "status": "1:1选中 0 字符总 4 字符（含换行符）UTF-8CRLFMarkdown已保存",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-T",
+      "desc": "`Ctrl+Shift+T`（表格视图）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "a,b\n1,2\n\n",
+        "after": "a,b1,2",
+        "viewMode": "table",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "view:table",
+        "ok": true,
+        "shortcutId": "toolbox.csv",
+        "key": "Ctrl+Shift+T",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 758,
+            "y": 188,
+            "rect": {
+              "x": 433.2857360839844,
+              "y": 107.14286041259766,
+              "w": 36,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "编辑"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "c0e1eaf2-0483-4f74-ade8-b0662af3bcf1"
+          ],
+          "cmContentCount": 8,
+          "panelCount": 8,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt",
+            "k-base64.txt",
+            "k-json.txt",
+            "k-markdown.md",
+            "k-csv.csv"
+          ]
+        },
+        "status": "1:1选中 0 字符总 8 字符（含换行符）UTF-8CRLFCSV已保存",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-Q",
+      "desc": "`Ctrl+Shift+Q`（SQL 美化）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "select 1 from t",
+        "after": "SELECT\n 1\nFROM\n t",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "changed",
+        "ok": true,
+        "shortcutId": "toolbox.sql",
+        "key": "Ctrl+Shift+Q",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "c8d882fb-925d-4727-aaae-c0d963364b93"
+          ],
+          "cmContentCount": 9,
+          "panelCount": 9,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt",
+            "k-base64.txt",
+            "k-json.txt",
+            "k-markdown.md",
+            "k-csv.csv",
+            "k-sql.sql"
+          ]
+        },
+        "status": "已美化 SQL（4 行）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-X",
+      "desc": "`Ctrl+Shift+X`（XML 格式化）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "<a><b>1</b></a>",
+        "after": "<a>\n <b>1</b>\n</a>",
+        "viewMode": "edit",
+        "fontPx": 14,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "changed",
+        "ok": true,
+        "shortcutId": "toolbox.xml",
+        "key": "Ctrl+Shift+X",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "a1d69dfd-8375-4712-b0f0-64e52745812d"
+          ],
+          "cmContentCount": 10,
+          "panelCount": 10,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt",
+            "k-base64.txt",
+            "k-json.txt",
+            "k-markdown.md",
+            "k-csv.csv",
+            "k-sql.sql",
+            "k-xml.xml"
+          ]
+        },
+        "status": "已格式化 XML（3 行）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-O",
+      "desc": "`Ctrl+Shift+O`（放大字号）⇒ 首选动作真的生效",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "before": "abc\n\n",
+        "after": "abc\n\n",
+        "viewMode": "edit",
+        "fontPx": 16,
+        "fontBefore": 14,
+        "panel": {
+          "openPanels": 1
+        },
+        "expect": "font:+",
+        "ok": true,
+        "shortcutId": "toolbox.font",
+        "key": "Ctrl+Shift+O",
+        "reached": true,
+        "prevented": true,
+        "focus": {
+          "focused": true,
+          "activeTag": "DIV"
+        },
+        "viewModeBefore": "edit",
+        "preEditClick": null,
+        "focusInsidePanel": true,
+        "panelState": {
+          "activeCount": 1,
+          "activeIds": [
+            "4b891d3d-6f8e-466a-a855-ff1ffa23e590"
+          ],
+          "cmContentCount": 11,
+          "panelCount": 11,
+          "tabTitles": [
+            "k-lines.txt",
+            "k-search.txt",
+            "k-case.txt",
+            "k-escape.txt",
+            "k-base64.txt",
+            "k-json.txt",
+            "k-markdown.md",
+            "k-csv.csv",
+            "k-sql.sql",
+            "k-xml.xml",
+            "k-font.txt"
+          ]
+        },
+        "status": "已放大字号（16px）",
+        "cmSearchApi": {
+          "api": true,
+          "keys": [
+            "RegExpCursor",
+            "SearchCursor",
+            "SearchQuery",
+            "closeSearchPanel",
+            "findNext",
+            "findPrevious",
+            "getSearchQuery",
+            "gotoLine",
+            "highlightSelectionMatches",
+            "openSearchPanel",
+            "replaceAll",
+            "replaceNext",
+            "search",
+            "searchKeymap",
+            "searchPanelOpen",
+            "selectMatches",
+            "selectNextOccurrence",
+            "selectSelectionMatches",
+            "setSearchQuery"
+          ],
+          "openSearchPanelType": "function",
+          "panelClassPresent": true,
+          "panelCount": 1
+        },
+        "hostActionDelta": 0
+      }
+    },
+    {
+      "id": "K-OUT",
+      "desc": "焦点移出编辑面板后按 `Ctrl+Shift+U` ⇒ 不接管、不吞键、正文逐字符不变",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "reach": true,
+        "prevented": false,
+        "before": "abc\n\n",
+        "after": "abc\n\n",
+        "blur": {
+          "blurred": false,
+          "activeTag": "BODY"
+        }
+      }
+    },
+    {
+      "id": "C-EDIT",
+      "desc": "编辑器正文右击 ⇒ 出现**中文**原生菜单（0 英文项 / 0 浏览器导航项）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "seen": true,
+        "menuCount": 1,
+        "labels": [
+          "撤销",
+          "重做",
+          "",
+          "剪切",
+          "复制",
+          "粘贴",
+          "",
+          "全选"
+        ],
+        "enabled": [
+          false,
+          false,
+          true,
+          false,
+          false,
+          true,
+          true,
+          true
+        ],
+        "englishItems": [],
+        "allCjk": true,
+        "expectMenu": true,
+        "point": {
+          "ok": true,
+          "x": 1276,
+          "y": 752,
+          "rect": {
+            "x": 729.4018249511719,
+            "y": 429.4285888671875,
+            "w": 901.1964721679688,
+            "h": 613.1428833007812,
+            "hitTag": "DIV",
+            "hitText": "abc"
+          },
+          "origin": [
+            0,
+            0
+          ],
+          "dpr": 1.75,
+          "windowSize": [
+            1180,
+            760
+          ]
+        }
+      }
+    },
+    {
+      "id": "C-PLAIN",
+      "desc": "非可编辑区（标签条）右击 ⇒ **不出菜单**",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "seen": false,
+        "menuCount": 0,
+        "labels": [],
+        "enabled": [],
+        "englishItems": [],
+        "allCjk": false,
+        "expectMenu": false,
+        "point": {
+          "ok": true,
+          "x": 1250,
+          "y": 130,
+          "rect": {
+            "x": 714.0000457763672,
+            "y": 74.00000381469727,
+            "w": 932.0000610351562,
+            "h": 36,
+            "hitTag": "SPAN",
+            "hitText": "k-markdown.md"
+          },
+          "origin": [
+            0,
+            0
+          ],
+          "dpr": 1.75,
+          "windowSize": [
+            1180,
+            760
+          ]
+        }
+      }
+    },
+    {
+      "id": "H",
+      "desc": "相位内 47 项宿主默认动作增量 = 0、零远端请求、主窗口存活",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "hostActionFired": {},
+        "downloads": [],
+        "recorderUrls": null,
+        "windowAlive": true
+      }
+    }
+  ],
+  "notes": [
+    "登录：{\"loggedIn\": true, \"hasToken\": true, \"sessionFileExists\": true}"
+  ],
+  "platform": "",
+  "realWindow": true,
+  "webui": {
+    "originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "indexExists": true,
+    "indexSha256Prefix": "5cc315287c9fc7b0"
+  }
+}

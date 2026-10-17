@@ -31,13 +31,14 @@ import {
   DEFAULT_BLOCK_SELECT_MODIFIER,
   SHORTCUTS_VERSION,
   findConflictingShortcuts,
+  findCrossScopeKeyNotes,
   getShortcutDef,
   normalizeShortcut,
   requiresModifierOnly,
   toOverrides,
   withOverrides,
 } from '../config/shortcuts';
-import type { ShortcutConflict, ShortcutId } from '../config/shortcuts';
+import type { ShortcutConflict, ShortcutCrossScopeNote, ShortcutId } from '../config/shortcuts';
 import { scratchService } from '../services/scratch-service';
 import type { BlockSelectModifier, ShortcutsFileV1 } from '../types/scratch';
 // 缺陷 L-7：共享「异常 → 文案」叶子模块（本 store 不再自带一份实现）
@@ -52,8 +53,16 @@ interface ShortcutState {
   loaded: boolean;
   loading: boolean;
   saving: boolean;
-  /** 最近一次冲突检测结果（空数组 = 无冲突） */
+  /** 最近一次冲突检测结果（空数组 = 无冲突）—— **同作用域内**重复（拒绝保存的依据） */
   conflicts: ShortcutConflict[];
+  /**
+   * 跨作用域同键的**提示**项（v1.6.2 · F16 / AC-97④）。
+   *
+   * 为什么与 `conflicts` 分开：不同作用域不会同时触发（焦点在编辑面板内 ⇒ 面板作用域生效，
+   * 否则应用作用域生效）⇒ 允许共存，但**必须提示**（用户要求"至少要知道这个快捷键作用域是哪些"）。
+   * `save()` **不因它拒绝保存**。
+   */
+  crossScopeNotes: ShortcutCrossScopeNote[];
   /** 最近一次失败原因（加载 / 保存 / 非法键位），供设置页明确提示 */
   lastError: string | null;
 
@@ -65,7 +74,7 @@ interface ShortcutState {
   resetBinding: (id: ShortcutId) => void;
   /** 一键恢复默认 = 清空 overrides **并立即落盘** */
   resetAll: () => Promise<boolean>;
-  /** 全表冲突检测（返回并写入 `conflicts`） */
+  /** 全表冲突检测（返回并写入 `conflicts`；同时刷新跨作用域提示） */
   detectConflicts: () => ShortcutConflict[];
   /** 从 Python 侧读取偏好（幂等；失败回默认不阻塞启动） */
   load: () => Promise<void>;
@@ -112,6 +121,7 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   loading: false,
   saving: false,
   conflicts: [],
+  crossScopeNotes: [],
   lastError: null,
 
   getBinding: (id) => get().bindings[id] ?? DEFAULT_BINDINGS[id] ?? '',
@@ -145,7 +155,7 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   resetAll: async () => {
     const snapshot = get().overrides;
     // 先落内存（界面立刻回到默认），再落盘；失败则回滚（§4.2.4）
-    set({ ...deriveState({}), conflicts: [], lastError: null, saving: true });
+    set({ ...deriveState({}), conflicts: [], crossScopeNotes: [], lastError: null, saving: true });
     try {
       await scratchService.shortcutsSave({
         version: SHORTCUTS_VERSION,
@@ -161,8 +171,10 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   },
 
   detectConflicts: () => {
-    const conflicts = findConflictingShortcuts(get().bindings);
-    set({ conflicts });
+    const bindings = get().bindings;
+    const conflicts = findConflictingShortcuts(bindings);
+    // v1.6.2（F16）：同作用域重复 = 冲突（拒绝保存）；跨作用域撞键 = 只提示（不阻断）
+    set({ conflicts, crossScopeNotes: findCrossScopeKeyNotes(bindings) });
     return conflicts;
   },
 
@@ -193,16 +205,19 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   },
 
   save: async () => {
-    const conflicts = findConflictingShortcuts(get().bindings);
+    const bindings = get().bindings;
+    const conflicts = findConflictingShortcuts(bindings);
+    const crossScopeNotes = findCrossScopeKeyNotes(bindings);
     if (conflicts.length > 0) {
-      // AC-9：发现重复即拒绝保存并在该行标红 + 提示，**绝不静默覆盖**
-      set({ conflicts, lastError: '存在重复键位，未保存' });
+      // AC-9：**同一作用域内**发现重复即拒绝保存并在该行标红 + 提示，**绝不静默覆盖**
+      // （跨作用域撞键不算冲突：见 `crossScopeNotes` 的说明，AC-97④）
+      set({ conflicts, crossScopeNotes, lastError: '存在重复键位，未保存' });
       return false;
     }
     const snapshot = get().overrides;
-    set({ saving: true, conflicts: [], lastError: null });
+    set({ saving: true, conflicts: [], crossScopeNotes, lastError: null });
     try {
-      await scratchService.shortcutsSave(buildShortcutsFile(get().bindings));
+      await scratchService.shortcutsSave(buildShortcutsFile(bindings));
       set({ saving: false });
       return true;
     } catch (error) {

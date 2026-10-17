@@ -8,7 +8,7 @@
 export const APP_NAME = 'JFLove';
 
 /** 版本号 */
-export const APP_VERSION = '1.6.1';
+export const APP_VERSION = '1.6.2';
 
 /**
  * 默认服务端地址。

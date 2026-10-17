@@ -2,7 +2,7 @@
 
 JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲染）** 的私有文档与笔记协同管理桌面应用，界面与 Web 端同一套，同时保留托盘、本地解码的媒体预览、原生文件对话框与系统拖放上传。
 
-> **当前版本：v1.5.1**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
+> **当前版本：v1.6.2**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
 
 > **v1.5.1**：Web 端品牌标识与桌面端统一（猫猫 logo）；系统设置移除**已失效**的「允许重编码降级」开关（服务端自 v1.4.2 起已不读取该键）；
 > 修复原生媒体浮层「关窗后残留」与「拖动主窗画面不跟随」；笔记页大纲改为**右侧可折叠竖栏**、打开笔记默认进入预览模式（有内容时）；
@@ -12,7 +12,30 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 
 ---
 
-## v1.6.0 / v1.6.1：内置文本编辑器（Scratch Editor，**纯本地**）
+## v1.6.0 / v1.6.1 / v1.6.2：内置文本编辑器（Scratch Editor，**纯本地**）
+
+> **v1.6.2 可用性修复与能力扩展**：
+> ① **修「工具箱点了没反应」**——关框委托原先挂在弹框容器的 `pointerup` **捕获**阶段，React 在
+> `pointerup` 之后、`click` 之前同步提交，把被点的按钮卸载掉，Chromium 于是**不再派发**这次
+> `click` ⇒ 白名单（`sql` / `font`）之外的 **10 项、约 29 个按钮全部失效**；现改挂 `click`
+> **冒泡**（被点按钮的 `onClick` 先跑、随后关框）。真机判据：`poc/editor-probes/r22-real-gui-v162.py`
+> 的 `M1`/`M2`（真 OS 鼠标点「工具箱」→ 点「排序」→ 正文真的变成 `a\nb`），机制探针
+> `poc/editor-probes/r21-pointerup-close-semantics.py`。
+> ② **动作结果可见**：改正文类动作后把**首个差异位置**滚进视口 + 定位光标，并给中文结果提示
+> （如「已排序（3 行）」「已 Base64 编码（4 字符）」）；无变化时提示「无变化」且**不写回**。
+> ③ **两段文本对比真的能用了**——覆盖层原先被工具栏自己的 `relative` 抢走定位祖先（只有一行高），
+> 现把定位祖先归还 `EditorPanel` 根 ⇒ 铺满编辑面板（真机 `M3` 判据：高度 ≥ 面板 90%）。
+> ④ **工具箱 12 项各有快捷键**（11 条新增 `toolbox.*` + 对比沿用 `view.diff`），作用域 =
+> **编辑面板聚焦**（焦点不在面板内 ⇒ 不响应、也**不吞键**）。
+> ⑤ **查找 / 替换新增「跨标签搜索」**：范围默认当前标签页，可切到「所有已打开的标签页」
+> （只搜已挂载标签页并明示未挂载数量；结果按标签页分组、点一下跳过去并选中；替换走**就地二次确认**）。
+> **零新增桥能力**（不读磁盘、不新增桥方法）。
+> ⑥ **右击菜单**：**只有可编辑上下文**（编辑器正文 / 输入框）给**中文**菜单（撤销 / 重做 / 剪切 /
+> 复制 / 粘贴 / 全选，可用性跟随 Chromium 的 `editFlags`），页面其它区域**一律不弹**
+> （Chromium 那份带 `Back` / `Reload` / `Inspect` 的英文菜单不再出现）；菜单动作经
+> `QWebEnginePage.triggerAction()` 转发给 Chromium 自己执行 ⇒ 渲染层**不需要**剪贴板权限。
+> ⑦ **快捷键配置分两组**：「应用级（任意页面生效）」/「文本编辑器级（仅编辑面板聚焦时生效）」，
+> 每行显示作用域；**组内同键拒绝保存**，跨组同键只给提示（作用域不同，不会同时触发）。
 
 > **v1.6.1 形态变更**：编辑器由「应用内**浮动窗格**」改为「**左侧导航里的整页工作区** + **顶部固定标签条**」——
 > 一个文档一个标签页、切换标签 = 切换编辑面板（非激活面板 `hidden` 但**保持挂载**，切回不丢内容 / 光标 / 滚动位置）；
@@ -27,16 +50,21 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 | 内核 | **CodeMirror 6**，以**单文件 IIFE 离线分包**在运行期从 `ui/public/vendor/editor.bundle.js` 懒加载（标签页首次成为激活项才加载；`npm` 侧**不**引 `@codemirror/*` 依赖） |
 | 块选择 | 修饰键（默认 `Alt`）+ 拖拽 = **矩形块选择**；复制口径为 IDE 行为（逐行取列区间、短行右侧补空格到块宽、`\n` 连接） |
 | 差异化体验 | 按类型提供 格式化 / 压缩 / JSON 树 / Markdown 预览与分屏 / CSV 表格视图 / 行级 diff / 折叠 / 括号匹配；SQL 美化可配（方言 / 关键字大小写 / 缩进） |
-| 工具箱 | 12 项：查找替换（含正则）+ 跳转行、行操作（排序/去重/去空行/去首尾空格）、大小写转换、JSON·HTML·URL 转义、Base64、JSON 树 + 格式化/压缩、Markdown 预览/分屏、CSV 表格、SQL 美化、**XML 格式化/压缩（自研，保注释与 CDATA）**、两段文本对比、字号与行号/换行开关 |
+| 工具箱 | 12 项：查找替换（含正则）+ 跳转行 + **跨标签搜索 / 替换**、行操作（排序/去重/去空行/去首尾空格）、大小写转换、JSON·HTML·URL 转义、Base64、JSON 树 + 格式化/压缩、Markdown 预览/分屏、CSV 表格、SQL 美化、**XML 格式化/压缩（自研，保注释与 CDATA）**、两段文本对比、字号与行号/换行开关。**每一项都有快捷键**（见下表 19~29 行；对比项沿用 14 行），**只在编辑面板聚焦时生效**；动作执行后给中文结果提示并定位变化处 |
+| 右击菜单 | **中文**（撤销 / 重做 / 剪切 / 复制 / 粘贴 / 全选）；**只在可编辑上下文弹**（编辑器正文、应用内输入框），其它区域**不弹任何菜单**；由外壳 `DropAwareWebView.contextMenuEvent` + 纯函数 `context_menu_spec()` 生成（`src/ui/web_shell.py`），动作走 `QWebEngineAction` ⇒ 不开渲染层剪贴板权限 |
 | 类型校验先行 | 扩展名白名单 → `stat` 大小阈值（**> 50 MB 在读内容前拒绝**；> 5 MB 降级只读但内容完整）→ 一次有界读 64 KB → 前 8 KB 嗅探（BOM / NUL / **严格解码优先**）→ 编码判定（utf-8 / utf-8-bom / gbk / utf-16le / utf-16be） |
 | 保存语义 | 新建首次保存**必须**选路径；之后 `Ctrl+S` 直接更新该文件；**自动保存 1500 ms** 仅对**有保存路径**的文档生效；从未保存过的文档**永不**被静默写入磁盘（只进草稿库） |
 | 草稿与还原 | 草稿库 `USER_DATA_DIR/storage/scratch/`（`index.json` + `pane-<id>.txt`，各自原子写；索引自 v1.6.1 起多白名单字段 `view_mode` / `order` / `active`，旧索引仍可读）；**崩溃/被杀后下次启动、且登录成功时自动还原为标签页**（按 `order` 排序、`active` 决定激活项；懒挂载，几十份也不拖慢启动）；正常退出弹「保存 / 放弃 / 取消 + 是否保留下次恢复」 |
-| 快捷键 | **18 项**默认键位、全部可配置（设置页「文本编辑器」+ 配置对话框，含**中文功能说明**、冲突检测、一键恢复默认）；**不注册任何全局热键**（只在窗口激活时生效）。快捷键运行时**模块级常驻**（`ui/src/utils/scratch/shortcut-runtime.ts`，挂在 `App.tsx` 静态 import 上），首行判准入 ⇒ 未登录时按键原样交给宿主 |
+| 快捷键 | **29 项**默认键位（18 项基础 + **11 项工具箱**，第 12 项对比沿用基础项「两段文本对比」），全部可配置（设置页「文本编辑器」+ 配置对话框，含**中文功能说明**、**按作用域分两组**、冲突检测、一键恢复默认）；**不注册任何全局热键**（只在窗口激活时生效）。快捷键运行时**模块级常驻**（`ui/src/utils/scratch/shortcut-runtime.ts`，挂在 `App.tsx` 静态 import 上），首行判准入 ⇒ 未登录时按键原样交给宿主；工具箱 11 项另要求**编辑面板聚焦**（面板外不接管、不吞键） |
 | 文件关联 | 安装包注册到系统「打开方式」候选（Windows 写 **HKCU**；Linux 装 `application/x-jflove-text` MIME）；**不抢占默认程序**；应用内勾选只声明 JFLove 自己支持的范围（勾选状态落 `USER_DATA_DIR/storage/file_assoc.json`） |
 | 单实例 | 第二实例**不新开窗口/托盘**，把文件路径转交给已运行实例后退出（`QLocalServer` 行分隔 JSON 协议 + `ack` 确认；转交失败降级为本地启动，绝不静默丢弃） |
 | 安全边界 | 渲染层**无网络出口**、编辑器的远端调用 **0 个**；文件字节与令牌不进渲染层；日志不记文档内容与完整路径（`AGENTS.md §9`） |
 
-### 文本编辑器默认快捷键（18 项）
+### 文本编辑器默认快捷键（29 项：18 项基础 + 11 项工具箱）
+
+> **设置页按作用域分两组**（v1.6.2）：**应用级**（`scope: 'window'`，任意页面生效）/ **文本编辑器级**
+> （`scope: 'pane'`，仅编辑面板聚焦时生效）。**组内同键 ⇒ 拒绝保存**；**跨组同键 ⇒ 只给中文提示**
+> （作用域不同，不会同时触发）。分组与作用域文案的唯一真相 = `ui/src/config/shortcuts.ts::SHORTCUT_SCOPE_GROUPS`。
 
 | # | 功能 | 默认键 | 作用域 |
 |---|------|--------|--------|
@@ -53,11 +81,31 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 | 11 | 切换行注释 | `Ctrl+/` | 编辑面板聚焦 |
 | 12 | 块选择修饰键 | `Alt`（可选 `Ctrl`） | 编辑面板聚焦 |
 | 13 | 打开工具箱 | `Ctrl+K` | 应用 |
-| 14 | 两段文本对比 | `Ctrl+Shift+D` | 应用 |
+| 14 | 两段文本对比（= 工具箱第 11 项的首选动作） | `Ctrl+Shift+D` | 应用 |
 | 15 | 增大字号 | `Ctrl+=` | 编辑面板聚焦 |
 | 16 | 减小字号 | `Ctrl+-` | 编辑面板聚焦 |
 | 17 | 重置字号 | `Ctrl+0` | 编辑面板聚焦 |
 | 18 | 切换自动换行 | `Alt+Z` | 编辑面板聚焦 |
+| 19 | 工具箱 · 查找 / 替换面板 | `Ctrl+Shift+F` | 编辑面板聚焦 |
+| 20 | 工具箱 · 行排序 | `Ctrl+Shift+P` | 编辑面板聚焦 |
+| 21 | 工具箱 · 转大写 | `Ctrl+Shift+U` | 编辑面板聚焦 |
+| 22 | 工具箱 · JSON 转义 | `Ctrl+Shift+E` | 编辑面板聚焦 |
+| 23 | 工具箱 · Base64 编码 | `Ctrl+Shift+B` | 编辑面板聚焦 |
+| 24 | 工具箱 · JSON 格式化 | `Ctrl+Shift+J` | 编辑面板聚焦 |
+| 25 | 工具箱 · Markdown 预览 | `Ctrl+Shift+M` | 编辑面板聚焦 |
+| 26 | 工具箱 · 表格视图 | `Ctrl+Shift+T` | 编辑面板聚焦 |
+| 27 | 工具箱 · SQL 美化 | `Ctrl+Shift+Q` | 编辑面板聚焦 |
+| 28 | 工具箱 · XML 格式化 | `Ctrl+Shift+X` | 编辑面板聚焦 |
+| 29 | 工具箱 · 放大字号 | `Ctrl+Shift+O` | 编辑面板聚焦 |
+
+> 19~29 的语义 =「该项的**首选动作**」，唯一真相表 = `ui/src/utils/scratch/toolbox.ts::TOOLBOX_PRIMARY_ACTION`
+> （与弹框里的按钮**同一个动作函数**，不可能两处漂移）；一项里的**其它**动作仍走工具箱弹框。
+> 真机判据：`poc/editor-probes/r22-real-gui-v162.py` 的 `K-F` ~ `K-O`（11 条逐条真按键生效）
+> 与 `K-OUT`（焦点移出面板 ⇒ 不接管、不吞键、正文不变）。
+> **新增/修改任何快捷键前必须跑** `poc/editor-probes/r23-keymap-collision.py`（退出码 0 = 与 CM6
+> 已装配的 8 张 keymap 全部 0 命中）。`toolbox.lines` 的默认键就因此从 `Ctrl+Shift+L` 改成了
+> `Ctrl+Shift+P`：`Mod-Shift-l` 是 CM6 `searchKeymap` 的「选中所有相同项」，配成它会**静默抢掉**
+> 编辑器那个功能（与 v1.6.1 把 `Ctrl+D` 让回 CM6 同一条纪律）。
 
 > **已作废（v1.6.1）**：`pane.tile`（平铺 `Ctrl+Alt+T`）、`pane.cascade`（层叠 `Ctrl+Alt+C`）—— 容器已无几何与层级。
 > 「功能」列的真相 = `ui/src/config/shortcuts.ts::SHORTCUT_DEFS[].label`（本表按代码原文逐字对齐）。
@@ -65,6 +113,15 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 > （渲染层确实收到 / 宿主零默认动作 / 干净标签被关闭；结论见 `文档记录/桌面端开发记录/v1.6.1.md` §4）。
 > **已闭环（v1.6.1）**：`view.toolbox`（`Ctrl+K`）与 `view.diff`（`Ctrl+Shift+D`）**现在都有接管方**
 > （`ui/src/utils/scratch/shortcut-runtime.ts` 接管面 7→9 + `ui/src/stores/scratch-ui-store.ts` 的一次性 `panelRequest`）⇒ 改键位会真实生效（原 BL-51 已闭环）。
+> **已闭环（v1.6.2）**：接管面 9 → **20**（新增 11 条工具箱键）；`shortcuts.json` 仍为 `version: 1`
+> —— 旧文件里**没有**这 11 条 ⇒ 一律取默认值（**不需要清配置**）。
+
+> **工具箱可用性的历史缺陷（v1.6.2 修复，写在防复发）**：v1.6.0 / v1.6.1 的「选完即关」挂在
+> `onPointerUpCapture` 上，真实浏览器里 `pointerup` 与 `click` 是两个 task ⇒ 关框先卸载按钮、
+> 这次 `click` 被整个吞掉 ⇒ 除 `sql` / `font` 外的 **10 项全部"点了没反应"**。
+> **两类判据都必须留在测试里**：① 工具箱点击类用例**必须**把 `pointerdown` / `pointerup` / `click`
+> 放进**三个独立 `act` 边界**（`ui/src/components/scratch/__tests__/scratch-toolbox-actions-v162.test.tsx`；
+> 塞进同一个 `act()` 的写法**测不出**它，会假通过）；② 真机判据 `r22` 的 `M1`/`M2`。
 
 > 单一真相：类型/扩展名表只写在 [`ui/src/config/scratch-types.ts`](jflove-desktop/ui/src/config/scratch-types.ts)，
 > `ui/public/file-assoc.manifest.json` 与三处打包资产（`packaging/linux/jflove.xml`、

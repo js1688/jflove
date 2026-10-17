@@ -44,7 +44,7 @@
  */
 
 import { router } from '../../config/routes';
-import { keyboardEventToShortcut } from '../../config/shortcuts';
+import { TOOLBOX_ITEM_SHORTCUT, keyboardEventToShortcut } from '../../config/shortcuts';
 import type { ShortcutId } from '../../config/shortcuts';
 import { scratchService } from '../../services/scratch-service';
 import { useAuthStore } from '../../stores/auth-store';
@@ -71,10 +71,38 @@ const RUNTIME_SHORTCUTS: readonly ShortcutId[] = [
   // ★ v1.6.1 本轮新增：闭环 BL-51（`Ctrl+K` 有接管方），并按 AC-75② 让 `Ctrl+Shift+D` 真实生效
   'view.toolbox',
   'view.diff',
+  // ★ v1.6.2（F14 / AC-88）：工具箱 11 项 —— **必须**进这张表，否则"配了但按了没反应"
+  //   （AC-75② 的失败条件）；它们的**作用域收紧**在 `handleKeyDown` 里做（要求面板聚焦）。
+  'toolbox.search',
+  'toolbox.lines',
+  'toolbox.case',
+  'toolbox.escape',
+  'toolbox.base64',
+  'toolbox.json',
+  'toolbox.markdown',
+  'toolbox.csv',
+  'toolbox.sql',
+  'toolbox.xml',
+  'toolbox.font',
 ];
 
 /** 需要「事件目标位于某个编辑面板 DOM 内」的项（§4.7 的"编辑面板聚焦"作用域） */
 const PANEL_SCOPE_SHORTCUTS: readonly ShortcutId[] = ['pane.close', 'file.save', 'file.saveAs'];
+
+/**
+ * 工具箱项快捷键（v1.6.2 · F14 / AC-88 / AC-89）：**键位 id → 工具箱项 id**。
+ *
+ * 由 `TOOLBOX_ITEM_SHORTCUT`（唯一真相）反转而来 —— 不在这里重抄一遍映射，否则两处必然漂移。
+ * 覆盖 12 项：11 项是新的 `toolbox.*`，`diff` 项由既有 `view.diff` 承担（`window` 作用域，
+ * 因此它**不**走下面的"必须面板聚焦"分支，保持 v1.6.1 的真机已验证行为）。
+ */
+const TOOLBOX_SHORTCUT_TO_ITEM: ReadonlyMap<ShortcutId, string> = new Map(
+  Object.entries(TOOLBOX_ITEM_SHORTCUT)
+    // `diff` 项由既有 `view.diff` 承担（`window` 作用域、真机 r20 已验证）⇒ 排除在本分支之外，
+    // 否则会把它的作用域收窄成"必须面板聚焦"，造成**既有行为回归**。
+    .filter(([itemId]) => itemId !== 'diff')
+    .map(([itemId, id]) => [id as ShortcutId, itemId]),
+);
 
 /** 事件目标所在编辑面板的标签 id（不在任何面板内 ⇒ null） */
 function panelTabIdOf(target: EventTarget | null): string | null {
@@ -181,13 +209,22 @@ function handleKeyDown(event: KeyboardEvent): boolean {
   if (!matched) return false; // 不命中就立刻返回，事件继续流向 CM6（§4.2.3 规则 1）
 
   const panelTabId = panelTabIdOf(event.target);
-  if (PANEL_SCOPE_SHORTCUTS.includes(matched) && panelTabId === null) {
-    // 面板聚焦类：事件目标不在任何编辑面板内 ⇒ 不接管（例如焦点在左侧菜单上按 Ctrl+S）
+  const toolboxItem = TOOLBOX_SHORTCUT_TO_ITEM.get(matched);
+  if ((PANEL_SCOPE_SHORTCUTS.includes(matched) || toolboxItem !== undefined) && panelTabId === null) {
+    // 面板聚焦类 / 工具箱项：事件目标不在任何编辑面板内 ⇒ **不接管**
+    // （例如焦点在左侧菜单上按 Ctrl+S；或按工具箱键时焦点在其它页面）
+    // ⚠ 这里**不** `preventDefault` —— 作用域外的按键必须原样留给宿主（AC-89②）
     return false;
   }
 
   event.preventDefault();
   event.stopPropagation();
+  if (toolboxItem !== undefined && panelTabId !== null) {
+    // v1.6.2（F14 / AC-89）：执行该项的**首选动作**（与弹框按钮同一个动作函数，
+    // 由 `ScratchToolbar` 的 `primaryActionFor` 派发；此处只投递请求，不碰正文）
+    useScratchUiStore.getState().requestPanel('toolbox-item', panelTabId, toolboxItem);
+    return true;
+  }
   runShortcut(matched, panelTabId);
   return true;
 }

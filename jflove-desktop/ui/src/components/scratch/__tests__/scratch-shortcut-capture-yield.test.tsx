@@ -61,7 +61,13 @@ vi.mock('../../../config/routes', async () => {
   };
 });
 
-/** 运行时接管面（`shortcut-runtime.ts:55-63` 的 `RUNTIME_SHORTCUTS`，7 项） */
+/**
+ * 运行时接管面（`shortcut-runtime.ts` 的 `RUNTIME_SHORTCUTS`）。
+ *
+ * 本文件只关心"录制键位期间是否**让路**"这一条判据，逐项清单与 v1.6.1 一致（7 项基础项）；
+ * `view.toolbox` / `view.diff` 与 v1.6.2 的 11 条工具箱键由 `shortcut-runtime-intercept.test.tsx`
+ * 逐项覆盖（避免同一份清单在三处维护 —— 那是漂移的来源）。
+ */
 const RUNTIME_IDS: readonly ShortcutId[] = [
   'pane.new',
   'pane.close',
@@ -72,8 +78,13 @@ const RUNTIME_IDS: readonly ShortcutId[] = [
   'file.saveAs',
 ];
 
-/** 面板作用域（`shortcut-runtime.ts:66`）—— 只有落在 `[data-editor-panel]` 内才可能接管 */
+/** 面板作用域（`shortcut-runtime.ts` 的 `PANEL_SCOPE_SHORTCUTS`）—— 只有落在 `[data-editor-panel]` 内才可能接管 */
 const PANEL_SCOPE_IDS: readonly ShortcutId[] = ['pane.close', 'file.save', 'file.saveAs'];
+
+/** 需要放进面板内按的项（v1.6.2：11 条工具箱键同样是"编辑面板聚焦"作用域，见 AC-89） */
+function requiresPanelTarget(id: ShortcutId): boolean {
+  return PANEL_SCOPE_IDS.includes(id) || id.startsWith('toolbox.');
+}
 
 const KEY_FROM_CHORD: Readonly<Record<string, string>> = {
   Right: 'ArrowRight',
@@ -197,7 +208,9 @@ describe('F-3 录制期间让路', () => {
     document.body.dataset.jfShortcutCapture = '1';
 
     for (const id of RUNTIME_IDS) {
-      const target = PANEL_SCOPE_IDS.includes(id) ? panel : outsideTarget;
+      // 面板聚焦类项（含 v1.6.2 的 11 条工具箱键）放进面板内按：
+      // 确保"不接管"来自"正在录制键位"这道门，而不是面板作用域判定
+      const target = requiresPanelTarget(id) ? panel : outsideTarget;
       const { prevented, reachedTarget, chord } = pressBinding(id, target);
       expect(prevented, `${id} 在录制期间被拦截了（${chord}）`).toBe(false);
       expect(reachedTarget, `${id} 在录制期间不应阻止事件继续传播`).toBe(true);

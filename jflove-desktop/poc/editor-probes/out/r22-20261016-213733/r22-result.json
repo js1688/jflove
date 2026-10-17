@@ -1,0 +1,319 @@
+{
+  "generatedAt": "2026-10-16T21:37:57",
+  "criteria": [
+    "P0",
+    "P1",
+    "M1",
+    "M3"
+  ],
+  "results": [
+    {
+      "id": "P0",
+      "desc": "真外壳加载 v1.6.2 产物；初始态 = 未登录",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "load_ui": true,
+        "realWindow": true,
+        "hostActions": 47,
+        "state": {
+          "hash": "#/login",
+          "navEditor": false,
+          "workspaceCount": 0,
+          "tabCount": 0
+        }
+      }
+    },
+    {
+      "id": "C-INPUT",
+      "desc": "输入框右击 ⇒ 中文菜单",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "P1",
+      "desc": "服务层真登录 + 重载 ⇒ 渲染层已登录（编辑器入口可见）",
+      "status": "PASS",
+      "gating": true,
+      "detail": {
+        "navEditor": true,
+        "tabCount": 0
+      }
+    },
+    {
+      "id": "M1",
+      "desc": "**真鼠标**点「工具箱」⇒ 弹框出现且 12 项可见",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "click": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 1202,
+            "y": 188,
+            "rect": {
+              "x": 687.0580902099609,
+              "y": 107.14286041259766,
+              "w": 117.54464721679688,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "工具箱（12 项） ▾"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "state": {
+          "menuCount": 0,
+          "itemCount": 0,
+          "visibleItems": 0,
+          "triggerAriaExpanded": null,
+          "menuInActivePanel": false
+        },
+        "shot": "r22-m1-toolbox-open.png"
+      }
+    },
+    {
+      "id": "M3",
+      "desc": "**真鼠标**点「打开对比」⇒ 覆盖层铺满编辑面板（高度 ≥ 90%）",
+      "status": "FAIL",
+      "gating": true,
+      "detail": {
+        "openMenu": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 1202,
+            "y": 188,
+            "rect": {
+              "x": 687.0580902099609,
+              "y": 107.14286041259766,
+              "w": 117.54464721679688,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "工具箱（12 项） ▾"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "click": {
+          "clicked": true,
+          "point": {
+            "ok": true,
+            "x": 810,
+            "y": 753,
+            "rect": {
+              "x": 462.57144355773926,
+              "y": 430.0000305175781,
+              "w": 60.000003814697266,
+              "h": 20,
+              "hitTag": "BUTTON",
+              "hitText": "打开对比"
+            },
+            "origin": [
+              0,
+              0
+            ],
+            "dpr": 1.75,
+            "windowSize": [
+              1180,
+              760
+            ]
+          },
+          "button": "left"
+        },
+        "geometry": {
+          "overlay": true,
+          "panel": true,
+          "overlayRect": [
+            248.00001525878906,
+            92.00000762939453,
+            932.0000610351562,
+            30.285715103149414
+          ],
+          "panelRect": [
+            248.00001525878906,
+            92.00000762939453,
+            932.0000610351562,
+            668
+          ],
+          "toolbarBottom": 122.85715103149414,
+          "heightRatio": 0.04533789686100212,
+          "coversToolbarArea": false,
+          "closeButton": true
+        },
+        "shot": "r22-m3-diff-overlay.png"
+      }
+    },
+    {
+      "id": "K-F",
+      "desc": "`Ctrl+Shift+F`（查找 / 替换面板）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-P",
+      "desc": "`Ctrl+Shift+P`（行排序）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-U",
+      "desc": "`Ctrl+Shift+U`（转大写）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-E",
+      "desc": "`Ctrl+Shift+E`（JSON 转义）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-B",
+      "desc": "`Ctrl+Shift+B`（Base64 编码）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-J",
+      "desc": "`Ctrl+Shift+J`（JSON 格式化）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-M",
+      "desc": "`Ctrl+Shift+M`（Markdown 预览）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-T",
+      "desc": "`Ctrl+Shift+T`（表格视图）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-Q",
+      "desc": "`Ctrl+Shift+Q`（SQL 美化）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-X",
+      "desc": "`Ctrl+Shift+X`（XML 格式化）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-O",
+      "desc": "`Ctrl+Shift+O`（放大字号）⇒ 首选动作生效",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "K-OUT",
+      "desc": "面板外按工具箱键 ⇒ 不接管",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "C-EDIT",
+      "desc": "编辑器正文右击 ⇒ 中文原生菜单",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "C-PLAIN",
+      "desc": "非可编辑区右击 ⇒ 不弹任何菜单",
+      "status": "SKIP",
+      "gating": false,
+      "detail": {
+        "why": "未选中"
+      }
+    },
+    {
+      "id": "H",
+      "desc": "相位内 47 项宿主默认动作增量 = 0、零远端请求、主窗口存活",
+      "status": "PASS",
+      "gating": false,
+      "detail": {
+        "hostActionFired": {},
+        "downloads": [],
+        "recorderUrls": null,
+        "windowAlive": true
+      }
+    }
+  ],
+  "notes": [
+    "登录：{\"loggedIn\": true, \"hasToken\": true, \"sessionFileExists\": true}"
+  ],
+  "platform": "",
+  "realWindow": true,
+  "webui": {
+    "originalWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "patchedWebRoot": "D:\\github\\jflove\\jflove-desktop\\ui\\dist",
+    "indexExists": true,
+    "indexSha256Prefix": "1be995acc3680ca1"
+  }
+}

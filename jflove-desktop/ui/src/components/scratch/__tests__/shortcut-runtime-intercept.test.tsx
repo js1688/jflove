@@ -48,6 +48,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_BINDINGS,
+  SHORTCUT_DEFS,
   SHORTCUT_IDS,
   getShortcutDef,
   keyboardEventToShortcut,
@@ -75,7 +76,7 @@ vi.mock('../../../config/routes', async () => {
   };
 });
 
-/** 运行时接管面（`shortcut-runtime.ts` 的 `RUNTIME_SHORTCUTS`，逐项对齐；本轮 7 → **9** 项） */
+/** 运行时接管面（`shortcut-runtime.ts` 的 `RUNTIME_SHORTCUTS`，逐项对齐；v1.6.1：7 → **9**；v1.6.2：9 → **20**） */
 const RUNTIME_IDS: readonly ShortcutId[] = [
   'pane.new',
   'pane.close',
@@ -87,15 +88,43 @@ const RUNTIME_IDS: readonly ShortcutId[] = [
   // ★ v1.6.1 本轮新增（AC-75② / 闭环 BL-51）：两项由运行时接管并投递面板请求
   'view.toolbox',
   'view.diff',
+  // ★ v1.6.2（F14 / AC-88）：工具箱 **11 项**（第 12 项 `diff` 由上面的 `view.diff` 承担）
+  'toolbox.search',
+  'toolbox.lines',
+  'toolbox.case',
+  'toolbox.escape',
+  'toolbox.base64',
+  'toolbox.json',
+  'toolbox.markdown',
+  'toolbox.csv',
+  'toolbox.sql',
+  'toolbox.xml',
+  'toolbox.font',
 ];
 
 /** 面板作用域（`shortcut-runtime.ts` 的 `PANEL_SCOPE_SHORTCUTS`）—— 目标必须落在面板内 */
 const PANEL_SCOPE_IDS: readonly ShortcutId[] = ['pane.close', 'file.save', 'file.saveAs'];
 
-/** 非接管面（9 项 = 18 − 9）：承办方是 CM6 keymap + 面板内判定（设计 `:587-588`） */
+/**
+ * 非接管面（**9 项** = 29 − 20）：承办方是 CM6 keymap + 面板内判定（设计 `:587-588`）。
+ *
+ * v1.6.2：集合口径不变（`SHORTCUT_IDS` 减去 `RUNTIME_IDS`），但因工具箱 11 项并入接管面，
+ * 差值仍是 **9** —— 下面那组"不得越权接管"的边界用例因此一条不少。
+ */
 const NON_RUNTIME_IDS: readonly ShortcutId[] = SHORTCUT_IDS.filter(
   (id) => !RUNTIME_IDS.includes(id),
 );
+
+/**
+ * 需要把事件目标放进编辑面板才会响应的项（v1.6.2 就地扩展）。
+ *
+ * 除 `PANEL_SCOPE_IDS` 外，**v1.6.2 的 11 条工具箱键同样是"编辑面板聚焦"作用域**
+ * （需求 F14 / AC-89）⇒ "未登录 / 录制期间不接管"这类用例必须把它们也放进面板内按，
+ * 否则测到的是面板判定，那道门的判据就失去区分度。
+ */
+function requiresPanelTarget(id: ShortcutId): boolean {
+  return PANEL_SCOPE_IDS.includes(id) || id.startsWith('toolbox.');
+}
 
 /** 归一键名 → `KeyboardEvent.key`（`keyboardEventToShortcut` 只认 `event.key`） */
 const KEY_FROM_CHORD: Readonly<Record<string, string>> = {
@@ -212,9 +241,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('接管面自检（条目集 20 → 18 / 运行时 9 项）', () => {
-  it('18 项默认键位都能由 KeyboardEvent 还原成同一归一化形态（保证下面的「按下」真的按到了该键位）', () => {
-    expect(SHORTCUT_IDS, 'v1.6.1 §4.7：条目集 20 → 18').toHaveLength(18);
+describe('接管面自检（条目集 20 → 18 → 29 / 运行时 9 → 20 项）', () => {
+  it('29 项默认键位都能由 KeyboardEvent 还原成同一归一化形态（保证下面的「按下」真的按到了该键位）', () => {
+    // v1.6.2（F14 / AC-88）：18 → **29**（工具箱 12 项各一条：新增 11 条 `toolbox.*`，
+    // 第 12 项 `diff` 沿用既有 `view.diff`，不重复登记）
+    expect(SHORTCUT_IDS, 'v1.6.2 §3.4：18 → 29').toHaveLength(29);
     for (const id of SHORTCUT_IDS) {
       const binding = useShortcutStore.getState().getBinding(id);
       expect(binding, `${id} 应有默认键位`).not.toBe('');
@@ -231,14 +262,72 @@ describe('接管面自检（条目集 20 → 18 / 运行时 9 项）', () => {
   });
 });
 
-describe('AC-63 ② [负向对照] 未登录：应用级快捷键不接管（含不阻止宿主默认动作）', () => {
-  it('未登录时运行时的 9 项键位全部不接管：不 preventDefault、不 stopPropagation、不执行动作', () => {
+/**
+ * v1.6.2（需求 F14 / AC-89）：工具箱 11 项快捷键的**运行时**判据。
+ *
+ * 三条：
+ * ① 面板内按下 ⇒ 投递 `toolbox-item` 一次性请求（`itemId` 必须正确）；
+ * ② 面板外按下 ⇒ **不接管、不 `preventDefault`**（"只作用在当前的框内"，用户裁决）；
+ * ③ 未登录 ⇒ 不接管（承接 AC-63 ②）。
+ */
+describe('AC-89 工具箱快捷键：面板内投递首选动作请求、面板外放行', () => {
+  /** 11 条 `toolbox.*` 与其对应的工具箱项 id（顺序无关，逐项比对） */
+  const TOOLBOX_SHORTCUT_ITEMS: readonly [ShortcutId, string][] = [
+    ['toolbox.search', 'search'],
+    ['toolbox.lines', 'lines'],
+    ['toolbox.case', 'case'],
+    ['toolbox.escape', 'escape'],
+    ['toolbox.base64', 'base64'],
+    ['toolbox.json', 'json'],
+    ['toolbox.markdown', 'markdown'],
+    ['toolbox.csv', 'csv'],
+    ['toolbox.sql', 'sql'],
+    ['toolbox.xml', 'xml'],
+    ['toolbox.font', 'font'],
+  ];
+
+  for (const [id, itemId] of TOOLBOX_SHORTCUT_ITEMS) {
+    it(`${id} 在面板内按下 ⇒ 投递 toolbox-item(${itemId})；面板外按下 ⇒ 不接管且不 preventDefault`, () => {
+      const tabId = useScratchStore.getState().createTab({ title: 'ac89.txt', path: 'D:/tmp/ac89.txt' });
+      const panel = panelTargetFor(tabId);
+
+      const inside = pressBinding(id, panel);
+      expect(inside.prevented, `${id} 在面板内必须被接管（AC-89①）`).toBe(true);
+      expect(inside.reachedTarget, `${id} 接管后应停止传播`).toBe(false);
+      const request = useScratchUiStore.getState().panelRequest;
+      expect(request, `${id} 必须投递面板请求`).not.toBeNull();
+      expect(request?.kind).toBe('toolbox-item');
+      expect(request?.tabId).toBe(tabId);
+      expect(request?.itemId).toBe(itemId);
+
+      // 面板外：同一组合键必须原样放行（AC-89②）
+      clearPanelRequest();
+      const outside = pressBinding(id, outsideTarget);
+      expect(outside.prevented, `${id} 在面板外不得 preventDefault`).toBe(false);
+      expect(outside.reachedTarget).toBe(true);
+      expect(useScratchUiStore.getState().panelRequest, `${id} 面板外不得投递请求`).toBeNull();
+    });
+  }
+
+  it('未登录时 11 条工具箱键一律不接管（AC-89③ / 承接 AC-63 ②）', () => {
+    useAuthStore.setState({ isLoggedIn: false });
+    const panel = panelTargetFor('ac89-gate');
+    for (const [id] of TOOLBOX_SHORTCUT_ITEMS) {
+      const { prevented } = pressBinding(id, panel);
+      expect(prevented, `${id} 未登录时不得接管`).toBe(false);
+    }
+    expect(useScratchUiStore.getState().panelRequest).toBeNull();
+  });
+});
+
+describe('AC-63 ② [负向对照] 未登录：应用级快捷键不接管（含不阻止宿主默认动作）', () => {  it('未登录时运行时的 9 项键位全部不接管：不 preventDefault、不 stopPropagation、不执行动作', () => {
     useAuthStore.setState({ isLoggedIn: false });
     const panel = panelTargetFor('ac63-tab');
 
     for (const id of RUNTIME_IDS) {
-      // 面板作用域项也要放在面板内按：确保"不接管"来自登录门而不是面板判定
-      const target = PANEL_SCOPE_IDS.includes(id) ? panel : outsideTarget;
+      // 面板聚焦类项（含 v1.6.2 的 11 条工具箱键）也要放在面板内按：
+      // 确保"不接管"来自登录门而不是面板判定（否则这道门的判据会失去区分度）
+      const target = requiresPanelTarget(id) ? panel : outsideTarget;
       const { prevented, reachedTarget, binding } = pressBinding(id, target);
       expect(prevented, `${id}（${binding}）在未登录时不得 preventDefault（AC-63 ②）`).toBe(false);
       expect(reachedTarget, `${id} 在未登录时不得 stopPropagation`).toBe(true);
@@ -484,9 +573,20 @@ describe('AC-75①⑥ 默认键表：6 项新值逐项相等、其余 12 项逐�
       expect(DEFAULT_BINDINGS[id], `${id} 的默认键被误改`).toBe(expected);
       expect(getShortcutDef(id)?.defaultKey, `${id} 的 defaultKey 被误改`).toBe(expected);
     }
-    // 18 = 6 + 12，条目集一字不动
+    // v1.6.1 的 18 = 6 + 12（条目集在那时一字不动）—— 该等式**仍然成立**；
+    // v1.6.2 在其上**追加** 11 条工具箱键 ⇒ 全表 29 = 18 + 11。
     expect(Object.keys(NEW_DEFAULTS).length + Object.keys(UNCHANGED_DEFAULTS).length).toBe(18);
-    expect(SHORTCUT_IDS).toHaveLength(18);
+    expect(SHORTCUT_IDS).toHaveLength(29);
+    // 追加的 11 条必须是 `toolbox.*`（第 12 项 `diff` 复用 `view.diff`，不得重复登记）
+    const toolboxIds = SHORTCUT_IDS.filter((id) => id.startsWith('toolbox.'));
+    expect(toolboxIds).toHaveLength(11);
+    // 既有 18 项的默认键不得被本版波及（逐项比对，含"未出现在两张表里"的兜底）
+    for (const def of SHORTCUT_DEFS) {
+      if (def.id.startsWith('toolbox.')) continue;
+      const expected = NEW_DEFAULTS[def.id] ?? UNCHANGED_DEFAULTS[def.id];
+      expect(expected, `${def.id} 既不在 6 项新值里也不在 12 项不变表里`).toBeTruthy();
+      expect(DEFAULT_BINDINGS[def.id], `${def.id} 的默认键被误改`).toBe(expected);
+    }
   });
 
   it('`Ctrl+PageDown` / `Ctrl+PageUp` 能从 `KeyboardEvent` 还原成同一归一形态（不需要补归一化）', () => {

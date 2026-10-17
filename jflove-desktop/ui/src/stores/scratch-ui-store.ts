@@ -35,14 +35,23 @@
 
 import { create } from 'zustand';
 
-/** 可被外部请求打开的面板类型（工具箱弹框 / 两段文本对比覆盖层） */
-export type ScratchPanelKind = 'toolbox' | 'diff';
+/**
+ * 可被外部请求打开的面板 / 执行的动作。
+ *
+ * - `toolbox`：打开工具箱弹框；
+ * - `diff`：打开两段文本对比覆盖层；
+ * - `toolbox-item`（v1.6.2 · F14 / AC-89）：**执行某一工具箱项的首选动作**
+ *   （`itemId` 必填）—— 工具箱快捷键通路的落点。
+ */
+export type ScratchPanelKind = 'toolbox' | 'diff' | 'toolbox-item';
 
 /** 一次面板请求（`nonce` 单调递增 ⇒ 同一 `kind`+`tabId` 连按两次也会各触发一次） */
 export interface PanelRequest {
   kind: ScratchPanelKind;
   /** 目标标签 id（由请求方解析：面板内 ⇒ 该面板；否则 ⇒ 当前激活项；都没有 ⇒ 新建后取其 id） */
   tabId: string;
+  /** 仅 `kind === 'toolbox-item'` 使用：要执行的工具箱项 id（`ToolboxItemId`） */
+  itemId?: string;
   /** 单调递增序号，用于"消费一次即失效"（防重渲染重复执行） */
   nonce: number;
 }
@@ -51,7 +60,7 @@ interface ScratchUiState {
   /** 待处理的**一次性**面板请求；`null` = 无 */
   panelRequest: PanelRequest | null;
   /** 投递一次面板请求（非激活 / 未挂载的标签也允许 —— 请求留在 store，等面板挂载后消费） */
-  requestPanel: (kind: ScratchPanelKind, tabId: string) => void;
+  requestPanel: (kind: ScratchPanelKind, tabId: string, itemId?: string) => void;
 }
 
 let panelNonce = 0;
@@ -66,9 +75,9 @@ let panelNonce = 0;
  */
 export const useScratchUiStore = create<ScratchUiState>((set) => ({
   panelRequest: null,
-  requestPanel: (kind, tabId) => {
+  requestPanel: (kind, tabId, itemId) => {
     panelNonce += 1;
-    set({ panelRequest: { kind, tabId, nonce: panelNonce } });
+    set({ panelRequest: { kind, tabId, itemId, nonce: panelNonce } });
   },
 }));
 

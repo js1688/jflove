@@ -15,7 +15,11 @@
  * - 设计（`设计文档/v1.6.1.md` §4.7，配合 `需求文档/v1.6.1.md` §3.2）：条目集 **20 → 18**
  *   （作废「平铺」`pane.tile` / 「层叠」`pane.cascade`；`pane.next` / `pane.prev` 改名
  *   「下一个标签页」/「上一个标签页」；`pane.close` 改名「关闭当前标签页」且默认键
- *   `Ctrl+Alt+W` → `Ctrl+W`）。本文件末组用例把「恰为 18 项」固化为守门断言。
+ *   `Ctrl+Alt+W` → `Ctrl+W`）。
+ * - **v1.6.2（需求 §3.4 F14 / AC-88，设计 §3.5 DS-53）**：条目集 **18 → 29**
+ *   （工具箱 12 项各配一条承载键：新增 **11** 条 `toolbox.*`，第 12 项 `diff` 沿用既有
+ *   `view.diff`）⇒ 本文件末组用例的守门值由 18 就地改为 29，并**新增**"12 项各有载体、
+ *   11 条新键全部 `scope: 'pane'`"两条判据（判据强度只增不减）。
  */
 
 import { describe, expect, it } from 'vitest';
@@ -24,6 +28,7 @@ import {
   MODIFIER_KEYS,
   SHORTCUT_DEFS,
   SHORTCUT_IDS,
+  TOOLBOX_ITEM_SHORTCUT,
   defaultNormalizationConsistent,
   formatShortcut,
   formatShortcutForDisplay,
@@ -126,15 +131,26 @@ describe('M-12 登记：非法键位被静默接受（按设计口径这些断�
   });
 });
 
-describe('v1.6.1 §4.7 条目集守门：20 → 18（作废「平铺」/「层叠」）', () => {
-  it('条目数恰为 18，且 id 全表唯一、与 SHORTCUT_IDS / DEFAULT_BINDINGS 同源', () => {
-    expect(SHORTCUT_DEFS).toHaveLength(18);
-    expect(SHORTCUT_IDS).toHaveLength(18);
+describe('条目集守门：v1.6.1 §4.7（20 → 18）+ v1.6.2 F14（18 → 29）', () => {
+  /**
+   * 条目数口径（v1.6.2 就地更新，判据强度只增不减）：
+   *
+   * - v1.6.1：作废「平铺」「层叠」⇒ **18** 项；
+   * - v1.6.2（需求 F14 / AC-88）：工具箱 **12 项**各有一条承载键 ⇒ 新增 **11** 条 `toolbox.*`，
+   *   第 12 项（两段文本对比）**沿用既有 `view.diff`**（不重复登记）⇒ 合计 **18 + 11 = 29** 项。
+   *
+   * ⇒ 断言值由 18 改为 29；**唯一性 / 同源性 / 归一化一致性 / 默认表无撞车**四条判据一字未减。
+   */
+  const EXPECTED_ENTRY_COUNT = 29;
+
+  it('条目数恰为 29，且 id 全表唯一、与 SHORTCUT_IDS / DEFAULT_BINDINGS 同源', () => {
+    expect(SHORTCUT_DEFS).toHaveLength(EXPECTED_ENTRY_COUNT);
+    expect(SHORTCUT_IDS).toHaveLength(EXPECTED_ENTRY_COUNT);
     // 全表 id 唯一（有重复会同时静默掉一项渲染与一项冲突检测）
-    expect(new Set(SHORTCUT_IDS).size).toBe(18);
+    expect(new Set(SHORTCUT_IDS).size).toBe(EXPECTED_ENTRY_COUNT);
     // 三个导出面必须同源同序
     expect(SHORTCUT_IDS).toEqual(SHORTCUT_DEFS.map((def) => def.id));
-    expect(Object.keys(DEFAULT_BINDINGS)).toHaveLength(18);
+    expect(Object.keys(DEFAULT_BINDINGS)).toHaveLength(EXPECTED_ENTRY_COUNT);
     for (const def of SHORTCUT_DEFS) {
       // 生效默认值必须是**归一化**形态（Phase 5 审查 S-2 / BL-35：取 `def.defaultKey` 原文会让
       // `pane.next` / `pane.prev` 的 `ArrowRight/Left` 与事件侧的 `Right/Left` 对不上 ⇒ 死键）
@@ -192,16 +208,38 @@ describe('v1.6.1 §4.7 条目集守门：20 → 18（作废「平铺」/「层�
     }
   });
 
-  it('18 项下的默认键位全部可归一，且默认表内部无冲突', () => {
+  it('29 项下的默认键位全部可归一，且默认表内部无冲突（跨作用域同键也算撞车）', () => {
     const seen = new Map<string, string>();
     for (const def of SHORTCUT_DEFS) {
       const normalized = normalizeShortcut(def.defaultKey);
       expect(normalized, `${def.id} 的默认键不可归一`).toBe(def.meta.normalizedDefault);
       const previous = seen.get(normalized ?? '');
+      // ⚠ v1.6.2：**默认表里连跨作用域同键都不允许**（比 AC-97④ 的"允许跨组共存"更严）——
+      //    默认值是我们自己选的，没有任何理由选一组需要提示的键；用户改键时才允许跨组共存。
       expect(previous, `${def.id} 与 ${previous} 默认键撞车`).toBeUndefined();
       seen.set(normalized ?? '', def.id);
     }
-    expect(seen.size).toBe(18);
+    expect(seen.size).toBe(EXPECTED_ENTRY_COUNT);
+  });
+
+  it('v1.6.2 F14：工具箱 12 项各有承载键（11 条 toolbox.* + diff 复用 view.diff）', () => {
+    // 12 项全覆盖：缺一项 = 用户的"能力应该支持快捷键"落空
+    expect(Object.keys(TOOLBOX_ITEM_SHORTCUT)).toHaveLength(12);
+    for (const itemId of Object.keys(TOOLBOX_ITEM_SHORTCUT) as (keyof typeof TOOLBOX_ITEM_SHORTCUT)[]) {
+      const shortcutId = TOOLBOX_ITEM_SHORTCUT[itemId];
+      expect(shortcutId, `工具箱项 ${itemId} 缺键位载体`).toBeTruthy();
+      expect(getShortcutDef(shortcutId as string), `${itemId} 的键位 id 不存在`).not.toBeNull();
+    }
+    // 第 12 项（对比）复用既有的应用级条目，不重复登记（避免"同一个动作两条键"误导用户）
+    expect(TOOLBOX_ITEM_SHORTCUT.diff).toBe('view.diff');
+    // 新增的 11 条全部是「编辑面板聚焦」（用户裁决：只作用在当前框内）
+    const toolboxIds = Object.values(TOOLBOX_ITEM_SHORTCUT).filter((id) => id !== 'view.diff');
+    expect(toolboxIds).toHaveLength(11);
+    for (const id of toolboxIds) {
+      expect(getShortcutDef(id as string)?.scope, `${String(id)} 必须只在编辑面板内生效`).toBe(
+        'pane',
+      );
+    }
   });
 });
 

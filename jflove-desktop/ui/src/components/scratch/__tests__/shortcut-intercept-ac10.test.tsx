@@ -97,6 +97,20 @@ const RUNTIME_IDS: readonly ShortcutId[] = [
   //   旧断言锁死了"它们不被接管"= 已判定的缺陷（"配了但按了没反应"），故本轮改写为正向断言。
   'view.toolbox',
   'view.diff',
+  // ★ v1.6.2（需求 F14 / AC-88 / AC-89）：工具箱 **11 项**快捷键也已并入接管面
+  //   （`shortcut-runtime.ts` 的 `RUNTIME_SHORTCUTS`）。它们的作用域是「编辑面板聚焦」
+  //   —— **面板外按下必须放行**，该边界由下面新增的两组用例守着。
+  'toolbox.search',
+  'toolbox.lines',
+  'toolbox.case',
+  'toolbox.escape',
+  'toolbox.base64',
+  'toolbox.json',
+  'toolbox.markdown',
+  'toolbox.csv',
+  'toolbox.sql',
+  'toolbox.xml',
+  'toolbox.font',
 ];
 
 /** 面板作用域（`shortcut-runtime.ts:66` 的 `PANEL_SCOPE_SHORTCUTS`）—— 目标必须落在面板内 */
@@ -106,6 +120,17 @@ const PANEL_SCOPE_IDS: readonly ShortcutId[] = ['pane.close', 'file.save', 'file
 const NON_RUNTIME_IDS: readonly ShortcutId[] = SHORTCUT_IDS.filter(
   (id) => !RUNTIME_IDS.includes(id),
 );
+
+/**
+ * 需要把事件目标放进编辑面板才会响应的项（v1.6.2 就地扩展）。
+ *
+ * 除 `PANEL_SCOPE_IDS`（`pane.close` / `file.save` / `file.saveAs`）外，**v1.6.2 的 11 条
+ * 工具箱键同样是"编辑面板聚焦"作用域**（需求 F14 / AC-89：用户要求"只作用在当前的框内"）
+ * ⇒ 它们也必须放"面板内"按，否则测的是面板判定而不是被测的那道门。
+ */
+function requiresPanelTarget(id: ShortcutId): boolean {
+  return PANEL_SCOPE_IDS.includes(id) || id.startsWith('toolbox.');
+}
 
 /** 归一键名 → `KeyboardEvent.key`（`keyboardEventToShortcut` 只认 `event.key`） */
 const KEY_FROM_CHORD: Readonly<Record<string, string>> = {
@@ -225,9 +250,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('AC-10 事件构造自检 / 默认键位往返（条目集 20 → 18）', () => {
-  it('18 项默认键位都能由 KeyboardEvent 还原成同一归一化形态（保证下面的「按下」真的按到了该键位）', () => {
-    expect(SHORTCUT_IDS, 'v1.6.1 §4.7：条目集 20 → 18').toHaveLength(18);
+describe('AC-10 事件构造自检 / 默认键位往返（条目集 20 → 18 → 29）', () => {
+  it('29 项默认键位都能由 KeyboardEvent 还原成同一归一化形态（保证下面的「按下」真的按到了该键位）', () => {
+    // v1.6.2（F14 / AC-88）：18 → **29**（工具箱 12 项各一条：新增 11 条 `toolbox.*`，
+    // 第 12 项 `diff` 沿用既有 `view.diff` 不重复登记）
+    expect(SHORTCUT_IDS, 'v1.6.2 §3.4：18 → 29').toHaveLength(29);
     for (const id of SHORTCUT_IDS) {
       const binding = useShortcutStore.getState().getBinding(id);
       expect(binding, `${id} 应有默认键位`).not.toBe('');
@@ -301,7 +328,7 @@ describe('AC-10 基线：接管面 7 项按各自作用域逐项被拦下', () =
         path: 'D:/tmp/ac10-base.txt',
       });
       registerContentAccessor(tabId, 'AC-10 基线正文');
-      const panelScoped = PANEL_SCOPE_IDS.includes(id);
+      const panelScoped = requiresPanelTarget(id);
       const inside = panelScoped ? panelTargetFor(tabId) : outsideTarget;
 
       const { prevented, reachedTarget, binding } = pressBinding(id, inside);
@@ -365,24 +392,41 @@ describe('AC-10 缺口（M-9）的等价改写：工具箱 12 项的键位登记
     expect(TOOLBOX_ITEMS).toHaveLength(12);
   });
 
-  it('工具箱项里只有 `diff` 有键位载体（容器入口 `view.diff`），且该入口**已并入** window 接管面（设计 §15.3.6 / DS-45，闭环 BL-51）', () => {
+  /**
+   * v1.6.2（需求 F14 / AC-88）**就地改写**：旧断言是"12 项里**只有** `diff` 有键位载体"
+   * （= 当时的事实：工具箱除容器入口外没有任何快捷键）。
+   *
+   * 本版把"工具箱能力支持快捷键"写成了需求（用户原话："工具箱里面的能力应该要支持快捷键"）
+   * ⇒ 判据反过来：**12 项必须各有载体**，且每条的载体都**必须并入接管面**
+   * （否则又是"配了但按了没反应"）；11 条新键还**必须**是「编辑面板聚焦」作用域
+   * （用户原话："只作用在当前的框内"）。
+   */
+  it('工具箱 12 项**各有**键位载体，且载体全部并入 window 接管面（AC-88）', () => {
     const withCarrier = TOOLBOX_ITEMS.filter((item) => carriersOfToolboxItem(item.id).length > 0).map(
       (item) => item.id,
     );
-    // 实测：12 项里唯一被 `SHORTCUT_DEFS` 覆盖的是「两段文本对比」（`view.diff`）。
-    expect(withCarrier).toEqual(['diff']);
+    expect(withCarrier).toEqual(TOOLBOX_ITEMS.map((item) => item.id));
 
-    for (const itemId of withCarrier) {
-      for (const def of carriersOfToolboxItem(itemId)) {
-        // ⚠ 2026-10-16 更正（原为 `.not.toContain`）：旧断言"不得并入接管面"锁死了 BL-51 这个
-        // **已判定的缺陷** —— 需求 AC-75② 明列「按 `Ctrl+K` → 工具箱弹框出现」「任意一项
-        // 配了但按了没反应即失败」，设计 DS-45 已把两项交回运行时接管 ⇒ 正向断言"必须并入"。
+    for (const item of TOOLBOX_ITEMS) {
+      const carriers = carriersOfToolboxItem(item.id);
+      expect(carriers.length, `工具箱项 ${item.id} 没有键位载体`).toBeGreaterThan(0);
+      for (const def of carriers) {
         expect(
           RUNTIME_IDS as readonly string[],
-          `工具箱载体 ${def.id} 必须并入 window 接管面（AC-75② / DS-45，闭环 BL-51）`,
+          `工具箱载体 ${def.id} 必须并入 window 接管面（AC-75② / AC-88，闭环 BL-51）`,
         ).toContain(def.id);
       }
     }
+  });
+
+  it('11 条新增键全部是「编辑面板聚焦」（`pane`）；第 12 项（对比）沿用应用级的 `view.diff`', () => {
+    const toolboxCarriers = SHORTCUT_DEFS.filter((def) => def.id.startsWith('toolbox.'));
+    expect(toolboxCarriers).toHaveLength(11);
+    for (const def of toolboxCarriers) {
+      expect(def.scope, `${def.id} 必须只在编辑面板内生效（AC-89）`).toBe('pane');
+    }
+    // 对比项不重复登记：它的载体就是既有的 `view.diff`（应用级、真机 r20 已验证）
+    expect(carriersOfToolboxItem('diff').map((def) => def.id)).toEqual(['view.diff']);
   });
 });
 

@@ -1,0 +1,76 @@
+{
+  "stamp": "20261016-211531",
+  "viewSize": [
+    900,
+    620
+  ],
+  "modes": {
+    "no-close": {
+      "mode": "no-close",
+      "click": {
+        "inputMode": "os",
+        "screenCenter": [
+          799,
+          574
+        ]
+      },
+      "observed": {
+        "out": "CLICKED",
+        "log": [
+          "doc-pointerup",
+          "doc-click:b",
+          "button-click"
+        ],
+        "buttonStillConnected": true
+      }
+    },
+    "pointerup-capture": {
+      "mode": "pointerup-capture",
+      "click": {
+        "inputMode": "os",
+        "screenCenter": [
+          799,
+          574
+        ]
+      },
+      "observed": {
+        "out": "NOT-CLICKED",
+        "log": [
+          "doc-pointerup",
+          "close"
+        ],
+        "buttonStillConnected": false
+      }
+    },
+    "click-bubble": {
+      "mode": "click-bubble",
+      "click": {
+        "inputMode": "os",
+        "screenCenter": [
+          799,
+          574
+        ]
+      },
+      "observed": {
+        "out": "CLICKED",
+        "log": [
+          "doc-pointerup",
+          "doc-click:b",
+          "button-click",
+          "close"
+        ],
+        "buttonStillConnected": false
+      }
+    }
+  },
+  "sanityGate": {
+    "mode": "no-close",
+    "expect": "out=CLICKED 且 log 含 button-click",
+    "ok": true
+  },
+  "conclusion": {
+    "pointerupCaptureLosesClick": true,
+    "clickBubbleKeepsClick": true,
+    "clickRetargeted": []
+  }
+}

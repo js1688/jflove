@@ -991,3 +991,57 @@ export const TOOLBOX_ITEMS: readonly ToolboxItem[] = [
 
 /** 工具箱项数（AC-23 判据：必须等于 12） */
 export const TOOLBOX_ITEM_COUNT = TOOLBOX_ITEMS.length;
+
+/* ============================================================================
+ * v1.6.2（F14 / AC-90）：工具箱项的**首选动作**唯一真相表
+ * ========================================================================== */
+
+/**
+ * 每项的「首选动作」= 该快捷键按下时要执行的那一个动作的**按钮文案**。
+ *
+ * ## 为什么用"按钮文案"作为值
+ *
+ * 工具箱项与动作函数都由 `ScratchToolbar` 派发，纯逻辑层（本文件）拿不到函数引用；
+ * 用**弹框里真实存在的按钮文案**当键，于是"表 ↔ 界面"的一致性可以被**结构性地**断言：
+ * 表中每个值都必须是该项在弹框里实际渲染出来的按钮之一（AC-90 的单测判据）。
+ * 行为一致性则由"快捷键与按钮走**同一个动作函数**"保证（`ScratchToolbar` 的 `primaryActionFor`）。
+ *
+ * ## 两处刻意的口径
+ *
+ * 1. `markdown` 的首选动作是**「预览」而不是排第一的「编辑」** —— 在 `edit` 视图下
+ *    "切到编辑"是零副作用的空动作，作为快捷键毫无价值；`preview` 才是用户按下去想看到的东西。
+ * 2. `diff`（第 11 项）的首选动作由**既有的应用级快捷键** `view.diff`（默认 `Ctrl+Shift+D`）承担，
+ *    **不新增** `toolbox.diff` 条目 —— 同一个动作登记两条键会误导用户（详见设计 §3.5）。
+ */
+export const TOOLBOX_PRIMARY_ACTION: Readonly<Record<ToolboxItemId, string>> = Object.freeze({
+  search: '查找 / 替换面板',
+  lines: '排序',
+  case: '大写',
+  escape: 'JSON 转义',
+  base64: 'Base64 编码',
+  json: '格式化',
+  markdown: '预览',
+  csv: '表格视图',
+  sql: '美化',
+  xml: '格式化',
+  diff: '打开对比',
+  font: 'A+',
+});
+
+/* ============================================================================
+ * v1.6.2（AC-82）：首个差异位置
+ * ========================================================================== */
+
+/**
+ * 两个字符串**首个不同字符的索引**（完全相同时返回 `min(a.length, b.length)`）。
+ *
+ * 用途：整体替换正文后，把"变化开始的地方"滚进视口 —— 否则动作生效了、用户却看不到
+ * （需求 §2.2「作用文字不明显」）。纯函数，按 **UTF-16 码元**计数，与 CM6 文档位置同口径。
+ */
+export function firstDifferenceIndex(before: string, after: string): number {
+  const shared = Math.min(before.length, after.length);
+  for (let i = 0; i < shared; i += 1) {
+    if (before.charCodeAt(i) !== after.charCodeAt(i)) return i;
+  }
+  return shared;
+}

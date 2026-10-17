@@ -1,0 +1,81 @@
+{
+  "stamp": "20261016-204853",
+  "viewSize": [
+    900,
+    620
+  ],
+  "modes": {
+    "no-close": {
+      "mode": "no-close",
+      "click": {
+        "inputWidget": "QWidget",
+        "widgetSize": [
+          900,
+          620
+        ],
+        "center": [
+          450.0,
+          310.0
+        ],
+        "targetVisible": true,
+        "targetHasFocus": true,
+        "viewHasFocus": true
+      },
+      "observed": {
+        "out": "NOT-CLICKED",
+        "log": [],
+        "buttonStillConnected": true
+      }
+    },
+    "pointerup-capture": {
+      "mode": "pointerup-capture",
+      "click": {
+        "inputWidget": "QWidget",
+        "widgetSize": [
+          900,
+          620
+        ],
+        "center": [
+          450.0,
+          310.0
+        ],
+        "targetVisible": true,
+        "targetHasFocus": true,
+        "viewHasFocus": true
+      },
+      "observed": {
+        "out": "NOT-CLICKED",
+        "log": [],
+        "buttonStillConnected": true
+      }
+    },
+    "click-bubble": {
+      "mode": "click-bubble",
+      "click": {
+        "inputWidget": "QWidget",
+        "widgetSize": [
+          900,
+          620
+        ],
+        "center": [
+          450.0,
+          310.0
+        ],
+        "targetVisible": true,
+        "targetHasFocus": true,
+        "viewHasFocus": true
+      },
+      "observed": {
+        "out": "NOT-CLICKED",
+        "log": [],
+        "buttonStillConnected": true
+      }
+    }
+  },
+  "sanityGate": {
+    "mode": "no-close",
+    "expect": "out=CLICKED 且 log 含 button-click",
+    "ok": false
+  },
+  "conclusion": {}
+}

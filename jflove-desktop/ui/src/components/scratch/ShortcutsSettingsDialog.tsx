@@ -22,12 +22,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   MODIFIER_KEYS,
   SHORTCUT_DEFS,
+  SHORTCUT_SCOPE_GROUPS,
   formatShortcutForDisplay,
   getShortcutDef,
   isModifierOnlyShortcut,
   keyboardEventToShortcut,
   normalizeShortcut,
   parseShortcut,
+  shortcutsOfScope,
 } from '../../config/shortcuts';
 import type { ShortcutDef, ShortcutId } from '../../config/shortcuts';
 import { useShortcutStore } from '../../stores/shortcut-store';
@@ -120,6 +122,7 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
   const bindings = useShortcutStore((s) => s.bindings);
   const overrides = useShortcutStore((s) => s.overrides);
   const conflicts = useShortcutStore((s) => s.conflicts);
+  const crossScopeNotes = useShortcutStore((s) => s.crossScopeNotes);
   const lastError = useShortcutStore((s) => s.lastError);
 
   /** 正在等待按键的功能 id（`null` = 未处于配置态） */
@@ -412,6 +415,31 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
           </div>
         )}
 
+        {/* 跨作用域同键的**提示**（v1.6.2 · AC-97④：允许共存，但必须让用户知道作用域不同） */}
+        {crossScopeNotes.length > 0 && (
+          <div className="rounded-lg border border-line-subtle bg-sunken px-3 py-2 text-[11.5px] leading-relaxed text-muted">
+            <div className="font-semibold">
+              有 {crossScopeNotes.length} 组键位跨作用域重复（**不会同时触发**，可以保存）
+            </div>
+            <ul className="mt-1 list-disc pl-4">
+              {crossScopeNotes.map((note) => (
+                <li key={note.key}>
+                  <span className="tabular">{formatShortcutForDisplay(note.key)}</span>
+                  {' 同时被 '}
+                  {note.ids
+                    .map((id) => {
+                      const def = getShortcutDef(id);
+                      const scopeLabel = def?.scope === 'window' ? '应用级' : '文本编辑器级';
+                      return `${def?.label ?? id}（${scopeLabel}）`;
+                    })
+                    .join('、')}
+                  {' 使用：两者作用域不同，不会同时触发'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* 落盘 / 校验失败的明确提示（含桥未就绪、偏好文件不可写） */}
         {lastError && conflicts.length === 0 && (
           <div className="rounded-lg border border-danger-500/25 bg-danger-50 px-3 py-2 text-[11.5px] text-danger-700">
@@ -419,9 +447,28 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
           </div>
         )}
 
-        {/* 18 项快捷键：行数据逐项来自 SHORTCUT_DEFS（唯一手写真相），不做任何过滤 */}
+        {/* v1.6.2（F16 / AC-97）：**两组**渲染 —— 应用级 / 文本编辑器级
+            （用户裁决："只要分应用级和文本编辑器级"；工具箱 11 项 + 视图/编辑项归后者）。
+            行数据仍逐项来自 `SHORTCUT_DEFS`（唯一手写真相），不做任何过滤；
+            `data-shortcut-group` 是用例的作用域观测点（AC-97①②）。 */}
         <div className="max-h-[52vh] overflow-y-auto rounded-lg border border-line-subtle">
-          {SHORTCUT_DEFS.map((def) => {
+          {SHORTCUT_SCOPE_GROUPS.map((group) => (
+            <div key={group.scope} data-shortcut-group={group.scope}>
+              <div className="border-b border-line-subtle bg-sunken px-3 py-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-[13px] font-semibold text-fg">{group.title}</span>
+                  <span className="rounded-full border border-line-subtle px-1.5 text-[10.5px] text-subtle">
+                    {group.subtitle}
+                  </span>
+                  <span className="text-[10.5px] text-subtle">
+                    {shortcutsOfScope(group.scope).length} 项
+                  </span>
+                </div>
+                <div className="mt-0.5 text-[11px] leading-relaxed text-subtle">
+                  {group.description}
+                </div>
+              </div>
+              {shortcutsOfScope(group.scope).map((def) => {
             const current = bindings[def.id] ?? def.defaultKey;
             const changed = isUserCustomizedShortcut(def, overrides, bindings);
             const conflicting = conflictingIds.has(def.id);
@@ -445,7 +492,7 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="text-[13px] text-fg">{def.label}</span>
                     <span className="rounded-full border border-line-subtle px-1.5 text-[10.5px] text-subtle">
-                      {def.scope === 'window' ? '窗口激活' : '编辑面板聚焦'}
+                      {def.scope === 'window' ? '任意页面生效' : '编辑面板聚焦'}
                     </span>
                     {changed && <span className="text-[10.5px] text-fg-brand">已自定义</span>}
                     {conflicting && <span className="text-[10.5px] text-danger-700">键位重复</span>}
@@ -502,7 +549,9 @@ export function ShortcutsSettingsDialog({ open, onClose }: ShortcutsSettingsDial
                 )}
               </div>
             );
-          })}
+              })}
+            </div>
+          ))}
         </div>
 
         <div className="text-[11px] leading-relaxed text-subtle">

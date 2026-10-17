@@ -74,9 +74,10 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeyEvent, QKeySequence
+from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QKeyEvent, QKeySequence
 from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import (
+    QWebEngineContextMenuRequest,
     QWebEnginePage,
     QWebEngineScript,
     QWebEngineSettings,
@@ -84,6 +85,7 @@ from PySide6.QtWebEngineCore import (
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QVBoxLayout,
     QWidget,
@@ -743,9 +745,142 @@ class ShellPage(QWebEnginePage):
         return None
 
 
+# ============================================================================
+# 右击菜单（v1.6.2 · 需求 F13 / 设计 DS-52）
+# ============================================================================
+
+#: 菜单项表（顺序即 UI 顺序；``None`` = 分隔符）。
+#: 文案**必须中文**（AC-85：0 命中 `Copy` / `Paste` / `Reload` / `Inspect` 之类英文项），
+#: 动作名 = 内部标识（与 Qt 的 `WebAction` / `EditFlag` 解耦，便于纯函数单测）。
+#:
+#: ⚠ **为什么没有「删除」项**（2026-10-16 实现期裁决）：Qt 6 的 `QWebEnginePage.WebAction`
+#: **不暴露** Delete（枚举里只有 Cut/Copy/Paste/Undo/Redo/SelectAll/Unselect …）。
+#: 要做出"删除"只能由外壳 `runJavaScript("document.execCommand('delete')")` ——
+#: 那会新增一条**外壳 → 渲染层执行 JS** 的能力面（本模块此前零 `runJavaScript`），
+#: 与安全宪法 §9.6 的能力面最小化相悖 ⇒ **宁可不做这一项**，也不为此开口子。
+#: 「剪切」在有选中时已覆盖"删掉选中的内容"这一主用途。
+_CONTEXT_MENU_ENTRIES: tuple[tuple[str, str] | None, ...] = (
+    ('撤销', 'undo'),
+    ('重做', 'redo'),
+    None,
+    ('剪切', 'cut'),
+    ('复制', 'copy'),
+    ('粘贴', 'paste'),
+    None,
+    ('全选', 'selectAll'),
+)
+
+#: 「可用动作」全集（决定菜单项可用性；`delete` 只参与可用性判定，不对应菜单项）
+#: ⚠ 曾用其中一组（paste/undo/cut/…）当"是不是可编辑区"的**兜底判据**，真机 r22 证明那是错的：
+#: 焦点仍在编辑器里时右击**非可编辑区**，Chromium 仍会报 `CanPaste=True` ⇒ 会把菜单误弹出来。
+#: 唯一正确判据 = `isContentEditable()`（真机实测：CM6 正文与登录页 `<input>` 都是 `True`）。
+_EDIT_LIKE_ACTIONS = frozenset({'paste', 'undo', 'redo', 'cut', 'delete'})
+
+
+def context_menu_spec(
+    is_content_editable: bool, allowed_actions: frozenset[str]
+) -> list[tuple[str, str, bool]] | None:
+    """
+    右击菜单的**纯函数**规格（v1.6.2 · F13 / AC-85 / AC-86 —— 判据的落点）。
+
+    :param is_content_editable: `QWebEngineContextMenuRequest.isContentEditable()`
+    :param allowed_actions: 当前上下文**可用**的动作名集合（由 `editFlags()` 映射而来）
+    :return: ``[(中文文案, 动作名, 是否可用), ...]``（分隔符 = ``('-', '', False)``）；
+             ``None`` = **该上下文不弹菜单**（需求 F13 第 1 条：只有编辑器可编辑区才有菜单）。
+
+    口径（与设计 §3.4 逐条一致，**已按真机取证收紧**）：
+
+    1. **弹与不弹**：只看 `is_content_editable` —— 真机 r22 实测：CM6 正文与登录页 `<input>`
+       **都是 `True`**，而右击标签条 / 面板背景是 `False`。
+       ⚠ 曾用「`editFlags` 里有粘贴/撤销就说明可编辑」当兜底，**真机判据证明它会把非可编辑区的
+       菜单误弹出来**（焦点还在编辑器里时 `CanPaste` 恒为真）⇒ 已删除该兜底（设计 R-19 关闭）。
+    2. 项的顺序与分隔符由 `_CONTEXT_MENU_ENTRIES` 决定；**不含任何浏览器导航项**
+       （`Back` / `Reload` / `Save page` / `View page source` / `Inspect` …）。
+    3. 首尾多余的分隔符会被裁掉（全禁用时不出现"开头一条横线"这种残迹）。
+    """
+    if not is_content_editable:
+        return None
+
+    spec: list[tuple[str, str, bool]] = []
+    for entry in _CONTEXT_MENU_ENTRIES:
+        if entry is None:
+            spec.append(('-', '', False))
+            continue
+        label, action_name = entry
+        spec.append((label, action_name, action_name in allowed_actions))
+    while spec and not spec[0][1]:
+        spec.pop(0)
+    while spec and not spec[-1][1]:
+        spec.pop()
+    return spec
+
+
+#: 内部动作名 → Qt 的 `WebAction`（动作**转发给 Chromium 自己执行**，渲染层无需剪贴板能力）
+#: ⚠ 没有 `delete`：Qt 6 未暴露该 WebAction（见 `_CONTEXT_MENU_ENTRIES` 的说明）
+_WEB_ACTION_BY_NAME: dict[str, QWebEnginePage.WebAction] = {
+    'undo': QWebEnginePage.WebAction.Undo,
+    'redo': QWebEnginePage.WebAction.Redo,
+    'cut': QWebEnginePage.WebAction.Cut,
+    'copy': QWebEnginePage.WebAction.Copy,
+    'paste': QWebEnginePage.WebAction.Paste,
+    'selectAll': QWebEnginePage.WebAction.SelectAll,
+}
+
+#: 内部动作名 → Qt 的 `EditFlag`（决定菜单项的可用性）
+_EDIT_FLAG_BY_NAME: dict[str, QWebEngineContextMenuRequest.EditFlag] = {
+    'undo': QWebEngineContextMenuRequest.EditFlag.CanUndo,
+    'redo': QWebEngineContextMenuRequest.EditFlag.CanRedo,
+    'cut': QWebEngineContextMenuRequest.EditFlag.CanCut,
+    'copy': QWebEngineContextMenuRequest.EditFlag.CanCopy,
+    'paste': QWebEngineContextMenuRequest.EditFlag.CanPaste,
+    'delete': QWebEngineContextMenuRequest.EditFlag.CanDelete,
+    'selectAll': QWebEngineContextMenuRequest.EditFlag.CanSelectAll,
+}
+
+
+def _context_menu_inputs(view) -> tuple[bool, frozenset[str]]:  # noqa: ANN001 - QWebEngineView
+    """
+    从视图当前的右击请求里取出 `context_menu_spec()` 需要的两个输入。
+
+    ⚠ 两个**都踩过的**坑（真机 r22 取证）：
+
+    1. `lastContextMenuRequest()` 属于 **`QWebEngineView`**，**不属于** `QWebEnginePage`
+       —— 早先按 `page().lastContextMenuRequest()` 写，真机右击时抛
+       `AttributeError: 'ShellPage' object has no attribute 'lastContextMenuRequest'`，
+       而 Qt 会**静默吞掉** Qt 虚函数里的 Python 异常 ⇒ 表现为"右击毫无反应、连默认菜单也没有"
+       （jsdom / 纯函数单测**都测不出来**，只有真机判据能抓到）。
+    2. 该请求只在处理这次右击期间有效 ⇒ 必须在 `contextMenuEvent` 内部同步调用本函数。
+    """
+    request = view.lastContextMenuRequest()
+    if request is None:
+        return False, frozenset()
+    editable = bool(request.isContentEditable())
+    flags = request.editFlags()
+    allowed = frozenset(name for name, flag in _EDIT_FLAG_BY_NAME.items() if flags & flag)
+    return editable, allowed
+
+
 class DropAwareWebView(QWebEngineView):
     """
-    能拿到**拖入文件的真实本地路径**的 WebEngine 视图。
+    能拿到**拖入文件的真实本地路径**的 WebEngine 视图，并接管**右击菜单**（v1.6.2 · 需求 F13）。
+
+    ## 右击菜单（v1.6.2 新增，DS-52）
+
+    QtWebEngine 的默认右击菜单是 **Chromium 内置英文菜单**（含 `Back` / `Reload` /
+    `Save page` / `Inspect` 等桌面应用根本用不到的项）：本仓库**从未**加载任何 Qt 翻译
+    （全仓 `QTranslator` / `.qm` / `qtwebengine_locales` = 0 命中）⇒ 它永远是英文。
+    本类覆写 `contextMenuEvent`，改为按 `context_menu_spec()`（**纯函数**，可单测）组一份
+    **中文**菜单：
+
+    - **只在可编辑上下文弹**（CM6 正文 / 输入框）；页面其它区域（背景、标签条、工具栏、
+      只读预览 / 表格 / 树形、其它页面）**一律不弹菜单**（需求 F13 第 1 条）；
+    - 菜单项 = 撤销 / 重做 / 剪切 / 复制 / 粘贴 / 删除 / 全选（中文），可用性由
+      `QWebEngineContextMenuRequest.editFlags()` 决定；
+    - **不组进任何浏览器导航项**；
+    - 动作用 `QWebEnginePage.triggerAction()` 转发给 Chromium 自己执行 ⇒ 渲染层**不需要**
+      任何剪贴板能力（`JavascriptCanAccessClipboard` 保持未开，安全宪法 §9.6 能力面最小化）。
+
+    ## 拖放（原职责，未变）
 
     浏览器安全模型下，渲染层只能拿到 `File` 对象、**拿不到路径**，因此无法把文件交给
     Python 上传。原生侧的 `QMimeData.urls()` 才有真实路径，所以在视图上拦截拖放：
@@ -759,6 +894,43 @@ class DropAwareWebView(QWebEngineView):
         super().__init__(parent)
         self._on_files_dropped = on_files_dropped
         self.setAcceptDrops(True)
+
+    def contextMenuEvent(self, event) -> None:  # noqa: ANN001 - Qt 事件
+        """
+        覆写右击菜单（v1.6.2 · F13 / AC-85 / AC-86）。
+
+        ⚠ `lastContextMenuRequest()` **只在这段处理期间有效** ⇒ 取上下文与建菜单
+        必须在同一个 `contextMenuEvent` 里完成，不能延后（例如塞进 `QTimer`）；
+        且它取的是**视图**的请求（见 `_context_menu_inputs` 的注释 1）。
+        """
+        if self.page() is None:
+            event.accept()
+            return
+
+        spec = context_menu_spec(*_context_menu_inputs(self))
+        if spec is None:
+            # 需求 F13 第 1 条：编辑器可编辑区之外的右击**不弹任何菜单**
+            event.accept()
+            return
+
+        menu = QMenu(self)
+        page = self.page()
+        for label, action_name, enabled in spec:
+            if not action_name:
+                menu.addSeparator()
+                continue
+            # 自建 QAction（不复用 page 自带的 QAction 对象）：改文案不会污染页面动作，
+            # 也不依赖组件库对菜单对象所有权的语义（LESSONS L39 的同类教训）。
+            action = QAction(label, menu)
+            action.setEnabled(enabled)
+            web_action = _WEB_ACTION_BY_NAME.get(action_name)
+            if web_action is not None and page is not None:
+                action.triggered.connect(
+                    lambda _checked=False, target=web_action, p=page: p.triggerAction(target)
+                )
+            menu.addAction(action)
+        menu.exec(event.globalPos())
+        event.accept()
 
     def dragEnterEvent(self, event) -> None:  # noqa: ANN001 - Qt 事件
         if event.mimeData().hasUrls():

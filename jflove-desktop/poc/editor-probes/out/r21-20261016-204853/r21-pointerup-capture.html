@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>r21</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  #menu { position: fixed; inset: 0; }
+  #b { position: absolute; inset: 0; width: 100%; height: 100%; font-size: 28px; }
+  #out { position: fixed; left: 8px; bottom: 8px; font-size: 20px; }
+</style></head>
+<body>
+<div id="menu"><button id="b">排序</button></div>
+<div id="out">NOT-CLICKED</div>
+<script>
+  window.__log = [];
+  var MODE = "pointerup-capture";
+  var menu = document.getElementById('menu');
+  var b = document.getElementById('b');
+  var out = document.getElementById('out');
+  function closeMenu() {
+    window.__log.push('close');
+    menu.remove();
+  }
+  menu.addEventListener('pointerup', closeMenu, true);
+  b.addEventListener('click', function () {
+    window.__log.push('button-click');
+    out.textContent = 'CLICKED';
+  });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    window.__log.push('doc-click:' + (t && t.id ? t.id : (t && t.tagName ? t.tagName : 'null')));
+  }, true);
+  document.addEventListener('pointerup', function () { window.__log.push('doc-pointerup'); }, true);
+</script>
+</body></html>

@@ -76,10 +76,18 @@ export interface MockScratchEditorSession {
   /** 1 基光标（与真实 `ScratchEditorSession.getCaret()` 同口径：`{line, col}`） */
   getCaret: () => TabCaret;
   getScrollTop: () => number;
-  setText: (next: string) => void;
+  setText: (next: string, options?: { revealFirstChange?: boolean }) => void;
   focus: () => void;
   openSearchPanel: () => void;
   revealLine: (line: number) => void;
+  /**
+   * v1.6.2（F15 / AC-93）：选中并滚动到一个区间。
+   *
+   * 替身记录最近一次区间，供"点跨标签搜索结果 ⇒ 切标签页 + 选中命中"的用例断言。
+   */
+  revealRange: (from: number, to: number) => void;
+  /** 替身记录的最近一次 `revealRange` 调用（`null` = 从未调用） */
+  revealedRange: { from: number; to: number } | null;
   /**
    * 真实实现里是 JFLoveCmApi（jsdom 中不加载内核，故只留测试需要的探针）。
    * `formatters.sqlDialects` 必须存在：ScratchToolbar.tsx:368 在工具箱 SQL 项里读它
@@ -190,10 +198,13 @@ export function registerMockSession(paneId: string, initialText = ''): () => voi
       return view ? caretOfRealView(view) : { line: 1, col: 1 };
     },
     getScrollTop: () => VIEWS.get(paneId)?.scrollDOM.scrollTop ?? 0,
-    setText: (next: string) => {
+    setText: (next: string, options?: { revealFirstChange?: boolean }) => {
       const view = VIEWS.get(paneId);
       if (view) {
-        // 与真实 `setText` 同一口径：整篇替换走 dispatch（视图是唯一真相）
+        // 与真实 `setText` 同一口径：整篇替换走 dispatch（视图是唯一真相）；
+        // 真实实现里 `revealFirstChange` 会把首个差异位置滚进视口 + 定位光标，
+        // 替身不模拟滚动（jsdom 无布局），只保证"写回"这一件事与真实同源。
+        void options;
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
       } else {
         text = next;
@@ -204,6 +215,12 @@ export function registerMockSession(paneId: string, initialText = ''): () => voi
     focus: () => undefined,
     openSearchPanel: () => undefined,
     revealLine: () => undefined,
+    revealRange: (from: number, to: number) => {
+      session.revealedRange = { from, to };
+      const view = VIEWS.get(paneId);
+      if (view) view.dispatch({ selection: { anchor: from, head: to } });
+    },
+    revealedRange: null,
   };
   SESSIONS.set(paneId, session);
   emitStats(paneId);

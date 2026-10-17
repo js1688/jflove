@@ -78,6 +78,8 @@ import {
   isBlockSelection,
 } from '../../utils/scratch/block-select';
 import type { BlockCursor, BlockDirection } from '../../utils/scratch/block-select';
+// v1.6.2（AC-82「动作结果可见」）：首个差异位置由纯函数给出（与工具箱共用同一份实现）
+import { firstDifferenceIndex } from '../../utils/scratch/toolbox';
 import { installEditorPhrases } from '../../utils/scratch/editor-phrases';
 import { loadEditorBundle } from '../../utils/scratch/load-editor-bundle';
 import { stepFontSize } from '../../utils/scratch/toolbox';
@@ -101,6 +103,18 @@ export interface ScratchEditorStats {
   totalChars: number;
 }
 
+/**
+ * 整体替换正文时的可选行为（v1.6.2 · 需求 AC-82「动作结果可见」）。
+ *
+ * 存在的理由：工具箱动作生效后，变化处可能落在**视口之外** ⇒ 用户看到的是"点了没反应"
+ * （需求 §2.2 的"作用文字不明显"）。开启本开关后，同一次事务里把**首个差异位置**
+ * 滚进视口并把光标放过去，让"变了"这件事肉眼可见。
+ */
+export interface ScratchSetTextOptions {
+  /** 把首个差异位置滚进视口并把光标放过去（默认 `false`：不为纯粹的批量替换扰动视图） */
+  revealFirstChange?: boolean;
+}
+
 /** 一次挂载期内的编辑器会话（宿主卸载即注销） */
 export interface ScratchEditorSession {
   paneId: string;
@@ -114,13 +128,23 @@ export interface ScratchEditorSession {
   /** 1 基光标（草稿还原口径） */
   getCaret(): TabCaret;
   getScrollTop(): number;
-  /** 整体替换正文（工具箱纯函数变换后回写；会触发 `markDirty`） */
-  setText(next: string): void;
+  /**
+   * 整体替换正文（工具箱纯函数变换 / 跨标签替换后回写；会触发 `markDirty`）。
+   *
+   * 口径：`next` 与当前正文**逐字符相同**时**不派发事务**（无变化不产生无意义的历史记录）。
+   */
+  setText(next: string, options?: ScratchSetTextOptions): void;
   focus(): void;
   /** 打开 CM6 查找面板（工具箱第 1 项） */
   openSearchPanel(): boolean;
   /** 跳到 1 基行号并选中该行（工具箱第 1 项"跳转行"） */
   revealLine(line: number): boolean;
+  /**
+   * 选中并滚动到一个区间（v1.6.2 跨标签搜索"点结果跳过去"；偏移越界自动夹取）。
+   *
+   * 偏移口径 = CM6 文档位置 = **UTF-16 码元偏移**（与 `String#length` 同口径）。
+   */
+  revealRange(from: number, to: number): void;
 }
 
 const SESSIONS = new Map<string, ScratchEditorSession>();
@@ -455,8 +479,20 @@ function createSession(paneId: string, view: EditorView, api: JFLoveCmApi): Scra
     getStats: () => computeEditorStats(view),
     getCaret: () => caretOfView(view),
     getScrollTop: () => view.scrollDOM.scrollTop,
-    setText: (next: string) => {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+    setText: (next: string, options?: ScratchSetTextOptions) => {
+      const current = view.state.doc.toString();
+      if (current === next) return; // 无变化不派发事务（"无变化"的提示由调用方给）
+      if (!options?.revealFirstChange) {
+        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: next } });
+        return;
+      }
+      // 首个差异码元位置 ⇒ 新文档里的等价位置（同一事务里既替换正文又定位光标）
+      const caret = Math.min(firstDifferenceIndex(current, next), next.length);
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: next },
+        selection: { anchor: caret },
+        scrollIntoView: true,
+      });
     },
     focus: () => view.focus(),
     openSearchPanel: () => {
@@ -469,6 +505,13 @@ function createSession(paneId: string, view: EditorView, api: JFLoveCmApi): Scra
       view.dispatch({ selection: { anchor: info.from, head: info.to }, scrollIntoView: true });
       view.focus();
       return true;
+    },
+    revealRange: (from: number, to: number) => {
+      const max = view.state.doc.length;
+      const start = Math.min(Math.max(0, Math.trunc(from)), max);
+      const end = Math.min(Math.max(start, Math.trunc(to)), max);
+      view.dispatch({ selection: { anchor: start, head: end }, scrollIntoView: true });
+      view.focus();
     },
   };
 }
