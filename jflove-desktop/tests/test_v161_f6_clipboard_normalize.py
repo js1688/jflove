@@ -5,7 +5,10 @@ v1.6.1 · F6「IDEA 复制的代码贴不进来」**外壳侧修复**的可失�
 
 - `normalize_clipboard_for_paste(clipboard)`：坏形态剪贴板 ⇒ 重写成 `CF_HTML` + `CF_UNICODETEXT`；
 - `build_paste_safe_mime_data(mime)`：重建的实际动作（只留 html + text）；
-- `PasteClipboardNormalizer`：应用级事件过滤器（`Ctrl+V` 前置归一化，**放行**默认粘贴）。
+- `PasteClipboardNormalizer`：事件过滤器（`Ctrl+V` 前置归一化，**放行**默认粘贴）。
+  过滤器**只挂渲染 widget**（`QWebEngineView.focusProxy()`），**绝不挂 `QApplication`**
+  —— 应用级 Python 过滤器 + QtWebEngine 在 Linux/X11 上会在
+  `PySide::getWrapperForQObject` 段错误（Fedora 启动即崩溃的根因）。
 
 ## 真凶与判据（r18 真机单变量对照矩阵，见 `poc/editor-probes/r17-clipboard-cfhtml.py`）
 
@@ -26,7 +29,9 @@ QtWebEngine 的 `Ctrl+V` 就贴出 **0 字符**；把它剔掉、只留 `CF_HTML
 | 事件过滤器 | **永不吞键**（恒 `return False`）；只对"真会发生粘贴的 `Ctrl+V`"动作 |
 | 事件过滤器 | 窗口**非活动**时不动剪贴板 |
 | 递归 | 重写引发的 `dataChanged` 回环不得再写一次 |
-| 接线回归 | 真 `WebShell` 把过滤器装到了 `QApplication` 上，且**真的收到**按键事件 |
+| 接线回归 | 真 `WebShell` 把过滤器装到**渲染 widget**（`view.focusProxy()`）上，且**真的收到**按键事件 |
+| 接线回归 | 中立 `QWidget` 收到 `Ctrl+V` **不得**触发 —— 守住"不许再挂 `QApplication`"（Linux 崩溃根因） |
+| 接线回归 | 平台关闭（非 Win32）时**不安装**任何过滤器；换目标时**先摘旧**再挂新 |
 
 安全：本文件**不打印任何剪贴板正文**（只用自造短串做长度/布尔断言）；不联网、不读用户文件。
 用例全部走**注入的假剪贴板**，只有一条"序列号零写入"用例碰真剪贴板，且**只在它本来就不含
@@ -36,6 +41,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QEvent, QMimeData, QObject, Qt
@@ -504,42 +510,126 @@ class TestPasteClipboardNormalizer:
         ).matches(QKeySequence.StandardKey.Paste) is False
 
 
-# ── 接线回归：真外壳确实把过滤器装上了，且真的收得到事件 ─────────
+# ── 接线回归：过滤器只挂渲染 widget（绝不挂 QApplication） ────────
 
 
 @pytest.fixture(scope="module")
 def shell(qapp):
     """真 `WebShell`（Chromium 视图构造较重 ⇒ 模块级复用）"""
+    patches = pytest.MonkeyPatch()
+    # 用例要在任何平台验证"挂载点"本身（真机只在 Win32 启用）⇒ 在测试内放开平台门禁。
+    # 真剪贴板不会被碰：`PasteClipboardNormalizer._on_event` 里的 `QGuiApplication`
+    # 在下面各用例中已被换成假剪贴板（见 `test_渲染widget能收到按键事件`）。
+    patches.setattr(web_shell, "CLIPBOARD_NORMALIZE_ENABLED", True)
     instance = WebShell(objects={}, frameless=True, publish_event=None)
+    # 渲染 widget（focusProxy）在首次 show 时才创建 ⇒ 必须先 show 才有挂载点
+    instance.show()
+    qapp.processEvents()
+    instance._ensure_paste_filter()
     yield instance
-    app = QApplication.instance()
-    if app is not None:
-        app.removeEventFilter(instance.paste_normalizer)  # 收工摘掉，避免影响后续用例
     instance.hide()
+    patches.undo()
 
 
 class TestWiring:
-    """`WebShell` 必须**真的**装上应用级过滤器（BL-51「配了没反应」的回归守门）"""
+    """挂载点回归守门：只挂渲染 widget（BL-51「配了没反应」+ Fedora 启动崩溃双守卫）"""
 
-    def test_过滤器是应用级的且能收到按键事件(self, shell, qapp) -> None:
+    def test_中立控件收不到过滤(self, shell, qapp) -> None:
         """
-        判据：把一个 `Ctrl+V` 按键通过 `QApplication.sendEvent` 投进应用 ⇒
-        过滤器的 `paste_key_count` 必须 +1（证明挂钩点**真的会触发**，而不是"配了没反应"）。
+        判据：往一个中立 `QWidget` 投 `Ctrl+V` ⇒ 计数**不变**。
+
+        这条守的是崩溃根因：过滤器一旦挂到 `QApplication`，任何对象的按键都会被计数；
+        而 Linux/X11 上应用级 Python 过滤器会让 PySide6 在 `getWrapperForQObject` 段错误。
         """
         before = shell.paste_normalizer.paste_key_count
-        target = QWidget()  # 中立接收者：只验证"应用级过滤器看得到按键"
+        target = QWidget()
         QApplication.sendEvent(
             target, key_press(Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
         )
         target.deleteLater()
 
+        assert shell.paste_normalizer.paste_key_count == before
+        assert shell._paste_filter_target is not None
+
+    def test_渲染widget能收到按键事件(self, shell, qapp, monkeypatch) -> None:
+        """
+        判据：往渲染 widget（`view.focusProxy()`，按键真正的落点）投 `Ctrl+V` ⇒ 计数 +1。
+
+        与上一条合起来：**"该触发的触发、不该触发的绝不触发"**。
+        `QGuiApplication` 换成假剪贴板，避免真机（窗口恰好是活动窗口时）改写系统剪贴板。
+        """
+        monkeypatch.setattr(
+            web_shell, "QGuiApplication", FakeAppWithClipboard(bad_clipboard())
+        )
+        proxy = shell.view.focusProxy()
+        assert proxy is not None, "focusProxy() 为空 ⇒ 无法验证挂载点"
+        before = shell.paste_normalizer.paste_key_count
+        QApplication.sendEvent(
+            proxy, key_press(Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        )
+
         assert shell.paste_normalizer.paste_key_count == before + 1
+        assert shell._paste_filter_target is proxy
 
     def test_过滤器绝不吞键(self, shell, qapp) -> None:
         """判据：真外壳的过滤器同样恒返回 `False`（默认粘贴不被阻断）"""
         assert shell.paste_normalizer.eventFilter(
             None, key_press(Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
         ) is False
+
+
+class TestEnsurePasteFilter:
+    """`_ensure_paste_filter()` 的平台门禁与幂等（纯逻辑，不需要 Chromium 视图）"""
+
+    def test_平台关闭时一个过滤器都不挂(self, qapp, monkeypatch) -> None:
+        """判据：`CLIPBOARD_NORMALIZE_ENABLED=False`（Linux）⇒ 不安装任何过滤器"""
+        monkeypatch.setattr(web_shell, "CLIPBOARD_NORMALIZE_ENABLED", False)
+        target = QWidget()
+        normalizer = PasteClipboardNormalizer(FakeWindow(active=True))
+        fake = SimpleNamespace(
+            view=SimpleNamespace(focusProxy=lambda: target),
+            paste_normalizer=normalizer,
+            _paste_filter_target=None,
+            _paste_filter_warned=False,
+        )
+
+        assert WebShell._ensure_paste_filter(fake) is False
+        assert fake._paste_filter_target is None
+        before = normalizer.paste_key_count
+        QApplication.sendEvent(
+            target, key_press(Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        )
+        assert normalizer.paste_key_count == before  # 真的没挂上
+
+    def test_换目标时先摘旧再挂新(self, qapp, monkeypatch) -> None:
+        """判据：`focusProxy()` 换 widget（页面重建）⇒ 旧目标失效、新目标生效"""
+        monkeypatch.setattr(web_shell, "CLIPBOARD_NORMALIZE_ENABLED", True)
+        old = QWidget()
+        new = QWidget()
+        current = {"widget": old}
+        normalizer = PasteClipboardNormalizer(FakeWindow(active=False))  # 非活动 ⇒ 不碰剪贴板
+        fake = SimpleNamespace(
+            view=SimpleNamespace(focusProxy=lambda: current["widget"]),
+            paste_normalizer=normalizer,
+            _paste_filter_target=None,
+            _paste_filter_warned=False,
+        )
+
+        assert WebShell._ensure_paste_filter(fake) is True
+        assert fake._paste_filter_target is old
+        current["widget"] = new
+        assert WebShell._ensure_paste_filter(fake) is True
+        assert fake._paste_filter_target is new
+
+        before = normalizer.paste_key_count
+        QApplication.sendEvent(
+            old, key_press(Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        )
+        assert normalizer.paste_key_count == before  # 旧目标已摘
+        QApplication.sendEvent(
+            new, key_press(Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        )
+        assert normalizer.paste_key_count == before + 1  # 新目标生效
 
     def test_关键常量与Qt侧映射名一致(self) -> None:
         """判据：触发格式名必须是 Qt 对 Win32 `CFSTR_INETURL` 的映射名（写错就等于永不触发）"""

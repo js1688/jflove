@@ -42,6 +42,11 @@ Qt 6.11 **没有** `QWebEnginePage.actions()`；`QWebEngineView.actions()` 实�
 详见 `PasteClipboardNormalizer` / `CLIPBOARD_URI_LIST_FORMAT` 的中文注释与
 `poc/editor-probes/r17-clipboard-cfhtml.py --only CLIP-AWT-REAL` 的真机判据。
 
+**过滤器只挂渲染 widget（`QWebEngineView.focusProxy()`），绝不挂 `QApplication`**：
+应用级 Python 事件过滤器会让 PySide6 为 QtWebEngine 内部每个事件接收者生成 Python 包装，
+Linux/X11 窗口激活时在 `PySide::getWrapperForQObject` 段错误（Fedora 启动崩溃的根因，
+见 `PasteClipboardNormalizer` 文档）。挂载/重挂见 `WebShell._ensure_paste_filter()`。
+
 ## 导航边界（S-3 / 安全宪法 §9.6）
 
 桥（`qt.webChannelTransport`）对**同一 profile 上的任意文档**都可见，与来源无关
@@ -443,16 +448,22 @@ def normalize_clipboard_for_paste(clipboard) -> dict:
 
 class PasteClipboardNormalizer(QObject):
     """
-    应用级事件过滤器：**只在用户真的按下 `Ctrl+V` 的那一刻**把坏形态剪贴板归一化，然后放行。
+    事件过滤器：**只在用户真的按下 `Ctrl+V` 的那一刻**把坏形态剪贴板归一化，然后放行。
 
-    ## 挂钩点为什么是"应用级事件过滤器"（而不是 `DropAwareWebView.keyPressEvent`）
+    ## 挂钩点为什么是"渲染 widget"（既不是应用级过滤器，也不是 `keyPressEvent`）
 
-    `QWebEngineView` 的按键**落在 focusProxy（渲染 widget）**上，`QWebEngineView`/`QWidget`
-    自身的 `keyPressEvent` **收不到** Ctrl+V（本项目已有 BL-51「配了没反应」的前车之鉴）。
-    应用级过滤器经 `QCoreApplication::notify` 分发链到达，**对任何接收者都可见**，
-    且必然早于接收者自己的 `event()`（渲染 widget 的 `keyPressEvent` 才把按键送进 Chromium），
-    因此在"粘贴发生之前"改写剪贴板是可靠的。
-    r17 真机判据的日志计数（`_rewrite_count`）就是"它真的触发过"的证据。
+    - **绝不能挂 `QApplication`**：应用级 Python 事件过滤器会让 PySide6 为**每一个**事件接收者
+      生成 Python 包装（含 QtWebEngine / Chromium 内部对象）。Linux/X11 上窗口激活分发
+      focus 事件时会在 `PySide::getWrapperForQObject` 段错误（Fedora 启动即 SIGSEGV 的根因；
+      PySide6 6.8 / 6.11 都有同款最小复现：`QWebEngineView` + `app.installEventFilter(obj)`，
+      同一个过滤器改挂普通 `QWidget` 则正常）。因此本类只由
+      `WebShell._ensure_paste_filter()` 挂到 `QWebEngineView.focusProxy()`（渲染 widget，
+      `QWidget`）上 —— 过滤器只会看到这一个接收者，绕开整条应用级分发链。
+    - **不能挂 `DropAwareWebView.keyPressEvent`**：`QWebEngineView` 的按键**落在 focusProxy
+      （渲染 widget）**上，`QWebEngineView`/`QWidget` 自身的 `keyPressEvent` **收不到** `Ctrl+V`
+      （本项目已有 BL-51「配了没反应」的前车之鉴）。渲染 widget 正是按键的接收者，
+      过滤器必然早于 Chromium 处理粘贴，因此在"粘贴发生之前"改写剪贴板仍然可靠。
+      r17 真机判据的日志计数（`_rewrite_count`）就是"它真的触发过"的证据。
 
     ## 三条不可越界的纪律
 
@@ -1051,12 +1062,19 @@ class WebShell(QMainWindow):
 
         self._inject_qwebchannel_js()
 
-        # 粘贴前剪贴板归一化（F6）：**应用级**过滤器 —— 见 PasteClipboardNormalizer 的文档，
-        # 为什么不能挂在 `DropAwareWebView.keyPressEvent`（按键落在渲染 widget 的 focusProxy 上）。
+        # 粘贴前剪贴板归一化（F6）：只挂**渲染 widget**（见 PasteClipboardNormalizer 文档）。
+        # 绝不挂 QApplication —— 应用级 Python 过滤器会让 PySide6 为 QtWebEngine 内部
+        # 每个事件接收者生成 Python 包装，Linux/X11 窗口激活时在
+        # `PySide::getWrapperForQObject` 段错误（本版修复的 Fedora 启动崩溃）。
         self.paste_normalizer = PasteClipboardNormalizer(self)
-        _app = QApplication.instance()
-        if _app is not None:
-            _app.installEventFilter(self.paste_normalizer)
+        #: 过滤器当前挂载的目标 widget（None = 尚未挂上；用于幂等重挂）
+        self._paste_filter_target: QWidget | None = None
+        #: 挂载失败告警是否已发过（只告警一次，避免每次 show 刷屏）
+        self._paste_filter_warned = False
+        # 构造期通常还没有 focusProxy（渲染 widget 在首次 show 时才创建）⇒ 真正的挂载
+        # 在 showEvent / loadFinished 里做，这里只覆盖"平台插件提前建好"的情况。
+        self._ensure_paste_filter()
+        self.view.loadFinished.connect(self._on_view_load_finished)
 
     # ── 原生媒体浮层联动（#3） ────────────────────
 
@@ -1131,10 +1149,59 @@ class WebShell(QMainWindow):
         super().resizeEvent(event)
         self._schedule_overlay_refresh()
 
+    def _ensure_paste_filter(self, warn: bool = False) -> bool:
+        """
+        把粘贴归一化过滤器挂到「真正接收按键的渲染 widget」上（幂等）。
+
+        目标 = `QWebEngineView.focusProxy()`：`QWebEngineView` 把键盘焦点代理给内部的
+        渲染 widget（`QWidget`），按键事件也落在它上面。**绝不挂 `QApplication`** ——
+        应用级 Python 过滤器会让 PySide6 为 QtWebEngine 内部每个事件接收者生成 Python
+        包装，Linux/X11 窗口激活时在 `PySide::getWrapperForQObject` 段错误
+        （详见 `PasteClipboardNormalizer` 文档）。
+
+        `focusProxy()` 在窗口首次 `show()` 时才被创建（实测），因此本方法由
+        `showEvent()` / `loadFinished` 反复调用；目标没变时直接返回。
+
+        :param warn: `True` 时在"目标仍不存在"的情况下打一次告警（只打一次）
+        :returns: 过滤器已就绪（`True`）；平台关闭或目标尚未创建（`False`）
+        """
+        if not CLIPBOARD_NORMALIZE_ENABLED:
+            # 非 Win32：F6 归一化本来就不生效（X11 上 text/uri-list 是"复制文件"的载体），
+            # 不安装任何过滤器 —— 从构造上排除"应用级过滤器 + WebEngine"的崩溃路径。
+            return False
+        proxy = self.view.focusProxy()
+        if proxy is None:
+            if warn and not self._paste_filter_warned:
+                self._paste_filter_warned = True
+                logger.warning(
+                    "粘贴归一化过滤器未能挂到渲染 widget（focusProxy() 为空）"
+                    "⇒ IDEA 粘贴（F6）降级，其它功能不受影响"
+                )
+            return False
+        if proxy is not self._paste_filter_target:
+            old = self._paste_filter_target
+            if old is not None:
+                try:
+                    old.removeEventFilter(self.paste_normalizer)
+                except RuntimeError:  # 旧目标已被销毁：Qt 已自动摘掉，无需处理
+                    pass
+            proxy.installEventFilter(self.paste_normalizer)
+            self._paste_filter_target = proxy
+            logger.info("粘贴归一化过滤器已挂到渲染 widget，只对该 widget 的按键生效")
+        return True
+
+    def _on_view_load_finished(self, _ok: bool) -> None:
+        """页面（重新）加载完成：渲染 widget 可能已重建 ⇒ 补挂一次过滤器（幂等）"""
+        self._ensure_paste_filter()
+
     def showEvent(self, event: QEvent) -> None:
-        """主窗显示（含从托盘恢复）：立即按当前几何重新贴合一次"""
+        """主窗显示（含从托盘恢复）：重新贴合浮层 + 确保粘贴过滤器已挂到渲染 widget"""
         super().showEvent(event)
         self._safe_overlay_refresh()
+        # focusProxy（渲染 widget）在首次 show 时才创建，且不同平台插件的时机可能更晚：
+        # 让出一帧再补挂；仍失败才告警（只告警一次）。
+        if not self._ensure_paste_filter():
+            QTimer.singleShot(0, lambda: self._ensure_paste_filter(warn=True))
 
     @staticmethod
     def _harden_settings(view: QWebEngineView) -> None:
