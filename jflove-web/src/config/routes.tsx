@@ -8,7 +8,6 @@ import { DiskBrowserPage } from '../pages/DiskBrowserPage';
 import { FilePreviewPage } from '../pages/FilePreviewPage';
 import { NoteListPage } from '../pages/NoteListPage';
 import { NoteEditPage } from '../pages/NoteEditPage';
-import { SyncPage } from '../pages/SyncPage';
 import { TransferTabsPage } from '../pages/TransferTabsPage';
 import { SecurityPage } from '../pages/SecurityPage';
 import { SettingsPage } from '../pages/SettingsPage';
@@ -65,7 +64,7 @@ export const router = createBrowserRouter([
       { path: 'files/:diskId/preview', element: <FilePreviewPage /> },
       { path: 'notes', element: <NoteListPage /> },
       { path: 'notes/:noteId', element: <NoteEditPage /> },
-      { path: 'sync', element: <SyncPage /> },
+      // v1.7.0：`/sync` 路由已移除（浏览器端不提供同步能力），访问旧深链会落到兜底路由。
       // v1.5.0：传输与修复合并到同一页（底部导航 6→5 项，修复中心并入传输页）；
       // `/repair` 保留以兼容深链与「查看修复进度」跳转，落在同一页的「修复」标签。
       { path: 'transfer', element: <TransferTabsPage /> },

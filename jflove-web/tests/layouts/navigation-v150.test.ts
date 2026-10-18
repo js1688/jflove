@@ -22,20 +22,23 @@ function read(relative: string): string {
   return readFileSync(resolve(SRC, relative), 'utf8');
 }
 
-describe('Web 移动布局导航 6 → 5（AC-18 / AC-20）', () => {
+describe('Web 移动布局导航 6 → 4（v1.7.0 移除同步；AC-18 / AC-20）', () => {
   const mobileLayout = read('layouts/MobileLayout.tsx');
 
-  it('底部导航恰好 5 项，顺序为 文件/笔记/同步/传输/设置', () => {
+  it('底部导航恰好 4 项，顺序为 文件/笔记/传输/设置', () => {
     const block = mobileLayout.split('const TABS: TabEntry[] = [')[1].split('];')[0];
     const labels = [...block.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
-    expect(labels).toEqual(['文件', '笔记', '同步', '传输', '设置']);
+    expect(labels).toEqual(['文件', '笔记', '传输', '设置']);
     expect(labels).not.toContain('修复');
+    // v1.7.0：浏览器端不提供同步能力，不得再出现「同步」tab
+    expect(labels).not.toContain('同步');
   });
 
   it('导航项路由与移动端 App 的信息架构一致', () => {
     const block = mobileLayout.split('const TABS: TabEntry[] = [')[1].split('];')[0];
     const paths = [...block.matchAll(/path: '([^']+)'/g)].map((m) => m[1]);
-    expect(paths).toEqual(['/files', '/notes', '/sync', '/transfer', '/settings']);
+    expect(paths).toEqual(['/files', '/notes', '/transfer', '/settings']);
+    expect(paths).not.toContain('/sync');
   });
 
   it('图标已矢量化（走统一 Icon 组件，不再有 emoji 导航图标）', () => {

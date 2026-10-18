@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
+import 'providers/album_backup_provider.dart';
 import 'providers/theme_provider.dart';
 import 'utils/crypto.dart';
 import 'utils/http_service.dart';
@@ -58,6 +59,15 @@ Future<void> main() async {
         // token 依然保留在内存中，只是本次没有恢复加密通道
       }
     }
+  }
+
+  // 3. 相册备份服务初始化（v1.7.0）
+  //    只读取本地开关与目标配置；未开启时**不产生任何网络请求**。
+  //    开关已开启时由服务自己按 60 秒周期扫描，无需页面在场。
+  try {
+    await container.read(albumBackupServiceProvider).init();
+  } catch (_) {
+    // 本地配置损坏 / 权限异常时静默跳过，不阻塞启动
   }
 
   runApp(UncontrolledProviderScope(

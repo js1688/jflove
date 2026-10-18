@@ -11,7 +11,6 @@ import 'pages/files/disk_browser_page.dart';
 import 'pages/files/file_preview_page.dart';
 import 'pages/notes/note_list_page.dart';
 import 'pages/notes/note_edit_page.dart';
-import 'pages/sync/sync_page.dart';
 import 'pages/transfer/transfer_page.dart';
 import 'pages/settings/settings_page.dart';
 import 'pages/admin/admin_users_page.dart';
@@ -55,7 +54,8 @@ class JFLoveApp extends ConsumerWidget {
           routes: [
             GoRoute(path: '/files', builder: (_, _) => const FileListPage()),
             GoRoute(path: '/notes', builder: (_, _) => const NoteListPage()),
-            GoRoute(path: '/sync', builder: (_, _) => const SyncPage()),
+            // v1.7.0：移除「同步管理」页 —— 移动端改为设置页的「相册自动同步」+
+            // 传输页的备份进度，不再提供目录双向同步。
             GoRoute(path: '/transfer', builder: (_, _) => const TransferPage()),
             // v1.5.0：修复中心并入传输页第二个页签；旧路径 `/repair` 继续可用，
             // 直接落到该页签，避免旧书签 / 通知跳转失效。
@@ -123,8 +123,8 @@ class JFLoveApp extends ConsumerWidget {
 /// 底部导航框架
 ///
 /// 对标桌面端 FluentWindow + NavigationInterface。
-/// v1.5.0：底部菜单 6 → 5（修复中心并入「传输」页签二），
-/// 底部菜单：文件 / 笔记 / 同步 / 传输任务 / 设置
+/// v1.7.0：底部菜单 5 → 4（移除「同步」，移动端改为相册自动备份），
+/// 底部菜单：文件 / 笔记 / 传输任务 / 设置
 class _AppScaffold extends StatelessWidget {
   final Widget child;
 
@@ -134,7 +134,6 @@ class _AppScaffold extends StatelessWidget {
   static const List<String> _routes = [
     '/files',
     '/notes',
-    '/sync',
     '/transfer',
     '/settings',
   ];
@@ -162,11 +161,6 @@ class _AppScaffold extends StatelessWidget {
             icon: Icon(Icons.note_outlined),
             selectedIcon: Icon(Icons.note),
             label: '笔记',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sync_outlined),
-            selectedIcon: Icon(Icons.sync),
-            label: '同步',
           ),
           NavigationDestination(
             icon: Icon(Icons.cloud_download_outlined),

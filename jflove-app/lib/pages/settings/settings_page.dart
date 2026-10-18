@@ -11,6 +11,7 @@ import '../../services/disk_service.dart';
 import '../../utils/http_service.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
+import 'album_backup_card.dart';
 
 /// 设置页
 class SettingsPage extends ConsumerWidget {
@@ -110,6 +111,9 @@ class SettingsPage extends ConsumerWidget {
           // ---- 笔记目录配置 ----
           _NotesDirConfigCard(),
           const SizedBox(height: 12),
+          // ---- 相册自动同步（v1.7.0 新增：替代原「同步管理」） ----
+          const AlbumBackupCard(),
+          const SizedBox(height: 12),
           // ---- 账号 ----
           _SectionCard(
             title: '账号',
@@ -204,7 +208,7 @@ class SettingsPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoRow(label: '版本', value: 'v1.6.2'),
+                _InfoRow(label: '版本', value: 'v1.7.0'),
                 const SizedBox(height: 6),
                 Text(
                   '私有文档 & 笔记管理系统',

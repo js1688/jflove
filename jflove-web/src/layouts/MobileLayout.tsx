@@ -24,7 +24,7 @@ interface TabEntry {
 const TABS: TabEntry[] = [
   { path: '/files', label: '文件', icon: 'files', prefix: true },
   { path: '/notes', label: '笔记', icon: 'notes', prefix: true },
-  { path: '/sync', label: '同步', icon: 'sync' },
+  // v1.7.0：移除「同步」tab（浏览器端不提供同步能力）
   { path: '/transfer', label: '传输', icon: 'transfer', prefix: true },
   { path: '/settings', label: '设置', icon: 'settings' },
 ];

@@ -33,6 +33,7 @@ from src.bridge import api_gateway
 from src.bridge import editor as editor_bridge
 from src.bridge import files as files_bridge
 from src.bridge import media as media_bridge
+from src.bridge import mount as mount_bridge
 from src.bridge import sync as sync_bridge
 from src.bridge import transfer as transfer_bridge
 from src.services import auth_service, server_history_service
@@ -284,6 +285,8 @@ WHITELIST: dict[str, dict[str, Callable[[dict], Any]]] = {
     **media_bridge.HANDLERS,
     # 同步管理（N9）：原桌面端的同步引擎 + 规则管理
     **sync_bridge.HANDLERS,
+    # 云盘挂载（v1.7.0）：挂载点管理 + 增量索引 + 按需下载 / 释放
+    **mount_bridge.HANDLERS,
     # 传输任务（N10 尾巴）：原桌面端的 TransferManager（任务真相回到 Python）
     **transfer_bridge.HANDLERS,
     # 文本编辑器 / 退出握手 / 文件关联（v1.6.0 §7.1 #1~#16）：零远端，不碰 /api/v1

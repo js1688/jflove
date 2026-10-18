@@ -34,7 +34,7 @@ export interface PlaceholderEntry {
 export const MAIN_PLACEHOLDERS: PlaceholderEntry[] = [
   { path: '/files', label: '文件管理', icon: 'files', node: 'N7' },
   { path: '/notes', label: '笔记管理', icon: 'notes', node: 'N8', implemented: true },
-  { path: '/sync', label: '同步管理', icon: 'sync', node: 'N9', implemented: true },
+  { path: '/sync', label: '云盘挂载', icon: 'sync', node: 'N9', implemented: true },
   { path: '/transfer', label: '传输任务', icon: 'transfer', node: 'N10', implemented: true },
 ];
 

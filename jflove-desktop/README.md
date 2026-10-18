@@ -2,7 +2,7 @@
 
 JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲染）** 的私有文档与笔记协同管理桌面应用，界面与 Web 端同一套，同时保留托盘、本地解码的媒体预览、原生文件对话框与系统拖放上传。
 
-> **当前版本：v1.6.2**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
+> **当前版本：v1.7.0**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
 
 > **v1.5.1**：Web 端品牌标识与桌面端统一（猫猫 logo）；系统设置移除**已失效**的「允许重编码降级」开关（服务端自 v1.4.2 起已不读取该键）；
 > 修复原生媒体浮层「关窗后残留」与「拖动主窗画面不跟随」；笔记页大纲改为**右侧可折叠竖栏**、打开笔记默认进入预览模式（有内容时）；
@@ -289,7 +289,8 @@ jflove-desktop/
 │   │   ├── api_gateway.py          # api.request 路径白名单（拒绝会话管理类路径）
 │   │   ├── files.py                # 原生文件对话框 / 拖放 / 下载保存
 │   │   ├── media.py                # 媒体打开/几何上报/播放控制的桥接
-│   │   ├── sync.py                 # 同步引擎信号 → 桥事件
+│   │   ├── sync.py                 # 旧同步引擎信号 → 桥事件（过渡期兼容）
+│   │   ├── mount.py                # 云盘挂载：挂载点 / 增量 / 按需下载 / 释放
 │   │   └── transfer.py             # 传输任务信号 → 桥事件
 │   ├── components/
 │   │   └── stream_proxy.py         # 本地解密 + Range 206 流代理（媒体预览唯一通路）
@@ -297,6 +298,8 @@ jflove-desktop/
 │   ├── services/                   # 业务服务层（唯一 HTTP 出口在 utils/http_client.py）
 │   │   ├── auth_service.py / file_service.py / note_service.py / user_service.py
 │   │   ├── disk_service.py / permission_service.py / repair_service.py
+│   │   ├── mount_service.py        # 挂载点配置（本地 JSON）+ 旧同步配置迁移
+│   │   ├── mount_sync_service.py   # 增量拉取 / 全量对账 / 下载 / 释放 / 状态
 │   │   └── config_service.py / sync_service.py / server_history_service.py
 │   ├── ui/                         # 原生外壳（无边框窗口 / 托盘 / 媒体浮层）
 │   │   ├── web_shell.py            # 承载 QtWebEngine、注入桥、关闭=最小化到托盘
@@ -306,7 +309,8 @@ jflove-desktop/
 │       ├── crypto.py               # X25519 + HKDF + ChaCha20-Poly1305
 │       ├── http_client.py          # 加密 HTTP 客户端（含信封形状判定）
 │       ├── session.py              # 会话状态单例
-│       ├── sync_engine.py          # 同步引擎（定时器 + 工作线程）
+│       ├── sync_engine.py          # 旧同步引擎（定时器 + 工作线程，过渡期保留）
+│       ├── mount_index.py          # 挂载点本地索引（SQLite：文件清单 + rev 游标）
 │       ├── transfer_manager.py     # 传输任务管理器
 │       ├── worker.py               # QThread 异步工作线程
 │       └── icon.py / input_method.py / logger.py
@@ -357,13 +361,15 @@ JFLove/
 ├── storage/
 │   ├── session.json            # 会话信息（token、server_url、username 等）
 │   ├── server_history.json     # 服务端地址历史（最近 10 条）
-│   └── sync_configs.json       # 同步配置（v1.1.6+，本地化管理）
+│   ├── sync_configs.json       # 旧同步配置（过渡期保留，首次挂载时自动迁移）
+│   ├── mounts.json             # 挂载点配置（按账号隔离：mounts_{username}.json）
+│   └── mount_index.db          # 挂载点本地索引（SQLite）
 └── logs/
     ├── app.log                 # INFO 及以上级别日志
     └── error.log               # ERROR 级别日志
 ```
 
-> **安全说明**：`sync_configs.json` 仅存配置元数据（不存 token / session_key / 密码）。`session.json` 不存储 session_key 或密码。
+> **安全说明**：`sync_configs.json` / `mounts_*.json` 仅存配置元数据（不存 token / session_key / 密码）；`mount_index.db` 只存远端文件路径/大小/mtime，不存文件内容。`session.json` 不存储 session_key 或密码。
 
 ---
 

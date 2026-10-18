@@ -4,7 +4,7 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 
 支持 PC 端（侧边栏导航）和移动端（底部 TabBar 导航）双布局自适应。
 
-> **当前版本：v1.5.1**（版本号唯一真相 = 仓库根 `version.json`；本模块由 `python scripts/sync_version.py`
+> **当前版本：v1.7.0**（版本号唯一真相 = 仓库根 `version.json`；本模块由 `python scripts/sync_version.py`
 > 同步两处：`package.json` 的 `version` 与 `src/config/constants.ts` 的 `APP_VERSION`。
 > 改版本只改 `version.json` + 跑同步脚本，**不要手改任何一处版本号字段**；不存在 `build.py --version` 选项）
 
@@ -160,7 +160,6 @@ jflove-web/
 │   │   ├── FilePreviewPage.tsx     # 文件预览
 │   │   ├── NoteListPage.tsx        # 笔记列表
 │   │   ├── NoteEditPage.tsx        # 笔记编辑/预览
-│   │   ├── SyncPage.tsx            # 同步说明+引导
 │   │   ├── TransferTabsPage.tsx    # 传输/修复合并页（/transfer 与 /repair 的页签容器）
 │   │   ├── TransferPage.tsx        # 传输任务视图（由 TransferTabsPage 引用）
 │   │   ├── RepairCenterPage.tsx    # 修复中心视图（由 TransferTabsPage 引用）
@@ -190,7 +189,6 @@ jflove-web/
 │   │   ├── auth-service.ts         # 认证
 │   │   ├── file-service.ts         # 文件管理
 │   │   ├── note-service.ts         # 笔记管理
-│   │   ├── sync-service.ts         # 同步（降级）
 │   │   ├── repair-service.ts       # 媒体离线修复任务
 │   │   ├── user-service.ts         # 用户管理
 │   │   ├── disk-service.ts         # 磁盘管理
@@ -241,7 +239,6 @@ jflove-web/
 | `/files/:diskId/preview` | FilePreviewPage | JWT | AppLayout |
 | `/notes` | NoteListPage | JWT | AppLayout |
 | `/notes/:noteId` | NoteEditPage | JWT | AppLayout |
-| `/sync` | SyncPage | JWT | AppLayout |
 | `/transfer` | TransferTabsPage（页签一：传输任务） | JWT | AppLayout |
 | `/repair` | TransferTabsPage（页签二：修复中心） | JWT | AppLayout |
 | `/security` | SecurityPage | JWT | AppLayout |
@@ -255,7 +252,7 @@ jflove-web/
 
 ## 已知限制
 
-- **同步管理**：浏览器沙箱限制，不支持本地文件系统双向同步（降级为展示+引导）
+- **同步管理**：浏览器端**不提供**（v1.7.0 起移除该页面）——同步能力只在桌面端（云盘挂载）与移动端（相册备份）提供；访问旧 `/sync` 深链会落到兜底路由
 - **视频/音频预览**：**MSE 主路径**（`src/utils/media-source-player.ts` 的 `playWithMSE`）边下边播 + 拖动 seek，**HTTP 与 HTTPS 均可用**（v1.4.0 起移除 Service Worker 流式代理，不再依赖安全上下文；单入口构建、无 `dist/sw.js`）；MSE 不可行时才回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
 - **PDF 预览**：暂不支持（与桌面端/移动端一致），提示下载后使用本地程序打开
 - **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗）+ `highlight.js`（代码高亮）+ `mermaid`（图表渲染），支持标题/加粗/斜体/列表/引用/代码块等

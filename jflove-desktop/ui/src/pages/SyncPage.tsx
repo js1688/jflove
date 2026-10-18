@@ -1,18 +1,18 @@
 /**
- * 同步管理页（N9，桌面端专有）
+ * 云盘挂载页（v1.7.0，替代原「同步管理」）
  *
- * Web 端此页是**降级说明页**（浏览器不能访问本地文件系统），所以本页没有 Web 参考，
- * 按**原桌面端**的同步能力实现（`sync_page.py` + `sync_engine.py`），
- * 视觉沿用 Web 端那套组件（PageHeader / Card / Modal / Switch / Toast），保证三端观感一致。
+ * 模型变化：
+ *   - 旧版：整目录双向同步（全量扫描 + size/mtime 猜），不知道上传了没有。
+ *   - 新版：**挂载点** =（远端目录 → 本地缓存目录），远端文件在这里**全部可见**，
+ *     并逐个标记「已缓存 / 仅在线」，可手动下载 / 释放；增量靠服务端变更日志。
  *
- * 能力：
- *   - 规则列表：别名 / 本地目录 / 目标磁盘与远端目录 / 自动同步与间隔 / 上次同步 / 启停
- *   - 新建·编辑：本地目录走**原生目录选择对话框**，远端目录复用目录树弹窗
- *   - 立即同步：调引擎触发一次，进度与结果由桥事件回流
+ * 配置真相在 Python（`mounts_{username}.json`），渲染层不落盘任何配置。
+ * 文件字节不进渲染层：下载由 Python 侧 `transfer_manager` 完成。
  *
- * 规则真相在 Python（本地 JSON），渲染层不落盘任何规则数据。
+ * 已知边界（如实标注）：当前为**应用内挂载视图**，尚未注册系统级虚拟盘
+ * （Windows CfAPI / Linux FUSE），因此资源管理器里只能看到已下载的文件。
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { DirTreeModal } from '../components/DirTreeModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -29,104 +29,104 @@ import {
 } from '../components/ui';
 import { diskService } from '../services/disk-service';
 import { fileService } from '../services/file-service';
-import { syncService, type SyncConfig, type SyncConfigInput } from '../services/sync-service';
-import { onBridgeEvent } from '../utils/desktop-bridge';
+import {
+  mountService,
+  type MountFile,
+  type MountInfo,
+  type MountInput,
+} from '../services/mount-service';
 
-/** 把 ISO 时间格式化成 `MM-DD HH:mm`（与其它页一致的紧凑写法） */
-function fmtTime(iso: string | null): string {
-  if (!iso) return '从未同步';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '从未同步';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+/** 字节数 → 紧凑可读大小 */
+function fmtSize(bytes: number): string {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let value = bytes;
+  let index = 0;
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024;
+    index += 1;
+  }
+  return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-/** 间隔秒数 → 人话 */
-function fmtInterval(seconds: number): string {
-  if (seconds < 60) return `${seconds} 秒`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟`;
-  return `${Math.round(seconds / 3600)} 小时`;
-}
+/** 单页最多渲染的文件数（避免上万条时卡顿） */
+const MAX_RENDER_FILES = 500;
+
+const EMPTY_FORM: MountInput = {
+  name: '',
+  disk_id: 0,
+  remote_path: '',
+  local_path: '',
+};
 
 export function SyncPage() {
-  const [configs, setConfigs] = useState<SyncConfig[]>([]);
+  const [mounts, setMounts] = useState<MountInfo[]>([]);
   const [disks, setDisks] = useState<{ id: number; name: string }[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [files, setFiles] = useState<MountFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filesLoading, setFilesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [runningIds, setRunningIds] = useState<string[]>([]);
 
   // 新建 / 编辑弹窗
-  const [editing, setEditing] = useState<SyncConfig | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<SyncConfigInput>({
-    name: '',
-    local_path: '',
-    disk_id: 0,
-    remote_path: '',
-    auto_sync: true,
-    sync_interval: 300,
-    enabled: true,
-  });
+  const [editingId, setEditingId] = useState('');
+  const [form, setForm] = useState<MountInput>(EMPTY_FORM);
   const [diskOpen, setDiskOpen] = useState(false);
   const [showRemotePicker, setShowRemotePicker] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<SyncConfig | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<MountInfo | null>(null);
 
-  const reload = useCallback(async () => {
+  const selected = useMemo(
+    () => mounts.find((m) => m.id === selectedId) ?? null,
+    [mounts, selectedId],
+  );
+  const selectedDiskName =
+    disks.find((d) => d.id === form.disk_id)?.name ?? '';
+
+  const loadMounts = useCallback(async () => {
     try {
-      const list = await syncService.list();
-      setConfigs(list);
+      const list = await mountService.list();
+      setMounts(list);
       setError(null);
+      setSelectedId((prev) =>
+        prev && list.some((m) => m.id === prev) ? prev : (list[0]?.id ?? ''),
+      );
     } catch (e) {
-      setError(e instanceof Error ? e.message : '读取同步规则失败');
+      setError(e instanceof Error ? e.message : '读取挂载点失败');
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const loadFiles = useCallback(async (mountId: string) => {
+    if (!mountId) {
+      setFiles([]);
+      return;
+    }
+    setFilesLoading(true);
+    try {
+      setFiles(await mountService.files(mountId));
+    } catch (e) {
+      toast.error('读取文件列表失败', e instanceof Error ? e.message : '未知错误');
+      setFiles([]);
+    } finally {
+      setFilesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    void reload();
+    void loadMounts();
     diskService
       .listAllDisks()
       .then((rows) => setDisks(rows.map((d) => ({ id: d.id, name: d.name }))))
       .catch(() => {});
-    // 规则变更后让 Python 侧引擎重载（自动同步定时器据此更新）
-    void syncService.reload().catch(() => {});
-  }, [reload]);
+  }, [loadMounts]);
 
-  // 引擎事件：进度与结果回流
   useEffect(() => {
-    const offStart = onBridgeEvent('sync.started', (p) => {
-      const id = String((p as { config_id?: string } | null)?.config_id ?? '');
-      if (id) {
-        setRunningIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-        toast.info('开始同步');
-      }
-    });
-    const offDone = onBridgeEvent('sync.finished', (p) => {
-      const r = (p ?? {}) as { config_id?: string; total_actions?: number };
-      setRunningIds((prev) => prev.filter((id) => id !== r.config_id));
-      toast.success(
-        '同步完成',
-        typeof r.total_actions === 'number' ? `本次处理 ${r.total_actions} 项` : undefined,
-      );
-      void reload();
-    });
-    const offErr = onBridgeEvent('sync.error', (p) => {
-      const r = (p ?? {}) as { config_id?: string; message?: string };
-      setRunningIds((prev) => prev.filter((id) => id !== r.config_id));
-      toast.error('同步失败', r.message);
-    });
-    return () => {
-      offStart();
-      offDone();
-      offErr();
-    };
-  }, [reload]);
+    void loadFiles(selectedId);
+  }, [selectedId, loadFiles]);
 
   const openCreate = async () => {
-    setEditing(null);
-    // 磁盘列表可能还没加载完（或加载失败）：这里补一次，避免新规则落在 disk_id=0
-    // 上被保存校验拦下（表现为"点了保存没反应"）。
     let available = disks;
     if (available.length === 0) {
       try {
@@ -134,115 +134,131 @@ export function SyncPage() {
         available = rows.map((d) => ({ id: d.id, name: d.name }));
         setDisks(available);
       } catch {
-        // 忽略：下面仍会用 0，保存时会给出明确校验提示
+        // 忽略：下面仍会用 0，保存时给出明确校验提示
       }
     }
+    setEditingId('');
+    setForm({ ...EMPTY_FORM, disk_id: available[0]?.id ?? 0 });
+    setShowForm(true);
+  };
+
+  const openEdit = (mount: MountInfo) => {
+    setEditingId(mount.id);
     setForm({
-      name: '',
-      local_path: '',
-      disk_id: available[0]?.id ?? 0,
-      remote_path: '',
-      auto_sync: true,
-      sync_interval: 300,
-      enabled: true,
+      name: mount.name,
+      disk_id: mount.disk_id,
+      remote_path: mount.remote_path,
+      local_path: mount.local_path,
     });
     setShowForm(true);
   };
 
-  const openEdit = (config: SyncConfig) => {
-    setEditing(config);
-    setForm({
-      name: config.name,
-      local_path: config.local_path,
-      disk_id: config.disk_id,
-      remote_path: config.remote_path,
-      auto_sync: config.auto_sync,
-      sync_interval: config.sync_interval,
-      enabled: config.enabled,
-    });
-    setShowForm(true);
-  };
-
-  const submit = async () => {
-    if (!form.name.trim() || !form.local_path.trim() || !form.disk_id) {
-      toast.error('请填写别名、本地目录并选择目标磁盘');
-      return;
-    }
+  const submitForm = async () => {
     try {
-      if (editing) {
-        await syncService.update(editing.id, form);
+      if (editingId) {
+        await mountService.update(editingId, form);
+        toast.success('挂载点已更新');
       } else {
-        await syncService.create(form);
+        await mountService.create(form);
+        toast.success('挂载点已创建', '开关默认关闭，请手动打开');
       }
-      await syncService.reload();
       setShowForm(false);
-      toast.success(editing ? '规则已更新' : '规则已创建');
-      await reload();
+      await loadMounts();
     } catch (e) {
-      toast.error('保存失败', e instanceof Error ? e.message : undefined);
+      toast.error('保存失败', e instanceof Error ? e.message : '未知错误');
     }
   };
 
-  const browseLocal = async () => {
-    const path = await fileService.pickDirectory('选择要同步的本地目录');
-    if (path) setForm((f) => ({ ...f, local_path: path }));
-  };
-
-  const runNow = async (config: SyncConfig) => {
+  const toggleEnabled = async (mount: MountInfo, enabled: boolean) => {
     try {
-      const started = await syncService.run(config.id);
-      if (!started) toast.error('无法开始同步', '该规则可能已在同步中');
+      await mountService.setEnabled(mount.id, enabled);
+      if (enabled) {
+        // 打开开关后立刻拉一次增量，让文件列表有内容
+        await mountService.refresh(mount.id);
+      }
+      await loadMounts();
+      if (mount.id === selectedId) await loadFiles(mount.id);
+      toast.success(enabled ? '挂载点已启用' : '挂载点已停用');
     } catch (e) {
-      toast.error('同步启动失败', e instanceof Error ? e.message : undefined);
+      toast.error(enabled ? '启用失败' : '停用失败', e instanceof Error ? e.message : '未知错误');
     }
   };
 
-  const toggleEnabled = async (config: SyncConfig) => {
+  const refreshSelected = async (mode: 'refresh' | 'reconcile') => {
+    if (!selected) return;
     try {
-      await syncService.update(config.id, {
-        name: config.name,
-        local_path: config.local_path,
-        disk_id: config.disk_id,
-        remote_path: config.remote_path,
-        auto_sync: config.auto_sync,
-        sync_interval: config.sync_interval,
-        enabled: !config.enabled,
-      });
-      await syncService.reload();
-      await reload();
+      const result =
+        mode === 'refresh'
+          ? await mountService.refresh(selected.id)
+          : await mountService.reconcile(selected.id);
+      toast.success(
+        mode === 'refresh' ? '增量同步完成' : '全量对账完成',
+        `更新 ${result.applied} 项，移除 ${result.deleted} 项`,
+      );
+      await loadMounts();
+      await loadFiles(selected.id);
     } catch (e) {
-      toast.error('操作失败', e instanceof Error ? e.message : undefined);
+      toast.error('同步失败', e instanceof Error ? e.message : '未知错误');
+    }
+  };
+
+  const downloadFile = async (file: MountFile) => {
+    if (!selected) return;
+    try {
+      await mountService.download(selected.id, file.rel_path);
+      toast.info('已加入下载队列', file.rel_path);
+    } catch (e) {
+      toast.error('下载失败', e instanceof Error ? e.message : '未知错误');
+    }
+  };
+
+  const releaseFile = async (file: MountFile) => {
+    if (!selected) return;
+    try {
+      await mountService.release(selected.id, file.rel_path);
+      await loadFiles(selected.id);
+      toast.success('已释放本地缓存', file.rel_path);
+    } catch (e) {
+      toast.error('释放失败', e instanceof Error ? e.message : '未知错误');
     }
   };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await syncService.remove(deleteTarget.id);
-      await syncService.reload();
+      await mountService.remove(deleteTarget.id);
       setDeleteTarget(null);
-      toast.success('规则已删除');
-      await reload();
+      await loadMounts();
+      toast.success('挂载点已删除', '本地已下载的文件不会被删除');
     } catch (e) {
-      toast.error('删除失败', e instanceof Error ? e.message : undefined);
+      toast.error('删除失败', e instanceof Error ? e.message : '未知错误');
     }
   };
 
-  const selectedDiskName = disks.find((d) => d.id === form.disk_id)?.name ?? '';
+  const browseLocal = async () => {
+    try {
+      const path = await fileService.pickDirectory('选择本地缓存目录');
+      if (path) setForm((f) => ({ ...f, local_path: path }));
+    } catch (e) {
+      toast.error('选择目录失败', e instanceof Error ? e.message : '未知错误');
+    }
+  };
+
+  const renderedFiles = files.slice(0, MAX_RENDER_FILES);
 
   return (
     <div className="flex h-full flex-col">
       <PageHeader
-        title="同步管理"
-        subtitle={`本地目录与私有云双向同步 · 共 ${configs.length} 条规则`}
+        title="云盘挂载"
+        subtitle="把远端目录挂到本地：全部文件可见，按需下载，默认关闭"
         actions={
-          <Button variant="primary" size="sm" icon="plus" onClick={() => void openCreate()}>
-            新建规则
+          <Button variant="primary" icon="plus" onClick={() => void openCreate()}>
+            新建挂载点
           </Button>
         }
       />
 
-      {loading && <LoadingSpinner text="加载同步规则…" />}
+      {loading && <LoadingSpinner text="加载挂载点…" />}
 
       {!loading && error && (
         <div className="px-4 py-3">
@@ -253,82 +269,174 @@ export function SyncPage() {
         </div>
       )}
 
-      {!loading && !error && configs.length === 0 && (
+      {!loading && !error && mounts.length === 0 && (
         <EmptyState
           icon="sync"
-          title="还没有同步规则"
-          description="创建一条规则，把本地目录与私有云磁盘做双向增量同步"
+          title="还没有挂载点"
+          description="新建一个挂载点，把远端目录映射到本地缓存目录；开关默认关闭，可随时停用"
         />
       )}
 
-      {!loading && !error && configs.length > 0 && (
-        <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-          {configs.map((config) => {
-            const running = runningIds.includes(config.id);
-            const diskName = disks.find((d) => d.id === config.disk_id)?.name ?? `磁盘 ${config.disk_id}`;
-            return (
-              <div key={config.id} className="card" data-sync-id={config.id}>
-                <div className="flex items-start gap-3">
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600">
-                    <Icon name="sync" size="md" />
+      {!loading && !error && mounts.length > 0 && (
+        <div className="flex min-h-0 flex-1">
+          {/* 左：挂载点列表 */}
+          <div className="w-[340px] shrink-0 space-y-2 overflow-y-auto border-r border-line-subtle p-3">
+            {mounts.map((mount) => {
+              const active = mount.id === selectedId;
+              return (
+                <button
+                  key={mount.id}
+                  type="button"
+                  data-mount-id={mount.id}
+                  className={`w-full rounded-xl border p-3 text-left transition ${
+                    active
+                      ? 'border-brand-600 bg-brand-50'
+                      : 'border-line-subtle bg-surface hover:bg-hover'
+                  }`}
+                  onClick={() => setSelectedId(mount.id)}
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon name="sync" size="sm" className="text-brand-600" />
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-fg">
+                      {mount.name}
+                    </span>
+                    <Badge tone={mount.enabled ? 'success' : 'neutral'}>
+                      {mount.enabled ? '已启用' : '已停用'}
+                    </Badge>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-[13.5px] font-semibold text-fg">
-                        {config.name}
-                      </span>
-                      {config.enabled ? (
-                        <Badge tone="success" icon="checked">
-                          已启用
-                        </Badge>
-                      ) : (
-                        <Badge tone="neutral">已停用</Badge>
-                      )}
-                      {config.auto_sync && (
-                        <Badge tone="brand">每 {fmtInterval(config.sync_interval)}</Badge>
-                      )}
-                      {running && <Badge tone="warning">同步中</Badge>}
+                  <div className="mt-2 space-y-0.5 text-[11.5px] text-subtle">
+                    <div className="truncate">
+                      远端：磁盘 {mount.disk_id}
+                      {mount.remote_path ? ` / ${mount.remote_path}` : ' / 根目录'}
                     </div>
-                    <div className="mt-1.5 space-y-0.5 text-[11.5px] text-subtle">
-                      <div className="truncate">
-                        本地：<span className="text-muted">{config.local_path}</span>
-                      </div>
-                      <div className="truncate">
-                        远端：<span className="text-muted">{diskName}</span>
-                        {config.remote_path ? ` / ${config.remote_path}` : ' / 根目录'}
-                      </div>
-                      <div>上次同步：{fmtTime(config.last_synced_at)}</div>
+                    <div className="truncate" title={mount.local_path}>
+                      本地：{mount.local_path}
+                    </div>
+                    <div>
+                      共 {mount.status.total} 项 · 已缓存 {mount.status.cached} · 仅在线{' '}
+                      {mount.status.online}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 右：选中挂载点的文件与状态 */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            {!selected && (
+              <div className="p-4 text-[13px] text-subtle">请选择左侧的挂载点</div>
+            )}
+
+            {selected && (
+              <>
+                <div className="flex flex-wrap items-center gap-2 border-b border-line-subtle px-4 py-3">
+                  <span className="text-[13px] font-semibold text-fg">{selected.name}</span>
+                  <span className="text-[11.5px] text-subtle">
+                    {selected.enabled ? '已启用' : '已停用'}
+                  </span>
+                  <div className="ml-auto flex items-center gap-1">
+                    <Switch
+                      checked={selected.enabled}
+                      onChange={(v) => void toggleEnabled(selected, v)}
+                      label="启用挂载点"
+                    />
                     <Button
                       size="sm"
-                      icon="play"
-                      disabled={running || !config.enabled}
-                      onClick={() => void runNow(config)}
+                      icon="refresh"
+                      disabled={!selected.enabled}
+                      onClick={() => void refreshSelected('refresh')}
                     >
-                      立即同步
+                      刷新
                     </Button>
-                    <Button size="sm" onClick={() => openEdit(config)}>
-                      编辑
+                    <Button
+                      size="sm"
+                      disabled={!selected.enabled}
+                      onClick={() => void refreshSelected('reconcile')}
+                    >
+                      全量对账
                     </Button>
                     <IconButton
-                      icon={config.enabled ? 'stop' : 'play'}
-                      label={config.enabled ? '停用' : '启用'}
+                      icon="edit"
+                      label="编辑挂载点"
                       size="sm"
-                      onClick={() => void toggleEnabled(config)}
+                      onClick={() => openEdit(selected)}
                     />
                     <IconButton
                       icon="delete"
-                      label="删除规则"
+                      label="删除挂载点"
                       size="sm"
-                      onClick={() => setDeleteTarget(config)}
+                      onClick={() => setDeleteTarget(selected)}
                     />
                   </div>
                 </div>
-              </div>
-            );
-          })}
+
+                {!selected.enabled && (
+                  <div className="px-4 py-3 text-[12.5px] text-subtle">
+                    挂载点默认关闭。打开上方开关后会拉取远端清单。
+                  </div>
+                )}
+
+                {selected.enabled && filesLoading && (
+                  <LoadingSpinner text="读取文件列表…" />
+                )}
+
+                {selected.enabled && !filesLoading && files.length === 0 && (
+                  <EmptyState
+                    icon="files"
+                    title="远端目录是空的"
+                    description="点「刷新」重新拉取；若刚启用，请稍候"
+                  />
+                )}
+
+                {selected.enabled && !filesLoading && files.length > 0 && (
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="px-4 py-2 text-[11.5px] text-subtle">
+                      共 {files.length} 项（显示前 {renderedFiles.length} 项）
+                    </div>
+                    {renderedFiles.map((file) => (
+                      <div
+                        key={file.rel_path}
+                        className="flex items-center gap-3 border-b border-line-subtle px-4 py-2"
+                      >
+                        <Icon
+                          name={file.is_dir ? 'folder' : 'files'}
+                          size="sm"
+                          className="shrink-0 text-subtle"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg">
+                          {file.rel_path}
+                        </span>
+                        <span className="w-[88px] shrink-0 text-right text-[11.5px] text-subtle">
+                          {file.is_dir ? '目录' : fmtSize(file.size)}
+                        </span>
+                        <span className="w-[72px] shrink-0 text-right">
+                          <Badge tone={file.cached ? 'success' : 'neutral'}>
+                            {file.cached ? '已缓存' : '仅在线'}
+                          </Badge>
+                        </span>
+                        <div className="w-[120px] shrink-0 text-right">
+                          {file.is_dir ? null : file.cached ? (
+                            <Button size="sm" onClick={() => void releaseFile(file)}>
+                              释放
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              icon="download"
+                              onClick={() => void downloadFile(file)}
+                            >
+                              下载
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -336,16 +444,16 @@ export function SyncPage() {
       {showForm && (
         <Modal
           open
-          title={editing ? '编辑同步规则' : '新建同步规则'}
+          title={editingId ? '编辑挂载点' : '新建挂载点'}
           icon="sync"
-          width={520}
+          width={560}
           onClose={() => setShowForm(false)}
           footer={
             <>
               <Button variant="ghost" onClick={() => setShowForm(false)}>
                 取消
               </Button>
-              <Button variant="primary" icon="checked" onClick={() => void submit()}>
+              <Button variant="primary" icon="checked" onClick={() => void submitForm()}>
                 保存
               </Button>
             </>
@@ -353,33 +461,17 @@ export function SyncPage() {
         >
           <div className="space-y-3">
             <div>
-              <div className="mb-1.5 text-[12px] font-medium text-muted">别名</div>
+              <div className="mb-1.5 text-[12px] font-medium text-muted">名称</div>
               <input
                 className="input"
-                placeholder="例如：工作文档"
+                placeholder="例如：照片库"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               />
             </div>
 
             <div>
-              <div className="mb-1.5 text-[12px] font-medium text-muted">本地目录</div>
-              <div className="flex items-center gap-2">
-                <input
-                  className="input flex-1"
-                  placeholder="选择或粘贴本地目录绝对路径"
-                  value={form.local_path}
-                  onChange={(e) => setForm((f) => ({ ...f, local_path: e.target.value }))}
-                />
-                <Button size="sm" icon="folder" onClick={() => void browseLocal()}>
-                  浏览…
-                </Button>
-              </div>
-            </div>
-
-            <div>
-              <div className="mb-1.5 text-[12px] font-medium text-muted">目标磁盘</div>
-              {/* 不用原生 select（观感差且不可控），用与全站一致的自绘下拉 */}
+              <div className="mb-1.5 text-[12px] font-medium text-muted">远端磁盘</div>
               <div className="relative">
                 <button
                   type="button"
@@ -421,7 +513,7 @@ export function SyncPage() {
             </div>
 
             <div>
-              <div className="mb-1.5 text-[12px] font-medium text-muted">远端目录</div>
+              <div className="mb-1.5 text-[12px] font-medium text-muted">远端子目录</div>
               <div className="flex items-center gap-2">
                 <input
                   className="input flex-1"
@@ -440,31 +532,24 @@ export function SyncPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between rounded-lg border border-line-subtle px-3 py-2.5">
-              <div>
-                <div className="text-[13px] text-fg">自动同步</div>
-                <div className="text-[11.5px] text-subtle">按下方间隔在后台自动执行</div>
+            <div>
+              <div className="mb-1.5 text-[12px] font-medium text-muted">本地缓存目录</div>
+              <div className="flex items-center gap-2">
+                <input
+                  className="input flex-1"
+                  placeholder="选择或粘贴本地目录绝对路径"
+                  value={form.local_path}
+                  onChange={(e) => setForm((f) => ({ ...f, local_path: e.target.value }))}
+                />
+                <Button size="sm" icon="folder" onClick={() => void browseLocal()}>
+                  浏览…
+                </Button>
               </div>
-              <Switch
-                checked={form.auto_sync}
-                onChange={(checked) => setForm((f) => ({ ...f, auto_sync: checked }))}
-                label="自动同步"
-              />
             </div>
 
-            <div>
-              <div className="mb-1.5 text-[12px] font-medium text-muted">
-                同步间隔（秒，最小 30）
-              </div>
-              <input
-                className="input"
-                type="number"
-                min={30}
-                value={form.sync_interval}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, sync_interval: Number(e.target.value) || 300 }))
-                }
-              />
+            <div className="rounded-lg border border-line-subtle px-3 py-2.5 text-[11.5px] text-subtle">
+              新建后开关默认关闭；打开后才会连接远端并拉取清单。
+              当前为应用内挂载视图，尚未注册系统级虚拟盘。
             </div>
           </div>
         </Modal>
@@ -486,7 +571,7 @@ export function SyncPage() {
       {deleteTarget && (
         <ConfirmDialog
           title="确认删除"
-          message={`确定要删除同步规则「${deleteTarget.name}」吗？本地与云端文件都不会被删除。`}
+          message={`确定要删除挂载点「${deleteTarget.name}」吗？远端文件与本地已下载的文件都不会被删除。`}
           confirmLabel="删除"
           danger
           onConfirm={() => void confirmDelete()}

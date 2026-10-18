@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../config/design_tokens.dart';
 import '../../models/transfer_task.dart';
+import '../../providers/album_backup_provider.dart';
 import '../../providers/transfer_provider.dart';
+import '../../services/album_backup/album_backup_service.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_state.dart';
@@ -103,6 +106,9 @@ class _TransferPageState extends ConsumerState<TransferPage>
 }
 
 /// 传输任务列表（页签一）
+///
+/// v1.7.0：顶部固定一块「相册备份」摘要（进度 + 入口），下方才是传输任务列表；
+/// 这样即使没有普通传输任务，用户也能看到相册备份的状态。
 class _TransferTaskList extends ConsumerWidget {
   const _TransferTaskList();
 
@@ -110,60 +116,118 @@ class _TransferTaskList extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final taskAsync = ref.watch(transferTaskStreamProvider);
 
-    return taskAsync.when(
-      data: (tasks) {
-        if (tasks.isEmpty) {
-          return const EmptyState(
-            icon: Icons.cloud_download_outlined,
-            title: '暂无传输任务',
-            subtitle: '在「文件」页面上传或下载文件',
-          );
-        }
+    return Column(
+      children: [
+        const _AlbumBackupSummary(),
+        Expanded(
+          child: taskAsync.when(
+            data: (tasks) {
+              if (tasks.isEmpty) {
+                return const EmptyState(
+                  icon: Icons.cloud_download_outlined,
+                  title: '暂无传输任务',
+                  subtitle: '在「文件」页面上传或下载文件',
+                );
+              }
 
-        final stats = ref.watch(transferStatsProvider);
-        return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-              child: Row(
+              final stats = ref.watch(transferStatsProvider);
+              return Column(
                 children: [
-                  _StatPill(
-                    label: '共 ${stats['total'] ?? 0}',
-                    tone: BadgeTone.brand,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                    child: Row(
+                      children: [
+                        _StatPill(
+                          label: '共 ${stats['total'] ?? 0}',
+                          tone: BadgeTone.brand,
+                        ),
+                        const SizedBox(width: 6),
+                        _StatPill(
+                          label: '进行中 ${stats['running'] ?? 0}',
+                          tone: BadgeTone.warning,
+                        ),
+                        const SizedBox(width: 6),
+                        _StatPill(
+                          label: '完成 ${stats['completed'] ?? 0}',
+                          tone: BadgeTone.success,
+                        ),
+                        const SizedBox(width: 6),
+                        _StatPill(
+                          label: '失败 ${stats['failed'] ?? 0}',
+                          tone: BadgeTone.danger,
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 6),
-                  _StatPill(
-                    label: '进行中 ${stats['running'] ?? 0}',
-                    tone: BadgeTone.warning,
-                  ),
-                  const SizedBox(width: 6),
-                  _StatPill(
-                    label: '完成 ${stats['completed'] ?? 0}',
-                    tone: BadgeTone.success,
-                  ),
-                  const SizedBox(width: 6),
-                  _StatPill(
-                    label: '失败 ${stats['failed'] ?? 0}',
-                    tone: BadgeTone.danger,
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                      itemCount: tasks.length,
+                      itemBuilder: (ctx, i) => _TransferTaskCard(task: tasks[i]),
+                    ),
                   ),
                 ],
-              ),
+              );
+            },
+            loading: () => const ListSkeleton(),
+            error: (e, _) => ErrorState(
+              title: '传输任务加载失败',
+              message: '$e',
+              onRetry: () => ref.invalidate(transferTaskStreamProvider),
             ),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                itemCount: tasks.length,
-                itemBuilder: (ctx, i) => _TransferTaskCard(task: tasks[i]),
-              ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 相册备份摘要卡（v1.7.0）
+class _AlbumBackupSummary extends ConsumerWidget {
+  const _AlbumBackupSummary();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = context.tokens;
+    final configAsync = ref.watch(albumBackupConfigProvider);
+    final progressAsync = ref.watch(albumBackupProgressProvider);
+    final enabled = configAsync.asData?.value.enabled ?? false;
+    final p = progressAsync.asData?.value ?? AlbumBackupProgress.empty;
+
+    return AppCard(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.all(14),
+      child: Row(
+        children: [
+          Icon(Icons.photo_library_outlined, size: 18, color: AppTokens.brand600),
+          SizedBox(width: t.s2),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '相册备份',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    color: t.fgDefault,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  enabled
+                      ? '已备份 ${p.done} 项 · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项'
+                      : '未开启——到「设置」页打开相册自动同步',
+                  style: TextStyle(fontSize: 12, color: t.fgSubtle),
+                ),
+              ],
             ),
-          ],
-        );
-      },
-      loading: () => const ListSkeleton(),
-      error: (e, _) => ErrorState(
-        title: '传输任务加载失败',
-        message: '$e',
-        onRetry: () => ref.invalidate(transferTaskStreamProvider),
+          ),
+          TextButton(
+            onPressed: () => context.go('/settings'),
+            child: const Text('设置'),
+          ),
+        ],
       ),
     );
   }

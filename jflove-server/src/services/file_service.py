@@ -25,6 +25,7 @@ import aiosqlite
 
 from src.config.settings import REPAIR_DIR_NAME, UPLOAD_TEMP_DIR
 from src.repositories import virtual_disk_repository, permission_repository
+from src.services import file_journal_service
 from src.services.permission_service import check_disk_permission
 from src.utils.logger import get_logger
 from src.utils.path_safety import safe_join as _safe_join_impl
@@ -42,6 +43,54 @@ _upload_sessions: dict[str, dict] = {}
 #   最多尝试 5 次（含首次），每次间隔 0.1s ⇒ 最长等待 0.4s，对上传请求可忽略。
 _REPLACE_MAX_ATTEMPTS = 5
 _REPLACE_RETRY_INTERVAL_SEC = 0.1
+
+
+def _rel_of(base: str, full: str) -> str:
+    """
+    把绝对路径转成"相对磁盘根、以 / 分隔"的路径（与变更日志口径一致）。
+
+    :param base: 磁盘根绝对路径
+    :param full: 目标绝对路径
+    :returns: 形如 `photos/2026/a.jpg`
+    """
+    return os.path.relpath(full, base).replace(os.sep, "/")
+
+
+def _collect_tree(full: str, base: str) -> list[tuple[str, bool, int, float]]:
+    """
+    收集 `full`（文件或目录）及其全部子孙的元数据。
+
+    用于 rename / move / delete 时一次性写入多条变更日志。
+
+    :param full: 目标绝对路径
+    :param base: 磁盘根绝对路径
+    :returns: 列表，每项 `(相对路径, 是否目录, 大小, mtime)`
+    """
+    result: list[tuple[str, bool, int, float]] = []
+    try:
+        st = os.stat(full)
+    except OSError:
+        return result
+    is_dir = os.path.isdir(full)
+    result.append((_rel_of(base, full), is_dir, 0 if is_dir else st.st_size, st.st_mtime))
+    if not is_dir:
+        return result
+    for dirpath, dirnames, filenames in os.walk(full):
+        for name in dirnames:
+            p = os.path.join(dirpath, name)
+            try:
+                s = os.stat(p)
+            except OSError:
+                continue
+            result.append((_rel_of(base, p), True, 0, s.st_mtime))
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            try:
+                s = os.stat(p)
+            except OSError:
+                continue
+            result.append((_rel_of(base, p), False, s.st_size, s.st_mtime))
+    return result
 
 
 def _remove_quietly(path: str) -> None:
@@ -324,9 +373,15 @@ async def upload_chunk(upload_id: str, chunk_index: int, chunk_data: bytes) -> N
     session["received"].add(chunk_index)
 
 
-async def complete_upload(upload_id: str) -> str:
+async def complete_upload(
+    upload_id: str,
+    db: aiosqlite.Connection | None = None,
+) -> str:
     """
     合并所有分片，校验 SHA256，**原子**写入目标路径，清理临时文件。
+
+    v1.7.0：新增可选 `db` 参数 —— 传入时在写入成功后追加一条 `upsert` 变更日志，
+    供挂载云盘做增量同步；不传时行为与旧版完全一致（兼容既有调用与测试）。
 
     v1.6.0（BL-8）覆盖写原子化：合并与校验全部先落到**目标目录内**的临时文件
     （`.<filename>.jflove-upload-<upload_id>.part`），mtime 还原也作用在临时文件上，
@@ -404,6 +459,21 @@ async def complete_upload(upload_id: str) -> str:
 
     shutil.rmtree(session["tmp_dir"], ignore_errors=True)
     del _upload_sessions[upload_id]
+    # v1.7.0：写入变更日志（失败不影响上传结果——文件已经落盘）
+    if db is not None:
+        try:
+            st = os.stat(dest_file)
+            await file_journal_service.record_upsert(
+                db,
+                session["disk_id"],
+                _rel_of(session["base"], dest_file),
+                is_dir=False,
+                size=st.st_size,
+                mtime=st.st_mtime,
+                content_hash=session["file_hash"],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("写变更日志失败（不影响上传结果）: %s", type(e).__name__)
     logger.info("文件上传完成: %s", dest_file)
     return dest_file
 
@@ -472,13 +542,23 @@ async def delete_file(
             raise PermissionError("无删除权限")
     base = await _get_disk_path(db, disk_id)
     target = _safe_join(base, rel_path)
+    if not os.path.exists(target):
+        raise ValueError("路径不存在")
+    # v1.7.0：删除前先收集整棵子树，删除后统一写 delete 变更日志
+    entries = _collect_tree(target, base)
     if os.path.isfile(target):
         os.remove(target)
     elif os.path.isdir(target):
-        import shutil
         shutil.rmtree(target)
     else:
         raise ValueError("路径不存在")
+    try:
+        await file_journal_service.record_many(db, disk_id, [
+            {"rel_path": rel, "op": "delete", "is_dir": is_dir}
+            for rel, is_dir, _size, _mtime in entries
+        ])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("写变更日志失败（不影响删除结果）: %s", type(e).__name__)
     logger.info("文件/目录已删除: %s", target)
 
 
@@ -504,7 +584,21 @@ async def make_dir(
             raise PermissionError("无写入权限")
     base = await _get_disk_path(db, disk_id)
     target = _safe_join(base, rel_path)
+    existed = os.path.isdir(target)
     os.makedirs(target, exist_ok=True)
+    # v1.7.0：仅在真正新建目录时记录（make_dir 本身是幂等的）
+    if not existed:
+        try:
+            st = os.stat(target)
+            await file_journal_service.record_upsert(
+                db,
+                disk_id,
+                _rel_of(base, target),
+                is_dir=True,
+                mtime=st.st_mtime,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("写变更日志失败（不影响建目录结果）: %s", type(e).__name__)
 
 
 async def get_preview(
@@ -596,7 +690,28 @@ async def rename_file(
     if os.path.exists(new_target):
         raise FileExistsError("目标名称已存在")
 
+    # v1.7.0：旧路径整棵子树 delete + 新路径整棵子树 upsert
+    old_entries = _collect_tree(target, base)
     os.rename(target, new_target)
+    new_entries = _collect_tree(new_target, base)
+    try:
+        rows = [
+            {"rel_path": rel, "op": "delete", "is_dir": is_dir}
+            for rel, is_dir, _size, _mtime in old_entries
+        ]
+        rows.extend(
+            {
+                "rel_path": rel,
+                "op": "upsert",
+                "is_dir": is_dir,
+                "size": size,
+                "mtime": mtime,
+            }
+            for rel, is_dir, size, mtime in new_entries
+        )
+        await file_journal_service.record_many(db, disk_id, rows)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("写变更日志失败（不影响重命名结果）: %s", type(e).__name__)
     logger.info("文件/目录已重命名: disk_id=%s", disk_id)
 
 
@@ -651,7 +766,28 @@ async def move_file(
     if os.path.exists(new_abs):
         raise FileExistsError("目标位置已存在同名项")
 
+    # v1.7.0：旧路径整棵子树 delete + 新路径整棵子树 upsert
+    old_entries = _collect_tree(src_abs, base)
     os.rename(src_abs, new_abs)
+    new_entries = _collect_tree(new_abs, base)
+    try:
+        rows = [
+            {"rel_path": rel, "op": "delete", "is_dir": is_dir}
+            for rel, is_dir, _size, _mtime in old_entries
+        ]
+        rows.extend(
+            {
+                "rel_path": rel,
+                "op": "upsert",
+                "is_dir": is_dir,
+                "size": size,
+                "mtime": mtime,
+            }
+            for rel, is_dir, size, mtime in new_entries
+        )
+        await file_journal_service.record_many(db, disk_id, rows)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("写变更日志失败（不影响移动结果）: %s", type(e).__name__)
     logger.info("文件/目录已移动: disk_id=%s", disk_id)
 
 
@@ -716,3 +852,132 @@ async def get_stream_range(
         content_type = "application/octet-stream"
 
     return file_path, eff_start, eff_end, file_size, content_type
+
+
+# ── v1.7.0：挂载云盘配套能力 ───────────────────────
+
+
+async def list_changes(
+    db: aiosqlite.Connection,
+    user_id: int,
+    role: str,
+    disk_id: int,
+    prefix: str = "",
+    since_rev: int = 0,
+    limit: int = 500,
+) -> dict:
+    """
+    拉取某磁盘、某子目录范围内的变更增量（带权限与越界校验）。
+
+    :param db: 数据库连接
+    :param user_id: 当前用户 ID
+    :param role: 当前用户角色
+    :param disk_id: 虚拟磁盘 ID
+    :param prefix: 子目录前缀（空串 = 磁盘根）
+    :param since_rev: 上次拿到的最大 rev
+    :param limit: 单次最多返回条数
+    :returns: `{changes, latest_rev, has_more, reset_required}`
+    :raises PermissionError: 无读取权限 / 路径越界
+    :raises ValueError: 磁盘不存在
+    """
+    disk = await virtual_disk_repository.find_by_id(db, disk_id)
+    if not disk:
+        raise ValueError("虚拟磁盘不存在")
+    clean_prefix = (prefix or "").strip().strip("/")
+    _safe_join(disk["real_path"], clean_prefix)
+    if role != "admin":
+        if not await check_disk_permission(db, user_id, disk_id, "read"):
+            raise PermissionError("对目标磁盘没有读取权限")
+    return await file_journal_service.list_changes(
+        db, disk_id, clean_prefix, since_rev, limit,
+    )
+
+
+async def scan_tree(
+    db: aiosqlite.Connection,
+    user_id: int,
+    role: str,
+    disk_id: int,
+    prefix: str = "",
+    cursor: str = "",
+    limit: int = 2000,
+) -> dict:
+    """
+    全量对账扫描：只做 stat，不读文件内容。
+
+    存在的意义：用户可能绕过 API 直接往虚拟磁盘目录里拷文件，
+    这类"API 外变更"不会进变更日志，需要客户端定期用本接口对账补齐。
+
+    :param db: 数据库连接
+    :param user_id: 当前用户 ID
+    :param role: 当前用户角色
+    :param disk_id: 虚拟磁盘 ID
+    :param prefix: 子目录前缀（空串 = 磁盘根）
+    :param cursor: 上一页最后一个路径（空串 = 首页）
+    :param limit: 每页条数（收敛到 [1, 5000]）
+    :returns: `{entries, next_cursor, has_more, latest_rev}`
+    :raises PermissionError: 无读取权限
+    :raises ValueError: 磁盘不存在 / 路径越界
+    """
+    limit = max(1, min(int(limit or 2000), 5000))
+    if role != "admin":
+        if not await check_disk_permission(db, user_id, disk_id, "read"):
+            raise PermissionError("无读取权限")
+
+    base = await _get_disk_path(db, disk_id)
+    clean_prefix = (prefix or "").strip().strip("/")
+    root = _safe_join(base, clean_prefix)
+
+    entries: list[dict] = []
+    if os.path.isdir(root):
+        for rel, is_dir, size, mtime in sorted(_collect_tree(root, base)):
+            if cursor and rel <= cursor:
+                continue
+            entries.append({
+                "path": rel,
+                "is_dir": is_dir,
+                "size": size,
+                "mtime": mtime,
+            })
+            if len(entries) >= limit + 1:
+                break
+
+    has_more = len(entries) > limit
+    page = entries[:limit]
+    return {
+        "entries": page,
+        "next_cursor": page[-1]["path"] if page and has_more else "",
+        "has_more": has_more,
+        "latest_rev": await file_journal_service.get_latest_rev(db),
+    }
+
+
+async def cleanup_stale_uploads(max_age_seconds: int = 24 * 3600) -> int:
+    """
+    清理过期的上传临时分片目录（v1.7.0）。
+
+    规则：目录 mtime 超过 `max_age_seconds` **且**不在内存上传会话中。
+    服务重启后内存会话丢失，所有残留目录都会变成孤儿 —— 这正是需要清理的原因。
+
+    :param max_age_seconds: 最大存活秒数（默认 24 小时）
+    :returns: 删除的目录数量
+    """
+    if not os.path.isdir(UPLOAD_TEMP_DIR):
+        return 0
+    now = time.time()
+    removed = 0
+    for name in os.listdir(UPLOAD_TEMP_DIR):
+        path = os.path.join(UPLOAD_TEMP_DIR, name)
+        if not os.path.isdir(path) or name in _upload_sessions:
+            continue
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        if now - st.st_mtime < max_age_seconds:
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed += 1
+    if removed:
+        logger.info("已清理 %s 个过期上传临时目录", removed)
+    return removed

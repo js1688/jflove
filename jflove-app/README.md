@@ -2,7 +2,7 @@
 
 JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的私有文档与笔记协同管理应用。
 
-> **当前版本：v1.5.1（`pubspec.yaml` 中 `version: 1.5.1+1005001`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
+> **当前版本：v1.7.0（`pubspec.yaml` 中 `version: 1.7.0+1007000`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
 
 > **v1.5.0** — UI 现代化改版 + Markdown Mermaid 图表渲染：新增**设计令牌体系**（`AppTokens` ThemeExtension，亮暗两套）与**三态主题**（跟随系统/亮色/暗色，设置页可切换并持久化）；13 个页面全部令牌化（硬编码 `Colors.*` 清零，加载态统一改骨架屏）；底部导航 **6 → 5**（修复中心并入传输页第二个页签，`/repair` 旧路径保留）；Markdown 中的 ` ```mermaid ` 代码块用离线 WebView **真渲染为图形**（零网络依赖，支持缓存与点击放大）。
 
@@ -59,7 +59,7 @@ Material 主题、图表色表、Markdown 高亮配色）。
                                     └── session.dart (session_key 仅存内存)
 ```
 
-### 支持的页面（13 个路由；首页已移除，`/` 重定向 `/files`，底部导航 5 项：文件/笔记/同步/传输任务/设置）
+### 支持的页面（12 个路由；首页已移除，`/` 重定向 `/files`，底部导航 4 项：文件/笔记/传输任务/设置）
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
@@ -70,18 +70,17 @@ Material 主题、图表色表、Markdown 高亮配色）。
 | `/files/preview` | 文件预览 | 图片/音视频/文本/**Markdown（含 Mermaid 图表）**全屏预览 |
 | `/notes` | 笔记列表 | 搜索 + CRUD |
 | `/notes/:noteId` | 笔记编辑 | 编辑/预览切换 + Markdown 工具栏 + **图表预览** + 未保存提示 |
-| `/sync` | 同步 | 配置 CRUD + 统计概览 + 本地 JSON 存储 |
-| `/settings` | 设置 | 安全状态 + **外观（主题切换）** + 账号 + 退出 + 管理入口 + 离线修复配置（admin） + 关于 |
+| `/settings` | 设置 | 安全状态 + **外观（主题切换）** + **相册自动同步** + 账号 + 退出 + 管理入口 + 离线修复配置（admin） + 关于 |
 | `/transfer` | 传输任务 | 页签一：传输进度 + 统计 + 状态 |
 | `/repair` | 修复中心 | 兼容旧路径；实际落到传输页**页签二**（修复任务列表 + 验证播放 + 覆盖原文件） |
 | `/admin/users` | 用户管理 | 添加/删除/密码/启用禁用（admin） |
 | `/admin/disks` | 磁盘管理 | 添加/编辑/删除（admin） |
 | `/admin/permissions` | 权限配置 | 磁盘权限矩阵（admin） |
 
-> **导航收敛说明（v1.5.0）**：底部导航由 6 项收敛为 5 项，「修复中心」并入「传输」
-> 页的第二个页签。`/repair` 路由**保留**并直接打开该页签，同时底部高亮归一化到
-> 「传输任务」，避免旧书签/通知跳转白屏或高亮错位。回归用例见
-> `test/navigation_test.dart`。
+> **导航收敛说明（v1.7.0）**：底部导航由 5 项收敛为 4 项，「同步」整页移除——
+> 移动端改为**设置页的「相册自动同步」**（开关 + 远端目标 + 范围 + 进度）。
+> 「修复中心」仍并入「传输」页第二个页签，`/repair` 路由保留并高亮归一化到「传输任务」。
+> 回归用例见 `test/navigation_test.dart`。
 
 ---
 
@@ -120,16 +119,16 @@ flutter build apk --debug
 jflove-app/
 ├── lib/
 │   ├── main.dart              # 入口（ProviderContainer retry=null + 主题恢复 + 竖屏锁定）
-│   ├── app.dart               # MaterialApp.router + 13 条路由 + 底部导航（5 项）
+│   ├── app.dart               # MaterialApp.router + 12 条路由 + 底部导航（4 项）
 │   ├── config/                # 应用配置 + 设计令牌（design_tokens）/ 主题 / 图表主题
-│   ├── models/                # 数据模型（7 个文件）
-│   ├── providers/             # Riverpod 状态管理（7 个文件，含 theme_provider）
-│   ├── services/              # 业务逻辑层（12 个 service + mermaid/ 渲染子模块）
-│   ├── pages/                 # 13 个页面（files/notes/sync/transfer/repair/settings/admin/login）
+│   ├── models/                # 数据模型（6 个文件）
+│   ├── providers/             # Riverpod 状态管理（8 个文件，含 theme_provider / album_backup_provider）
+│   ├── services/              # 业务逻辑层（10 个 service + album_backup/ + mermaid/ 渲染子模块）
+│   ├── pages/                 # 12 个页面（files/notes/transfer/repair/settings/admin/login）
 │   ├── widgets/               # 公共 UI 组件（app_card 统一卡片 / mermaid_block / empty_state …）
 │   └── utils/                 # crypto/http_service/session/stream_frame/stream_proxy/markdown/…
 ├── assets/mermaid/            # 离线图表渲染资源（renderer.html + mermaid.bundle.js）
-├── test/                      # 160 个测试用例（19 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget）
+├── test/                      # 152 个测试用例（18 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget）
 ├── android/                   # Android 原生壳
 ├── pubspec.yaml
 └── README.md
@@ -146,7 +145,7 @@ jflove-app/
 | 身份认证 | JWT（ES256，通过加密 Body 传递） |
 | 文件流加密 | 64 KB 分片独立加密帧 [4B长度][12B nonce][密文+16B tag] |
 
-三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 160 个用例）。
+三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 152 个用例）。
 
 ---
 

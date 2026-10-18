@@ -35,7 +35,7 @@ const NAV_ITEMS: NavEntry[] = [
   // 可见性由 `useEditorGate()` 决定（DS-16 的四个消费点之一）——虽然本组件只在 `RequireAuth` 内渲染，
   // 但"未登录 ⇒ 入口零存在"（AC-63 ①）是**准入判据**，不该依赖"组件恰好没挂载"来成立（U-8 同款理由）。
   { path: '/editor', label: '文本编辑器', icon: 'code', requiresEditor: true },
-  { path: '/sync', label: '同步管理', icon: 'sync' },
+  { path: '/sync', label: '云盘挂载', icon: 'sync' },
   // v1.5.0 修复：底部导航 6→5 后「修复中心」并入传输页的第二个页签，
   // 这里不能继续保留独立导航项 —— 否则同一个功能在侧栏和页签里各有一个入口，
   // 用户会以为重复。`/repair` 路由仍然保留（深链与「查看修复进度」跳转）。

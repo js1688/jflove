@@ -18,7 +18,7 @@ void main() {
     appSource = File('lib/app.dart').readAsStringSync();
   });
 
-  test('底部导航恰好 5 项，且顺序为 文件/笔记/同步/传输任务/设置', () {
+  test('底部导航恰好 4 项，且顺序为 文件/笔记/传输任务/设置（v1.7.0 移除同步）', () {
     final labels = RegExp(r"label: '([^']+)'")
         .allMatches(appSource)
         .map((m) => m.group(1)!)
@@ -27,20 +27,21 @@ void main() {
     // app.dart 里只有底部导航会写 label:，若将来新增需同步调整本断言
     expect(
       labels,
-      ['文件', '笔记', '同步', '传输任务', '设置'],
-      reason: '底部导航项与顺序必须与设计文档一致（6 → 5）',
+      ['文件', '笔记', '传输任务', '设置'],
+      reason: '底部导航项与顺序必须与设计文档一致（v1.7.0：5 → 4，移除「同步」）',
     );
-    expect(labels.length, 5);
+    expect(labels.length, 4);
     expect(labels, isNot(contains('修复中心')), reason: '修复中心已并入传输页页签');
+    expect(labels, isNot(contains('同步')), reason: '同步管理已在 v1.7.0 移除');
   });
 
-  test('导航路由表与导航项数量一致，且不含 /repair', () {
+  test('导航路由表与导航项数量一致，且不含 /repair 与 /sync', () {
     final routes = RegExp(r"'(/[a-z]+)'")
         .allMatches(appSource)
         .map((m) => m.group(1)!)
         .toSet();
 
-    // _routes 常量里必须没有 /repair（它不是导航项）
+    // _routes 常量里必须没有 /repair（它不是导航项），也不能有 /sync（已删除）
     final routesBlock = RegExp(
       r'static const List<String> _routes = \[(.*?)\];',
       dotAll: true,
@@ -51,8 +52,10 @@ void main() {
         .allMatches(routesBlock!.group(1)!)
         .map((m) => m.group(1)!)
         .toList();
-    expect(navRoutes, ['/files', '/notes', '/sync', '/transfer', '/settings']);
+    expect(navRoutes, ['/files', '/notes', '/transfer', '/settings']);
     expect(navRoutes, isNot(contains('/repair')));
+    expect(navRoutes, isNot(contains('/sync')));
+    expect(routes, isNot(contains('/sync')), reason: '/sync 路由已在 v1.7.0 移除');
 
     // 路由本身（GoRoute）仍然要保留 /repair
     expect(routes, contains('/repair'), reason: '/repair 旧路径必须保留，避免旧跳转白屏');

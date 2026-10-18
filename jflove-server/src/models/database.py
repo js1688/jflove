@@ -75,6 +75,26 @@ CREATE TABLE IF NOT EXISTS config (
 )
 """
 
+# v1.7.0：文件变更日志（挂载云盘的增量同步基础）
+#   - `id` 同时充当全局单调递增的 `rev`（删除记录也占号，不会回退）
+#   - `op` 取 `upsert` / `delete`；`is_dir` 区分目录
+#   - 同一路径允许多条历史记录（append-only 日志），因此**不建唯一索引**
+_CREATE_FILE_CHANGES = """
+CREATE TABLE IF NOT EXISTS file_changes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    disk_id      INTEGER NOT NULL,
+    rel_path     TEXT    NOT NULL,
+    op           TEXT    NOT NULL,
+    is_dir       INTEGER NOT NULL DEFAULT 0,
+    size         INTEGER NOT NULL DEFAULT 0,
+    mtime        REAL    NOT NULL DEFAULT 0,
+    content_hash TEXT    NOT NULL DEFAULT '',
+    created_at   TEXT    NOT NULL,
+    updated_at   TEXT    NOT NULL,
+    deleted_at   TEXT
+)
+"""
+
 # v1.4.2：手动离线媒体修复任务表（全平台共享，不做账户归属隔离——user_id 仅供展示）
 _CREATE_MEDIA_REPAIR_TASKS = """
 CREATE TABLE IF NOT EXISTS media_repair_tasks (
@@ -113,6 +133,9 @@ _INDEXES = [
     "CREATE INDEX IF NOT EXISTS user_permissions_disk_id_idx ON user_permissions(virtual_disk_id)",
     "CREATE INDEX IF NOT EXISTS media_repair_tasks_user_id_idx ON media_repair_tasks(user_id)",
     "CREATE INDEX IF NOT EXISTS media_repair_tasks_disk_id_idx ON media_repair_tasks(disk_id)",
+    # v1.7.0：变更日志按磁盘 + 路径查询（rev 查询走主键，无需额外索引）
+    "CREATE INDEX IF NOT EXISTS file_changes_disk_id_idx ON file_changes(disk_id)",
+    "CREATE INDEX IF NOT EXISTS file_changes_rel_path_idx ON file_changes(rel_path)",
 ]
 
 
@@ -166,6 +189,7 @@ def expected_schema() -> dict[str, str]:
         "sessions": _CREATE_SESSIONS,
         "config": _CREATE_CONFIG,
         "media_repair_tasks": _CREATE_MEDIA_REPAIR_TASKS,
+        "file_changes": _CREATE_FILE_CHANGES,
     }
 
 
@@ -317,6 +341,8 @@ async def init_db() -> None:
         await db.execute(_CREATE_SESSIONS)
         await db.execute(_CREATE_CONFIG)
         await db.execute(_CREATE_MEDIA_REPAIR_TASKS)
+        # v1.7.0：文件变更日志（挂载云盘的增量同步基础）
+        await db.execute(_CREATE_FILE_CHANGES)
 
         # ── 运行时迁移：为 users 表添加缺失字段（已存在则跳过）──
         async with db.execute("PRAGMA table_info(users)") as cur:

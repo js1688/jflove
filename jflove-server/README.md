@@ -222,6 +222,19 @@ python build.py -m all             # 四端统一入口（缺 docker 时 server/
 
 启动服务后访问 `http://localhost:8989/docs`（Swagger UI）。
 
+### 挂载云盘增量接口（变更日志）
+
+桌面端「云盘挂载」依赖两个只做增量的接口（均为加密信封 + 需磁盘读权限）：
+
+| 接口 | 用途 |
+|------|------|
+| `POST /api/v1/files/journal` | 按 `disk_id + prefix + since_rev` 拉增量，**只返回该子目录范围** |
+| `POST /api/v1/files/scan` | 全量对账（只 stat），发现绕过 API 直接写入磁盘目录的变更 |
+
+- `rev` = `file_changes.id`（全局单调递增，删除不回收号）；
+- `reset_required=true` 表示游标过旧（历史记录已被清理），客户端应改走 `scan`；
+- `POST /api/v1/sync/snapshot` 为过渡期保留接口，新客户端不再使用。
+
 ---
 
 ## 依赖清单

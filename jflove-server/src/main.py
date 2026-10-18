@@ -1,5 +1,6 @@
+import asyncio
 import json
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,7 +19,7 @@ from src.controllers import (
     sync_controller,
     repair_controller,
 )
-from src.services import auth_service, repair_task_service
+from src.services import auth_service, repair_task_service, file_service
 from src.utils.crypto import encrypt
 from src.utils.logger import get_logger
 
@@ -32,15 +33,38 @@ _PLAIN_PATHS = (
 logger = get_logger(__name__)
 
 
+async def _upload_cleanup_loop() -> None:
+    """
+    后台定时清理过期上传临时分片目录（v1.7.0）。
+
+    启动时立即跑一次，之后每小时一次；清理失败只记 warning，不影响服务。
+    """
+    while True:
+        try:
+            await file_service.cleanup_stale_uploads()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("上传临时目录清理失败: %s", type(e).__name__)
+        await asyncio.sleep(3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     logger.info("数据库初始化完成")
     # v1.4.2：启动离线修复队列 worker（重启恢复：中断任务标记失败 + 清理半成品）
     await repair_task_service.start_workers(_repair_db_factory)
-    yield
-    await repair_task_service.stop_workers()
-    logger.info("服务关闭")
+    # v1.7.0：过期上传临时目录清理（启动即跑一次，之后每小时）
+    cleanup_task = asyncio.create_task(_upload_cleanup_loop())
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
+        await repair_task_service.stop_workers()
+        logger.info("服务关闭")
 
 
 @asynccontextmanager
@@ -65,7 +89,7 @@ async def _repair_db_factory():
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.6.2",
+    version="1.7.0",
     lifespan=lifespan,
 )
 

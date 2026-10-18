@@ -40,13 +40,17 @@ class TransferService {
   // ── 提交上传任务 ──
 
   /// 提交上传任务（通过加密 API 分片上传）
-  Future<void> submitUpload(
+  ///
+  /// v1.7.0：新增可选 `tag`（相册备份用 `album:<asset_id>`），并返回任务 ID，
+  /// 便于调用方订阅 `taskStream` 关联结果。既有调用方忽略返回值即可。
+  Future<String> submitUpload(
     int diskId,
     String remoteDir,
     String localPath,
     String filename,
-    int fileSize,
-  ) async {
+    int fileSize, {
+    String? tag,
+  }) async {
     final taskId = _generateId();
     final task = TransferTask(
       id: taskId,
@@ -54,6 +58,7 @@ class TransferService {
       filename: filename,
       localPath: localPath,
       fileSize: fileSize,
+      tag: tag,
     );
     _tasks[taskId] = task;
     _notify();
@@ -66,6 +71,7 @@ class TransferService {
     );
     _queue.add(queued);
     _scheduleNext();
+    return taskId;
   }
 
   /// 上传分片大小（1 MB，与服务端 CHUNK_SIZE 对齐）

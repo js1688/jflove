@@ -18,6 +18,12 @@ class TransferTask {
   final TaskStatus status;
   final String? error;
 
+  /// 任务标签（v1.7.0）
+  ///
+  /// 相册备份用它把传输任务关联回源资源：`album:<asset_id>`；
+  /// 普通上传/下载为 null（不影响既有调用方）。
+  final String? tag;
+
   const TransferTask({
     required this.id,
     required this.kind,
@@ -28,6 +34,7 @@ class TransferTask {
     this.percent = 0,
     this.status = TaskStatus.pending,
     this.error,
+    this.tag,
   });
 
   TransferTask copyWith({
@@ -40,6 +47,7 @@ class TransferTask {
     int? percent,
     TaskStatus? status,
     String? error,
+    String? tag,
   }) => TransferTask(
     id: id ?? this.id,
     kind: kind ?? this.kind,
@@ -50,5 +58,6 @@ class TransferTask {
     percent: percent ?? this.percent,
     status: status ?? this.status,
     error: error ?? this.error,
+    tag: tag ?? this.tag,
   );
 }

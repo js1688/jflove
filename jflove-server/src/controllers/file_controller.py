@@ -221,7 +221,7 @@ async def complete_upload(request: Request, db: aiosqlite.Connection = Depends(g
     if not file_service.is_upload_owned_by(upload_id, user["id"]):
         raise HTTPException(status_code=403, detail="无权操作该上传会话")
     try:
-        dest = await file_service.complete_upload(upload_id)
+        dest = await file_service.complete_upload(upload_id, db)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     session_id = request.headers.get("X-Session-ID", "")
@@ -707,3 +707,88 @@ def _stream_artifact(
         media_type="application/octet-stream",
         headers={"X-Encrypted-Stream": "v2"},
     )
+
+
+# ── v1.7.0：挂载云盘增量与对账接口 ─────────────────
+
+
+@router.post(
+    "/journal",
+    summary="拉取文件变更增量（v1.7.0）",
+    description=(
+        "按磁盘 + 子目录前缀 + since_rev 返回变更列表，供挂载云盘做增量同步。\n"
+        "只返回 `prefix` 范围内的变更，绝不回传其它子目录内容。\n\n"
+        "请求体（加密后）字段：\n"
+        "- `token`：JWT 令牌\n"
+        "- `disk_id`：虚拟磁盘 ID\n"
+        "- `prefix`：子目录前缀（空 = 磁盘根）\n"
+        "- `since_rev`：上次拿到的最大 rev（首次传 0）\n"
+        "- `limit`：单次最多返回条数（默认 500，最大 2000）\n\n"
+        "响应体（加密后）字段：\n"
+        "- `changes`：变更列表（`rev` / `path` / `op` / `is_dir` / `size` / `mtime` / `hash`）\n"
+        "- `latest_rev`：本次最大 rev\n"
+        "- `has_more`：是否还有更多（用 `latest_rev` 继续拉）\n"
+        "- `reset_required`：为真时客户端应回退到全量对账"
+    ),
+)
+async def list_journal(request: Request, db: aiosqlite.Connection = Depends(get_db)):
+    """拉取文件变更增量（挂载云盘增量同步）"""
+    body = await decrypt_request_body(request)
+    user = await _get_user(request, db, body)
+    try:
+        result = await file_service.list_changes(
+            db,
+            user["id"],
+            user["role"],
+            _to_int(body.get("disk_id"), 0),
+            body.get("prefix", "") or "",
+            _to_int(body.get("since_rev"), 0),
+            _to_int(body.get("limit"), 500),
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    session_id = request.headers.get("X-Session-ID", "")
+    return encrypt_response(session_id, result)
+
+
+@router.post(
+    "/scan",
+    summary="全量对账扫描（v1.7.0）",
+    description=(
+        "只 stat 不读内容，分页返回子目录下的文件清单，用于发现"
+        "绕过 API 直接写入磁盘目录的\"API 外变更\"。\n\n"
+        "请求体（加密后）字段：\n"
+        "- `token`：JWT 令牌\n"
+        "- `disk_id`：虚拟磁盘 ID\n"
+        "- `prefix`：子目录前缀（空 = 磁盘根）\n"
+        "- `cursor`：上一页最后一个 path（空 = 首页）\n"
+        "- `limit`：每页条数（默认 2000，最大 5000）\n\n"
+        "响应体（加密后）字段：\n"
+        "- `entries`：文件清单（`path` / `is_dir` / `size` / `mtime`）\n"
+        "- `next_cursor`：下一页游标\n"
+        "- `has_more`：是否还有更多\n"
+        "- `latest_rev`：当前最大 rev，供客户端对齐游标"
+    ),
+)
+async def scan_files(request: Request, db: aiosqlite.Connection = Depends(get_db)):
+    """全量对账扫描（挂载云盘对账兜底）"""
+    body = await decrypt_request_body(request)
+    user = await _get_user(request, db, body)
+    try:
+        result = await file_service.scan_tree(
+            db,
+            user["id"],
+            user["role"],
+            _to_int(body.get("disk_id"), 0),
+            body.get("prefix", "") or "",
+            body.get("cursor", "") or "",
+            _to_int(body.get("limit"), 2000),
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    session_id = request.headers.get("X-Session-ID", "")
+    return encrypt_response(session_id, result)

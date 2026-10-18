@@ -83,16 +83,8 @@ export interface Note {
 }
 
 // ── 同步 ──
-
-export interface SyncSnapshotFile {
-  path: string;
-  size: number;
-  modified_at: number;
-}
-
-export interface SyncSnapshotResponse {
-  files: SyncSnapshotFile[];
-}
+// v1.7.0：浏览器端移除同步能力，`SyncSnapshotFile` / `SyncSnapshotResponse` 已删除。
+// 同步只在桌面端（挂载）与移动端（相册备份）提供。
 
 // ── 传输任务 ──
 

@@ -1,6 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 网络权限（明文流量需要） -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- v1.7.0：相册自动备份所需权限 -->
+    <!-- Android 13+（API 33）：按媒体类型分别授权 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+    <!-- Android 14（API 34）：用户可选择「仅部分照片」 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"/>
+    <!-- Android 12 及以下（API <= 32）：旧版外部存储读取 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <!-- connectivity_plus：判断「仅 Wi-Fi」条件 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <application
         android:label="JFLove"
         android:name="${applicationName}"

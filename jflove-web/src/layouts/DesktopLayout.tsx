@@ -28,10 +28,8 @@ interface NavEntry {
 const NAV_ITEMS: NavEntry[] = [
   { path: '/files', label: '文件管理', icon: 'files', prefix: true },
   { path: '/notes', label: '笔记管理', icon: 'notes', prefix: true },
-  { path: '/sync', label: '同步管理', icon: 'sync' },
-  // v1.5.0 修复：底部导航 6→5 后「修复中心」并入传输页的第二个页签，
-  // 这里不能继续保留独立导航项 —— 否则同一个功能在侧栏和页签里各有一个入口，
-  // 用户会以为重复。`/repair` 路由仍然保留（深链与「查看修复进度」跳转）。
+  // v1.7.0：移除「同步管理」——同步能力只在桌面端（挂载）与移动端（相册备份）提供，
+  // 浏览器端不具备本地文件系统访问能力，保留该入口只会误导用户。
   { path: '/transfer', label: '传输任务', icon: 'transfer' },
 ];
 

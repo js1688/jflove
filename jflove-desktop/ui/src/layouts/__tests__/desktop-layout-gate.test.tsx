@@ -46,7 +46,7 @@ import { setAuthSnapshot } from '../../utils/session';
 const EDITOR_LABEL = '文本编辑器';
 
 /** 未登录 / 过期场景下必须仍然存在的其它主导航项（正对照，防"布局整体没渲染"造成假绿） */
-const OTHER_LABELS = ['文件管理', '笔记管理', '同步管理', '传输任务', '安全状态', '设置'];
+const OTHER_LABELS = ['文件管理', '笔记管理', '云盘挂载', '传输任务', '安全状态', '设置'];
 
 /**
  * 用真实 `DesktopLayout` + 内存路由渲染侧栏。
