@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import ctypes
 import os
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from ctypes import wintypes
 from typing import Callable
 
@@ -33,8 +35,16 @@ _cldapi = ctypes.WinDLL("cldapi", use_last_error=True)
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
 CF_CALLBACK_TYPE_FETCH_DATA = 0
+CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS = 2
+CF_CALLBACK_TYPE_NOTIFY_DEHYDRATE = 6
+CF_CALLBACK_TYPE_NOTIFY_DELETE = 8
+CF_CALLBACK_TYPE_NOTIFY_RENAME = 10
 CF_CALLBACK_TYPE_NONE = 0xFFFFFFFF
 CF_OPERATION_TYPE_TRANSFER_DATA = 0
+CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS = 2
+CF_OPERATION_TYPE_ACK_DELETE = 3
+CF_OPERATION_TYPE_ACK_RENAME = 4
+CF_OPERATION_TYPE_ACK_DEHYDRATE = 5
 CF_CONNECT_FLAG_NONE = 0
 CF_CREATE_FLAG_NONE = 0
 CF_CONVERT_FLAG_MARK_IN_SYNC = 1
@@ -117,11 +127,39 @@ class _TransferData(ctypes.Structure):
     ]
 
 
+class _AckPayload(ctypes.Structure):
+    """ACK_DELETE / ACK_RENAME / ACK_DEHYDRATE 共用的载荷"""
+    _fields_ = [
+        ("Flags", wintypes.DWORD),
+        ("CompletionStatus", ctypes.c_longlong),
+    ]
+
+
+class _TransferPlaceholders(ctypes.Structure):
+    """TRANSFER_PLACEHOLDERS：用于回答「目录内容是否齐全」"""
+    _fields_ = [
+        ("Flags", wintypes.DWORD),
+        ("CompletionStatus", ctypes.c_longlong),
+        ("PlaceholderTotalCount", ctypes.c_longlong),
+        ("PlaceholderArray", ctypes.c_void_p),
+        ("PlaceholderCount", wintypes.DWORD),
+        ("EntriesProcessed", wintypes.DWORD),
+    ]
+
+
+class _OpPayload(ctypes.Union):
+    _fields_ = [
+        ("TransferData", _TransferData),
+        ("Ack", _AckPayload),
+        ("TransferPlaceholders", _TransferPlaceholders),
+    ]
+
+
 class _CF_OPERATION_PARAMETERS(ctypes.Structure):
     _fields_ = [
         ("StructSize", wintypes.ULONG),
         ("Type", wintypes.ULONG),
-        ("TransferData", _TransferData),
+        ("Payload", _OpPayload),
         ("_pad", ctypes.c_byte * 48),
     ]
 
@@ -233,10 +271,24 @@ class WinCfapiMount:
         self._connection_key = 0
         self._registered = False
         self._connected = False
+        self._closed = False
+        # 回调在系统线程执行：下载走线程池 + 超时，避免资源管理器被慢请求卡死
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="jflove-vfs")
+        self._lifecycle_lock = threading.Lock()
         # 必须持有回调引用，否则会被 GC 回收（系统线程回调崩溃）
-        self._callback = _CF_CALLBACK(self._on_fetch_data)
-        self._registrations = (_CF_CALLBACK_REGISTRATION * 2)(
-            _CF_CALLBACK_REGISTRATION(CF_CALLBACK_TYPE_FETCH_DATA, self._callback),
+        self._cb_fetch = _CF_CALLBACK(self._on_fetch_data)
+        self._cb_placeholders = _CF_CALLBACK(self._on_fetch_placeholders)
+        self._cb_delete = _CF_CALLBACK(self._on_delete)
+        self._cb_rename = _CF_CALLBACK(self._on_rename)
+        self._cb_dehydrate = _CF_CALLBACK(self._on_dehydrate)
+        self._registrations = (_CF_CALLBACK_REGISTRATION * 6)(
+            _CF_CALLBACK_REGISTRATION(CF_CALLBACK_TYPE_FETCH_DATA, self._cb_fetch),
+            _CF_CALLBACK_REGISTRATION(
+                CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS, self._cb_placeholders,
+            ),
+            _CF_CALLBACK_REGISTRATION(CF_CALLBACK_TYPE_NOTIFY_DELETE, self._cb_delete),
+            _CF_CALLBACK_REGISTRATION(CF_CALLBACK_TYPE_NOTIFY_RENAME, self._cb_rename),
+            _CF_CALLBACK_REGISTRATION(CF_CALLBACK_TYPE_NOTIFY_DEHYDRATE, self._cb_dehydrate),
             _CF_CALLBACK_REGISTRATION(CF_CALLBACK_TYPE_NONE, _CF_CALLBACK()),
         )
 
@@ -289,11 +341,14 @@ class WinCfapiMount:
         return True
 
     def stop(self) -> None:
-        """断开连接并注销"""
-        if self._connected:
-            _cldapi.CfDisconnectSyncRoot(self._connection_key)
-            self._connected = False
-        self._unregister()
+        """断开连接并注销（幂等；退出应用前必须调用，否则目录会一直被接管）"""
+        with self._lifecycle_lock:
+            self._closed = True
+            if self._connected:
+                _cldapi.CfDisconnectSyncRoot(self._connection_key)
+                self._connected = False
+            self._unregister()
+        self._pool.shutdown(wait=False)
 
     def _unregister(self) -> None:
         if self._registered:
@@ -353,6 +408,11 @@ class WinCfapiMount:
         if hr < 0:
             logger.warning("CfConvertToPlaceholder 失败 rel=%s hr=0x%08X",
                            rel_path, hr & 0xFFFFFFFF)
+            # 失败时删掉残留的真实文件，避免用户看到一堆 0 内容的普通文件
+            try:
+                os.remove(local)
+            except OSError:
+                pass
             return False
         return True
 
@@ -365,40 +425,43 @@ class WinCfapiMount:
         except OSError:
             pass
 
-    # ── FETCH_DATA 回调 ───────────────────────────
+    # ── 系统回调 ──────────────────────────────────
 
     def _on_fetch_data(self, info_ptr, params_ptr) -> None:  # noqa: ANN001
-        """系统线程回调：按需取远端内容并写回"""
+        """
+        FETCH_DATA：按需取远端内容并写回。
+
+        超时/失败时写回 0 字节，让系统**立即失败**而不是挂起资源管理器。
+        """
         try:
             info = info_ptr.contents
             params = params_ptr.contents
             rel = self._identity_of(info)
-            if not rel:
+            if not rel or self._closed:
                 return
 
             offset = int(params.FetchData.RequiredFileOffset)
             length = int(params.FetchData.RequiredLength)
-            data = self._fetch(rel)
-            chunk = data[offset: offset + length]
-            if not chunk:
-                return
-            buf = ctypes.create_string_buffer(chunk, len(chunk))
 
-            op_info = _CF_OPERATION_INFO()
-            op_info.StructSize = ctypes.sizeof(_CF_OPERATION_INFO)
-            op_info.Type = CF_OPERATION_TYPE_TRANSFER_DATA
-            op_info.ConnectionKey = info.ConnectionKey
-            op_info.TransferKey = info.TransferKey
-            op_info.RequestKey = info.RequestKey
+            chunk = b""
+            try:
+                data = self._fetch_with_timeout(rel)
+                chunk = data[offset: offset + length]
+            except Exception as e:  # noqa: BLE001 - 远端不可达必须快速失败
+                logger.warning("水合失败 rel=%s: %s", rel, type(e).__name__)
 
+            buf = ctypes.create_string_buffer(chunk, len(chunk)) if chunk else None
+            op_info = self._op_info(info, CF_OPERATION_TYPE_TRANSFER_DATA)
             op_params = _CF_OPERATION_PARAMETERS()
             op_params.StructSize = ctypes.sizeof(_CF_OPERATION_PARAMETERS)
             op_params.Type = CF_OPERATION_TYPE_TRANSFER_DATA
-            op_params.TransferData.Flags = 0
-            op_params.TransferData.Buffer = ctypes.cast(buf, ctypes.c_void_p)
-            op_params.TransferData.Offset = offset
-            op_params.TransferData.Length = len(chunk)
-            op_params.TransferData.Completion = 0
+            op_params.Payload.TransferData.Flags = 0
+            op_params.Payload.TransferData.Buffer = (
+                ctypes.cast(buf, ctypes.c_void_p) if buf is not None else None
+            )
+            op_params.Payload.TransferData.Offset = offset
+            op_params.Payload.TransferData.Length = len(chunk)
+            op_params.Payload.TransferData.Completion = 0
 
             hr = _cldapi.CfExecute(
                 ctypes.byref(op_info), ctypes.byref(op_params),
@@ -408,6 +471,80 @@ class WinCfapiMount:
                                rel, hr & 0xFFFFFFFF)
         except Exception as e:  # noqa: BLE001 - 回调不能抛异常到系统线程
             logger.warning("FETCH_DATA 回调异常: %s", type(e).__name__)
+
+    def _on_fetch_placeholders(self, info_ptr, params_ptr) -> None:  # noqa: ANN001
+        """
+        目录枚举通知：告诉平台「该目录内容已齐全」。
+
+        Population=FULL 下通常不触发；但被当作"待填充"的普通目录会触发，
+        不回应会让资源管理器**进入文件夹时卡住**。
+        """
+        try:
+            info = info_ptr.contents
+            op_info = self._op_info(info, CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS)
+            op_params = _CF_OPERATION_PARAMETERS()
+            op_params.StructSize = ctypes.sizeof(_CF_OPERATION_PARAMETERS)
+            op_params.Type = CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS
+            tp = op_params.Payload.TransferPlaceholders
+            tp.Flags = 0
+            tp.CompletionStatus = 0
+            tp.PlaceholderTotalCount = 0
+            tp.PlaceholderArray = None
+            tp.PlaceholderCount = 0
+            tp.EntriesProcessed = 0
+            hr = _cldapi.CfExecute(
+                ctypes.byref(op_info), ctypes.byref(op_params),
+            )
+            if hr < 0:
+                logger.warning("TRANSFER_PLACEHOLDERS 失败 hr=0x%08X", hr & 0xFFFFFFFF)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("FETCH_PLACEHOLDERS 回调异常: %s", type(e).__name__)
+
+    def _on_delete(self, info_ptr, params_ptr) -> None:  # noqa: ANN001
+        """删除通知：必须 ACK，否则资源管理器会挂起（本版只删本地，不动远端）"""
+        self._ack(info_ptr, CF_OPERATION_TYPE_ACK_DELETE)
+
+    def _on_rename(self, info_ptr, params_ptr) -> None:  # noqa: ANN001
+        """重命名通知：ACK 让操作立即完成"""
+        self._ack(info_ptr, CF_OPERATION_TYPE_ACK_RENAME)
+
+    def _on_dehydrate(self, info_ptr, params_ptr) -> None:  # noqa: ANN001
+        """脱水通知：ACK 让「释放空间」立即完成"""
+        self._ack(info_ptr, CF_OPERATION_TYPE_ACK_DEHYDRATE)
+
+    def _ack(self, info_ptr, op_type: int) -> None:  # noqa: ANN001
+        """对删除 / 重命名 / 脱水操作发 ACK"""
+        try:
+            info = info_ptr.contents
+            op_info = self._op_info(info, op_type)
+            op_params = _CF_OPERATION_PARAMETERS()
+            op_params.StructSize = ctypes.sizeof(_CF_OPERATION_PARAMETERS)
+            op_params.Type = op_type
+            op_params.Payload.Ack.Flags = 0
+            op_params.Payload.Ack.CompletionStatus = 0
+            hr = _cldapi.CfExecute(
+                ctypes.byref(op_info), ctypes.byref(op_params),
+            )
+            if hr < 0:
+                logger.warning("ACK 失败 type=%s hr=0x%08X",
+                               op_type, hr & 0xFFFFFFFF)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ACK 回调异常 type=%s: %s", op_type, type(e).__name__)
+
+    def _op_info(self, info: _CF_CALLBACK_INFO, op_type: int) -> _CF_OPERATION_INFO:
+        """构造 CF_OPERATION_INFO（连接键 / 传输键 / 请求键均来自回调）"""
+        op = _CF_OPERATION_INFO()
+        op.StructSize = ctypes.sizeof(_CF_OPERATION_INFO)
+        op.Type = op_type
+        op.ConnectionKey = info.ConnectionKey
+        op.TransferKey = info.TransferKey
+        op.RequestKey = info.RequestKey
+        return op
+
+    def _fetch_with_timeout(self, rel: str, timeout: float = 8.0) -> bytes:
+        """在线程池里取内容并限时，避免系统线程被慢请求长期占用"""
+        future: Future = self._pool.submit(self._fetch, rel)
+        return future.result(timeout=timeout)
 
     def _identity_of(self, info: _CF_CALLBACK_INFO) -> str:
         """从 FileIdentity 读回相对路径（创建占位时写入的 UTF-8 路径）"""

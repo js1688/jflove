@@ -217,6 +217,15 @@ def main() -> int:
     finally:
         # 退出前关掉监听，避免在磁盘上留下陈旧 socket（下次启动由 §6.6.1 的兜底清理）
         guard.close()
+        # v1.7.0 修复：退出前必须解除 CfAPI 挂载。
+        # 只结束进程而不注销，sync root 会继续被 Cloud Filter 接管 ⇒
+        # 目录进不去、也删不掉（用户实测缺陷）。
+        try:
+            from src.services import mount_sync_service
+
+            mount_sync_service.disable_all_vfs()
+        except Exception:  # noqa: BLE001 - 退出路径不能再抛
+            logger.warning("退出时解除 CfAPI 挂载失败", exc_info=True)
 
 
 if __name__ == "__main__":

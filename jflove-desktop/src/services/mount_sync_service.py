@@ -341,6 +341,17 @@ def disable_vfs(mount_id: str) -> None:
         logger.warning("停止 CfAPI 挂载失败：%s", type(e).__name__)
 
 
+def disable_all_vfs() -> None:
+    """
+    解除**全部** CfAPI 挂载。
+
+    必须在应用退出前调用：只结束进程而不注销，目录会继续被 Cloud Filter 接管，
+    表现为资源管理器进不去、也删不掉（v1.7.0 实测缺陷）。
+    """
+    for mount_id in list(_vfs.keys()):
+        disable_vfs(mount_id)
+
+
 def sync_placeholders(mount: dict) -> int:
     """
     按索引把远端文件补成占位（幂等：已存在的跳过）。
