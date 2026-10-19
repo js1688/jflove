@@ -36,6 +36,62 @@ logger = get_logger(__name__)
 # 内存上传会话存储：upload_id -> 会话元数据字典
 _upload_sessions: dict[str, dict] = {}
 
+#: 上传会话空闲多久视为废弃（秒）。超过后释放内存会话与临时分片目录。
+#: 与 `cleanup_stale_uploads` 的默认 24h 保持一致：客户端崩溃 / 强杀后
+#: 没人再来续传，服务端必须自己收尾，否则临时目录会永久占用磁盘。
+UPLOAD_SESSION_TTL_SECONDS = 24 * 3600
+
+#: 合并（complete）期间的串行锁：同一 upload_id 只允许一个合并任务，
+#: 防止客户端超时重发 / 多端同时 complete 时并发重写同一批临时分片。
+_complete_locks: dict[str, asyncio.Lock] = {}
+_complete_locks_guard = asyncio.Lock()
+
+#: 合并进度（upload_id → 状态快照），供客户端轮询显示「服务端在做什么」。
+#: 大文件合并可能持续数分钟，只靠日志用户会以为卡死。
+_merge_progress: dict[str, dict] = {}
+
+#: 合并进度更新的分片间隔：太频繁会拖慢合并，只在每 N 片更新一次
+_MERGE_PROGRESS_STEP = 16
+
+
+def merge_progress(upload_id: str) -> dict | None:
+    """
+    读取某次合并的实时进度。
+
+    :param upload_id: 上传会话 ID
+    :returns: 进度快照，或 None（该会话从未开始合并 / 记录已清理）
+    """
+    item = _merge_progress.get(upload_id)
+    return dict(item) if item else None
+
+
+def _merge_progress_set(upload_id: str, **fields) -> None:
+    """更新进度快照（合并阶段字段少，直接覆盖）"""
+    item = _merge_progress.get(upload_id)
+    if item is None:
+        item = {"upload_id": upload_id, "state": "queued", "processed": 0,
+                "total": 0, "file_size": 0, "started_at": time.time(),
+                "updated_at": time.time()}
+        _merge_progress[upload_id] = item
+    item.update(fields)
+    item["updated_at"] = time.time()
+
+
+def _merge_progress_drop(upload_id: str) -> None:
+    """删除进度记录（完成 / 取消 / 回收时）"""
+    _merge_progress.pop(upload_id, None)
+
+
+def prune_merge_progress(max_age_seconds: int = 3600) -> int:
+    """清理超过 1 小时未更新的进度记录，避免字典无限增长"""
+    now = time.time()
+    stale = [uid for uid, item in _merge_progress.items()
+             if now - float(item.get("updated_at") or 0) > max_age_seconds]
+    for uid in stale:
+        _merge_progress.pop(uid, None)
+    return len(stale)
+
+
 # v1.6.0（BL-8）原子替换的重试参数：
 #   Windows 上 os.replace 会因目标文件被其它进程**短暂**持有而失败
 #   （杀软实时扫描、资源管理器缩略图/预览句柄、云盘同步进程等，
@@ -331,6 +387,8 @@ async def init_upload(
         "received": set(),    # 已接收的分片索引集合
         "tmp_dir": tmp_dir,
         "base": base,
+        # 最近一次活动时刻（init / 每片上传都会刷新）：空闲超时即视为废弃
+        "updated_at": time.time(),
     }
     return upload_id
 
@@ -371,6 +429,7 @@ async def upload_chunk(upload_id: str, chunk_index: int, chunk_data: bytes) -> N
     async with aiofiles.open(chunk_path, "wb") as f:
         await f.write(chunk_data)
     session["received"].add(chunk_index)
+    session["updated_at"] = time.time()
 
 
 async def complete_upload(
@@ -392,6 +451,30 @@ async def complete_upload(
     :param upload_id: 上传会话 ID
     :returns: 服务端最终文件绝对路径
     :raises ValueError: 会话不存在、分片缺失、文件名非法（v1.6.0 BL-10 兜底）或 SHA256 校验失败
+    """
+    async with _complete_locks_guard:
+        lock = _complete_locks.get(upload_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _complete_locks[upload_id] = lock
+    try:
+        async with lock:
+            return await _complete_upload_locked(upload_id, db)
+    finally:
+        async with _complete_locks_guard:
+            if not lock.locked():
+                _complete_locks.pop(upload_id, None)
+
+
+async def _complete_upload_locked(
+    upload_id: str,
+    db: aiosqlite.Connection | None = None,
+) -> str:
+    """
+    `complete_upload` 的实际实现（已持同一 upload_id 的互斥锁）。
+
+    并发重发同一个 `upload_id` 时，第二个请求会**等第一个合并完**，
+    然后因会话已删除而拿到「上传会话不存在」—— 不会并发重写同一批分片。
     """
     session = _upload_sessions.get(upload_id)
     if not session:
@@ -422,9 +505,15 @@ async def complete_upload(
         dest_dir,
         f".{os.path.basename(dest_file)}.jflove-upload-{upload_id}.part",
     )
+    merge_started = time.monotonic()
+    _merge_progress_set(
+        upload_id, state="merging", processed=0, total=total,
+        file_size=session["file_size"], started_at=time.time(),
+    )
     try:
         # 合并分片并计算 SHA256：只写临时文件，此阶段**完全不触碰** dest_file
         sha256 = hashlib.sha256()
+        processed = 0
         async with aiofiles.open(tmp_file, "wb") as out:
             for i in range(total):
                 chunk_path = os.path.join(session["tmp_dir"], f"{i:06d}.chunk")
@@ -432,6 +521,14 @@ async def complete_upload(
                     data = await f.read()
                 sha256.update(data)
                 await out.write(data)
+                processed += len(data)
+                # 每 N 片更新一次：足够让客户端看到「百分比在动」，又不拖慢合并
+                if i % _MERGE_PROGRESS_STEP == 0 or i == total - 1:
+                    _merge_progress_set(
+                        upload_id, state="merging", processed=processed,
+                    )
+                    # 让出事件循环：进度接口 / 其它请求才能在合并期间得到响应
+                    await asyncio.sleep(0)
 
         # 校验文件完整性：失败**只删临时文件**（由 finally 完成），绝不删除/截断 dest_file
         # （旧实现在此处 `os.remove(dest_file)`，hash 不匹配即丢失原文件）
@@ -452,10 +549,30 @@ async def complete_upload(
 
         # 原子替换：放到线程池执行（内部含 sleep 重试，不能阻塞事件循环）
         await asyncio.to_thread(_replace_with_retry, tmp_file, dest_file)
+    except BaseException:
+        # 让客户端能区分「还在合并」与「已经失败」，而不是一直显示处理中
+        _merge_progress_set(
+            upload_id, state="failed",
+            elapsed_seconds=round(time.monotonic() - merge_started, 1),
+        )
+        raise
     finally:
         # 失败 / 异常路径：清理临时文件，不留半截 `.part` 残留；
         # 成功路径下 tmp_file 已被 os.replace 移走（该删除幂等）。
         _remove_quietly(tmp_file)
+
+    # 合并耗时是排查「上传卡在 100%」的关键读数：服务端慢盘时这一步可能几分钟
+    elapsed = time.monotonic() - merge_started
+    _merge_progress_set(
+        upload_id, state="done", processed=session["file_size"],
+        elapsed_seconds=round(elapsed, 1),
+    )
+    size_gb = max(session["file_size"], 0) / 1024 ** 3
+    logger.info(
+        "合并完成: %s 共 %.1f GB，耗时 %.1f 秒（%.1f 秒/GB，%d 片）",
+        session["filename"], size_gb, elapsed,
+        (elapsed / size_gb) if size_gb else 0.0, session["total_chunks"],
+    )
 
     shutil.rmtree(session["tmp_dir"], ignore_errors=True)
     del _upload_sessions[upload_id]
@@ -485,8 +602,8 @@ async def cancel_upload(upload_id: str) -> None:
     :param upload_id: 上传会话 ID
     """
     session = _upload_sessions.pop(upload_id, None)
+    _merge_progress_drop(upload_id)
     if session:
-        import shutil
         shutil.rmtree(session["tmp_dir"], ignore_errors=True)
 
 
@@ -952,20 +1069,50 @@ async def scan_tree(
     }
 
 
-async def cleanup_stale_uploads(max_age_seconds: int = 24 * 3600) -> int:
+def expire_stale_sessions(max_idle_seconds: int = UPLOAD_SESSION_TTL_SECONDS) -> int:
     """
-    清理过期的上传临时分片目录（v1.7.0）。
+    回收**空闲过久**的上传会话（内存 + 临时分片目录）。
 
-    规则：目录 mtime 超过 `max_age_seconds` **且**不在内存上传会话中。
-    服务重启后内存会话丢失，所有残留目录都会变成孤儿 —— 这正是需要清理的原因。
+    为什么必须有这一步：`cleanup_stale_uploads` 会跳过「仍在 `_upload_sessions`
+    里」的目录。客户端崩溃 / 强杀 / 放弃上传后没人再来，会话却永远留在内存里，
+    结果临时目录**永不释放**（只有重启服务端才清）。这里按最后活动时间回收。
 
-    :param max_age_seconds: 最大存活秒数（默认 24 小时）
+    :param max_idle_seconds: 空闲多久算废弃（默认 24 小时）
+    :returns: 回收的会话数量
+    """
+    now = time.time()
+    stale = [
+        upload_id for upload_id, session in _upload_sessions.items()
+        if now - float(session.get("updated_at") or 0) >= max_idle_seconds
+    ]
+    for upload_id in stale:
+        session = _upload_sessions.pop(upload_id, None)
+        if not session:
+            continue
+        shutil.rmtree(session.get("tmp_dir", ""), ignore_errors=True)
+        _merge_progress_drop(upload_id)
+        logger.info("已回收废弃的上传会话（空闲超时）：%s", upload_id)
+    return len(stale)
+
+
+async def cleanup_stale_uploads(max_age_seconds: int = UPLOAD_SESSION_TTL_SECONDS) -> int:
+    """
+    清理过期的上传临时分片目录（v1.7.0，v1.7.0 补：会话空闲回收）。
+
+    顺序：
+      1. 先按**空闲时间**回收内存会话（连同其临时目录）——
+         否则「会话还在内存里」会让第 2 步一律跳过，目录永不释放；
+      2. 再清理既不在会话中、目录 mtime 又超过阈值的孤儿目录
+         （服务端重启后内存会话丢失，这些都会变成孤儿）。
+
+    :param max_age_seconds: 最大存活/空闲秒数（默认 24 小时）
     :returns: 删除的目录数量
     """
+    removed = expire_stale_sessions(max_age_seconds)
     if not os.path.isdir(UPLOAD_TEMP_DIR):
-        return 0
+        return removed
+
     now = time.time()
-    removed = 0
     for name in os.listdir(UPLOAD_TEMP_DIR):
         path = os.path.join(UPLOAD_TEMP_DIR, name)
         if not os.path.isdir(path) or name in _upload_sessions:
@@ -979,5 +1126,49 @@ async def cleanup_stale_uploads(max_age_seconds: int = 24 * 3600) -> int:
         shutil.rmtree(path, ignore_errors=True)
         removed += 1
     if removed:
-        logger.info("已清理 %s 个过期上传临时目录", removed)
+        logger.info("已清理 %s 个过期上传临时目录/会话", removed)
+    return removed
+
+
+async def cleanup_orphan_partials(
+    db: aiosqlite.Connection,
+    max_age_seconds: int = UPLOAD_SESSION_TTL_SECONDS,
+) -> int:
+    """
+    清理磁盘目录里遗留的合并临时文件（`.<名字>.jflove-upload-<id>.part`）。
+
+    合并过程中进程被强杀 / 宕机时，`complete_upload` 的 `finally` 来不及执行，
+    目标目录会留下一个隐藏的 `.part` 文件：既占空间，也会让用户看到「莫名其妙的隐藏文件」。
+
+    :param db: 数据库连接（用于枚举虚拟磁盘根目录）
+    :param max_age_seconds: mtime 超过该值的才算遗留（默认 24 小时）
+    :returns: 删除的文件数量
+    """
+    now = time.time()
+    removed = 0
+    try:
+        disks = await virtual_disk_repository.list_all(db)
+    except Exception as e:  # noqa: BLE001 - 清理失败不应影响其它定时任务
+        logger.warning("枚举虚拟磁盘失败，跳过残留合并文件清理：%s", type(e).__name__)
+        return 0
+
+    for disk in disks:
+        base = disk["real_path"]
+        if not os.path.isdir(base):
+            continue
+        for dirpath, _dirnames, filenames in os.walk(base):
+            for name in filenames:
+                if not (name.startswith(".") and ".jflove-upload-" in name
+                        and name.endswith(".part")):
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    if now - os.stat(path).st_mtime < max_age_seconds:
+                        continue
+                    os.remove(path)
+                    removed += 1
+                except OSError:
+                    continue
+    if removed:
+        logger.info("已清理 %s 个遗留的合并临时文件", removed)
     return removed

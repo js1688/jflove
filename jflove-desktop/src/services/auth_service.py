@@ -489,7 +489,16 @@ def refresh_token() -> None:
 def logout() -> None:
     """
     退出登录，清除内存会话状态和持久化数据。
+
+    v1.7.0：同时解除云盘挂载与自动同步 —— 否则退出登录后目录仍被接管，
+    且后台线程会拿着已失效的会话反复请求。
     """
+    try:
+        from src.services import mount_sync_service
+
+        mount_sync_service.disable_all_vfs()
+    except Exception as e:  # noqa: BLE001 - 退出登录不应因挂载清理失败而中断
+        logger.warning("退出登录时解除挂载失败：%s", type(e).__name__)
     _clear_saved_session()
     session_manager.clear()
     logger.info("用户已退出登录")

@@ -71,6 +71,12 @@ class TransferTask:
     file_size: int = 0      # 总字节数（下载时如未知响应头则可能为 0）
     transferred: int = 0    # 已传输字节数
     status: TaskStatus = TaskStatus.PENDING
+    #: 最近一次进度回调的阶段：hashing / uploading / finalizing / downloading
+    phase: str = ""
+    #: 最近一次有进展的时刻（monotonic），用于识别「卡住」并给出提示
+    last_progress_at: float = field(default_factory=time.monotonic)
+    #: 当前阶段开始时刻（monotonic）：合并阶段没有进度可涨，界面改显示「已等 N 秒」
+    phase_started_at: float = field(default_factory=time.monotonic)
     error: str = ""
     # 仅下载任务使用：服务端文件的 mtime（Unix 时间戳），写入本地后还原
     # 目的：让目录同步在下一轮扫描时识别"未变更"，避免重复下载
@@ -93,7 +99,9 @@ class _TransferWorker(QThread):
     内部信号通过 TransferManager 进行中转，外部不应直接连接。
     """
 
-    progress = Signal(str, int, int, str)  # task_id, transferred, total, phase
+    # 字节数必须用 qint64：`int` 在 Qt 里是 32 位，>2GB 的文件 emit 时会抛
+    # OverflowError（libshiboken），进度事件全部丢失 → 界面看起来不动。
+    progress = Signal(str, "qint64", "qint64", str)  # task_id, transferred, total, phase
     completed = Signal(str)                 # task_id
     failed = Signal(str, str)               # task_id, error
     cancelled = Signal(str)                 # task_id
@@ -350,6 +358,10 @@ class TransferManager(QObject):
         if not task:
             return
         task.transferred = transferred
+        if phase != task.phase:
+            task.phase_started_at = time.monotonic()
+        task.phase = phase
+        task.last_progress_at = time.monotonic()
         if total > 0:
             task.file_size = total
         if phase == "hashing":

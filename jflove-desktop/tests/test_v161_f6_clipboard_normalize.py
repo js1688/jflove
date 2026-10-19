@@ -152,8 +152,13 @@ def key_press(key: Qt.Key, mods: Qt.KeyboardModifier, *, auto_repeat: bool = Fal
 
 
 class TestNormalizeClipboard:
+
     """`normalize_clipboard_for_paste()` 的四条硬判据"""
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_含uri_list时重写并剔除该格式且html与文本仍在(self, qapp) -> None:
         """判据①：含 `text/uri-list` + 文本 + HTML ⇒ 归一化后不再含该格式，文本与 HTML 仍在"""
         clipboard = bad_clipboard()
@@ -172,6 +177,10 @@ class TestNormalizeClipboard:
         assert result["hasHtml"] is True
         assert result["textChars"] == len(TEXT_SAMPLE)
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_只有纯文本加uri_list时也重写(self, qapp) -> None:
         """真机矩阵里"真实 AWT 只写纯文本 ⇒ 0 字符"这一格：没有 HTML 也必须归一化"""
         mime = make_mime(html=None, text=TEXT_SAMPLE, uri="https://example.invalid/")
@@ -227,6 +236,10 @@ class TestNormalizeClipboard:
         assert result["reason"] == "no-uri-list"
         assert empty.writes == []
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_只有uri_list时不动_资源管理器复制文件场景(self, qapp) -> None:
         """
         边界（**安全红线**）：剪贴板上只有 `text/uri-list` ⇒ 不重写。
@@ -248,6 +261,10 @@ class TestNormalizeClipboard:
         assert result["reason"] == "no-payload"
         assert clipboard.writes == []  # 文件复制必须原样保留
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_有uri_list但html与text都为空时不动(self, qapp) -> None:
         """边界：两个真实文本格式都在、但内容都是空串 ⇒ 不重写（重写等于把剪贴板清空）"""
         clipboard = FakeClipboard(make_mime(html="", text="", uri="file:///D:/x.txt"))
@@ -285,6 +302,10 @@ class TestNormalizeClipboard:
         assert clipboard.data_changed_count == 0
         assert clipboard.mimeData() is mime  # 连对象都没被替换
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_hasUrls为真但无CF_HDROP格式时仍须归一化_防误伤AWT载荷(self, qapp) -> None:
         """
         **L-11 守卫的"不许扩大"半边**（本批实测踩坑，必须留一条守门用例）：
@@ -339,6 +360,10 @@ class TestNormalizeClipboard:
         assert result["action"] == "skipped"
         assert result["reason"] == "no-clipboard"
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_幂等_连续两次等于一次(self, qapp) -> None:
         """判据④：幂等 —— 第二次调用必须**看不到** `text/uri-list` 而直接跳过"""
         clipboard = bad_clipboard()
@@ -352,6 +377,10 @@ class TestNormalizeClipboard:
         assert len(clipboard.writes) == 1  # 两次调用 = 一次写入
         assert clipboard.data_changed_count == 1
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_重写不得引发递归回环(self, qapp) -> None:
         """
         重写会触发 `dataChanged`；即使有人在回调里**再调一次**归一化，也只能写一次
@@ -372,6 +401,10 @@ class TestNormalizeClipboard:
         assert reentrant[0]["action"] == "skipped"
         assert len(clipboard.writes) == 1  # 回环没有产生第二次写入
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_写入失败时静默降级(self, qapp) -> None:
         """边界：`setMimeData` 抛异常 ⇒ 只回报 failed，**不抛**、不改默认粘贴行为"""
         clipboard = FakeClipboard(
@@ -384,6 +417,10 @@ class TestNormalizeClipboard:
         assert result["reason"] == "write-failed"
         assert clipboard.writes == []
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_读取内容失败时静默降级(self, qapp) -> None:
         """边界：`html()/text()` 抛异常 ⇒ 静默跳过（宁可粘贴失败，也不能把剪贴板写坏）"""
 
@@ -415,8 +452,13 @@ class TestNormalizeClipboard:
 
 
 class TestPasteClipboardNormalizer:
+
     """挂钩点必须"只在该动的时候动、且永不吞键" """
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_永不吞键(self, qapp, monkeypatch) -> None:
         """判据：`eventFilter` 恒返回 `False` —— 默认粘贴必须照常发生（不自己插文本）"""
         clipboard = bad_clipboard()
@@ -457,6 +499,10 @@ class TestPasteClipboardNormalizer:
         assert normalizer.paste_key_count == 0
         assert clipboard.writes == []
 
+    @pytest.mark.skipif(
+        sys.platform != "win32",
+        reason="F6 归一化只在 Win32 生效；X11 上 text/uri-list 是「复制文件」载体，语义不同",
+    )
     def test_窗口非活动时绝不动剪贴板(self, qapp, monkeypatch) -> None:
         """判据：**本应用窗口不在活动态**时，剪贴板一个字节都不许动"""
         clipboard = bad_clipboard()

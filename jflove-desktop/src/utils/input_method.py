@@ -4,17 +4,20 @@
 各平台的 Qt 输入法工作机制：
 
 - Linux Wayland
-    Qt 6 内置 `wayland` IM 模块，直接通过 `text-input-v3` 协议与 IM frontend
+    Qt 6 内置 `wayland` IM 模块，直接通过 `text-input` 协议与 IM frontend
     对话。fcitx5、ibus 等主流 IM 在 Wayland 下都通过对应 frontend
-    （fcitx5-wayland-frontend / ibus-wayland）实现该协议。**最稳定方案**。
+    （fcitx5 的 `libwayland.so` / ibus 内置）实现该协议。**唯一可靠的输入法路径**。
 
-- Linux X11
+- Linux X11（含 XWayland 的 xcb 平台）
     通过 `QT_IM_MODULE` 环境变量选择 IM 桥接插件 (fcitx / ibus)。
-    PySide6 venv 自带的 Qt 在 plugins/platforminputcontexts/ 下携带
-    `libibusplatforminputcontextplugin.so`，但**不带 fcitx 插件**。因此：
-      - X11 + IBus → 自动可用
-      - X11 + Fcitx5 → 需要系统级 fcitx5-qt6 插件，或退而用 ibus
-      - X11 + Fcitx5 但无 fcitx 插件 → 自动回退到 ibus（如果 ibus daemon 在跑）
+    PySide6 venv 自带 `libibusplatforminputcontextplugin.so`，**不带 fcitx 插件**；
+    系统 `/usr/lib64/qt6/plugins/.../libfcitx5platforminputcontextplugin.so`
+    **加载不了**（它依赖 `Qt_6.x_PRIVATE_API`，PySide6 的 Qt 不导出私有符号）。
+    因此 X11 下实际可用的只有 ibus（且必须 ibus-daemon 在跑）。
+
+⚠ **平台与 QT_IM_MODULE 必须匹配**：`QT_QPA_PLATFORM=xcb` 时 `QT_IM_MODULE=wayland`
+毫无作用（反之亦然）。v1.7.0 之前的缺陷正是：main.py 强制 xcb，而本模块看到
+`WAYLAND_DISPLAY` 就设成 `wayland` ⇒ 两者互斥 ⇒ 完全无法输入中文。
 
 - Windows
     系统级 IME（PinYin / Microsoft IME / 各种第三方），Qt 自动桥接，无需任何
@@ -24,10 +27,12 @@
     系统级 IME（小企鹅 / 搜狗 / 自带），Qt 自动桥接，无需配置。本项目暂未
     在 macOS 上验证，但代码路径已预留。
 
-策略：不强行覆盖用户**已经显式可用**的设置；只在用户的设置在当前 PySide6
-中不可用（最常见：QT_IM_MODULE=fcitx 但 PySide6 没带 fcitx 插件）时才介入。
+策略：**先定平台，再按平台选 IM 模块**（见 `configure_linux_qt_platform`）；
+不强行覆盖用户**已经显式可用**的设置。
 
-调用要求：必须在 `QApplication` 创建之前调用，否则 Qt 已经读完环境变量。
+调用要求：必须在 `QApplication` 创建之前调用，否则 Qt 已经读完环境变量：
+  1. `configure_linux_qt_platform()` —— 决定 `QT_QPA_PLATFORM`
+  2. `setup_input_method()` —— 按该平台设置 `QT_IM_MODULE`
 """
 
 from __future__ import annotations
@@ -93,6 +98,85 @@ def _is_running(name: str) -> bool:
         return False
 
 
+#: Wayland 输入法前端（fcitx5 的 wayland 插件）常见安装位置
+_FCITX_WAYLAND_PLUGINS = (
+    "/usr/lib64/fcitx5/libwayland.so",
+    "/usr/lib/x86_64-linux-gnu/fcitx5/libwayland.so",
+    "/usr/lib/fcitx5/libwayland.so",
+)
+
+#: 用户可用来覆盖平台选择的环境变量（xcb / wayland）
+PLATFORM_OVERRIDE_ENV = "JFLOVE_QPA_PLATFORM"
+
+
+def _is_wayland_session() -> bool:
+    """当前是否是 Wayland 会话（以会话为准，不看 QT_QPA_PLATFORM）"""
+    return bool(
+        os.environ.get("WAYLAND_DISPLAY")
+        or os.environ.get("XDG_SESSION_TYPE", "").strip().lower() == "wayland"
+    )
+
+
+def _has_fcitx_wayland_frontend() -> bool:
+    """fcitx5 是否具备 Wayland 前端（缺了它 Wayland 下同样没有输入法）"""
+    return any(os.path.exists(p) for p in _FCITX_WAYLAND_PLUGINS)
+
+
+def wayland_ime_available() -> bool:
+    """
+    当前会话是否存在可用的 Wayland 输入法前端。
+
+    :returns: True 表示切换到 Wayland 平台后中文输入可用
+    """
+    if not _is_wayland_session():
+        return False
+    if _is_running("fcitx5") or _is_running("fcitx"):
+        return _has_fcitx_wayland_frontend()
+    if _is_running("ibus-daemon"):
+        return True
+    return False
+
+
+def configure_linux_qt_platform() -> str | None:
+    """
+    选择 Linux 下的 Qt 平台插件（必须在 QApplication 创建之前调用）。
+
+    规则：
+      1. 用户已显式设置 `QT_QPA_PLATFORM` ⇒ 尊重，不动；
+      2. `JFLOVE_QPA_PLATFORM` 覆盖（用于遇到 Wayland 显示问题时回退 `xcb`）；
+      3. Wayland 会话且存在 Wayland 输入法前端 ⇒ `wayland`
+         （只有这条路能拿到中文输入；xcb 下 PySide6 没有可用的 fcitx 插件）；
+      4. 其余 ⇒ `xcb`（XWayland 下更稳）。
+
+    :returns: 最终生效的 `QT_QPA_PLATFORM`（非 Linux 返回 None 表示不干预）
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+
+    current = os.environ.get("QT_QPA_PLATFORM", "").strip()
+    if current:
+        logger.info("Qt 平台：尊重已设置 QT_QPA_PLATFORM=%s", current)
+        return current
+
+    override = os.environ.get(PLATFORM_OVERRIDE_ENV, "").strip()
+    if override:
+        os.environ["QT_QPA_PLATFORM"] = override
+        logger.info("Qt 平台：按 %s=%s 覆盖", PLATFORM_OVERRIDE_ENV, override)
+        return override
+
+    if _is_wayland_session() and wayland_ime_available():
+        os.environ["QT_QPA_PLATFORM"] = "wayland"
+        logger.info(
+            "Qt 平台：Wayland 会话且检测到 Wayland 输入法前端，使用 wayland"
+            "（中文输入依赖 text-input 协议）",
+        )
+        return "wayland"
+
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+    logger.info("Qt 平台：使用 xcb（未检测到可用的 Wayland 输入法前端）")
+    return "xcb"
+
+
 def setup_input_method() -> str | None:
     """
     根据当前平台与运行环境配置 Qt IME 环境变量。
@@ -112,55 +196,45 @@ def setup_input_method() -> str | None:
     # ── Linux 平台 ──
     current = os.environ.get("QT_IM_MODULE", "").strip()
     available_plugins = _pyside_im_plugins()
-    is_wayland = bool(
-        os.environ.get("WAYLAND_DISPLAY")
-        or os.environ.get("XDG_SESSION_TYPE") == "wayland"
-    )
+    # **以 Qt 实际平台为准**：Wayland 会话 + xcb 平台时，wayland IM 模块无效
+    platform = os.environ.get("QT_QPA_PLATFORM", "").strip().lower()
+    is_wayland_platform = platform.startswith("wayland")
 
-    # 1) 当前设置是否可用？
-    #    - "wayland" 是 Qt 6 wayland 平台插件内置（不在 plugins/ 下），始终可用
-    #    - 其他名字必须在 PySide6 自带的 platforminputcontexts/ 中找到对应 .so
-    is_current_usable = (
-        (current == "wayland" and is_wayland)
-        or (current and current in available_plugins)
-    )
-    if is_current_usable:
+    if is_wayland_platform:
+        # Wayland 平台：只能用内置 wayland IM 模块（走 text-input 协议）
+        os.environ["QT_IM_MODULE"] = "wayland"
+        if current and current != "wayland":
+            logger.info(
+                "输入法配置：平台=wayland，QT_IM_MODULE 由 %s 切换为 'wayland'"
+                "（其他模块在 wayland 平台下不生效）",
+                current,
+            )
+        else:
+            logger.info("输入法配置：平台=wayland，使用内置 wayland IM 模块")
+        return "wayland"
+
+    # 非 Wayland（xcb 等）：只有 PySide6 自带的 platforminputcontexts 插件可用
+    if current and current in available_plugins:
         logger.info(
             "输入法配置：尊重已设置 QT_IM_MODULE=%s（PySide6 中可用）",
             current,
         )
         return current
 
-    # 2) 当前设置不可用 → 自动选一个能用的
-    if is_wayland:
-        # Wayland 首选：Qt 6 内置的 wayland IM 模块（走 text-input-v3 协议）
-        # 前提：fcitx5 用户需安装 fcitx5-wayland-frontend；ibus 用户 1.5.30+
-        os.environ["QT_IM_MODULE"] = "wayland"
-        if current and current != "wayland":
-            logger.info(
-                "输入法配置：QT_IM_MODULE=%s 在 PySide6 中不可用，"
-                "Wayland 下切换为 'wayland'（Qt 6 内置，走 text-input-v3 协议）",
-                current,
-            )
-        else:
-            logger.info("输入法配置：Wayland 默认使用 'wayland' IM 模块")
-        return "wayland"
-
-    # X11 fallback：PySide6 自带 ibus 插件
     if "ibus" in available_plugins and _is_running("ibus-daemon"):
         os.environ["QT_IM_MODULE"] = "ibus"
         logger.info(
-            "输入法配置：X11 下检测到 ibus-daemon，QT_IM_MODULE=ibus",
+            "输入法配置：平台=%s，检测到 ibus-daemon，QT_IM_MODULE=ibus",
+            platform or "xcb",
         )
         return "ibus"
 
     # 实在没合适的 → 警告，但保留用户设置（至少 Compose key 可工作）
     logger.warning(
-        "输入法配置：当前 QT_IM_MODULE=%r 在 PySide6 venv 中不可用；"
-        "PySide6 仅自带 IM 插件 %s。"
-        "建议：1) Wayland 下使用 fcitx5-wayland-frontend；"
-        "2) X11 下安装系统 fcitx5-qt6 包并设置 QT_PLUGIN_PATH；"
-        "3) 或改用 IBus（ibus-setup → 安装中文输入法）",
-        current, sorted(available_plugins),
+        "输入法配置：当前平台=%r 下 QT_IM_MODULE=%r 不可用；"
+        "PySide6 仅自带 IM 插件 %s（系统 fcitx5 Qt 插件因 Qt 私有 API 不匹配无法加载）。"
+        "建议：1) 使用 Wayland 会话并保持 fcitx5 运行；"
+        "2) 或安装 ibus 并使用中文输入法",
+        platform or "xcb", current, sorted(available_plugins),
     )
     return current or None

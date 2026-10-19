@@ -314,12 +314,20 @@ class HttpClient:
 
     # ── 公开接口：加密请求 ────────────────────────────
 
-    def post(self, endpoint: str, data: dict | None = None) -> dict:
+    def post(
+        self,
+        endpoint: str,
+        data: dict | None = None,
+        timeout: float | tuple[float, float] = 30,
+    ) -> dict:
         """
         发送加密 POST 请求。
 
         :param endpoint: API 路径
         :param data: 请求体字典（会自动注入 token 并加密）
+        :param timeout: 超时秒数，或 `(连接, 读取)` 元组。**长耗时接口必须显式放大**：
+            服务端合并大文件分片（`upload/complete`）可能持续数分钟，
+            默认 30 秒会把「正在正常合并」误判成失败，进而触发整文件重传。
         :returns: 解密后的响应 dict
         :raises ApiError: 请求失败
         """
@@ -329,7 +337,7 @@ class HttpClient:
             # 续约后会重新构造 payload，这样 token 会用新的 session_key 重新加密
             payload = self._build_payload(data)
             return requests.post(
-                url, json=payload, headers=self._auth_headers(), timeout=30
+                url, json=payload, headers=self._auth_headers(), timeout=timeout
             )
 
         resp = self._send_with_auto_resync(_send)
@@ -584,3 +592,25 @@ class HttpClient:
 
 # 全局单例
 http_client = HttpClient()
+
+
+#: 可重试的 HTTP 状态码（服务端暂时性故障）
+_TRANSIENT_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+def is_transient_error(exc: BaseException) -> bool:
+    """
+    判断异常是否是「重试可能成功」的瞬态错误。
+
+    网络安全风险提示：这里只做**判定**，重试策略由调用方决定
+    （分片上传可安全重试；`complete` 只能等结果 + 核验，不能盲目重发）。
+
+    :param exc: 捕获到的异常
+    :returns: True 表示值得重试
+    """
+    if isinstance(exc, (requests.exceptions.Timeout,
+                        requests.exceptions.ConnectionError)):
+        return True
+    if isinstance(exc, ApiError):
+        return exc.status_code in _TRANSIENT_STATUS
+    return False

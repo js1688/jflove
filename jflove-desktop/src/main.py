@@ -24,18 +24,23 @@ PYSIDE-2700 系列；原始排查记录随已删除的原生界面留在 git 历
 
 import sys
 import os
+import signal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-if sys.platform.startswith("linux") and "QT_QPA_PLATFORM" not in os.environ:
-    # 强制 X11/XWayland：绕开 QtWebEngine 在 Wayland 下的已知崩溃
-    os.environ["QT_QPA_PLATFORM"] = "xcb"
-
-# 配置中文输入法环境变量（必须在 QApplication 之前；Windows/macOS 自动跳过）
-# 详见 src/utils/input_method.py 的模块文档
-from src.utils.input_method import setup_input_method  # noqa: E402
+# Linux 平台与输入法必须**成对**决定，且都要在 QApplication 之前：
+#   - Wayland 会话 + Wayland 输入法前端 ⇒ wayland 平台 + QT_IM_MODULE=wayland
+#     （xcb 下 PySide6 没有可用的 fcitx 插件，会彻底失去中文输入）
+#   - 其余情况 ⇒ xcb（XWayland 更稳）
+# 需要强制回退时设置 JFLOVE_QPA_PLATFORM=xcb。
+from src.utils.input_method import (  # noqa: E402
+    configure_linux_qt_platform,
+    setup_input_method,
+)
+configure_linux_qt_platform()
 setup_input_method()
 
+from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QMessageBox  # noqa: E402
 
 from src.bridge import Bridge  # noqa: E402
@@ -77,6 +82,80 @@ def _warn_missing_frontend() -> None:
     box.setText("前端产物缺失")
     box.setInformativeText(message)
     box.exec()
+
+
+def start_mount_supervisor(app) -> QTimer:
+    """
+    周期性保证「已启用的挂载点」处于挂载 + 自动同步状态（v1.7.0 修复）。
+
+    为什么放在外壳而不是挂载页：同步是**后台能力**，用户不打开挂载页也必须生效
+    （否则「我往文件夹里放了文件却没上传」）。挂载动作会阻塞（等待 FUSE 就绪），
+    因此放到工作线程，避免卡住 UI。
+
+    :param app: `QApplication`
+    :returns: 定时器（父对象为 app）
+    """
+    import threading
+
+    lock = threading.Lock()
+
+    def _tick() -> None:
+        if not lock.acquire(blocking=False):
+            return  # 上一轮还没跑完（例如 FUSE 等待中）
+        try:
+            threading.Thread(
+                target=lambda: _restore_and_release(lock),
+                name="jflove-mount-supervisor",
+                daemon=True,
+            ).start()
+        except Exception:  # noqa: BLE001 - 兜底任务失败不能影响应用
+            lock.release()
+            logger.warning("挂载监督任务启动失败", exc_info=True)
+
+    def _restore_and_release(held: threading.Lock) -> None:
+        try:
+            from src.services import mount_sync_service
+
+            mount_sync_service.ensure_auto_sync()
+        except Exception:  # noqa: BLE001
+            logger.warning("恢复挂载点失败", exc_info=True)
+        finally:
+            held.release()
+
+    timer = QTimer(app)
+    timer.timeout.connect(_tick)
+    timer.start(10_000)
+    QTimer.singleShot(2_000, _tick)  # 启动后尽快恢复一次
+    return timer
+
+
+def install_termination_hook(app) -> QTimer:
+    """
+    让 `SIGTERM` / `SIGINT` 走正常退出路径（v1.7.0 Linux 修复）。
+
+    QtWebEngine（Chromium）会接管 `SIGTERM`，进程被"收尸"的时机不可控，
+    Qt 事件循环也可能不返回 ⇒ `main()` 的 `finally` 不执行 ⇒ FUSE 挂载点残留成
+    「传输端点尚未连接」的死挂载（Windows CfAPI 同理不会注销）。
+    这里注册信号处理器，并用低频定时器把控制权周期性交回解释器
+    （Qt 事件循环在 C 里跑时，Python 信号处理器不会被调度）。
+
+    :param app: `QApplication`
+    :returns: 定时器（父对象为 app，无需额外持有；返回值便于测试）
+    """
+    def _quit(*_args) -> None:
+        logger.info("收到退出信号，走正常退出流程（会解除系统挂载）")
+        app.quit()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _quit)
+        except (ValueError, OSError):  # 非主线程 / 平台不支持
+            logger.warning("注册信号处理器失败：%s", sig)
+
+    timer = QTimer(app)
+    timer.timeout.connect(lambda: None)
+    timer.start(200)
+    return timer
 
 
 def bootstrap_single_instance(guard, cli_paths: list[str]) -> bool:
@@ -136,6 +215,8 @@ def main() -> int:
     app.setOrganizationName(APP_ORG)
     # 任务栏 / 托盘 / 通知中心的应用图标（仓库 images/icon.png|ico）
     app.setWindowIcon(get_app_icon())
+    install_termination_hook(app)
+    start_mount_supervisor(app)
 
     # ── v1.6.0 单实例 + 命令行路径（F7.4 / AC-46，设计 §6.6.3）──────────────
     # 判定时机必须在**创建 WebShell 之前**：否则第二实例会先闪一个窗口、再建出第二个

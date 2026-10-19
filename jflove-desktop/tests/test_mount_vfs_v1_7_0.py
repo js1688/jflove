@@ -1,7 +1,8 @@
 """
 v1.7.0 CfAPI 系统级挂载集成测试（Windows）
 
-验证 `src/utils/mount_vfs.py` 的完整链路：
+验证 `src/utils/mount_cfapi.py` 的完整链路（Linux FUSE 用例见
+`tests/test_mount_fuse_v1_7_0.py`）：
   注册 sync root → 创建脱水占位 → 读取触发 FETCH_DATA → 内容与远端一致。
 
 对应需求 AC-102 / AC-103 / AC-104（系统挂载部分）。
@@ -18,7 +19,7 @@ import pytest
 from src.utils import mount_vfs
 
 pytestmark = pytest.mark.skipif(
-    not mount_vfs.is_available(), reason="CfAPI 仅 Windows 支持",
+    mount_vfs.backend() != "cfapi", reason="CfAPI 仅 Windows 支持",
 )
 
 

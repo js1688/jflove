@@ -512,8 +512,12 @@ def run_pyinstaller(clean: bool, mode: str) -> None:
         # v1.5.0：界面改为 Web UI，必须把前端产物打进包 —— 否则打包后白屏
         # （web_shell.resolve_web_root() 在冻结态从 `<解包目录>/webui` 取首页）
         "--add-data", f"{UI_DIST_DIR}{sep}webui",
-        str(SRC_MAIN),
     ]
+    if platform.system() != "Windows":
+        # Linux 挂载驱动 `src/utils/mount_fuse.py` 是**惰性** import fusepy，
+        # PyInstaller 静态分析看不到 ⇒ 必须显式登记，否则打包后挂载降级为应用内视图
+        cmd += ["--hidden-import", "fuse"]
+    cmd.append(str(SRC_MAIN))
     log(f"执行 pyinstaller（{mode}）: " + " ".join(cmd))
     proc = subprocess.run(cmd, cwd=ROOT)
     if proc.returncode != 0:

@@ -35,8 +35,11 @@ def _status_of(mount: dict) -> dict:
 
 
 def _h_mount_list(_p: dict) -> dict:
-    """列出全部挂载点（含状态统计）"""
+    """列出全部挂载点（含状态统计；顺带恢复已启用的系统挂载）"""
     mounts = mount_service.list_mounts()
+    # 系统挂载（FUSE / CfAPI 连接）不跨进程存活：进入页面时按配置恢复，
+    # 并清掉异常退出留下的死挂载点（否则目录不可访问）。
+    mount_sync_service.restore_mounts(mounts)
     return {
         "mounts": [
             {**m, "status": _status_of(m) if m.get("enabled") else {
@@ -62,20 +65,32 @@ def _h_mount_create(p: dict) -> dict:
 
 
 def _h_mount_update(p: dict) -> dict:
-    """更新挂载点"""
+    """更新挂载点（本地目录变了则按新目录重挂，避免旧挂载点悬空）"""
+    mount_id = str(p["mount_id"])
+    before = mount_service.get_mount(mount_id)
+    old_local = before.get("local_path") or ""
+
     mount_service.update_mount(
-        mount_id=str(p["mount_id"]),
+        mount_id=mount_id,
         name=str(p.get("name", "")),
         disk_id=int(p.get("disk_id", 0)),
         remote_path=str(p.get("remote_path", "")),
         local_path=str(p.get("local_path", "")),
     )
+
+    after = mount_service.get_mount(mount_id)
+    if before.get("enabled") and (after.get("local_path") or "") != old_local:
+        # 系统挂载绑在旧目录上：先卸载，再按新目录挂回
+        mount_sync_service.disable_vfs(mount_id)
+        mount_sync_service.enable_vfs(after)
     return {"ok": True}
 
 
 def _h_mount_delete(p: dict) -> dict:
-    """删除挂载点（不动本地文件与远端）"""
+    """删除挂载点（先卸载，不动本地文件与远端）"""
     mount_id = str(p["mount_id"])
+    # 必须先卸载：配置删掉后就没有入口能停用它，目录会一直被接管（FUSE 尤其明显）
+    mount_sync_service.disable_vfs(mount_id)
     mount_service.delete_mount(mount_id)
     from src.utils import mount_index
 

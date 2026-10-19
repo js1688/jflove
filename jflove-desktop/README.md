@@ -216,6 +216,43 @@ source venv-linux/bin/activate
 pip install -r requirements.txt
 ```
 
+> **云盘挂载（FUSE）额外要求**：Linux 的系统级挂载由 `fusepy` + 系统的 FUSE 2 运行库实现。
+> 需要 `fuse`（提供 `/usr/lib*/libfuse.so.2` 与 `fusermount`）和可访问的 `/dev/fuse`：
+>
+> ```bash
+> sudo dnf install fuse fuse-libs          # Fedora
+> # Debian/Ubuntu: sudo apt install fuse libfuse2
+> ```
+>
+> 缺任一条件时 `mount_vfs.is_available()` 返回 False，自动同步照常运行（只是没有系统级挂载）。
+> 进程被强杀后可能残留「传输端点尚未连接」的死挂载点：应用启动时会自动清理并重新挂载
+> （检测走 `/proc/self/mounts`，不依赖 stat —— 死挂载点 stat 会 ENOTCONN）。
+
+> **云盘挂载 = 自动双向一致**：本地新增 / 修改自动上传，远端新增 / 修改自动落到本地，
+> 读取「在线」文件时按需下载。**本地删除只删本地缓存，不会删除远端文件**
+> （远端删除请到文件管理页操作）。因此界面上没有「下载 / 释放」按钮 —— 一切自动完成。
+>
+> 页面上可直接看到同步进度：汇总行（已同步 / 待上传 / 上传中 / 下载中 / 失败 / 在线），
+> 以及「正在同步 N 项」面板逐条列出**文件名 + 上传/下载方向 + 百分比**。
+> 每 15 分钟还会自动做一次全量核对，清理远端已被绕过 API 删除的残留条目。
+>
+> **大文件上传**：断点续传（`storage/upload_resume.json` 记录已发送分片，应用重启后继续），
+> 分片级重试（1MB 分片失败只重发该片），服务端合并最长可等 1 小时；合并超时会核验远端文件
+> 是否其实已落盘，**不会整文件重传**。单文件失败后 30 秒自动重试。
+>
+> **上传期间远端目录为什么看不到文件**：分片先写到服务端的 `build/upload_tmp/<upload_id>/`，
+> 传完后服务端合并、校验，最后原子替换进磁盘目录。界面上的「校验中 / 上传中 / 服务端合并校验中」
+> 分别对应「算哈希 / 传分片 / 合并」，三者都到 100% 且变成「已同步」才算真正落盘。
+> 合并阶段会显示**服务端真实合并进度**（`服务端合并校验中 N% · 已 X 秒`），
+> 该百分比来自 `POST /api/v1/files/upload/progress`；服务端未升级时降级为只显示「已 X 秒」。
+
+> **Windows 与 Linux 的差异**：Windows 走 CfAPI（无写回调，**10 秒轮询**发现本地改动），
+> Linux 走 FUSE（写回调即时同步 + 30 秒兜底扫描）；两者的状态判定、删除语义完全一致。
+
+> **中文输入（Linux）**：Wayland 会话且检测到 Wayland 输入法前端（fcitx5 / ibus）时使用
+> `wayland` 平台 + `QT_IM_MODULE=wayland`（xcb 下 PySide6 没有可加载的 fcitx 插件）。
+> 若遇到 Wayland 显示异常，可用 `JFLOVE_QPA_PLATFORM=xcb` 启动回退（回退后输入法依赖 ibus）。
+
 ### Windows (PowerShell)
 
 ```powershell
@@ -311,6 +348,9 @@ jflove-desktop/
 │       ├── session.py              # 会话状态单例
 │       ├── sync_engine.py          # 旧同步引擎（定时器 + 工作线程，过渡期保留）
 │       ├── mount_index.py          # 挂载点本地索引（SQLite：文件清单 + rev 游标）
+│       ├── mount_vfs.py            # 系统级挂载门面（按平台选实现 + is_available）
+│       ├── mount_cfapi.py          # Windows 实现：Cloud Filter API 占位 + 水合
+│       ├── mount_fuse.py           # Linux 实现：FUSE 视图 + 读取时按需下载
 │       ├── transfer_manager.py     # 传输任务管理器
 │       ├── worker.py               # QThread 异步工作线程
 │       └── icon.py / input_method.py / logger.py
@@ -383,6 +423,8 @@ JFLove/
 | `cryptography==47.0.0` | X25519 / HKDF-SHA256 / ChaCha20-Poly1305 加密 |
 | `requests==2.33.1` | HTTP 客户端（仅 `src/utils/http_client.py` 使用） |
 | `pyinstaller==6.20.0` | 应用打包 |
+| `fusepy==3.0.1`（仅非 Windows） | Linux 系统级挂载驱动（FUSE 2；Windows 用系统自带 Cloud Filter API） |
 
 > **更正（v1.5.1）**：本表此前还列了 `markdown` 与 `pygments` —— 那是 Qt Widgets 版 Markdown 预览的遗留依赖，
-> 界面迁移到 Web UI 后已从 `requirements.txt` 移除。实测：`requirements.txt` 只有上表 4 项，且 `src/` 下 0 处 `import markdown / pygments`。
+> 界面迁移到 Web UI 后已从 `requirements.txt` 移除。
+> **v1.7.0**：新增 `fusepy`（带 `sys_platform != "win32"` 标记，Windows 侧不安装）。

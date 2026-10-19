@@ -15,6 +15,7 @@
 
 import json
 import os
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -226,6 +227,54 @@ async def complete_upload(request: Request, db: aiosqlite.Connection = Depends(g
         raise HTTPException(status_code=400, detail=str(e))
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {"message": "上传完成", "path": dest})
+
+
+@router.post(
+    "/upload/progress",
+    summary="查询分片合并进度",
+    description=(
+        "大文件合并（`upload/complete`）可能持续数分钟，客户端用本接口轮询显示进度，"
+        "避免用户误以为卡死。\n\n"
+        "请求体（加密后）字段：\n"
+        "- `token`：JWT 令牌\n"
+        "- `upload_id`：上传会话 ID\n\n"
+        "响应体（加密后）字段：\n"
+        "- `state`：`queued` / `merging` / `done` / `failed` / `unknown`\n"
+        "- `processed` / `total`：已处理分片数 / 总分片数\n"
+        "- `percent`：0-100（按字节算）\n"
+        "- `elapsed_seconds`：当前阶段已耗时\n"
+        "- `file_size`：文件总字节数"
+    ),
+)
+async def upload_progress(request: Request, db: aiosqlite.Connection = Depends(get_db)):
+    """查询某次上传的合并进度（验证 upload_id 归属当前用户）"""
+    body = await decrypt_request_body(request)
+    user = await _get_user(request, db, body)
+    upload_id = body.get("upload_id", "")
+    if not file_service.is_upload_owned_by(upload_id, user["id"]):
+        raise HTTPException(status_code=403, detail="无权操作该上传会话")
+
+    info = file_service.merge_progress(upload_id)
+    session_id = request.headers.get("X-Session-ID", "")
+    if info is None:
+        # 会话已结束（合并完成并清理）或从未开始：让客户端按「未知」处理，
+        # 由它自己用「远端文件是否已存在」来收尾，而不是无限等待。
+        return encrypt_response(session_id, {"state": "unknown", "percent": 0})
+    total = int(info.get("total") or 0)
+    processed = int(info.get("processed") or 0)
+    size = int(info.get("file_size") or 0)
+    percent = int(processed * 100 / size) if size else (
+        int(processed * 100 / total) if total else 0
+    )
+    return encrypt_response(session_id, {
+        "state": info.get("state", "unknown"),
+        "processed": processed,
+        "total": total,
+        "percent": max(0, min(100, percent)),
+        "elapsed_seconds": info.get("elapsed_seconds") or round(
+            max(0.0, time.time() - float(info.get("started_at") or time.time())), 1),
+        "file_size": size,
+    })
 
 
 @router.delete(

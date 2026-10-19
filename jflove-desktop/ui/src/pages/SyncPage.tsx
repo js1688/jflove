@@ -1,16 +1,17 @@
 /**
  * 云盘挂载页（v1.7.0，替代原「同步管理」）
  *
- * 模型变化：
- *   - 旧版：整目录双向同步（全量扫描 + size/mtime 猜），不知道上传了没有。
- *   - 新版：**挂载点** =（远端目录 → 本地缓存目录），远端文件在这里**全部可见**，
- *     并逐个标记「已缓存 / 仅在线」，可手动下载 / 释放；增量靠服务端变更日志。
+ * 模型：**挂载点** =（远端目录 → 本地目录），两端**自动保持一致**：
+ *   - 远端新增 / 修改 / 删除 → 自动落到本地（远端删除会删掉本地缓存）；
+ *   - 本地新增 / 修改 → 自动上传到远端；
+ *   - **本地删除只删本地缓存，绝不回传远端**（远端删除只能在文件管理页做）；
+ *   - 读取「仅在线」文件时由文件系统（Windows CfAPI / Linux FUSE）按需下载。
+ *
+ * 因此本页**不提供下载 / 释放 / 全量对账按钮** —— 一切都自动完成，
+ * 页面只负责如实显示每个文件当前处于哪种状态。
  *
  * 配置真相在 Python（`mounts_{username}.json`），渲染层不落盘任何配置。
- * 文件字节不进渲染层：下载由 Python 侧 `transfer_manager` 完成。
- *
- * 已知边界（如实标注）：当前为**应用内挂载视图**，尚未注册系统级虚拟盘
- * （Windows CfAPI / Linux FUSE），因此资源管理器里只能看到已下载的文件。
+ * 文件字节不进渲染层：传输由 Python 侧 `transfer_manager` 完成。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../components/PageHeader';
@@ -28,6 +29,7 @@ import {
   toast,
 } from '../components/ui';
 import { diskService } from '../services/disk-service';
+import { onBridgeEvent } from '../utils/desktop-bridge';
 import { fileService } from '../services/file-service';
 import {
   mountService,
@@ -51,6 +53,54 @@ function fmtSize(bytes: number): string {
 
 /** 单页最多渲染的文件数（避免上万条时卡顿） */
 const MAX_RENDER_FILES = 500;
+
+/** 文件状态轮询间隔（毫秒）：读本地索引 + stat，用于显示实时进度 */
+const POLL_MS = 1000;
+
+/** 挂载点统计轮询间隔（毫秒）：要遍历全部文件，放慢一些 */
+const MOUNT_POLL_MS = 3000;
+
+/** 状态 → 展示文案 */
+const FILE_STATE_LABEL: Record<MountFile['state'], string> = {
+  synced: '已同步',
+  pending: '待上传',
+  hashing: '校验中',
+  uploading: '上传中',
+  finalizing: '服务端处理中',
+  downloading: '下载中',
+  failed: '失败',
+  online: '在线',
+};
+
+/** 状态 → 徽标色调 */
+function stateTone(state: MountFile['state']): 'success' | 'brand' | 'warning' | 'danger' | 'neutral' {
+  if (state === 'synced') return 'success';
+  if (state === 'hashing' || state === 'uploading' || state === 'finalizing' ||
+    state === 'downloading') return 'brand';
+  if (state === 'pending') return 'warning';
+  if (state === 'failed') return 'danger';
+  return 'neutral';
+}
+
+/** 秒数 → 紧凑时长（45 秒 / 3 分 05 秒 / 12 分） */
+function fmtElapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return `${s} 秒`;
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  return rest ? `${m} 分 ${String(rest).padStart(2, '0')} 秒` : `${m} 分`;
+}
+
+/** 状态 → 动作描述（用于「正在传输」列表） */
+function stateAction(state: MountFile['state']): string {
+  if (state === 'hashing') return '正在校验';
+  if (state === 'uploading') return '正在上传';
+  if (state === 'finalizing') return '服务端合并校验中';
+  if (state === 'downloading') return '正在下载';
+  if (state === 'pending') return '等待上传';
+  if (state === 'failed') return '上传失败';
+  return '';
+}
 
 const EMPTY_FORM: MountInput = {
   name: '',
@@ -126,6 +176,52 @@ export function SyncPage() {
     void loadFiles(selectedId);
   }, [selectedId, loadFiles]);
 
+  // 自动同步在后台上传 / 下载：文件状态 1s 刷新（进度实时），挂载点统计 3s 刷新
+  useEffect(() => {
+    if (!selectedId || !selected?.enabled) return;
+    const filesTimer = window.setInterval(() => {
+      void mountService
+        .files(selectedId)
+        .then(setFiles)
+        .catch(() => {});
+    }, POLL_MS);
+    const mountsTimer = window.setInterval(() => {
+      void mountService
+        .list()
+        .then(setMounts)
+        .catch(() => {});
+    }, MOUNT_POLL_MS);
+    return () => {
+      window.clearInterval(filesTimer);
+      window.clearInterval(mountsTimer);
+    };
+  }, [selectedId, selected?.enabled]);
+
+  // 进度**不能只靠定时器**：窗口在后台时 Chromium 会把 setInterval 节流到每分钟一次，
+  // 大文件上传/合并期间界面看起来像卡住。传输进度本身由 Python 主动推送事件，
+  // 这里订阅事件即时刷新（事件推送不受定时器节流影响）。
+  useEffect(() => {
+    if (!selectedId) return;
+    let pendingRefresh = 0;
+    const refresh = () => {
+      if (pendingRefresh) return; // 合并突发事件：最多每 300ms 刷新一次
+      pendingRefresh = window.setTimeout(() => {
+        pendingRefresh = 0;
+        void mountService.files(selectedId).then(setFiles).catch(() => {});
+        void mountService.list().then(setMounts).catch(() => {});
+      }, 300);
+    };
+    const offs = [
+      onBridgeEvent('transfer.added', refresh),
+      onBridgeEvent('transfer.updated', refresh),
+      onBridgeEvent('transfer.removed', refresh),
+    ];
+    return () => {
+      offs.forEach((off) => off());
+      if (pendingRefresh) window.clearTimeout(pendingRefresh);
+    };
+  }, [selectedId]);
+
   const openCreate = async () => {
     let available = disks;
     if (available.length === 0) {
@@ -184,42 +280,14 @@ export function SyncPage() {
     }
   };
 
-  const refreshSelected = async (mode: 'refresh' | 'reconcile') => {
+  const refreshSelected = async () => {
     if (!selected) return;
     try {
-      const result =
-        mode === 'refresh'
-          ? await mountService.refresh(selected.id)
-          : await mountService.reconcile(selected.id);
-      toast.success(
-        mode === 'refresh' ? '增量同步完成' : '全量对账完成',
-        `更新 ${result.applied} 项，移除 ${result.deleted} 项`,
-      );
+      await mountService.refresh(selected.id);
       await loadMounts();
       await loadFiles(selected.id);
     } catch (e) {
       toast.error('同步失败', e instanceof Error ? e.message : '未知错误');
-    }
-  };
-
-  const downloadFile = async (file: MountFile) => {
-    if (!selected) return;
-    try {
-      await mountService.download(selected.id, file.rel_path);
-      toast.info('已加入下载队列', file.rel_path);
-    } catch (e) {
-      toast.error('下载失败', e instanceof Error ? e.message : '未知错误');
-    }
-  };
-
-  const releaseFile = async (file: MountFile) => {
-    if (!selected) return;
-    try {
-      await mountService.release(selected.id, file.rel_path);
-      await loadFiles(selected.id);
-      toast.success('已释放本地缓存', file.rel_path);
-    } catch (e) {
-      toast.error('释放失败', e instanceof Error ? e.message : '未知错误');
     }
   };
 
@@ -245,12 +313,20 @@ export function SyncPage() {
   };
 
   const renderedFiles = files.slice(0, MAX_RENDER_FILES);
+  const filesOnly = files.filter((f) => !f.is_dir);
+  const countOf = (state: MountFile['state']) =>
+    filesOnly.filter((f) => f.state === state).length;
+  const activeFiles = filesOnly.filter(
+    (f) => f.state === 'hashing' || f.state === 'uploading' ||
+      f.state === 'finalizing' || f.state === 'downloading' ||
+      f.state === 'pending' || f.state === 'failed',
+  );
 
   return (
     <div className="flex h-full flex-col">
       <PageHeader
         title="云盘挂载"
-        subtitle="把远端目录挂到本地：全部文件可见，按需下载，默认关闭"
+        subtitle="本地与远端自动保持一致：改动自动上传，读取时自动下载；本地删除不会影响远端"
         actions={
           <Button variant="primary" icon="plus" onClick={() => void openCreate()}>
             新建挂载点
@@ -313,8 +389,15 @@ export function SyncPage() {
                       本地：{mount.local_path}
                     </div>
                     <div>
-                      共 {mount.status.total} 项 · 已缓存 {mount.status.cached} · 仅在线{' '}
-                      {mount.status.online}
+                      共 {mount.status.total} 项 · 已同步 {mount.status.synced}
+                      {(mount.status.hashing + mount.status.uploading +
+                        mount.status.finalizing + mount.status.downloading +
+                        mount.status.pending) > 0 &&
+                        ` · 待同步 ${mount.status.hashing + mount.status.uploading +
+                          mount.status.finalizing + mount.status.downloading +
+                          mount.status.pending}`}
+                      {mount.status.failed > 0 && ` · 失败 ${mount.status.failed}`}
+                      {mount.status.online > 0 && ` · 在线 ${mount.status.online}`}
                     </div>
                   </div>
                 </button>
@@ -345,16 +428,9 @@ export function SyncPage() {
                       size="sm"
                       icon="refresh"
                       disabled={!selected.enabled}
-                      onClick={() => void refreshSelected('refresh')}
+                      onClick={() => void refreshSelected()}
                     >
                       刷新
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={!selected.enabled}
-                      onClick={() => void refreshSelected('reconcile')}
-                    >
-                      全量对账
                     </Button>
                     <IconButton
                       icon="edit"
@@ -384,16 +460,87 @@ export function SyncPage() {
                 {selected.enabled && !filesLoading && files.length === 0 && (
                   <EmptyState
                     icon="files"
-                    title="远端目录是空的"
-                    description="点「刷新」重新拉取；若刚启用，请稍候"
+                    title="还没有文件"
+                    description="往本地目录添加文件会自动上传；远端新增也会自动出现"
                   />
                 )}
 
                 {selected.enabled && !filesLoading && files.length > 0 && (
                   <div className="min-h-0 flex-1 overflow-y-auto">
-                    <div className="px-4 py-2 text-[11.5px] text-subtle">
-                      共 {files.length} 项（显示前 {renderedFiles.length} 项）
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line-subtle px-4 py-2 text-[11.5px] text-subtle">
+                      <span>共 {filesOnly.length} 项</span>
+                      <span className="text-success-700">已同步 {countOf('synced')}</span>
+                      {countOf('pending') > 0 && (
+                        <span className="text-warning-700">待上传 {countOf('pending')}</span>
+                      )}
+                      {countOf('hashing') > 0 && (
+                        <span className="text-brand-600">校验中 {countOf('hashing')}</span>
+                      )}
+                      {countOf('uploading') > 0 && (
+                        <span className="text-brand-600">上传中 {countOf('uploading')}</span>
+                      )}
+                      {countOf('finalizing') > 0 && (
+                        <span className="text-brand-600">处理中 {countOf('finalizing')}</span>
+                      )}
+                      {countOf('downloading') > 0 && (
+                        <span className="text-brand-600">下载中 {countOf('downloading')}</span>
+                      )}
+                      {countOf('failed') > 0 && (
+                        <span className="text-danger-700">失败 {countOf('failed')}</span>
+                      )}
+                      {countOf('online') > 0 && <span>在线 {countOf('online')}</span>}
+                      {files.length > renderedFiles.length && (
+                        <span>（仅显示前 {renderedFiles.length} 项）</span>
+                      )}
                     </div>
+
+                    {/* 正在传输 / 待上传 / 失败：直接列出文件名，不用猜 */}
+                    {activeFiles.length > 0 && (
+                      <div className="border-b border-line-subtle bg-hover/40 px-4 py-2">
+                        <div className="mb-1 text-[11.5px] font-medium text-muted">
+                          正在同步 {activeFiles.length} 项
+                        </div>
+                        {activeFiles.slice(0, 8).map((file) => (
+                          <div
+                            key={`active-${file.rel_path}`}
+                            className="flex items-center gap-2 py-0.5 text-[12px]"
+                          >
+                            <Icon
+                              name={file.direction === 'download' ? 'download' : 'upload'}
+                              size="sm"
+                              className="shrink-0 text-subtle"
+                            />
+                            <span className="min-w-0 flex-1 truncate text-fg">
+                              {file.rel_path}
+                            </span>
+                            <span
+                              className={`shrink-0 text-[11.5px] ${
+                                file.stalled > 0 ? 'text-warning-700' : 'text-subtle'
+                              }`}
+                            >
+                              {stateAction(file.state)}
+                              {file.progress > 0 ? ` ${file.progress}%` : ''}
+                              {file.state === 'finalizing' && file.elapsed > 0
+                                ? ` · 已 ${fmtElapsed(file.elapsed)}`
+                                : ''}
+                              {file.stalled > 0
+                                ? ` · 已 ${fmtElapsed(file.stalled)}无进展`
+                                : ''}
+                            </span>
+                          </div>
+                        ))}
+                        {activeFiles.length > 8 && (
+                          <div className="pt-0.5 text-[11.5px] text-subtle">
+                            还有 {activeFiles.length - 8} 项…
+                          </div>
+                        )}
+                        <div className="pt-1 text-[11px] leading-relaxed text-subtle">
+                          上传期间文件以分片暂存在服务端临时目录；传完还要服务端合并校验，
+                          全部通过后才会出现在远端目录。「校验中 100%」= 哈希算完、即将开始传；
+                          「服务端处理中 100%」= 分片已传完、正在合并，稍等即可。
+                        </div>
+                      </div>
+                    )}
                     {renderedFiles.map((file) => (
                       <div
                         key={file.rel_path}
@@ -410,26 +557,20 @@ export function SyncPage() {
                         <span className="w-[88px] shrink-0 text-right text-[11.5px] text-subtle">
                           {file.is_dir ? '目录' : fmtSize(file.size)}
                         </span>
-                        <span className="w-[72px] shrink-0 text-right">
-                          <Badge tone={file.cached ? 'success' : 'neutral'}>
-                            {file.cached ? '已缓存' : '仅在线'}
-                          </Badge>
-                        </span>
-                        <div className="w-[120px] shrink-0 text-right">
-                          {file.is_dir ? null : file.cached ? (
-                            <Button size="sm" onClick={() => void releaseFile(file)}>
-                              释放
-                            </Button>
+                        <span className="w-[96px] shrink-0 text-right">
+                          {file.is_dir ? (
+                            <span className="text-[11.5px] text-subtle">—</span>
                           ) : (
-                            <Button
-                              size="sm"
-                              icon="download"
-                              onClick={() => void downloadFile(file)}
-                            >
-                              下载
-                            </Button>
+                            <span title={file.error || undefined}>
+                              <Badge tone={stateTone(file.state)}>
+                                {(file.state === 'uploading' ||
+                                  file.state === 'downloading') && file.progress > 0
+                                  ? `${FILE_STATE_LABEL[file.state]} ${file.progress}%`
+                                  : FILE_STATE_LABEL[file.state]}
+                              </Badge>
+                            </span>
                           )}
-                        </div>
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -548,8 +689,8 @@ export function SyncPage() {
             </div>
 
             <div className="rounded-lg border border-line-subtle px-3 py-2.5 text-[11.5px] text-subtle">
-              新建后开关默认关闭；打开后才会连接远端并拉取清单。
-              当前为应用内挂载视图，尚未注册系统级虚拟盘。
+              新建后开关默认关闭；打开后本地目录与远端自动保持一致。
+              本地删除只删本地缓存，不会删除远端文件。
             </div>
           </div>
         </Modal>

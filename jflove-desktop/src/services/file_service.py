@@ -14,22 +14,43 @@ import os
 import json
 import hashlib
 import base64
+import threading
+import time
 from typing import Callable, Generator
 
-from src.utils.http_client import http_client
+from src.utils.http_client import ApiError, http_client, is_transient_error
 from src.utils.crypto import parse_stream_frame
 from src.utils.session import session_manager
-from src.config.settings import CHUNK_SIZE
+from src.config.settings import CHUNK_SIZE, LOCAL_STORAGE_DIR
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 # 进度回调签名: fn(已传输字节, 总字节数, 阶段标识)
 # 阶段标识取值：
-#   "hashing"   - 上传前的 SHA256 校验阶段
-#   "uploading" - 分片上传阶段
+#   "hashing"    - 上传前的 SHA256 校验阶段
+#   "uploading"  - 分片上传阶段
+#   "finalizing" - 分片传完，等服务端合并 + 校验（大文件可能持续数分钟）
+#   "retrying"   - 瞬态失败，正在重试（附带已完成字节数）
 #   "downloading" - 下载阶段
 ProgressCallback = Callable[[int, int, str], None]
+
+#: 分片上传的最大尝试次数（网络抖动可安全重发同一分片）
+_CHUNK_ATTEMPTS = 5
+#: 合并请求的读取超时（秒）：服务端要重写全部分片并校验 SHA256
+_FINALIZE_READ_TIMEOUT = 3600.0
+#: 合并超时后，等待服务端完成并核验的最长时间（秒）
+_FINALIZE_VERIFY_TIMEOUT = 900.0
+#: 断点续传记录文件：应用重启后复用上次的 upload_id 与已发送分片
+_RESUME_FILE = os.path.join(LOCAL_STORAGE_DIR, "upload_resume.json")
+_RESUME_LOCK = threading.Lock()
+#: 每传多少个分片落一次盘（避免每 1MB 都写 JSON）
+_RESUME_FLUSH_EVERY = 32
+
+#: SHA256 缓存（key = 路径 + 大小 + mtime）：重试时不必重新读一遍几十 GB
+_HASH_CACHE: dict[tuple[str, int, int], str] = {}
+_HASH_CACHE_LOCK = threading.Lock()
+_HASH_CACHE_MAX = 32
 
 
 def list_accessible_disks() -> list[dict]:
@@ -58,6 +79,157 @@ def list_files(disk_id: int, rel_path: str = "") -> list[dict]:
         "path": rel_path,
     })
     return resp.get("files", [])
+
+
+def _resume_key(disk_id: int, rel_dir: str, filename: str, file_size: int,
+                file_mtime: float | None) -> str:
+    """断点续传的唯一键：同一目标 + 同一文件（size/mtime 未变）"""
+    return "|".join([
+        str(disk_id), rel_dir, filename, str(file_size),
+        str(int((file_mtime or 0) * 1000)),
+    ])
+
+
+def _load_resume() -> dict:
+    """读取断点续传记录（损坏 / 不存在时返回空表）"""
+    try:
+        with open(_RESUME_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_resume(data: dict) -> None:
+    """原子写入断点续传记录（失败只告警，不影响上传）"""
+    try:
+        os.makedirs(os.path.dirname(_RESUME_FILE), exist_ok=True)
+        tmp = _RESUME_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        os.replace(tmp, _RESUME_FILE)
+    except OSError as e:
+        logger.warning("保存断点续传记录失败：%s", type(e).__name__)
+
+
+def _resume_get(key: str) -> dict | None:
+    with _RESUME_LOCK:
+        return _load_resume().get(key)
+
+
+def _resume_update(key: str, upload_id: str, sent: set[int]) -> None:
+    """记录已发送的分片索引（供下次启动续传），并清理 24 小时前的陈旧记录"""
+    now = int(time.time())
+    with _RESUME_LOCK:
+        data = {
+            k: v for k, v in _load_resume().items()
+            if now - int(v.get("updated_at") or 0) < 24 * 3600
+        }
+        data[key] = {"upload_id": upload_id, "sent": sorted(sent), "updated_at": now}
+        _save_resume(data)
+
+
+def _resume_clear(key: str) -> None:
+    with _RESUME_LOCK:
+        data = _load_resume()
+        if data.pop(key, None) is not None:
+            _save_resume(data)
+
+
+def _cached_file_hash(
+    local_path: str,
+    file_size: int,
+    file_mtime: float | None,
+    progress_callback: ProgressCallback | None,
+    cancelled_flag: Callable[[], bool] | None,
+) -> str:
+    """
+    计算文件 SHA256，按「路径 + 大小 + mtime」缓存。
+
+    为什么需要缓存：上传失败重试时若重新读一遍 12GB，既慢又毫无意义；
+    文件没变（size/mtime 相同）就复用上次结果。
+
+    :returns: 十六进制 SHA256
+    """
+    key = (os.path.abspath(local_path), int(file_size), int((file_mtime or 0) * 1000))
+    with _HASH_CACHE_LOCK:
+        cached = _HASH_CACHE.get(key)
+    if cached:
+        logger.info("复用上次的 SHA256（文件未变化）：%s", os.path.basename(local_path))
+        return cached
+
+    sha256 = hashlib.sha256()
+    done = 0
+    with open(local_path, "rb") as f:
+        while True:
+            if cancelled_flag and cancelled_flag():
+                raise ValueError("上传已取消")
+            chunk = f.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            sha256.update(chunk)
+            done += len(chunk)
+            if progress_callback:
+                progress_callback(done, file_size, "hashing")
+    digest = sha256.hexdigest()
+
+    with _HASH_CACHE_LOCK:
+        if len(_HASH_CACHE) >= _HASH_CACHE_MAX:
+            _HASH_CACHE.clear()
+        _HASH_CACHE[key] = digest
+    return digest
+
+
+def _remote_stat(disk_id: int, rel_dir: str, filename: str) -> tuple[int, float] | None:
+    """
+    查询远端某文件的 (大小, mtime)（用于核验「是否其实已经上传成功」）。
+
+    :returns: 存在则返回 `(size, mtime)`，不存在返回 None
+    """
+    try:
+        entries = list_files(disk_id, rel_dir)
+    except Exception as e:  # noqa: BLE001 - 核验失败按「未完成」处理
+        logger.warning("核验远端文件失败：%s", type(e).__name__)
+        return None
+    for entry in entries:
+        if entry.get("name") == filename and not entry.get("is_dir"):
+            try:
+                return int(entry.get("size") or 0), float(entry.get("modified_at") or 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _remote_size(disk_id: int, rel_dir: str, filename: str) -> int | None:
+    """远端文件大小（不存在返回 None）"""
+    found = _remote_stat(disk_id, rel_dir, filename)
+    return found[0] if found else None
+
+
+def _already_uploaded(
+    disk_id: int, rel_dir: str, filename: str, file_size: int, file_mtime: float | None,
+) -> bool:
+    """
+    远端是否**已经是这个文件**（大小一致 + mtime 一致，±2 秒）。
+
+    用途：避免「服务端其实已经合并完成、客户端却因为崩溃/超时又从头传一遍」。
+    只有大小与 mtime 同时吻合才判定为已存在 —— 后者由服务端在合并时按客户端
+    提供的 mtime 还原（`os.utime`），所以能作为「同一份内容」的可靠旁证。
+    """
+    found = _remote_stat(disk_id, rel_dir, filename)
+    if found is None:
+        return False
+    size, mtime = found
+    if size != file_size:
+        return False
+    if file_mtime and mtime and abs(mtime - file_mtime) > 2.0:
+        return False
+    return True
+
+
+def _remote_path(rel_dir: str, filename: str) -> str:
+    """相对目录 + 文件名 → 服务端相对路径"""
+    return f"{rel_dir.rstrip('/')}/{filename}" if rel_dir else filename
 
 
 def upload_file(
@@ -94,21 +266,10 @@ def upload_file(
     file_mtime = os.path.getmtime(local_path) if preserve_mtime else None
     total_chunks = max(1, (file_size + CHUNK_SIZE - 1) // CHUNK_SIZE) if file_size > 0 else 1
 
-    # ── 阶段 1：SHA256 校验（流式，不缓存全部内容）──
-    sha256 = hashlib.sha256()
-    bytes_read = 0
-    with open(local_path, "rb") as f:
-        while True:
-            if cancelled_flag and cancelled_flag():
-                raise ValueError("上传已取消")
-            chunk = f.read(CHUNK_SIZE)
-            if not chunk:
-                break
-            sha256.update(chunk)
-            bytes_read += len(chunk)
-            if progress_callback:
-                progress_callback(bytes_read, file_size, "hashing")
-    file_hash = sha256.hexdigest()
+    # ── 阶段 1：SHA256 校验（流式；重试时走缓存，不重复读几十 GB）──
+    file_hash = _cached_file_hash(
+        local_path, file_size, file_mtime, progress_callback, cancelled_flag,
+    )
 
     logger.info("开始上传文件: %s，大小=%d，分片数=%d", filename, file_size, total_chunks)
 
@@ -125,51 +286,259 @@ def upload_file(
         # 传递源文件 mtime，让服务端在 complete 时还原；
         # 关键作用：避免目录同步陷入"上传后远端时间被刷新→下次同步反向覆盖"的循环
         init_payload["mtime"] = file_mtime
-    resp = http_client.post("/api/v1/files/upload/init", init_payload)
-    upload_id = resp["upload_id"]
 
+    resume_key = _resume_key(disk_id, rel_path, filename, file_size, file_mtime)
+    resume = _resume_get(resume_key)
+    resumed_sent: set[int] = set()
+    upload_id = ""
+    if resume:
+        upload_id = str(resume.get("upload_id") or "")
+        resumed_sent = {int(i) for i in (resume.get("sent") or [])}
+        logger.info(
+            "发现未完成的上传，尝试续传：%s（已传 %d/%d 片）",
+            filename, len(resumed_sent), total_chunks,
+        )
+
+    # 上次中断时服务端可能**已经合并完成**（只是响应没送达 / 客户端被杀）：
+    # 先核对远端，命中就直接收尾，绝不重复上传几十 GB。
+    if resume and _already_uploaded(
+        disk_id, rel_path, filename, file_size, file_mtime,
+    ):
+        logger.info("远端已存在同样大小的文件，跳过重复上传：%s", filename)
+        _resume_clear(resume_key)
+        if progress_callback:
+            progress_callback(file_size, file_size, "uploading")
+        return _remote_path(rel_path, filename)
+
+    last_error: BaseException | None = None
+    # 会话可能因服务端重启 / 24h 清理而失效：允许整轮重来一次（分片很小，代价可控）
+    for attempt in range(2):
+        try:
+            if not upload_id:
+                resp = http_client.post("/api/v1/files/upload/init", init_payload)
+                upload_id = resp["upload_id"]
+                resumed_sent = set()
+            _send_chunks(
+                upload_id, local_path, file_size, total_chunks,
+                progress_callback, cancelled_flag,
+                skip=resumed_sent, resume_key=resume_key,
+            )
+            result = _finalize(
+                upload_id, disk_id, rel_path, filename, file_size,
+                progress_callback, cancelled_flag,
+            )
+            _resume_clear(resume_key)
+            return result
+        except ValueError:
+            _cancel_session(upload_id)
+            _resume_clear(resume_key)
+            raise
+        except Exception as e:  # noqa: BLE001 - 分类后决定重试或上抛
+            last_error = e
+            if attempt == 0 and (_is_session_lost(e) or resumed_sent):
+                # 续传失败（会话已不在服务端）⇒ 清记录、重新初始化、完整重传一次
+                logger.warning(
+                    "续传不可用（%s），重新初始化上传：%s", type(e).__name__, filename,
+                )
+                _cancel_session(upload_id)
+                _resume_clear(resume_key)
+                upload_id = ""
+                resumed_sent = set()
+                continue
+            _cancel_session(upload_id)
+            _resume_clear(resume_key)
+            raise
+
+    raise last_error if last_error else RuntimeError("上传失败")
+
+
+def _is_session_lost(exc: BaseException) -> bool:
+    """服务端是否明确表示「上传会话不存在 / 已过期」"""
+    text = str(getattr(exc, "detail", exc))
+    return "上传会话" in text or "upload_id" in text
+
+
+def _cancel_session(upload_id: str) -> None:
+    """尽力清理服务端临时分片（失败不影响调用方）"""
+    if not upload_id:
+        return
     try:
-        # ── 阶段 3：分片上传（每片单独从磁盘读取，避免大文件占用内存） ──
-        with open(local_path, "rb") as f:
-            for i in range(total_chunks):
-                if cancelled_flag and cancelled_flag():
-                    try:
-                        http_client.delete(f"/api/v1/files/upload/{upload_id}")
-                    except Exception:
-                        pass
-                    raise ValueError("上传已取消")
+        http_client.delete(f"/api/v1/files/upload/{upload_id}")
+    except Exception:  # noqa: BLE001
+        pass
 
-                chunk = f.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                chunk_b64 = base64.b64encode(chunk).decode()
-                http_client.post("/api/v1/files/upload/chunk", {
-                    "upload_id": upload_id,
-                    "chunk_index": i,
-                    "chunk_data": chunk_b64,
-                })
 
+def _send_chunks(
+    upload_id: str,
+    local_path: str,
+    file_size: int,
+    total_chunks: int,
+    progress_callback: ProgressCallback | None,
+    cancelled_flag: Callable[[], bool] | None,
+    skip: set[int] | None = None,
+    resume_key: str = "",
+) -> None:
+    """
+    逐个分片上传，**单个分片失败自动重试**。
+
+    为什么按分片重试：整文件重传的代价是「重算哈希 + 重传几十 GB」，
+    而分片重发只是 1MB —— 这是「传了一晚上没成功」的根因修复点之一。
+    """
+    retried = 0
+    skip = skip or set()
+    sent: set[int] = set(skip)
+    with open(local_path, "rb") as f:
+        for i in range(total_chunks):
+            if cancelled_flag and cancelled_flag():
+                raise ValueError("上传已取消")
+
+            chunk = f.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            if i in skip:
+                # 续传：该分片服务端已有，跳过发送（仍要读文件以保持偏移）
                 if progress_callback:
-                    done_bytes = min((i + 1) * CHUNK_SIZE, file_size)
-                    progress_callback(done_bytes, file_size, "uploading")
+                    progress_callback(min((i + 1) * CHUNK_SIZE, file_size),
+                                      file_size, "uploading")
+                continue
+            chunk_b64 = base64.b64encode(chunk).decode()
 
-        # ── 阶段 4：合并分片 ──
-        result = http_client.post("/api/v1/files/upload/complete", {
-            "upload_id": upload_id,
-        })
+            for attempt in range(_CHUNK_ATTEMPTS):
+                try:
+                    http_client.post("/api/v1/files/upload/chunk", {
+                        "upload_id": upload_id,
+                        "chunk_index": i,
+                        "chunk_data": chunk_b64,
+                    })
+                    break
+                except Exception as e:  # noqa: BLE001
+                    if not is_transient_error(e) or attempt == _CHUNK_ATTEMPTS - 1:
+                        raise
+                    retried += 1
+                    delay = min(2 ** attempt, 15)
+                    logger.warning(
+                        "分片 %d 上传失败（%s），%.0fs 后重试（第 %d 次）",
+                        i, type(e).__name__, delay, attempt + 1,
+                    )
+                    if progress_callback:
+                        done = min(i * CHUNK_SIZE, file_size)
+                        progress_callback(done, file_size, "retrying")
+                    if cancelled_flag and cancelled_flag():
+                        raise ValueError("上传已取消") from e
+                    time.sleep(delay)
+
+            sent.add(i)
+            if resume_key and len(sent) % _RESUME_FLUSH_EVERY == 0:
+                _resume_update(resume_key, upload_id, sent)
+
+            if progress_callback:
+                done_bytes = min((i + 1) * CHUNK_SIZE, file_size)
+                progress_callback(done_bytes, file_size, "uploading")
+
+    if resume_key:
+        _resume_update(resume_key, upload_id, sent)
+
+    if retried:
+        logger.info("本次上传共发生 %d 次分片重试", retried)
+
+
+def _report_merge_progress(
+    upload_id: str,
+    file_size: int,
+    progress_callback: ProgressCallback | None,
+) -> None:
+    """
+    轮询服务端合并进度并回报给上层（界面据此显示百分比）。
+
+    兼容旧服务端：接口不存在 / 网络异常时**静默跳过**，不影响上传本身。
+    """
+    if progress_callback is None:
+        return
+    try:
+        info = http_client.post(
+            "/api/v1/files/upload/progress",
+            {"upload_id": upload_id},
+            timeout=10,
+        )
+    except Exception:  # noqa: BLE001 - 旧服务端无此接口 / 断网：只影响进度显示
+        return
+    if info.get("state") not in ("merging", "done"):
+        return
+    processed = int(info.get("processed") or 0)
+    total = int(info.get("file_size") or file_size or 0)
+    if total <= 0:
+        return
+    progress_callback(min(processed, total), total, "finalizing")
+
+
+def _finalize(
+    upload_id: str,
+    disk_id: int,
+    rel_path: str,
+    filename: str,
+    file_size: int,
+    progress_callback: ProgressCallback | None,
+    cancelled_flag: Callable[[], bool] | None,
+) -> str:
+    """
+    触发服务端合并分片并等待结果。
+
+    两个关键点：
+      1. **读取超时放到 1 小时**：合并要把全部分片重写一遍并算 SHA256，
+         慢盘 / 并发上传时远超默认 30 秒；旧实现会在这里超时，进而整文件重传。
+      2. **超时后不盲目重发**（服务端同一会话并发合并会破坏临时文件），
+         而是轮询远端目录核验：文件出现且大小一致即视为成功。
+    """
+    if progress_callback:
+        progress_callback(0, file_size, "finalizing")
+
+    # complete 是**长请求**（服务端合并 + 校验），期间必须能拿到进度：
+    # 真正发送放到子线程，本线程按秒轮询服务端进度并回报，界面才不会「停在处理中」。
+    outcome: dict[str, object] = {}
+
+    def _do_complete() -> None:
+        try:
+            outcome["result"] = http_client.post(
+                "/api/v1/files/upload/complete",
+                {"upload_id": upload_id},
+                timeout=(30.0, _FINALIZE_READ_TIMEOUT),
+            )
+        except BaseException as e:  # noqa: BLE001 - 异常原样带回主线程分类
+            outcome["error"] = e
+
+    worker = threading.Thread(target=_do_complete, name="jflove-complete", daemon=True)
+    worker.start()
+    while True:
+        worker.join(timeout=1.0)
+        if not worker.is_alive():
+            break
+        if cancelled_flag and cancelled_flag():
+            raise ValueError("上传已取消")
+        _report_merge_progress(upload_id, file_size, progress_callback)
+
+    error = outcome.get("error")
+    if error is None:
+        result = outcome.get("result") or {}
         logger.info("文件上传完成: %s", filename)
         return result.get("path", "")
+    if not is_transient_error(error):
+        raise error
+    logger.warning(
+        "合并请求中断（%s），等待服务端完成并核验：%s",
+        type(error).__name__, filename,
+    )
 
-    except ValueError:
-        # 用户取消，前面已清理临时分片
-        raise
-    except Exception as e:
-        # 上传失败时尝试取消，清理临时分片
-        try:
-            http_client.delete(f"/api/v1/files/upload/{upload_id}")
-        except Exception:
-            pass
-        raise e
+    deadline = time.monotonic() + _FINALIZE_VERIFY_TIMEOUT
+    while time.monotonic() < deadline:
+        if cancelled_flag and cancelled_flag():
+            raise ValueError("上传已取消")
+        size = _remote_size(disk_id, rel_path, filename)
+        if size is not None and size == file_size:
+            logger.info("合并已完成（核验通过）：%s", filename)
+            return f"{rel_path.rstrip('/')}/{filename}" if rel_path else filename
+        time.sleep(5)
+
+    raise ApiError(504, "服务端合并超时，请稍后重试")
 
 
 def download_file(

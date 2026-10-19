@@ -35,17 +35,37 @@ logger = get_logger(__name__)
 
 async def _upload_cleanup_loop() -> None:
     """
-    后台定时清理过期上传临时分片目录（v1.7.0）。
+    后台定时清理上传残留（v1.7.0）。
 
-    启动时立即跑一次，之后每小时一次；清理失败只记 warning，不影响服务。
+    启动时立即跑一次，之后每小时一次；清理失败只记 warning，不影响服务。清理内容：
+      1. **空闲超时**的内存上传会话（客户端崩溃后没人续传，否则临时目录永不释放）；
+      2. `UPLOAD_TEMP_DIR` 下的孤儿分片目录；
+      3. 磁盘目录里遗留的 `.<文件名>.jflove-upload-*.part`（合并时进程被杀留下的）。
     """
+    # 首次运行更激进：进程刚启动时内存会话必然为空，任何残留目录都是上次运行遗留的
+    # （客户端崩溃 / 强杀 / 放弃上传），1 小时前的直接清掉，不等 24 小时。
+    first_run = True
     while True:
         try:
-            await file_service.cleanup_stale_uploads()
+            await file_service.cleanup_stale_uploads(
+                max_age_seconds=3600 if first_run else file_service.UPLOAD_SESSION_TTL_SECONDS
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
             logger.warning("上传临时目录清理失败: %s", type(e).__name__)
+        first_run = False
+        try:
+            file_service.prune_merge_progress()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("清理合并进度记录失败: %s", type(e).__name__)
+        try:
+            async with _repair_db_factory() as db:
+                await file_service.cleanup_orphan_partials(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("残留合并文件清理失败: %s", type(e).__name__)
         await asyncio.sleep(3600)
 
 
