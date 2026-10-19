@@ -123,15 +123,57 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 - 启用后，按 jflove-server / jflove-desktop 的同等标准建立 `文档记录/移动端开发记录/<版本号>.md` 并同步 `jflove-app/README.md`。
 - 文档应描述本次完成的页面/组件、调用的后端接口、与上一版本的逻辑差异。
 
-## 构建与验收
+## 调试链（Android，AI 可直接驱动）
 
-- **阶段 1（日常开发）**：VSCode F5 → Edge/Chrome web-server 模式，秒级热重载，覆盖 90%+ UI 调试
-- **阶段 2（真机验收）**：`flutter build apk --debug` → 手动传 APK 到物理手机 → 安装验收
-  - 产物路径：`build/app/outputs/flutter-apk/app-debug.apk`
-  - **构建失败时**：先 `flutter clean`，再重试
-  - **Gradle 锁冲突时**：`taskkill /F /IM java.exe` → 删除 `android\.gradle` → 重试
-- **阶段 3（鸿蒙，预留）**：条件成熟后，`flutter build hap`（需 DevEco Studio 环境）
-- **阶段 4（iOS，预留）**：条件成熟后，`flutter build ios --no-codesign`（需 macOS + Xcode 环境）
+两个 MCP 各有分工，**不要指望一个包打全场**：
+
+| MCP | 工具 | 管什么 |
+| --- | --- | --- |
+| `dart`（Flutter 官方 `dart mcp-server`） | `list_devices` `launch_app` `hot_reload` `hot_restart` `get_runtime_errors` `get_app_logs` `widget_inspector` `analyze_files` `run_tests` | 代码 ↔ 运行时 |
+| `android`（`@mobilenext/mobile-mcp`） | `mobile_take_screenshot` `mobile_list_elements_on_screen` `mobile_click_on_screen_at_coordinates` `mobile_type_keys` `mobile_press_button` `mobile_install_app` `mobile_launch_app` `mobile_get_device_logs` `mobile_list_crashes` | 手指 ↔ 屏幕 |
+
+- 配置在仓库根 `.mcp.json`（`mcpServers.dart` / `mcpServers.android`），**改动需重启 VS Code 生效**。
+- `dart mcp-server` 默认只暴露 13 个工具，**必须带 `--enable=flutter_app_lifecycle,cli`**
+  才会出现 `launch_app` / `list_devices` / `get_app_logs` / `run_tests`（帮助文本声称"默认全开"，与实测不符）。
+- `dart` MCP 的工具依赖 **MCP Roots**（工作区根）；客户端不提供 roots 时调用会返回
+  `No roots set. At least one root must be set…`。
+- 工具参数名以 **schema 为准**，容易踩的两个：`mobile_install_app` 需要 `device` + `path`；
+  `mobile_save_screenshot` 的落盘参数叫 **`saveTo`**（不是 `path`）。
+- 手动跑（不经 MCP）时必须 `flutter run -d <device> --print-dtd`，
+  否则 DTD 地址不打印，`hot_reload` / `get_runtime_errors` 无从连接。
+- `mobile_*` 抓的是 **logcat**：可能含 token / 请求明文，**结论不落 `文档记录/`**（`AGENTS.md §9.6`）。
+
+## 构建与验收（按本机环境自适应，强制）
+
+> 规则来源：`lessons` L48（环境自适应验证）/ L49（Flutter/Android 工具链硬坑）。
+
+**开工前先探测，回复里先给「能做 / 跳过」两栏，再执行。**
+
+| 能力 | 探测命令 | 判据 |
+| --- | --- | --- |
+| 静态分析（恒可） | `dart analyze lib/` | 退出码 0，零错误 |
+| 单元 / Widget 测试（恒可） | `flutter test` | 全通过（无需设备） |
+| Android 模拟器 | `adb devices` | 出现 `emulator-xxxx device` |
+| Android 真机 | `adb devices` + 设备序列号非 `emulator-` 前缀 | 出现真机 `device` |
+| Android 构建 | `flutter build apk --debug` | 需 Android SDK；产物 `build/app/outputs/flutter-apk/app-debug.apk` |
+| 鸿蒙 | `flutter build hap` 可用性 | 需 DevEco Studio —— **未安装即跳过** |
+| iOS | `uname -s` = Darwin | 非 macOS 一律跳过 |
+
+- **必须做**：静态分析 + 单元测试（这两项**永远可做**，"没有设备"不构成跳过理由）。
+- **能做才做**：设备类验证（安装 / 启动 / 截图 / 热重载 / logcat）—— 有设备就**自动执行到底**，
+  不要停在"已构建 APK"。
+- **必须先声明跳过**：拿不到能力的端，在回复里写「跳过：<能力> —— 原因：<探测命令的真实输出>」，
+  **不得**改写成"已通过"或含糊带过。
+- 构建失败先 `flutter clean` 再重试；Gradle 锁冲突删 `android/.gradle` 后重试。
+- **SDK 路径必须是纯 ASCII**（含中文目录会让 Gradle 读 `local.properties` 乱码），
+  详见 L49；`FLUTTER_HOME` / `ANDROID_HOME` 指向 ASCII 路径，不要指向符号链接。
+- **模拟器起不来先分诊**：`-accel off` 能活 ⇒ KVM 路径有问题；`-gpu host` 能活 ⇒
+  软件渲染（swiftshader）在新内核 W^X 下 JIT 失败，改用 `-gpu host`（L49）。
+
+## 预留平台
+
+- **鸿蒙**：条件成熟后走 `flutter build hap`（需 DevEco Studio 环境）。
+- **iOS**：条件成熟后走 `flutter build ios --no-codesign`（需 macOS + Xcode 环境）。
 
 ## 安全宪法
 

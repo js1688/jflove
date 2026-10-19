@@ -80,6 +80,56 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 - **正确做法**：要真正不阻塞 GUI，只能用**子进程**（子进程自建 `QGuiApplication` + 自己的 WebEngine，与主进程完全隔离）。**一次进程批量渲染多张图**，摊薄进程启动开销；结果**落盘**回传，不要把大二进制塞进 stdout。
 - **验证**：测量 GUI 线程被阻塞的时长（如 `set_markdown` 返回耗时），而不只是"有没有报错"。
 
+### L48. 验证能力必须**按当前机器自适应**，跳过的端必须**显式声明**
+- **现象**：同一条"自测通过"在不同机器上覆盖的端完全不同 —— 在 Linux 上写"真机验收通过"、
+  在没装 Android SDK 的机器上写"APK 构建通过"，都是**没有证据的结论**；反过来，明明本机能跑
+  静态分析 + 单元测试，却以"没有设备"为由整体跳过。
+- **根因**：技能只写了"应该验什么"，没写"**本机能验什么、怎么判定、不能验怎么办**"，
+  于是执行者要么默认最全（编造）、要么默认最省（跳过）。
+- **正确做法**：开工前**先探测，再声明，再执行**。
+  1. **探测**（一次，缓存结论，不要每次小改动都重跑）：
+
+     | 端 / 能力 | 探测命令 | 判据 |
+     | --- | --- | --- |
+     | 静态分析 | `dart analyze lib/` / `python -m flake8 src/` / `npm run lint` | 退出码 0 |
+     | 单元 / Widget 测试 | `flutter test` / `pytest` / `npm run test` | 退出码 0 |
+     | Android 设备 | `adb devices` | 存在 `device` 行；`emulator-` 前缀 = 模拟器 |
+     | Android 构建 | `flutter build apk --debug` | 需 Android SDK + `adb` |
+     | Linux 桌面 GUI | `uname -s` = Linux 且 `DISPLAY`/`WAYLAND_DISPLAY` 非空 | 无显示 → 跳过 GUI 冒烟 |
+     | Windows 桌面 | `python -c "import sys;print(sys.platform)"` = `win32` | 非 win32 → 跳过 |
+     | iOS / 鸿蒙 | `uname -s` = Darwin / 有 `flutter_ohos` 工具链 | 一律跳过 |
+
+  2. **声明**：在回复/报告开头列「本次验证计划」两栏 —— **能做**（附命令）/ **跳过**（附探测结果作为原因）。
+  3. **执行**：能做的**必须做**；不能做的**保留"跳过"字样**，不得改写成"通过"。
+- **硬约束**：**静态分析 + 单元测试永远可做**（只要有 SDK），
+  「没有设备 / 没有显示 / 没有目标平台」**不能**作为跳过它们的理由。
+- **判据**：报告里每一条「通过」都能对应一条**本机跑过的命令 + 输出**；
+  每一条「跳过」都能对应一条**探测命令的真实输出**。
+
+### L49. Flutter/Android 工具链的三个硬坑（路径编码 / 模拟器 GPU / local.properties）
+- **现象①（路径编码）**：SDK 装在含非 ASCII 的路径（如中文目录）下，Gradle 报
+  `Included build '/home/…/ææ¡£/sdk/flutter/packages/flutter_tools/gradle' does not exist`。
+- **根因**：`local.properties` 由 `java.util.Properties.load(InputStream)` 读取，**按 ISO-8859-1 解码**；
+  Flutter 自己（`FlutterPlugin.kt` / `FlutterAppPluginLoaderPlugin.kt`）也用它读 `flutter.sdk`。
+  UTF-8 字节被当 Latin-1 → 路径乱码。**改项目侧解码修不干净（Flutter 插件内部也会读）**。
+- **正确做法**：**SDK 的物理路径必须是纯 ASCII**。想让它"看起来"在中文目录下，用符号链接：
+  实体放 `/home/<user>/sdk`，再 `ln -s /home/<user>/sdk /home/<user>/文档/sdk`；
+  `FLUTTER_HOME` / `ANDROID_HOME` 一律指向 **ASCII 路径**（`flutter` 启动脚本用 `pwd -P`
+  会解析真实路径，指向符号链接没用）。
+- **现象②（模拟器段错误）**：`emulator -avd … -gpu swiftshader`（或 `swiftshader_indirect` / `off`）
+  在 KVM 下**启动即 SIGSEGV**；同一命令改 `-accel off` 能活，`-gpu host` 也能活。
+- **根因**：软件渲染（SwiftShader）走 JIT 生成代码页，在新内核的 W^X 保护下无法执行；
+  裸 KVM 本身是好的（可直接用 `KVM_CREATE_VM` / `KVM_RUN` ioctl 自测排除）。
+- **正确做法**：桌面 Linux 上有可用 GPU 时就用 `-gpu host`（写进 AVD `config.ini` 的
+  `hw.gpu.enabled=yes` + `hw.gpu.mode=host`，避免每次带参数）。无 GPU 的服务器上才考虑 `-accel off`（极慢）。
+- **现象③（首建补装）**：首次 `flutter build apk` 时 Gradle 会**自动补装** `platforms;android-35`
+  与 `CMake 3.22.1` 之类的缺件；许可证没接受会直接失败。
+- **正确做法**：先 `yes | sdkmanager --licenses`；若 `cmdline-tools` 23.0 起 `--licenses`
+  变成"no longer needed"导致 `flutter doctor` 显示 *Android license status unknown*（只是**告警**，
+  不阻塞构建），可在 `$ANDROID_HOME/licenses/android-sdk-license` 里补齐标准哈希。
+- **判据**：`flutter build apk --debug` 产出 `build/app/outputs/flutter-apk/app-debug.apk`；
+  `adb devices` 有 `device` 行；`flutter run --print-dtd` 打印出 `ws://…` 的 DTD 地址。
+
 ---
 
 ## 三、流程与协作
@@ -659,3 +709,12 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 - [ ] 失败是**响亮**的还是静默的（技能会不会直接消失）？改完有没有断言"文件头未被触碰"？（L47）
 - [ ] 动手前工作区干净吗 —— 出事了有没有**一条命令整体回滚**？（L47）
 
+
+**新增（环境自适应验证补 —— 针对"自测到底验了哪些端"）：**
+
+- [ ] 开工前探测过本机能力吗（`adb devices` / `uname -s` / SDK 是否存在）？结论缓存了吗？（L48）
+- [ ] 回复/报告里给了「能做（附命令）/ 跳过（附探测输出）」两栏吗？还是只写"已自测"？（L48）
+- [ ] 有没有用"没有设备 / 没有显示 / 没有目标平台"当借口跳过**静态分析或单元测试**？（L48 明令禁止）
+- [ ] 每一条"通过"都能对上本轮**真实跑过**的命令与输出吗？（L48）
+- [ ] SDK 的**物理路径**是纯 ASCII 吗？`FLUTTER_HOME` / `ANDROID_HOME` 指向 ASCII 路径还是符号链接？（L49）
+- [ ] 模拟器起不来时，先区分"宿主机 KVM 坏"与"模拟器软件渲染坏"了吗？（L49）

@@ -3,6 +3,29 @@
     "playwright": {
       "command": "npx",
       "args": ["@playwright/mcp"]
+    },
+    "dart": {
+      "type": "stdio",
+      "command": "/home/tanjun/sdk/flutter/bin/dart",
+      "args": ["mcp-server", "--enable=flutter_app_lifecycle,cli"],
+      "env": {
+        "FLUTTER_SDK": "/home/tanjun/sdk/flutter",
+        "ANDROID_HOME": "/home/tanjun/sdk/android-sdk",
+        "ANDROID_SDK_ROOT": "/home/tanjun/sdk/android-sdk",
+        "PUB_HOSTED_URL": "https://pub.flutter-io.cn",
+        "FLUTTER_STORAGE_BASE_URL": "https://storage.flutter-io.cn",
+        "PATH": "/home/tanjun/sdk/flutter/bin:/home/tanjun/sdk/android-sdk/platform-tools:/home/tanjun/sdk/android-sdk/emulator:/home/tanjun/.nvm/versions/node/v24.18.1/bin:/usr/local/bin:/usr/bin:/bin"
+      }
+    },
+    "android": {
+      "type": "stdio",
+      "command": "/home/tanjun/.nvm/versions/node/v24.18.1/bin/npx",
+      "args": ["-y", "@mobilenext/mobile-mcp@1.0.11"],
+      "env": {
+        "ANDROID_HOME": "/home/tanjun/sdk/android-sdk",
+        "ANDROID_SDK_ROOT": "/home/tanjun/sdk/android-sdk",
+        "PATH": "/home/tanjun/sdk/android-sdk/platform-tools:/home/tanjun/sdk/android-sdk/emulator:/home/tanjun/.nvm/versions/node/v24.18.1/bin:/usr/local/bin:/usr/bin:/bin"
+      }
     }
   }
 }

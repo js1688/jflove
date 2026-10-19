@@ -67,12 +67,23 @@
 
 以下为系统级环境变量，**所有角色统一使用**，不在 SKILL.md 中硬编码路径。
 
-| 变量名 | 值 | 用途 |
-|--------|-----|------|
-| `FLUTTER_HOME` | `D:\flutter\flutter_3.44.6-stable` | Flutter SDK 根目录，用于移动端开发 |
-|  | `%FLUTTER_HOME%\bin` 已追加到 `PATH` | 确保 `flutter` / `dart` 命令可直接执行 |
+| 变量名 | 平台 | 值 | 用途 |
+|--------|------|-----|------|
+| `FLUTTER_HOME` | Windows | `D:\flutter\flutter_3.44.6-stable` | Flutter SDK 根目录，用于移动端开发 |
+|  | Windows | `%FLUTTER_HOME%\bin` 已追加到 `PATH` | 确保 `flutter` / `dart` 命令可直接执行 |
+| `FLUTTER_HOME` | Linux | `/home/<user>/sdk/flutter`（3.44.6 / Dart 3.12.2） | 同上 |
+| `ANDROID_HOME` | Linux | `/home/<user>/sdk/android-sdk` | Android SDK（platform-tools / platforms / emulator） |
+| `PUB_HOSTED_URL` | Linux | `https://pub.flutter-io.cn` | pub 国内镜像 |
+| `FLUTTER_STORAGE_BASE_URL` | Linux | `https://storage.flutter-io.cn` | Flutter 引擎/资源国内镜像 |
 
 新增 Flutter/Dart SDK 后依此模式添加 `FLUTTER_HOME` 及其 `bin` 目录到 PATH。
+
+> **SDK 物理路径必须是纯 ASCII**：Gradle 用 `java.util.Properties` 按 ISO-8859-1 读
+> `local.properties`，中文目录会让 `flutter.sdk` / `sdk.dir` 乱码并直接构建失败
+> （Flutter 自己的 Gradle 插件也这么读，改项目侧修不干净）。
+> 想让 SDK "看起来"在中文目录下，用符号链接（如 `/home/<user>/文档/sdk -> /home/<user>/sdk`），
+> 但**环境变量必须指向 ASCII 实体路径**（`flutter` 启动脚本用 `pwd -P` 会解析真实路径）。
+> 细节见 `.agents/skills/lessons/LESSONS.md` L49。
 
 ### Python venv 路径约定
 
