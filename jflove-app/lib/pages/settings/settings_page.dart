@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../config/design_tokens.dart';
+import '../../providers/note_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../services/auth_service.dart';
@@ -685,6 +686,8 @@ class _NotesDirConfigCardState extends ConsumerState<_NotesDirConfigCard> {
       try {
         await noteService.setNotesDiskConfig(result.diskId, path: result.path);
         setState(() => _snapshot = result);
+        // 笔记页持有的是旧的 FutureProvider 缓存；目录变更后让它重新加载。
+        ref.invalidate(noteListProvider);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('笔记目录已设置为：${_formatCurrent()}')),

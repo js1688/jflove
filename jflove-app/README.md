@@ -22,7 +22,7 @@ JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构�
 | 流式代理 | `lib/utils/stream_proxy.dart`（本地 HTTP 代理，ExoPlayer 边下边播 + Range） |
 | 图表渲染 | webview_flutter（本地 HTML 页 + 内联离线 mermaid bundle，零网络依赖） |
 | Markdown | flutter_markdown + markdown（自定义 `MermaidBuilder`） |
-| 测试 | flutter_test（160 个用例，19 个测试文件） |
+| 测试 | flutter_test（157 个用例，18 个测试文件） |
 
 ### 设计令牌体系（v1.5.0）
 
@@ -128,7 +128,7 @@ jflove-app/
 │   ├── widgets/               # 公共 UI 组件（app_card 统一卡片 / mermaid_block / empty_state …）
 │   └── utils/                 # crypto/http_service/session/stream_frame/stream_proxy/markdown/…
 ├── assets/mermaid/            # 离线图表渲染资源（renderer.html + mermaid.bundle.js）
-├── test/                      # 152 个测试用例（18 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget）
+├── test/                      # 157 个测试用例（18 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget）
 ├── android/                   # Android 原生壳
 ├── pubspec.yaml
 └── README.md
@@ -145,7 +145,7 @@ jflove-app/
 | 身份认证 | JWT（ES256，通过加密 Body 传递） |
 | 文件流加密 | 64 KB 分片独立加密帧 [4B长度][12B nonce][密文+16B tag] |
 
-三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 152 个用例）。
+三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 157 个用例）。
 
 ---
 

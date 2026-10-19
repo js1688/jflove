@@ -28,7 +28,11 @@ Stream<List<TransferTask>> _taskStreamWithInitial(
 }
 
 /// 传输统计
+///
+/// 订阅任务流，否则 `service.stats()` 只会在首次读取时计算，
+/// 新增/完成任务后页面上的统计胶囊会一直停在旧值。
 final transferStatsProvider = Provider<Map<String, int>>((ref) {
+  ref.watch(transferTaskStreamProvider);
   final service = ref.watch(transferServiceProvider);
   return service.stats();
 });

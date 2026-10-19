@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:pointycastle/export.dart';
 
 import '../models/transfer_task.dart';
+import '../utils/exception.dart';
 import '../utils/http_service.dart';
 
 /// 传输任务管理器
@@ -215,7 +216,11 @@ class TransferService {
             await _http.encryptedDelete('/api/v1/files/upload/$uploadId', {});
           } catch (_) {}
         }
-        _updateTask(taskId, status: TaskStatus.failed, error: e.toString());
+        _updateTask(
+          taskId,
+          status: TaskStatus.failed,
+          error: userFacingError(e, fallback: '上传失败，请稍后重试'),
+        );
       }
     }
   }
@@ -305,7 +310,11 @@ class TransferService {
       );
     } catch (e) {
       if (!_cancelledTasks.contains(taskId)) {
-        _updateTask(taskId, status: TaskStatus.failed, error: e.toString());
+        _updateTask(
+          taskId,
+          status: TaskStatus.failed,
+          error: userFacingError(e, fallback: '下载失败，请稍后重试'),
+        );
       } else {
         _cancelledTasks.remove(taskId);
         _updateTask(taskId, status: TaskStatus.cancelled);

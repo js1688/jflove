@@ -46,7 +46,11 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
     setState(() => _busy = true);
     try {
       await ref.read(albumBackupServiceProvider).setConfig(next);
-      if (mounted) setState(() => _config = next);
+      if (mounted) {
+        setState(() => _config = next);
+        // 传输页的摘要依赖该 Provider；配置变更后必须失效，否则会一直显示旧状态。
+        ref.invalidate(albumBackupConfigProvider);
+      }
     } catch (e) {
       _snack('保存失败：$e');
     } finally {

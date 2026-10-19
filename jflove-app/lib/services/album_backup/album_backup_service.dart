@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../../models/transfer_task.dart';
+import '../../utils/exception.dart';
 import '../transfer_service.dart';
 import 'album_backup_config.dart';
 import 'album_backup_store.dart';
@@ -156,6 +157,11 @@ class AlbumBackupService {
       // 分页扫描：不能只扫第一页——否则"最近 200 张已备份"之后，
       // 更早的照片永远轮不到（实测缺陷，审查 v1.7.0 S-1）。
       final backed = await _store.backedUpIds();
+      // 失败项由「重试失败项」显式重排，定时扫描不再反复提交；
+      // 进行中的资源也不重复提交，避免同一张图产生多条任务记录。
+      final failed = await _store.failedIds();
+      final pendingAssetIds =
+          _pending.values.map((item) => item.assetId).toSet();
       var offset = 0;
       var submitted = 0;
       while (offset < _maxScanPerRound && submitted < _maxSubmitPerRound) {
@@ -166,7 +172,11 @@ class AlbumBackupService {
         if (assets.isEmpty) break;
         for (final asset in assets) {
           if (submitted >= _maxSubmitPerRound) break;
-          if (backed.contains(asset.id)) continue;
+          if (backed.contains(asset.id) ||
+              failed.contains(asset.id) ||
+              pendingAssetIds.contains(asset.id)) {
+            continue;
+          }
           if (!_matchesType(asset)) continue;
           final ok = await _submit(asset);
           if (ok) submitted++;
@@ -281,7 +291,10 @@ class AlbumBackupService {
       );
       return true;
     } catch (e) {
-      await _store.markFailed(asset.id, '提交上传失败: $e');
+      await _store.markFailed(
+        asset.id,
+        '提交上传失败：${userFacingError(e, fallback: '未知错误')}',
+      );
       return false;
     }
   }

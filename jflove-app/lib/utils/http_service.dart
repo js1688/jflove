@@ -78,7 +78,26 @@ class HttpService {
         if (data.containsKey('detail')) return data['detail'] as String;
       }
     } catch (_) {}
-    return e.message ?? '未知错误';
+    // 没有拿到服务端 detail 时，不再把 Dio 的英文原文抛给界面。
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.transformTimeout:
+        return '连接超时，请检查网络或服务器地址';
+      case DioExceptionType.connectionError:
+        return '无法连接服务器，请检查网络或服务器地址';
+      case DioExceptionType.badCertificate:
+        return '服务器证书校验失败';
+      case DioExceptionType.cancel:
+        return '请求已取消';
+      case DioExceptionType.badResponse:
+        return e.response?.statusCode == 401
+            ? '登录已过期，请重新登录'
+            : '请求失败（${e.response?.statusCode ?? '未知状态'}）';
+      case DioExceptionType.unknown:
+        return '网络请求失败，请检查网络或服务器地址';
+    }
   }
 
   bool _isEcdhSessionError(String detail) {
