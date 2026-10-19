@@ -113,7 +113,7 @@ def test_下载中的临时文件不上传(mount, uploads):
     _write(local / "real.txt", b"done")
 
     assert sync._flush_uploads(mount) == 1
-    assert [c[2].rsplit("/", 1)[-1] for c in uploads] == ["real.txt"]
+    assert [Path(c[2]).name for c in uploads] == ["real.txt"]
 
 
 def test_正在传输的文件不重复提交(mount, uploads):

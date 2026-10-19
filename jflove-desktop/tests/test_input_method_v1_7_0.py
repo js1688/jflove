@@ -12,9 +12,15 @@ v1.7.0 Linux 输入法（IME）配置单测
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from src.utils import input_method
+
+pytestmark = pytest.mark.skipif(
+    os.name != "posix", reason="Linux 输入法配置（Wayland/xcb/ibus/fcitx）仅在 Linux 有意义",
+)
 
 
 @pytest.fixture(autouse=True)
