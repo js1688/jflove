@@ -8,7 +8,7 @@ Windows CfAPI 挂载驱动（v1.7.0）
   - 远端文件以**占位**形式出现在资源管理器，带云状态（仅在线 / 已缓存）；
   - 用户打开占位时触发 `FETCH_DATA` 回调，驱动按需下载并写回内容。
 
-实现路线（已由 `poc/cfapi_probe.py` 三步判据验证，退出码 0）：
+实现路线（已由 `jflove-desktop/poc/cfapi/cfapi_probe.py` 三步判据验证，退出码 0）：
   1. `CfRegisterSyncRoot` 注册；
   2. `CfConnectSyncRoot` 连接并登记 `FETCH_DATA` 回调；
   3. 创建占位：先建真实文件（truncate 到目标大小）→ `CfConvertToPlaceholder`

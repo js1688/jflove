@@ -3,9 +3,9 @@
 真实场景是「资源管理器（另一个进程）枚举挂载目录，同步进程负责应答回调」。
 同进程枚举会被平台特殊对待，因此本探针把枚举放到子进程里执行：
 
-    python poc/cfapi_enum_probe.py            # 当前实现（含 FETCH_PLACEHOLDERS）
-    python poc/cfapi_enum_probe.py --legacy   # 只注册 FETCH_DATA（模拟旧版行为）
-    python poc/cfapi_enum_probe.py --dir D:\\testa   # 针对已存在的挂载根
+    python jflove-desktop/poc/cfapi/cfapi_crossproc_probe.py   # 当前实现（含 FETCH_PLACEHOLDERS）
+    python jflove-desktop/poc/cfapi/cfapi_crossproc_probe.py --legacy   # 只注册 FETCH_DATA（模拟旧版行为）
+    python jflove-desktop/poc/cfapi/cfapi_crossproc_probe.py --dir D:\\testa   # 针对已存在的挂载根
 
 判据：子进程枚举耗时 < 2s = 正常；≈60s 且报 0x800701AA = 复现用户截图错误。
 """
@@ -20,8 +20,8 @@ import sys
 import tempfile
 import time
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "jflove-desktop"))
+DESKTOP_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, DESKTOP_ROOT)
 
 from src.utils import mount_cfapi as mc  # noqa: E402
 

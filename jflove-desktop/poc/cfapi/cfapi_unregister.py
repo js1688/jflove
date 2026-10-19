@@ -6,7 +6,7 @@
 
 用法（先退出 JFLove 应用，再执行）：
 
-    python poc/cfapi_unregister.py "D:\\JFLove\\照片库"
+    python jflove-desktop/poc/cfapi/cfapi_unregister.py "D:\\JFLove\\照片库"
 
 退出码：0 = 已解除注册（或本来就没注册）；1 = 解除失败（打印 HRESULT）。
 解除后即可正常删除目录。
@@ -25,7 +25,7 @@ def _hr(hr: int) -> str:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("用法: python poc/cfapi_unregister.py <挂载目录>")
+        print("用法: python jflove-desktop/poc/cfapi/cfapi_unregister.py <挂载目录>")
         return 2
 
     path = os.path.abspath(sys.argv[1])
