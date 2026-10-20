@@ -230,6 +230,19 @@ pages/ ──调用──> hooks/ ──调用──> services/ ──调用─�
 
 ## 构建与验收
 
+### 阶段 0（浏览器实机验证，强制）
+
+```bash
+node scripts/verify/web_shot.mjs --out /tmp/web.png
+node scripts/verify/web_shot.mjs --click-text '连接服务端' --out /tmp/web-login.png
+node scripts/verify/web_shot.mjs --width 390 --height 844 --mobile --out /tmp/web-mobile.png
+```
+
+- 本机浏览器是 `microsoft-edge`（Chromium 内核）；**没有** Chromium / Firefox。
+- 交互优先用内置 CDP；复杂流程再引 `playwright-core`（`channel: 'msedge'`，无需下载浏览器）。
+- 判据：截图 + 服务端出现 `key-exchange 200`；**只截首屏不算验证**（L50）。
+- 用户会话锁屏时浏览器窗口会被 KWin 标 HIDDEN，截图黑/白；无头 Edge 不受影响。
+
 ### 阶段 1（日常开发）
 
 ```bash

@@ -125,3 +125,24 @@ jobs:
 
       - name: ②b 门禁可信性：篡改/缺文件/清单腐烂必须被拦住（反向验证）
         run: python scripts/check_web_desktop_parity.py --self-test
+
+  verification-report-guard:
+    # 只在真实发布（tag）时跑：测试报告随版本提交，缺“验证证据”即阻塞发布。
+    # 不跑 GUI/模拟器/wine（runner 没有）；只校验报告结构，实际执行由本地
+    # `scripts/verify/run_all.sh --ends all` 完成，结果写进报告的证据表。
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: 验证证据报告结构（缺证据 / 跳过无原因即失败）
+        run: |
+          VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
+          python scripts/check_verification_report.py --version "$VERSION" \
+            --require server,web,desktop,android,windows

@@ -33,32 +33,55 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
 > **通用经验库**：见 `.agents/skills/lessons/LESSONS.md`（静默失败、编码陷阱、无头环境边界等跨角色经验，开工前先扫一眼）。
 
-## 验证能力自适应（强制）
+## 实机验证入口（强制，开发/测试两阶段通用）
 
-> 规则来源：`lessons` L48 / L49。**不同机器能验的端不同，报告必须先说清验了哪些、跳了哪些。**
+> 规则来源：`lessons` L48 / L49 / L50–L55；可执行入口见 `scripts/verify/`。
+> **判据 = 真实启动 + 可操作 + 可取证**：画面/截图 + 日志或 HTTP 状态 + 状态确实改变。
+> 「进程活着」「页面能打开」都不算通过；只截图不点击/不输入也不算。
 
 1. **先探测，再开跑**（一次，缓存结论；不要每加一个用例就重探）：
 
-   | 能力 | 探测命令 | 判据 |
+   | 端 / 能力 | 探测命令 | 判据 |
    | --- | --- | --- |
-   | 后端 pytest | `python -m pytest tests/`（用模块 venv） | 退出码 0 |
-   | 后端静态 | `python -m flake8 src/ tests/ --max-line-length=99` | 零告警 |
-   | 桌面端 pytest | 同上（`jflove-desktop/venv-*/`） | 退出码 0 |
-   | 移动端静态 | `dart analyze lib/` | 零错误 |
-   | 移动端测试 | `flutter test` | 全通过（**无需设备**） |
+   | 服务端 pytest | `python -m pytest tests/`（模块 venv） | 退出码 0 |
+   | 服务端实机 | `scripts/verify/server.sh start` | `/health` 200 + 登录 200 |
+   | Web 端静态/单测 | `npm run lint && npm run test` | 零告警 / 全通过 |
+   | Web 端实机 | `node scripts/verify/web_shot.mjs --click-text '连接服务端'` | 截图 + `key-exchange 200` |
+   | 桌面端 pytest | `python -m pytest tests/`（`venv-*`） | 退出码 0 |
+   | 桌面端实机 | `jf_start_xvnc :99` + `xinput.py` | 窗口 `JFLove` + 点击/输入后接口 200 |
+   | 移动端静态/单测 | `dart analyze lib/` / `flutter test` | 零错误 / 全通过 |
    | 移动端设备级 | `adb devices` | 有 `device` 行（`emulator-` = 模拟器） |
-   | Web 端 | `npm run lint && npm run test` | 零告警 / 全通过 |
-   | Linux 桌面 GUI 冒烟 | `uname -s`=Linux 且 `DISPLAY`/`WAYLAND_DISPLAY` 非空 | 无显示 → 跳过 |
-   | Windows 桌面 | `sys.platform` = `win32` | 非 win32 → 跳过 |
+   | Windows 实机 | `scripts/verify/windows_wine.sh` | wine 登录页 + 登录 200（发布门禁仍以 CI/真机为准） |
+   | GUI 基础 | `command -v Xvnc kwin_x11 ffmpeg` | 锁屏/无显示时用独立 Xvnc |
    | iOS / 鸿蒙 | `uname -s` = Darwin / 有对应工具链 | 一律跳过 |
 
-2. **报告开头写两栏**：`能做（附命令）` / `跳过（附探测输出作为原因）`。
-3. **能做的必须实际跑**，并把命令与关键输出写进测试报告；**不能做的保留"跳过"字样**，
-   不得含糊、不得写成"通过"。
-4. **禁止的跳过理由**：静态分析与单元测试**永远可做**（只要装了 SDK），
-   「没有设备 / 没有显示 / 不是目标平台」不能用来跳过它们 —— 只能用来跳过**设备级 / 平台专属**验证。
-5. **设备级用例（安装 / 启动 / 截图 / 热重载 / 流式下载）**：有设备就自动执行到底；
-   MCP 工具与参数见 `cross-platform-mobile` 技能的「调试链」一节。
+2. **操作级验证（硬约束）**：
+   - Web：CDP/Playwright **点击或输入**，再截图；只截首屏不算。
+   - 桌面 / Windows：Xvnc + `kwin_x11` + `scripts/verify/xinput.py` 点击/输入。
+   - Android：`uiautomator dump` 取控件 `bounds` → `input tap/text`。
+   - 每端至少一条证据链：「点击/输入 → 服务端日志出现对应请求（200）」。
+3. **独立显示**：用户会话锁屏时 KWin 把窗口标 `_NET_WM_STATE_HIDDEN`，截屏黑/白；
+   用 `Xvnc :99 + kwin_x11`，**Xvnc 必须配 WM**，否则 Qt 键盘事件不生效（L50）。
+4. **报告两栏**：`能做（附命令 + 证据）` / `跳过（附真实探测输出）`；禁止把截图当唯一判据。
+5. **禁止的跳过理由**：静态分析/单元测试永远可做；无设备/无显示/非目标平台只能跳过设备级/平台专属。
+6. **设备级用例**：有设备就执行到底（安装/启动/截图/热重载/流式下载）。
+7. **Windows/wine 边界**：wine 能做 UI 可操作验证（补 `icuuc.dll` + Xvnc），
+   GPU/媒体/安装器/CfAPI 不在覆盖内，**发布门禁仍以 CI/真机为准**。
+8. **MCP 说明**：`.mcp.json` 是 VS Code 格式，DSH 未加载；默认走 `scripts/verify/` 的 CLI，
+   MCP 仅 VS Code 可选（L55）。
+
+## 报告证据门禁（强制）
+
+- 测试报告必须含 `## 验证证据` 表：`端 | 命令 | 结果 | 证据`（模板见 `scripts/verify/README.md`）。
+- 收工前必须跑：
+  ```bash
+  python scripts/check_verification_report.py --version <版本号> \
+      --require server,web,desktop,android,windows
+  ```
+  退出码必须为 0；缺证据 / 跳过无原因 → **不得出报告**。
+- **只读代码 / 只跑 pytest 不构成验证完成**：至少一条「点击/输入 → 服务端接口 200」证据。
+- `scripts/verify/run_all.sh` 生成的 `/tmp/jf-verify-summary.md` 可直接作为表格来源；
+  截图/日志留 `/tmp`，报告引用路径即可，不往仓库塞大文件。
 
 ## 测试设计纪律
 

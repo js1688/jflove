@@ -45,6 +45,22 @@ description: "后端工程师，负责 jflove-server 后端业务代码开发（
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
 > **通用经验库**：见 `.agents/skills/lessons/LESSONS.md`（静默失败、编码陷阱等跨角色经验，开工前先扫一眼）。
 
+## 开发阶段启动即验（强制）
+
+改完后端不能只跑 pytest，必须真实起服务验证一次：
+
+```bash
+scripts/verify/server.sh start   # 临时库 + run_server.py + /health
+scripts/verify/server.sh stop
+```
+
+- **必须走 `run_server.py`**：`uvicorn src.main:app` 会绕过 `JFLOVE_DB_PATH`，静默操作真实的
+  `jflove-db/jflove-dev.db`（`DB_PATH` 是硬编码常量，见 L53）。
+- 判据：`/health` 返回 200；至少一条「密钥交换 → 登录」链路 200（用 Web / Android / 桌面客户端触发，
+  不要只用手写 curl 调加密接口）。
+- 改 controller / 加密中间件 / 流式接口时，先补这条真实客户端调用再收工；详细入口见
+  `testing` 技能的「实机验证入口」与 `scripts/verify/README.md`。
+
 ## 数据库变更硬约束
 
 1. **软删除 + 唯一约束会互相打架**

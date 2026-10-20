@@ -133,6 +133,8 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 | `android`（`@mobilenext/mobile-mcp`） | `mobile_take_screenshot` `mobile_list_elements_on_screen` `mobile_click_on_screen_at_coordinates` `mobile_type_keys` `mobile_press_button` `mobile_install_app` `mobile_launch_app` `mobile_get_device_logs` `mobile_list_crashes` | 手指 ↔ 屏幕 |
 
 - 配置在仓库根 `.mcp.json`（`mcpServers.dart` / `mcpServers.android`），**改动需重启 VS Code 生效**。
+  该文件是 VS Code / Claude 格式，**DSH 不读取**（当前会话没有 MCP 工具，见 L55）；
+  DSH 里走下面的 CLI 路径，效果等价且可复现。
 - `dart mcp-server` 默认只暴露 13 个工具，**必须带 `--enable=flutter_app_lifecycle,cli`**
   才会出现 `launch_app` / `list_devices` / `get_app_logs` / `run_tests`（帮助文本声称"默认全开"，与实测不符）。
 - `dart` MCP 的工具依赖 **MCP Roots**（工作区根）；客户端不提供 roots 时调用会返回
@@ -142,6 +144,21 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 - 手动跑（不经 MCP）时必须 `flutter run -d <device> --print-dtd`，
   否则 DTD 地址不打印，`hot_reload` / `get_runtime_errors` 无从连接。
 - `mobile_*` 抓的是 **logcat**：可能含 token / 请求明文，**结论不落 `文档记录/`**（`AGENTS.md §9.6`）。
+
+### DSH / 无 MCP 时的 CLI 路径（默认）
+
+```bash
+scripts/verify/android_smoke.sh          # 窗口化模拟器 + 装包 + 启动 + 截图
+adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml /tmp/ui.xml
+adb shell input tap 540 1114 && adb shell input text 'http://10.0.2.2:8989'
+adb exec-out screencap -p > /tmp/android.png
+```
+
+- **模拟器必须窗口化 + `-gpu host`**：`-no-window` framebuffer 初始化失败；
+  swiftshader/guest 会 SIGSEGV（L51）。没有可用显示时先用 `Xvnc :99`（L50）。
+- 控件坐标用 `uiautomator dump` 的 `bounds`，不要手猜；`input keyevent 4` 在 IME
+  未展开时会直接退出 App，先 `dumpsys input_method | grep mInputShown`。
+- 后端在宿主上时，模拟器用 `10.0.2.2:8989` 访问；判据看服务端 `key-exchange` / `login` 200。
 
 ## 构建与验收（按本机环境自适应，强制）
 
@@ -169,6 +186,9 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
   详见 L49；`FLUTTER_HOME` / `ANDROID_HOME` 指向 ASCII 路径，不要指向符号链接。
 - **模拟器起不来先分诊**：`-accel off` 能活 ⇒ KVM 路径有问题；`-gpu host` 能活 ⇒
   软件渲染（swiftshader）在新内核 W^X 下 JIT 失败，改用 `-gpu host`（L49）。
+- **必须窗口化**（`-no-window` 会 framebuffer 失败），并配 `-gpu host`；没有显示器时
+  先用 `Xvnc :99 + kwin_x11`（L50/L51）。设备级验证要走到「安装 → 启动 → 截图 → 点击/输入
+  → 登录后接口 200」，停在「已构建 APK」不算。
 
 ## 预留平台
 

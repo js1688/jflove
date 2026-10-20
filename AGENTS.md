@@ -358,28 +358,35 @@ Phase 8              Phase 7              Phase 6              Phase 5
 
 1. 阅读最新设计文档 + 上一版本代码审查/测试报告
 2. 在 `jflove-server/` 内开发，不越界
-3. 自测：flake8 0 警告 + pytest 全通过
+3. 自测：flake8 0 警告 + pytest 全通过 + **启动即验**：
+   `scripts/verify/server.sh smoke`（`/health` 200，至少一次「密钥交换 → 登录」200）。
+   **只跑单测 / 只读代码不构成完成**；命令与结果写进开发记录。
 4. 更新 `文档记录/后端开发记录/<版本号>.md` 与 `jflove-server/README.md`
 
 #### Phase 4a：桌面端开发
 
 1. 阅读最新设计文档 + 最新后端开发记录
 2. 在 `jflove-desktop/` 内开发，不越界
-3. 自测：flake8 0 警告 + pytest 全通过
+3. 自测：flake8 0 警告 + pytest 全通过 + **实机启动/抓帧**：
+   `jflove-desktop/venv-linux/bin/python scripts/verify/desktop_shot.py`（或 Xvnc + XTest
+   点击/输入后接口 200）。**只跑单测 / 只读代码不构成完成**。
 4. 更新 `文档记录/桌面端开发记录/<版本号>.md` 与 `jflove-desktop/README.md`
 
 #### Phase 4b：移动端开发
 
 1. 阅读最新设计文档 + 最新后端开发记录
 2. 在 `jflove-app/` 内开发，不越界
-3. 自测：`dart analyze lib/` 零错误 + `flutter test` 全通过
+3. 自测：`dart analyze lib/` 零错误 + `flutter test` 全通过 + **模拟器安装/启动/输入/截图**：
+   `scripts/verify/android_smoke.sh --stop`；有设备就执行到底，**只构建 APK 不构成完成**。
 4. 更新 `文档记录/移动端开发记录/<版本号>.md` 与 `jflove-app/README.md`
 
 #### Phase 4c：Web 端开发
 
 1. 阅读最新设计文档 + 最新后端开发记录
 2. 在 `jflove-web/` 内开发，不越界
-3. 自测：`npm run lint` 零警告 + `npm run test` 全通过
+3. 自测：`npm run lint` 零警告 + `npm run test` 全通过 + **浏览器实机验证**：
+   `node scripts/verify/web_shot.mjs --click-text '连接服务端'`（截图 + `key-exchange 200`）。
+   **只跑单测 / 只读代码不构成完成**。
 4. 更新 `文档记录/Web端开发记录/<版本号>.md` 与 `jflove-web/README.md`
 
 #### Phase 5：代码审查
@@ -394,7 +401,11 @@ Phase 8              Phase 7              Phase 6              Phase 5
 1. 对齐最新需求/设计文档
 2. 在 `tests/` 下补全 pytest 用例
 3. **必须包含 §9 安全宪法要求的全部安全用例**（任一缺失或失败即视为不完整，不得出报告）
-4. 输出 `文档记录/测试报告/<版本号>.md`
+4. **实机验证（强制）**：按本机能力跑 `scripts/verify/run_all.sh --ends all`（或按端）；
+   报告必须含 `## 验证证据` 表（端 / 命令 / 结果 / 证据），只有截图不点击/不输入不算。
+5. **证据门禁**：`python scripts/check_verification_report.py --version <版本号> --require server,web,desktop,android,windows`
+   退出码 0 才允许出报告；**只读代码 / 只跑 pytest 不构成验证完成**。
+6. 输出 `文档记录/测试报告/<版本号>.md`
 
 #### Phase 7：项目管理
 
@@ -422,7 +433,7 @@ Phase 8              Phase 7              Phase 6              Phase 5
    - **仅本地构建** → `python build.py -m all` 或 `-m <模块>`（统一入口，自动同步版本 + 逐模块环境检查 + desktop 切 venv）
    - **真实发布** → **不在本地构建**；推 tag 后由 `.github/workflows/build-*.yml` 在云端构建并挂到 Release
    - 产物：服务端/Web 端 Docker 镜像、桌面端 **onedir 目录 + 安装包**（Windows `*-setup.exe` + 便携 `*-portable.zip`、Linux/Fedora `*.rpm`）、移动端 debug+release 两个 APK
-5. 执行冒烟测试
+5. 执行冒烟测试（`scripts/verify/run_all.sh --ends all`；发布记录引用 `/tmp/jf-verify-summary.md` 的关键行）
 6. 输出 `文档记录/版本发布记录/<版本号>.md`（**它是版本历史的唯一去处** —— 根 `README.md` 已移除「版本变化」章节，
    只有「功能特性」需要按新增/去除/调整同步维护，且**不写具体版本号字面量**，避免每版改 README）
 
@@ -506,11 +517,12 @@ Step 3：代码审查（code-review）
   │
   ▼
 Step 4：测试（testing）
-  │  └─ 补全 BUG 相关的回归用例 + 安全用例
+  │  └─ 补全 BUG 相关的回归用例 + 安全用例 + 跑相关端 `scripts/verify/run_all.sh --ends ...`
   │
   ▼
 Step 5：发布（devops）
-  │  └─ 校验审查/测试通过 → flake8 + pytest（后端/桌面端）或 dart analyze + flutter test（移动端）+ 构建 + 冒烟
+  │  └─ 校验审查/测试通过 → `check_verification_report.py` 退出码 0 → flake8 + pytest
+  │     （后端/桌面端）或 dart analyze + flutter test（移动端）+ 构建 + 冒烟
   │
   ▼
 完成（版本号不变，记录在对应版本的开发记录中）
@@ -523,6 +535,7 @@ Step 5：发布（devops）
 - **跳过 Phase 2（设计）**：设计文档无变动
 - **跳过 Phase 7（PMO）**：不重新拆解任务
 - **必须保留 Phase 5/6/8**：代码审查 + 测试 + 发布一个不能少
+- **只读代码/只跑单测不算测试完成**：必须有「点击/输入 → 接口 200」证据，见 §7.3 Phase 6
 - **开发记录**：在 `文档记录/后端开发记录/<版本号>.md` 或 `桌面端开发记录/<版本号>.md` 或 `文档记录/移动端开发记录/<版本号>.md` 中追加 BUG 修复记录（标注"BUG 修复"标签）
 
 ### 7.6 版本迭代前置（通用规则）

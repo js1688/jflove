@@ -12,6 +12,7 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
 ## 发布前 checklist
 
 - [ ] 审查报告无未解决严重问题，测试报告通过
+- [ ] **测试报告含 `## 验证证据` 表，且 `python scripts/check_verification_report.py --version <版本号> --require server,web,desktop,android,windows` 退出码 0**
 - [ ] 设计/开发记录已为当前版本归档
 - [ ] **`python scripts/check_db_schema.py` 退出码为 0**（含内置的「代码 → dev」前置检查；prod 表结构已与 dev 一致；退出码 1 = 发布阻塞项，见「生产库表结构同步（发布阻塞项，强制）」章节）
 - [ ] 本版本有表结构变更时，`jflove-db/migrate-<版本号>.sql` + `jflove-db/rollback-<版本号>.sql` 均已交付且**实测执行过**
@@ -287,6 +288,23 @@ python scripts/check_db_schema.py --align
     - **移动端**：debug 和 release 两个 APK 都必须在真机安装并完成：启动 → 登录 → 文件浏览 → 笔记编辑 → 「关于」显示版本号 = <version>
 8. 输出 `文档记录/版本发布记录/<版本号>.md`
 9. **分叉收尾**：按「发布方式分叉」的选择——选「发布到 Git 仓库」则执行上方「Git 发布操作序列」，并把 `文档记录/版本发布记录/<版本号>.md` 与根 `README.md` 一并提交。打 tag 后 CI 会通过 `release.yml` 自动创建 **Draft Release**（正文含 GHCR 拉取/运行命令 + 各端产物下载说明），desktop/app 产物自动挂为 Assets；devops 需在 Releases 页 review 草稿无误后点 **Publish** 正式发布。选「仅限本地构建与发布」则到此为止，不碰 git。
+
+### 产物冒烟（本机可执行，优先于“手工点一下”）
+
+```bash
+# 一键跑能做的端，产出 /tmp/jf-verify-summary.md（可直接粘进发布记录）
+scripts/verify/run_all.sh --ends all
+
+# 或按端单跑
+scripts/verify/server.sh smoke
+node scripts/verify/web_shot.mjs --click-text '连接服务端'
+QT_QPA_PLATFORM=offscreen ./JFLove
+scripts/verify/windows_wine.sh --skip-download
+```
+
+- 冒烟要「点得动」：至少一次点击/输入触发服务端 200；不接受只看进程/窗口。
+- wine 只覆盖 UI 可操作；`setup.exe` 安装、CfAPI、媒体能力必须在真机/CI 验（L52）。
+- 判据、清理与边界见 `scripts/verify/README.md`。
 
 ## 文档更新范围
 

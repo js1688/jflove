@@ -95,9 +95,12 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
      | 单元 / Widget 测试 | `flutter test` / `pytest` / `npm run test` | 退出码 0 |
      | Android 设备 | `adb devices` | 存在 `device` 行；`emulator-` 前缀 = 模拟器 |
      | Android 构建 | `flutter build apk --debug` | 需 Android SDK + `adb` |
-     | Linux 桌面 GUI | `uname -s` = Linux 且 `DISPLAY`/`WAYLAND_DISPLAY` 非空 | 无显示 → 跳过 GUI 冒烟 |
-     | Windows 桌面 | `python -c "import sys;print(sys.platform)"` = `win32` | 非 win32 → 跳过 |
+     | Linux 桌面 GUI | `command -v Xvnc kwin_x11` | 有 Xvnc 即可验（**会话锁屏不等于"无显示"**） |
+     | Windows 桌面 | `command -v wine` / `$JF_WINE_BIN` + Release 产物 | 有 wine 可做 UI 可操作验证；安装器/媒体仍需真机 |
      | iOS / 鸿蒙 | `uname -s` = Darwin / 有 `flutter_ohos` 工具链 | 一律跳过 |
+
+   > 本机已打通：锁屏会话用独立 `Xvnc`（L50），Windows 用 wine + ICU（L52）。
+   > 这两项**不再是天然跳过项**；只有 Xvnc/wine 本身缺失时才允许跳过，并附探测输出。
 
   2. **声明**：在回复/报告开头列「本次验证计划」两栏 —— **能做**（附命令）/ **跳过**（附探测结果作为原因）。
   3. **执行**：能做的**必须做**；不能做的**保留"跳过"字样**，不得改写成"通过"。
@@ -129,6 +132,76 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
   不阻塞构建），可在 `$ANDROID_HOME/licenses/android-sdk-license` 里补齐标准哈希。
 - **判据**：`flutter build apk --debug` 产出 `build/app/outputs/flutter-apk/app-debug.apk`；
   `adb devices` 有 `device` 行；`flutter run --print-dtd` 打印出 `ws://…` 的 DTD 地址。
+
+### L50. 锁屏会话里所有窗口都是 HIDDEN —— GUI 验证要用独立 Xvnc
+- **现象**：`DISPLAY=:0` 能连上、`xrandr` 有 3072×1920，但窗口截图全黑、`spectacle` 全白；
+  `xprop` 显示所有窗口（包括刚 `show()` 的测试窗口）都带 `_NET_WM_STATE_HIDDEN`。
+- **根因**：KDE 会话处于锁屏（`loginctl show-session <id> -p LockedHint` = `yes`），
+  KWin 把窗口藏起来，X11 读不到被合成的画面。
+- **正确做法**：不要依赖用户当前会话。用独立 `Xvnc :99` + `kwin_x11`：
+  ```bash
+  Xvnc :99 -geometry 1440x900 -depth 24 -SecurityTypes None -AlwaysShared -rfbport 5999 -nolisten tcp &
+  DISPLAY=:99 dbus-run-session -- kwin_x11 --replace &
+  DISPLAY=:99 ffmpeg -f x11grab -video_size 1440x900 -i :99 -frames:v 1 -y /tmp/shot.png
+  ```
+- **别漏掉 WM**：Xvnc 没有 WM 时 Qt 认为窗口未 active，**鼠标点击有效但键盘输入不进输入框**；
+  配上 `kwin_x11` 后正常。输入用 `scripts/verify/xinput.py`（XTest）。
+- **无桌面登录时**：`/run/user/$UID` 可能不存在（没有 pam_systemd 用户会话）；
+  `scripts/verify/env.sh` 会回退 `XDG_RUNTIME_DIR=/tmp/jf-runtime-$UID`（0700），
+  `dbus-run-session` 自建会话总线。实测 `env -i` 下桌面客户端 / Android 模拟器 / wine
+  都能启动、操作、截图，不依赖登录会话。
+- **判据**：截图非纯黑/纯白；`xprop -root _NET_SUPPORTING_WM_CHECK` 能查到 WM。
+
+### L51. 无头模拟器不可用：必须窗口化 + `-gpu host`
+- **现象**：`emulator -no-window -gpu host` 报 `Could not initialize emulated framebuffer`；
+  `-no-window -gpu swiftshader_indirect` / `guest` 在 KVM 下**启动即 SIGSEGV**
+  （`coredumpctl` 能看到 `qemu-system-x86_64-headless` 的核心转储）。
+- **根因**：无窗口时 host GPU 的 subwindow 渲染路径初始化失败；软件渲染走 JIT 代码页，
+  在新内核 W^X 下无法执行（与 L49 同一根因）。
+- **正确做法**：给模拟器一个真实显示（`Xvnc :99` 或用户桌面），去掉 `-no-window`，
+  用 `-gpu host`；本次实测 **11 秒** `Boot completed`，`adb devices` 立刻可见。
+- **判据**：`adb devices` 出现 `emulator-* device`；`adb shell getprop sys.boot_completed` = 1。
+
+### L52. wine 跑 Windows 客户端：ICU 是硬依赖，且 wine 不是真机
+- **现象**：便携包在 wine 下 `ImportError: DLL load failed while importing QtCore`，
+  窗口都没创建；`WINEDEBUG=+loaddll` 显示 `icuuc.dll` not found。
+- **根因**：Qt6Core 硬依赖 `icuuc.dll`（Windows 10+ 系统自带），PySide6 wheel 与便携包都**不带**它；
+  wine 前缀里没有系统 ICU。`vcrun2022` 只补 MSVC 运行库，补不了 ICU。
+- **正确做法**：把 ICU 的 `icuuc78.dll` 复制成 `icuuc.dll`（`icudt78.dll` 原样）放进
+  `_internal/PySide6/`；`/usr/bin/wine` 可能是断链，用 PortProton `WINE_LG_11-1`；
+  `WINEPREFIX` 必须在 `$HOME` 下（wine 拒绝 `/tmp` 这类非本人属主目录）。
+- **边界**：补 ICU 后可启动/截图/点击/输入/登录；日志里 `Failed to create GLES3 context`
+  会降级 GLES2，**GPU/媒体/Inno 安装包/CfAPI 不在 wine 覆盖内**，发布门禁仍以 CI/真机为准。
+- **判据**：wine 窗口出现 + 截图非空 + 登录后服务端 `login 200` / `files/disks 200`。
+
+### L53. `uvicorn src.main` 会绕过 `JFLOVE_DB_PATH`
+- **现象**：设了 `JFLOVE_DB_PATH=/tmp/xxx.db` 启动服务，改临时库密码不生效；
+  服务端日志里的登录仍校验旧库。
+- **根因**：`JFLOVE_DB_PATH` 只在 `jflove-server/run_server.py` 里被读取并写回
+  `settings.DB_PATH`；`uvicorn src.main:app` 直接 import，拿的是硬编码的 `jflove-dev.db`。
+- **正确做法**：临时库验证必须走 `venv-linux/bin/python run_server.py`（`scripts/verify/server.sh`
+  已封装），并断言日志出现「DB_PATH 已通过环境变量覆盖」。
+- **判据**：`/health` 200 + 改临时库密码后登录行为随之变化。
+
+### L54. GUI 截图工具要按显示环境选，不要默认 `import`
+- **现象**：ImageMagick `import -window root out.png` 报
+  `missing an image filename`（本机 IM 未带 X11 支持）；`ffmpeg -f x11grab` 在锁屏会话的
+  `:0` 上只能拍到黑屏。
+- **正确做法**：
+  - **Xvnc 上**：`ffmpeg -f x11grab -video_size 1440x900 -i :99 -frames:v 1 -y out.png`（可靠）；
+  - **应用进程内**：Qt `QWidget.grab()` / `QScreen.grabWindow(wid)`（桌面端离屏抓帧）；
+  - **Android**：`adb exec-out screencap -p`；
+  - **Web**：CDP `Page.captureScreenshot`。
+- **判据**：截图像素尺寸正确且不是纯色；与日志/接口证据一起看。
+
+### L55. `.mcp.json` 不是 DSH 的 MCP 配置
+- **现象**：仓库根有 `.mcp.json`（playwright / dart / android），但在 DSH 会话里看不到任何 MCP 工具。
+- **根因**：`.mcp.json` 是 VS Code / Claude 的格式；DSH 的 MCP 走 profile 里的
+  `@deepseek-ai/dsh-mcp-client` 插件（`~/.dsh/profiles/<name>/cordis.yml`），
+  当前 web profile 未安装该插件。
+- **正确做法**：DSH 里默认走 `scripts/verify/` 的 CLI（adb / CDP / XTest / wine），
+  可复现且不依赖会话配置；需要 MCP 时再在 profile 里加 server 并重启会话。
+- **判据**：技能里写「MCP 工具」的地方必须注明是 VS Code 路径；DSH 的验证判据不得依赖 MCP 工具存在。
 
 ---
 
@@ -718,3 +791,12 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 - [ ] 每一条"通过"都能对上本轮**真实跑过**的命令与输出吗？（L48）
 - [ ] SDK 的**物理路径**是纯 ASCII 吗？`FLUTTER_HOME` / `ANDROID_HOME` 指向 ASCII 路径还是符号链接？（L49）
 - [ ] 模拟器起不来时，先区分"宿主机 KVM 坏"与"模拟器软件渲染坏"了吗？（L49）
+
+**新增（实机 GUI / wine / 临时库补）：**
+
+- [ ] GUI 验证用的是独立 Xvnc + WM 吗？还是直接截锁屏会话（必然黑/白）？（L50）
+- [ ] 模拟器是窗口化 + `-gpu host` 吗？还在用 `-no-window` / swiftshader 吗？（L51）
+- [ ] wine 验证补了 ICU 吗？`WINEPREFIX` 在 `$HOME` 下吗？GPU/媒体/安装器边界声明了吗？（L52）
+- [ ] 起服务用的是 `run_server.py` 而不是 `uvicorn src.main` 吗？（L53）
+- [ ] 截图工具按环境选对了吗（Xvnc→ffmpeg / 应用内 grab / adb / CDP）？（L54）
+- [ ] 是否把 `.mcp.json` 误当成 DSH 的 MCP 配置？（L55）

@@ -114,6 +114,42 @@ python scripts/check_logo_sync.py --self-test          # 同上，反向验证
 - 确需两端分叉时，必须**从 `PARITY_MANIFEST` 中移除该文件并写明原因**，不能只改一端。
 - 本地提交前先跑上面 4 条命令；门禁报"清单腐烂"说明清单里点了不存在的文件，同样要修。
 
+## 实机启动与抓帧（强制）
+
+### Linux：真实窗口 + 可操作
+
+```bash
+source scripts/verify/env.sh
+DISP=$(jf_start_xvnc :99); jf_start_wm "$DISP"
+DISPLAY=$DISP QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu --no-sandbox" \
+  jflove-desktop/venv-linux/bin/python jflove-desktop/src/main.py &
+sleep 10
+jf_capture "$DISP" /tmp/desktop.png
+python3 scripts/verify/xinput.py --display "$DISP" click 590 432
+python3 scripts/verify/xinput.py --display "$DISP" text 'http://127.0.0.1:8989'
+```
+
+- 判据：日志「JFLove 桌面应用已启动（v…，Web UI）」+ 窗口 `WM_CLASS=JFLove` +
+  点击/输入后服务端出现对应请求（200）。
+- 像素证据：`jflove-desktop/venv-linux/bin/python scripts/verify/desktop_shot.py`
+  （`QT_QPA_PLATFORM=offscreen` 下 `QWidget.grab()`，锁屏也能跑）。
+- **用户会话锁屏时** KWin 把窗口标 `_NET_WM_STATE_HIDDEN`，X11 截屏全黑；
+  不要误判成应用坏了，必须用独立 Xvnc（L50）。
+- 默认地址是 `http://localhost.jflove.cn:8989`，本机不解析；验证时改成 `http://127.0.0.1:8989`。
+
+### Windows：产物 + wine（本机可操作）
+
+```bash
+scripts/verify/windows_wine.sh --skip-download   # 已下载 zip 时复用
+```
+
+- 发布便携包**缺 `icuuc.dll`**（Qt 依赖 Windows 系统 ICU）；脚本会补 ICU。
+  首次使用新 `WINEPREFIX` 还要先 `winetricks -q vcrun2022`。
+- `/usr/bin/wine` 可能是断链；默认用 PortProton `WINE_LG_11-1`，
+  `WINEPREFIX` 必须在 `$HOME` 下（L52）。
+- wine 覆盖 UI 可操作验证（启动/截图/点击/输入/登录）；**GPU/媒体/Inno 安装包/CfAPI
+  不在覆盖内**，发布门禁仍以 CI/真机为准。
+
 ## 文档更新范围
 
 - 路径：`文档记录/桌面端开发记录/<版本号>.md`；同步更新 `jflove-desktop/README.md`
