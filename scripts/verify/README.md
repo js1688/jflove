@@ -25,6 +25,7 @@
 | `windows_wine.sh` | CI 产物 + ICU + Xvnc + wine 启动截图 | `scripts/verify/windows_wine.sh --skip-download` |
 | `xinput.py` | X11 点击/输入/清空/聚焦（Shift 已映射） | `python3 scripts/verify/xinput.py click 718 593` |
 | `run_all.sh` | 一键跑选中的端，产出证据摘要 | `scripts/verify/run_all.sh --ends all` |
+| `check_uat_build.py` | Phase 6.5：核验 UAT 构建物是否由指定 commit 触发（head_sha + success） | `python scripts/verify/check_uat_build.py --sha <commit>` |
 
 ## 典型流程
 
