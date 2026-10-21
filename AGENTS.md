@@ -452,8 +452,11 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
 2. **构建物规则（强制）**
    - UAT 构建一律用 **`workflow_dispatch`（ref = 当前分支）** 触发 `.github/workflows/build-*.yml`；
      **禁止打 `v<版本>` 发布 tag** —— 本仓库的 tag 会触发 `release.yml` 创建 Draft Release，属 Phase 8；
+   - **代码一致性（强制）**：dispatch 前先 `git rev-parse HEAD` 记下目标 commit；dispatch 后核对 run 的
+     `head_sha` 与之一致（GitHub UI / `GET /repos/<owner>/<repo>/actions/runs/<id>`），并保留 checkout 日志中的
+     `git fetch ... +<sha>` 行作证；不一致 → **废弃该轮构建物并重新 dispatch**；
    - 版本号保持 `version.json` 不变；每轮修复后重新提交 → 重新 dispatch，以 **commit SHA / CI run** 区分迭代；
-   - 产物与哈希**以 CI 为准**；记录里写清 run 链接、artifact 名与 head_sha。
+   - 产物与哈希**以 CI 为准**；记录里写清 run 链接、artifact 名、`head_sha` 与构建物下载方式。
 3. **循环（用户 → 修复 → 重构建）**
    - 用户按待验清单逐项体验，反馈需附：版本/commit、复现步骤、期望 vs 实际、截图或日志；
    - 分类按 §7.5：**代码 BUG / 体验问题**走快速通道，修完重跑 Phase 5（仅变更面）+ Phase 6 相关端 + 全量门禁，

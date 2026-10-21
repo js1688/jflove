@@ -71,6 +71,8 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
 - **方式**：用 `workflow_dispatch`（ref = 当前分支）触发 `.github/workflows/build-*.yml`，
   **禁止打 `v<版本>` tag** —— 本仓库 tag 会触发 `release.yml` 创建 Draft Release，等于提前进入 Phase 8；
   且 tag 版本必须与 `version.json` 严格相等，`-rc/-uat` 后缀会被 CI 拒绝。
+- **代码一致性（强制）**：dispatch 前 `git rev-parse HEAD` 记下目标 commit；dispatch 后核对 run 的
+  `head_sha` 是否一致，并保留 checkout 日志 `git fetch ... +<sha>` 行；不一致就废弃该轮产物重新 dispatch。
 - **产物口径**：UAT 以 **CI 产物**为准；记录 CI run 链接、`head_sha`、artifact 名与 sha256。
   本地产物只能作兜底，不得替代 CI 产物写“UAT 通过”。
 - **迭代**：修复后提交新 commit → 重新 dispatch；版本号保持不变，用 commit SHA 区分轮次。
