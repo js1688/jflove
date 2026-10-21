@@ -402,9 +402,10 @@ def test_image_batch_subdir_zip_and_pixel_filter(tmp_path) -> None:
     image_names = [
         outcome.output_name
         for outcome in outcomes
-        if not outcome.output_name.endswith(".zip")
+        if outcome.status == "success" and not outcome.output_name.endswith(".zip")
     ]
     assert image_names == ["001.png", "002.png"]
+    assert [outcome.status for outcome in outcomes].count("skipped") == 1
     assert (tmp_path / "Gallery" / "001.png").exists()
     zip_file = next(outcome for outcome in outcomes if outcome.output_name.endswith(".zip"))
     assert zip_file.output_name == "Gallery.zip"
@@ -547,6 +548,111 @@ def test_single_image_does_not_create_subdir(tmp_path) -> None:
     assert outcomes[0].output_name == "Cover_img_001.png"
     assert (tmp_path / "Cover_img_001.png").exists()
     assert not (tmp_path / "Cover").exists()
+
+
+class FlakyOutbound(FakeOutbound):
+    """前 N 次 `stream_to_file` 抛瞬态网络错误，之后成功。"""
+
+    def __init__(self, files: dict[str, bytes], failures: int) -> None:
+        super().__init__(files)
+        self.failures = failures
+        self.attempts = 0
+
+    async def stream_to_file(self, url, dest, **kwargs):
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise OutboundError("network_error", "模拟连接重置")
+        return await super().stream_to_file(url, dest, **kwargs)
+
+
+def test_transient_download_error_is_retried(tmp_path) -> None:
+    """瞬态网络错误重试后成功（CDN 节点重置的真实主因）。"""
+    outbound = FlakyOutbound(
+        {"https://cdn.example.com/a.png": png_bytes(100, 100)}, failures=2
+    )
+    outcome = asyncio.run(
+        MediaFetcherService(outbound).fetch_item(
+            str(tmp_path),
+            1,
+            {
+                "id": 1,
+                "kind": "image",
+                "ext": "png",
+                "source_url": "https://cdn.example.com/a.png",
+            },
+            title="Retry",
+        )
+    )
+    assert outbound.attempts == 3
+    assert outcome.status == "success"
+    assert (tmp_path / outcome.output_name).exists()
+
+
+def test_image_batch_keeps_successes_when_one_fails(tmp_path) -> None:
+    """一张失败不拖垮整批：成功项落盘并回填，失败项返回 failed。"""
+    outbound = FakeOutbound(
+        {
+            "https://cdn.example.com/a.png": png_bytes(100, 100),
+            "https://cdn.example.com/c.png": png_bytes(120, 120),
+        }
+    )
+    outcomes = asyncio.run(
+        MediaFetcherService(outbound).fetch_images(
+            str(tmp_path),
+            1,
+            [
+                {
+                    "id": 1,
+                    "kind": "image",
+                    "ext": "png",
+                    "source_url": "https://cdn.example.com/a.png",
+                },
+                {
+                    "id": 2,
+                    "kind": "image",
+                    "ext": "png",
+                    "source_url": "https://cdn.example.com/b.png",
+                },
+                {
+                    "id": 3,
+                    "kind": "image",
+                    "ext": "png",
+                    "source_url": "https://cdn.example.com/c.png",
+                },
+            ],
+            title="Gallery",
+        )
+    )
+    assert [outcome.status for outcome in outcomes] == ["success", "failed", "success"]
+    assert outcomes[1].error_code == "url_expired"
+    assert outcomes[1].item_id == 2
+    assert (tmp_path / "Gallery" / "001.png").exists()
+    assert (tmp_path / "Gallery" / "003.png").exists()
+
+
+def test_image_batch_rejects_encrypted_or_non_image_bytes(tmp_path) -> None:
+    """看起来是 .png 但内容不是图片 ⇒ content_invalid，不落盘垃圾文件。"""
+    outbound = FakeOutbound(
+        {"https://cdn.example.com/enc.png": b"\x09\x3d\xe3\xb1\xfc\x4a\xf4\x6f" * 8}
+    )
+    outcomes = asyncio.run(
+        MediaFetcherService(outbound).fetch_images(
+            str(tmp_path),
+            1,
+            [
+                {
+                    "id": 1,
+                    "kind": "image",
+                    "ext": "png",
+                    "source_url": "https://cdn.example.com/enc.png",
+                }
+            ],
+            title="Encrypted",
+        )
+    )
+    assert outcomes[0].status == "failed"
+    assert outcomes[0].error_code == "content_invalid"
+    assert not list(tmp_path.rglob("*.png"))
 
 
 def test_cleanup_task_temp_removes_hidden_dir(tmp_path) -> None:

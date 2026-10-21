@@ -316,6 +316,34 @@ def test_extract_from_html_filters_and_dedupes_images() -> None:
     assert extracted.title == "Gallery"
 
 
+def test_extract_from_html_prefers_lazy_attrs_and_rejects_non_images() -> None:
+    """懒加载真实地址优先；无扩展名/统计/站点外壳图片不进清单（UAT #2）。"""
+    page = """<html><body>
+      <img src="/usr/plugins/tbxw/zw.png"
+           data-xkrkllgl="https://pic.example.com/upload/a.jpeg">
+      <img src="/usr/themes/x/banner.png" data-src="https://cdn.example.com/b.jpg">
+      <img src="https://mc.yandex.ru/watch/108325026">
+      <img src="https://example.com/archives/84938/">
+      <img src="/usr/themes/x/images/logo.png">
+      <img src="/usr/plugins/x/images/icon.png" width="300" height="300">
+      <meta property="og:image" content="https://cdn.example.com/dynamic">
+    </body></html>"""
+    extracted = extract_from_html(page, PAGE)
+    urls = [url for url, _, _ in extracted.images]
+    assert "https://pic.example.com/upload/a.jpeg" in urls
+    assert "https://cdn.example.com/b.jpg" in urls
+    # 显式声明 300px 的插件图片保留（避免误杀正文大图）
+    assert "https://example.com/usr/plugins/x/images/icon.png" in urls
+    # og:image 允许无扩展名的动态图床
+    assert "https://cdn.example.com/dynamic" in urls
+    # 无扩展名统计地址 / 文章页 / 主题外壳占位图全部排除
+    assert "https://mc.yandex.ru/watch/108325026" not in urls
+    assert "https://example.com/archives/84938/" not in urls
+    assert not any(url.endswith("/zw.png") for url in urls)
+    assert not any(url.endswith("/banner.png") for url in urls)
+    assert not any(url.endswith("/logo.png") for url in urls)
+
+
 def test_playwright_proxy_strips_credentials_from_server_url() -> None:
     """浏览器代理配置：令牌放 username/password，server 里不得出现 userinfo。"""
     config = _playwright_proxy("http://jflove:secret-token@127.0.0.1:4321")

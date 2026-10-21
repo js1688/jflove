@@ -51,6 +51,14 @@ _FFMPEG_TIMEOUT = 600.0
 _CHUNK = 256 * 1024
 #: 单张图片上限（分析/下载统一口径）
 _IMAGE_MAX_BYTES = 20 * 1024 * 1024
+#: 可重试的瞬态错误（CDN 节点重置 / 读超时；4xx 不重试）
+_RETRY_CODES = frozenset({"net_timeout", "network_error"})
+#: 单个请求/分片最大尝试次数（含首试）
+_MAX_ATTEMPTS = 3
+#: 重试退避基数（秒）；按尝试次数线性递增
+_RETRY_BASE_DELAY = 0.5
+#: 能可靠识别文件头的图片格式（AVIF 等未覆盖格式不做内容校验）
+_PROBEABLE_IMAGE_EXTS = frozenset({"jpg", "jpeg", "png", "gif", "webp", "bmp"})
 
 
 class FetchError(Exception):
@@ -436,7 +444,10 @@ class MediaFetcherService:
             )
             if not outcomes:
                 raise FetchError("no_media", "图片尺寸过小，已跳过")
-            return outcomes[0]
+            outcome = outcomes[0]
+            if outcome.status == "failed":
+                raise FetchError(outcome.error_code or "network_error", outcome.error_message)
+            return outcome
         name = self._final_name(title, item)
         temp_path = os.path.join(tmp_root, f"item_{item.get('id', 0)}.part")
         try:
@@ -483,30 +494,56 @@ class MediaFetcherService:
         for index, image in enumerate(images, start=1):
             if cancel_event is not None and cancel_event.is_set():
                 raise FetchError("canceled")
+            item_id = int(image.get("id", 0) or 0)
             ext = str(image.get("ext") or "jpg").lstrip(".") or "jpg"
             temp_path = os.path.join(tmp_root, f"image_{index:03d}.part")
-            await self._fetch_direct(
-                image,
-                temp_path,
-                referer=referer,
-                max_bytes=_IMAGE_MAX_BYTES,
-                progress=progress,
-                cancel_event=cancel_event,
+            outcome = FetchOutcome(
+                output_name="",
+                output_path="",
+                bytes_written=0,
+                item_id=item_id,
             )
-            meta = probe_image_file(temp_path)
-            if is_too_small(meta, OFFLINE_MIN_IMAGE_SIDE):
-                os.remove(temp_path)
-                continue
-            final_name = (
-                f"{index:03d}.{ext}" if subdir else f"{safe_title}_img_{index:03d}.{ext}"
-            )
-            outcome = self._finalize(final_dir, temp_path, final_name)
-            outcome.item_id = int(image.get("id", 0) or 0)
+            try:
+                await self._fetch_direct(
+                    image,
+                    temp_path,
+                    referer=referer,
+                    max_bytes=_IMAGE_MAX_BYTES,
+                    progress=progress,
+                    cancel_event=cancel_event,
+                )
+                meta = probe_image_file(temp_path)
+                if meta is None and ext.lower() in _PROBEABLE_IMAGE_EXTS:
+                    # 站点把图片加密后交给前端 JS 解密时，服务端拿到的是密文。
+                    # 直接落盘会产出打不开的“图片”，这里明确失败而不是静默保存。
+                    raise FetchError("content_invalid", "图片内容无法识别（可能经过站点加密）")
+                if is_too_small(meta, OFFLINE_MIN_IMAGE_SIDE):
+                    os.remove(temp_path)
+                    outcome.status = "skipped"
+                    outcomes.append(outcome)
+                    continue
+                final_name = (
+                    f"{index:03d}.{ext}" if subdir else f"{safe_title}_img_{index:03d}.{ext}"
+                )
+                outcome = self._finalize(final_dir, temp_path, final_name)
+                outcome.item_id = item_id
+            except FetchError as exc:
+                # 单张失败**不中断整批**：已成功的图片保留，失败项逐条落库，
+                # 由调用方决定任务终态（避免一张坏图导致其余图片全部丢失）。
+                try:
+                    if os.path.isfile(temp_path):
+                        os.remove(temp_path)
+                except OSError:
+                    pass
+                outcome.status = "failed"
+                outcome.error_code = exc.code
+                outcome.error_message = exc.detail
             outcomes.append(outcome)
-        if pack_zip and len(outcomes) > 1:
+        successful = [outcome for outcome in outcomes if outcome.status == "success"]
+        if pack_zip and len(successful) > 1:
             zip_path = os.path.join(tmp_root, f"{safe_title}.zip")
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
-                for outcome in outcomes:
+                for outcome in successful:
                     archive.write(
                         outcome.output_path,
                         arcname=os.path.basename(outcome.output_path),
@@ -528,21 +565,29 @@ class MediaFetcherService:
     ) -> str:
         """直链下载（Range 续传写 `.part`）。"""
         limit = max_bytes or self._max_file_bytes
-        try:
-            await self._outbound.stream_to_file(
-                str(item["source_url"]),
-                temp_path,
-                max_bytes=limit,
-                referer=referer,
-                resume=True,
-                progress=progress,
-                cancel_event=cancel_event,
-            )
-        except OutboundStatusError as exc:
-            raise FetchError(_status_code(exc.status_code), f"HTTP {exc.status_code}") from exc
-        except OutboundError as exc:
-            raise FetchError(_outbound_code(exc), exc.reason) from exc
-        return temp_path
+        last_error: FetchError | None = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                await self._outbound.stream_to_file(
+                    str(item["source_url"]),
+                    temp_path,
+                    max_bytes=limit,
+                    referer=referer,
+                    resume=True,
+                    progress=progress,
+                    cancel_event=cancel_event,
+                )
+                return temp_path
+            except OutboundStatusError as exc:
+                raise FetchError(_status_code(exc.status_code), f"HTTP {exc.status_code}") from exc
+            except OutboundError as exc:
+                error = FetchError(_outbound_code(exc), exc.reason)
+                last_error = error
+                if error.code not in _RETRY_CODES or attempt >= _MAX_ATTEMPTS:
+                    raise error from exc
+                await asyncio.sleep(_RETRY_BASE_DELAY * attempt)
+        assert last_error is not None
+        raise last_error
 
     async def _fetch_hls(
         self,
@@ -748,16 +793,25 @@ class MediaFetcherService:
     # ── 通用下载/落盘工具 ──────────────────────────────────────
 
     async def _get_bytes(self, url: str, referer: str, limit: int) -> bytes:
-        """下载小文件（播放列表 / key）。"""
-        try:
-            response = await self._outbound.get_bytes(
-                url, max_bytes=limit, referer=referer
-            )
-        except OutboundStatusError as exc:
-            raise FetchError(_status_code(exc.status_code), f"HTTP {exc.status_code}") from exc
-        except OutboundError as exc:
-            raise FetchError(_outbound_code(exc), exc.reason) from exc
-        return response.content
+        """下载小文件（播放列表 / key）；瞬态网络错误按次数重试。"""
+        last_error: FetchError | None = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                response = await self._outbound.get_bytes(
+                    url, max_bytes=limit, referer=referer
+                )
+                return response.content
+            except OutboundStatusError as exc:
+                # 4xx/5xx 是确定结果，重试无意义
+                raise FetchError(_status_code(exc.status_code), f"HTTP {exc.status_code}") from exc
+            except OutboundError as exc:
+                error = FetchError(_outbound_code(exc), exc.reason)
+                last_error = error
+                if error.code not in _RETRY_CODES or attempt >= _MAX_ATTEMPTS:
+                    raise error from exc
+                await asyncio.sleep(_RETRY_BASE_DELAY * attempt)
+        assert last_error is not None
+        raise last_error
 
     async def _get_text(self, url: str, referer: str) -> str:
         """下载播放列表文本。"""
@@ -772,20 +826,33 @@ class MediaFetcherService:
         *,
         cancel_event=None,
     ) -> None:
-        """流式下载到指定路径（已存在同尺寸则跳过）。"""
-        try:
-            await self._outbound.stream_to_file(
-                url,
-                path,
-                max_bytes=self._max_file_bytes,
-                referer=referer,
-                resume=True,
-                cancel_event=cancel_event,
-            )
-        except OutboundStatusError as exc:
-            raise FetchError(_status_code(exc.status_code), f"HTTP {exc.status_code}") from exc
-        except OutboundError as exc:
-            raise FetchError(_outbound_code(exc), exc.reason) from exc
+        """流式下载到指定路径（已存在同尺寸则跳过；瞬态网络错误重试）。
+
+        CDN 分片节点偶发连接重置很常见；HLS 一个分片失败会导致整个任务失败，
+        因此这里对 `net_timeout` / `network_error` 做有限次退避重试。
+        """
+        last_error: FetchError | None = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                await self._outbound.stream_to_file(
+                    url,
+                    path,
+                    max_bytes=self._max_file_bytes,
+                    referer=referer,
+                    resume=True,
+                    cancel_event=cancel_event,
+                )
+                return
+            except OutboundStatusError as exc:
+                raise FetchError(_status_code(exc.status_code), f"HTTP {exc.status_code}") from exc
+            except OutboundError as exc:
+                error = FetchError(_outbound_code(exc), exc.reason)
+                last_error = error
+                if error.code not in _RETRY_CODES or attempt >= _MAX_ATTEMPTS:
+                    raise error from exc
+                await asyncio.sleep(_RETRY_BASE_DELAY * attempt)
+        assert last_error is not None
+        raise last_error
 
     def _final_name(self, title: str, item: dict) -> str:
         """视频/音频产物的最终文件名：`{标题}_{清晰度或音频}.{ext}`。"""

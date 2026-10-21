@@ -27,6 +27,7 @@ from src.utils.outbound_http import (
     OutboundClient,
     OutboundError,
     OutboundStatusError,
+    OutboundStream,
     safe_url_label,
 )
 
@@ -252,6 +253,33 @@ def test_invalid_scheme_is_rejected() -> None:
         asyncio.run(run())
     assert excinfo.value.reason == "ssrf_blocked"
     assert excinfo.value.detail == "scheme_not_allowed"
+
+
+def test_stream_body_read_error_is_mapped_to_network_error() -> None:
+    """读 body 时连接被重置 ⇒ 稳定 network_error（不是裸 httpx.ReadError）。"""
+
+    class ResetResponse:
+        async def aiter_bytes(self):
+            yield b"abc"
+            raise httpx.ReadError("模拟连接重置")
+
+        async def aclose(self) -> None:
+            pass
+
+    stream = OutboundStream(
+        url="https://cdn.example.com/a.ts",
+        status_code=200,
+        headers={},
+        response=ResetResponse(),  # type: ignore[arg-type]
+        max_bytes=1024,
+    )
+
+    async def consume():
+        return [chunk async for chunk in stream.iter_bytes()]
+
+    with pytest.raises(OutboundError) as excinfo:
+        asyncio.run(consume())
+    assert excinfo.value.reason == "network_error"
 
 
 def test_stream_to_file_writes_and_reports_progress(tmp_path: Path) -> None:

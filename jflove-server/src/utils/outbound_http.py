@@ -142,13 +142,20 @@ class OutboundStream:
         :raises OutboundError: 超过 `max_bytes`（`too_large`）
         """
         total = 0
-        async for chunk in self.response.aiter_bytes():
-            if not chunk:
-                continue
-            total += len(chunk)
-            if total > self.max_bytes:
-                raise OutboundError("too_large", f"响应体超过上限 {self.max_bytes} 字节")
-            yield chunk
+        try:
+            async for chunk in self.response.aiter_bytes():
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > self.max_bytes:
+                    raise OutboundError("too_large", f"响应体超过上限 {self.max_bytes} 字节")
+                yield chunk
+        except httpx.TimeoutException as exc:
+            # 读响应体阶段的超时/连接重置必须变成稳定错误码；
+            # 否则原始 httpx 异常会穿透到 worker，任务既不能重试也不会落终态。
+            raise OutboundError("net_timeout", type(exc).__name__) from exc
+        except httpx.HTTPError as exc:
+            raise OutboundError("network_error", type(exc).__name__) from exc
 
     async def read_error_body(self, limit: int = ERROR_BODY_LIMIT) -> bytes:
         """

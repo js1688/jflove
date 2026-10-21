@@ -103,6 +103,7 @@ _ERROR_MESSAGES = {
     "config_invalid": "离线下载目录已失效，请重新配置",
     "no_writable_disk": "你没有可写入的磁盘，无法使用离线下载",
     "parser_outdated": "解析组件可能已过时，等待服务端升级",
+    "content_invalid": "图片内容无法识别（可能经过站点加密）",
     "restart_interrupted": "服务重启导致任务中断",
     "canceled": "已取消",
     "merge_failed": "合并产物失败",
@@ -673,6 +674,22 @@ async def start_workers(db_factory) -> None:
             logger.info("服务重启：%s 个离线下载任务已标记失败", interrupted)
         await _cleanup_orphan_temps(db)
 
+    async def _mark_crashed(task_id: int, code: str) -> None:
+        """worker 未捕获异常兜底：把非终态任务落为 failed，避免永久卡在「进行中」。"""
+        try:
+            async with db_factory() as db:
+                row = await repo.find_task_any(db, task_id)
+                if row is not None and row["status"] not in repo.TERMINAL_STATUSES:
+                    await repo.set_status(
+                        db,
+                        task_id,
+                        "failed",
+                        error_code=code,
+                        error_message=_ERROR_MESSAGES.get(code, "下载失败"),
+                    )
+        except Exception:  # noqa: BLE001 - 兜底里再失败只能记日志
+            logger.error("worker 兜底落库失败: task_id=%s", task_id)
+
     async def analysis_worker() -> None:
         while not _worker_stop:
             task_id = await _analysis_queue.get()
@@ -681,6 +698,7 @@ async def start_workers(db_factory) -> None:
                     await _run_analysis(db, task_id)
             except Exception as exc:  # noqa: BLE001 - worker 兜底
                 logger.error("分析 worker 异常: task_id=%s %s", task_id, type(exc).__name__)
+                await _mark_crashed(task_id, "parser_outdated")
             finally:
                 _analysis_queue.task_done()
 
@@ -692,6 +710,7 @@ async def start_workers(db_factory) -> None:
                     await _run_download(db, task_id)
             except Exception as exc:  # noqa: BLE001
                 logger.error("下载 worker 异常: task_id=%s %s", task_id, type(exc).__name__)
+                await _mark_crashed(task_id, "network_error")
             finally:
                 _download_queue.task_done()
 
@@ -966,7 +985,19 @@ async def _fetch_selected_items(
             cancel_event=event,
         )
         image_bytes = 0
+        failures = []
         for outcome in outcomes:
+            if outcome.status == "failed":
+                # 单张失败也要落库（error_message 用中文），其余图片继续保留
+                await repo.update_item(
+                    db,
+                    outcome.item_id,
+                    status="failed",
+                    error_code=outcome.error_code,
+                    error_message=_ERROR_MESSAGES.get(outcome.error_code, "下载失败"),
+                )
+                failures.append(outcome)
+                continue
             if outcome.output_name.endswith(".zip") or outcome.item_id <= 0:
                 continue
             await repo.update_item(
@@ -976,9 +1007,15 @@ async def _fetch_selected_items(
                 output_name=outcome.output_name,
                 bytes_done=outcome.bytes_written,
             )
-            state["item_done"] += 1
-            image_bytes += outcome.bytes_written
+            if outcome.status == "success":
+                state["item_done"] += 1
+                image_bytes += outcome.bytes_written
         state["done"] = image_base + image_bytes
+        if failures:
+            # 已成功的图片已落盘并回填；任务整体按第一个失败原因置 failed，
+            # 用户重试时只重下失败项（已成功项跳过）。
+            first = failures[0]
+            raise FetchError(first.error_code or "network_error", first.error_message)
 
 
 async def _run_download(db: aiosqlite.Connection, task_id: int) -> None:

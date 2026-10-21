@@ -94,6 +94,12 @@ _TRACKING_IMAGE_RE = re.compile(
     r"(?:^|[/_.-])(1x1|pixel|spacer|transparent|beacon|tracking|analytics)(?:[/_.-]|$)",
     re.IGNORECASE,
 )
+#: 站点外壳图片（logo / 横幅 / 图标 / 占位图 / 主题与插件静态资源）。
+#: 这些通常不是正文图片；只有显式声明了 >=200px 尺寸时才保留。
+_CHROME_IMAGE_RE = re.compile(
+    r"(?:^|[/_.-])(logo|banner|icon|favicon|avatar|sprite|placeholder|zw)(?:[/_.-]|$)",
+    re.IGNORECASE,
+)
 #: HTML/内嵌 JSON 中直接出现的媒体地址（含转义 `\/`）
 _EMBEDDED_MEDIA_RE = re.compile(
     r"https?:\\?/\\?/[^\s\"'<>\\]+?\.(?:m3u8|mpd|mp4|m4v|webm|mkv|m4a|mp3|aac|flac|wav"
@@ -748,6 +754,24 @@ def _image_is_tracking(url: str, attrs: dict) -> bool:
     return bool(_TRACKING_IMAGE_RE.search(url))
 
 
+def _image_is_chrome(url: str, attrs: dict) -> bool:
+    """
+    过滤站点外壳图片（logo / 横幅 / 主题与插件静态资源）。
+
+    正文图片常常没有宽高属性；这里只在 URL 命中外壳词元或位于 `/themes/`、
+    `/plugins/` 下时才判定，且**显式声明 >=200px** 的图片一律保留，
+    避免误杀正文里的大图。
+    """
+    width = _int_value(attrs.get("width"))
+    height = _int_value(attrs.get("height"))
+    if (width and width >= 200) or (height and height >= 200):
+        return False
+    path = urlsplit(url).path.lower()
+    if "/themes/" in path or "/plugins/" in path:
+        return True
+    return bool(_CHROME_IMAGE_RE.search(url))
+
+
 @dataclass
 class _HtmlExtract:
     title: str
@@ -776,7 +800,7 @@ def extract_from_html(text: str, page_url: str) -> _HtmlExtract:
         if kind in ("video", "audio", "playlist"):
             media.append((url, kind))
 
-    def add_image(value: str, attrs: dict | None = None) -> None:
+    def add_image(value: str, attrs: dict | None = None, *, allow_no_ext: bool = False) -> None:
         url = absolute_url(page_url, value)
         if not url:
             return
@@ -786,9 +810,16 @@ def extract_from_html(text: str, page_url: str) -> _HtmlExtract:
             if kind in ("video", "audio", "playlist"):
                 media.append((url, kind))
             return
-        if not kind and url_ext(url):
+        if not kind:
+            # 无扩展名（`/watch/123`、`/archives/84938/`、统计脚本等）不做图片猜测：
+            # 之前会把 HTML 页面当图片下载，既超时又污染清单。只有显式可信来源
+            # （如 og:image）才允许无扩展名。
+            if not allow_no_ext:
+                return
+        if _image_is_tracking(url, attrs or {}):
             return
-        if attrs and _image_is_tracking(url, attrs):
+        # og:image 也要过外壳过滤（实测站点把主题默认图写在 og:image 里）
+        if _image_is_chrome(url, attrs or {}):
             return
         if "svg" in url.lower().split("?")[0]:
             return
@@ -811,10 +842,21 @@ def extract_from_html(text: str, page_url: str) -> _HtmlExtract:
         elif key in ("og:video", "og:video:url", "og:video:secure_url", "og:audio"):
             add_media(content, "")
         elif key in ("og:image", "og:image:url", "og:image:secure_url"):
-            add_image(content)
+            # og:image 是页面显式声明的主图，允许无扩展名的动态图床地址
+            add_image(content, allow_no_ext=True)
 
     for tag in parser.images:
-        for attr in ("src", "data-src", "data-original", "data-lazy-src", "data-url"):
+        # 懒加载站点普遍把占位图放在 `src`、真实地址放在 `data-*`：
+        # 必须先取 data-*，否则会把占位图当正文图片（实测 `zw.png` 恒中招）。
+        for attr in (
+            "data-src",
+            "data-original",
+            "data-lazy-src",
+            "data-xkrkllgl",
+            "data-echo",
+            "data-url",
+            "src",
+        ):
             value = tag.get(attr, "")
             if value:
                 add_image(value, tag)
