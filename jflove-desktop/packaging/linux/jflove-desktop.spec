@@ -31,7 +31,7 @@
 Name:           jflove-desktop
 Version:        %{jflove_version}
 Release:        1%{?dist}
-Summary:        JFLove 跨平台文件同步与笔记客户端
+Summary:        JFLove 个人数字工作台桌面端（文件 / 笔记 / 媒体）
 License:        MIT
 URL:            https://github.com/js1688/jflove
 BuildArch:      x86_64
@@ -54,7 +54,7 @@ Requires:       libXcursor
 Requires:       mesa-libEGL
 
 %description
-JFLove 桌面客户端（端到端加密的文件同步与笔记应用）。
+JFLove 桌面客户端（端到端加密的个人数字工作台：文件 / 笔记 / 媒体 / 云盘挂载）。
 
 本包为 Fedora / RHEL 系 RPM：载荷是 PyInstaller 的 onedir 产物，安装在
 /usr/lib/jflove/，通过 /usr/bin/jflove 启动，并注册应用菜单项与图标。

@@ -1,6 +1,6 @@
 # jflove-app
 
-JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的私有文档与笔记协同管理应用。
+JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的个人数字工作台移动端：文件浏览与传输、笔记、媒体播放、相册自动备份。
 
 > **当前版本：v1.7.0（`pubspec.yaml` 中 `version: 1.7.0+1007000`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
 

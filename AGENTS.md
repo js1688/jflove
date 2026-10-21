@@ -222,7 +222,7 @@
 | code-review | `.agents/skills/code-review/SKILL.md` | 跨模块审查 | `文档记录/代码审查报告/` |
 | testing | `.agents/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
 | pmo | `.agents/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
-| devops | `.agents/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/`（根 `README.md` 只维护「功能特性」，**不再维护版本历史**，见 §8） |
+| devops | `.agents/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/`（根 `README.md` 只维护「功能特性」= 速览表 + 小节，**不再维护版本历史**，见 §8） |
 
 **调度原则**：
 
@@ -496,7 +496,8 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
    - 产物：服务端/Web 端 Docker 镜像、桌面端 **onedir 目录 + 安装包**（Windows `*-setup.exe` + 便携 `*-portable.zip`、Linux/Fedora `*.rpm`）、移动端 debug+release 两个 APK
 5. 执行冒烟测试（`scripts/verify/run_all.sh --ends all`；发布记录引用 `/tmp/jf-verify-summary.md` 的关键行）
 6. 输出 `文档记录/版本发布记录/<版本号>.md`（**它是版本历史的唯一去处** —— 根 `README.md` 已移除「版本变化」章节，
-   只有「功能特性」需要按新增/去除/调整同步维护，且**不写具体版本号字面量**，避免每版改 README）
+   只有「功能特性」（**开头的领域速览表 + 下方小节，两者同一次改**，口径见 §8.3）需要按新增/去除/调整同步维护，
+   且**不写具体版本号字面量**，避免每版改 README）
 
 ### 7.4 全局规则
 
@@ -649,7 +650,7 @@ Step 5：发布（devops）
 | 内容 | 唯一去处 | 谁维护 |
 | --- | --- | --- |
 | 版本历史（每版改了什么、产物与校验值） | `文档记录/版本发布记录/<版本号>.md` | devops |
-| 当前能力清单（不带版本号） | 根 `README.md`「功能特性」 | devops（发布时按需增删） |
+| 当前能力清单（不带版本号） | 根 `README.md`「功能特性」（速览表 + 小节） | devops（发布时按需增删，**两处同一次改**） |
 | 各模块技术文档（架构 / 启动 / 路由表 / 已知限制） | 各模块 `README.md` | 对应开发角色 |
 | 跨版本技术债 / 下个版本候选台账 | `文档记录/项目管理记录/<最新版本>.md` 的「下个版本候选台账」小节 | pmo |
 | 人工体验（UAT）问题闭环与用户签署 | `文档记录/人工体验记录/<版本号>.md` | testing 记录 / 用户裁决 / devops 提供构建物 |

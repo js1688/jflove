@@ -1,8 +1,34 @@
-# JFLove — 私有文档与笔记协同管理系统
+# JFLove — 端到端加密的个人数字工作台
 
-![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.11.0-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.44%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.12%2B-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Vite](https://img.shields.io/badge/Vite-6-purple) ![License](https://img.shields.io/badge/License-Proprietary-red)
+> 文件 · 笔记 · 媒体 · 多端同步 —— 一个自托管的私有空间。
 
-JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统，提供服务端 + 桌面客户端 + 移动端 + Web 端四端架构。所有通信经过端到端加密（X25519 ECDH + ChaCha20-Poly1305），保障用户数据隐私。
+![Python](https://img.shields.io/badge/Python-3.14%2B-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green) ![PySide6](https://img.shields.io/badge/PySide6-6.11.0-orange) ![Flutter](https://img.shields.io/badge/Flutter-3.44%2B-blue) ![Dart](https://img.shields.io/badge/Dart-3.12%2B-blue) ![React](https://img.shields.io/badge/React-18-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue) ![Vite](https://img.shields.io/badge/Vite-6-purple) ![License](https://img.shields.io/badge/License-MIT-green)
+
+JFLove 是一套**自托管**的个人数字工作台：把平时散落在各个网盘、笔记软件和手机相册里的东西，收拢到**你自己的那台机器**上——服务端一条 Docker 命令跑起来，桌面端、手机、浏览器三处随时读写，数据不经过任何第三方云。
+
+它**不是"又一个网盘"或"又一个笔记应用"**：文件、笔记、媒体播放、本地文本编辑器、云盘挂载、相册备份共用同一套账号、同一套磁盘级读写权限、同一条端到端加密通道——一个账号决定谁能看哪个目录，各端看到的是同一份数据，通信全程 X25519 ECDH + ChaCha20-Poly1305 加密。
+
+**适合谁**：有一台常开的机器（NAS / 小主机 / 云服务器），想自己掌握文件、笔记和影视资料；工作时拿它管代码之外的文档与素材，生活里拿它存照片、看片。
+
+## 快速开始
+
+```bash
+# 1) 服务端：8989 端口；/data 存数据库，/storage 映射你的大容量磁盘
+docker run -d --name jflove-server -p 8989:8989 --restart=always \
+  -v /opt/jflove/data:/data \
+  -v /mnt/big-disk:/storage \
+  ghcr.io/js1688/jflove-server:<版本号>
+
+# 2) Web 端：8080 端口，浏览器直接打开
+docker run -d --name jflove-web -p 8080:80 --restart=always \
+  ghcr.io/js1688/jflove-web:<版本号>
+```
+
+1. 打开 `http://<服务器地址>:8080`，填入服务端地址（如 `http://192.168.1.10:8989`）；系统尚无管理员时会引导**创建管理员账号**
+2. 登录后在「磁盘管理」把 `/storage` 下的某个目录登记为**虚拟磁盘**，再给账号配好读 / 写 / 删权限
+3. 桌面端 / 移动端从 [GitHub Releases](https://github.com/js1688/jflove/releases) 下载安装包（Windows `*-setup.exe`、Linux/Fedora `*.rpm`）与 Android APK，首次启动填同一个服务端地址即可登录
+
+> 部署细节（多盘挂载、SELinux / Podman、环境变量）见 [`jflove-server/README.md`](jflove-server/README.md#docker-部署)。
 
 ---
 
@@ -57,6 +83,19 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 ---
 
 ## 功能特性
+
+> **速览在前、细节在后**：一行对应下方一个小节（行序 = 小节序）。新增能力时两处**同一次**改完——表加一行、下方加一节；某端不支持就写 `—`，不要留空。
+
+| 领域 | 能做什么 | 桌面 | 移动 | Web |
+|------|---------|:----:|:----:|:---:|
+| 📁 文档管理 | 虚拟磁盘映射真实目录、树形浏览、大文件分片上传 + 断点续传、并发传输、重命名 / 移动 / 删除；图片 / 视频 / 音频 / 文本 / Markdown 多格式预览与流式播放 | ✅ | ✅ | ✅ |
+| 📝 笔记本管理 | Markdown 编辑 + 实时预览、代码高亮、Mermaid、搜索 / 标签 / 收藏、按人隔离的存放目录 | ✅ | ✅ | ✅ |
+| ✏️ 文本编辑器（桌面端） | 纯本地多标签编辑器、12 项工具箱、29 项快捷键、跨标签查找替换 | ✅ | — | — |
+| 👤 用户与权限管理（管理员功能） | 多账号、虚拟磁盘管理、磁盘级读 / 写 / 删权限 | ✅ | ✅ | ✅ |
+| ☁️ 云盘挂载（桌面端） | 目录级挂载、按需缓存、增量同步（永不自动删远端） | ✅ | — | — |
+| 📷 相册自动备份（移动端） | 仅 Wi-Fi / 仅充电、按年月分层、已备份去重 | — | ✅ | — |
+| 🛠 媒体修复中心 | 损坏媒体离线无损重封装、任务列表三端共享 | ✅ | ✅ | ✅ |
+| 🔐 安全通信 | 端到端信封加密、前向保密、JWT(ES256)、错误响应同样加密、URL 不带明文参数 | ✅ | ✅ | ✅ |
 
 ### 📁 文档管理
 
@@ -122,6 +161,14 @@ JFLove 是一款面向个人用户的私有化文档与笔记协同管理系统�
 - 图片 / 视频可选，按 `年/月` 分层存放；已备份不重复上传
 - 传输进度在「传输任务」页可见；关闭开关立即停止新上传
 - **永不删除远端文件**（手机删照片不影响已备份内容）
+
+### 🛠 媒体修复中心
+
+- 损坏 / 不完整的媒体在播放时被拒绝（415），此时可**手动发起离线修复**（播放路径不跑 ffmpeg）
+- 修复 = ffmpeg **无损重封装**（不重新编码），任务状态 `pending → running → verifying → success`
+- 产物先落在原文件同目录的隐藏目录 `.jflove-repair/`，**验证能播后二次确认**才原子覆盖原文件（不留备份）
+- 发起 / 覆盖要求磁盘**写 + 删**权限；任务列表三端共享，只读账号可看不可操作
+- 并发上限由管理员配置（`media_repair_max_concurrent`，默认按 CPU 核数推导，硬上限 8）
 
 ### 🔐 安全通信
 

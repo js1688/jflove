@@ -1,5 +1,5 @@
 name: jflove_app
-description: "JFLove 移动端 App - 私有文档与笔记协同管理"
+description: "JFLove 移动端 App - 端到端加密的个人数字工作台（文件 / 笔记 / 媒体 / 相册备份）"
 publish_to: 'none'
 version: 1.8.0+1008000
 

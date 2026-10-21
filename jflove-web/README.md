@@ -1,6 +1,6 @@
 # jflove-web
 
-JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS 构建的私有文档与笔记协同管理 Web 客户端。
+JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS 构建的个人数字工作台 Web 客户端：文件管理、笔记、媒体预览、传输任务与媒体修复。
 
 支持 PC 端（侧边栏导航）和移动端（底部 TabBar 导航）双布局自适应。
 
