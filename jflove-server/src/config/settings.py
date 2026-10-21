@@ -97,7 +97,7 @@ OFFLINE_DISK_SAFETY_FACTOR = 1.2
 OFFLINE_USER_AGENT = "JFLove-OfflineDownload/1.8 (+self-hosted)"
 
 # config 表配置键（服务端全局策略，仅管理员可改；**不含账号级目录**）
-OFFLINE_ENABLED_KEY = "offline_download_enabled"             # 总开关："0" 关（默认）/ "1" 开
+OFFLINE_ENABLED_KEY = "offline_download_enabled"             # 总开关："1" 开（默认）/ "0" 关（管理员应急熔断）
 OFFLINE_DEEP_ANALYZE_KEY = "offline_download_deep_analyze"   # 深度分析（无头浏览器）开关
 OFFLINE_MAX_CONCURRENT_KEY = "offline_download_max_concurrent"    # 下载并发（1~4）
 OFFLINE_MAX_FILE_SIZE_KEY = "offline_download_max_file_size_mb"   # 单文件体积上限（MB）

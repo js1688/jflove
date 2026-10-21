@@ -15,6 +15,17 @@ export const MEDIA_REPAIR_KEYS = {
   maxConcurrent: 'media_repair_max_concurrent',
 } as const;
 
+/** 离线下载全局策略配置键（与后端 settings.py 的 OFFLINE_*_KEY 保持一致）
+ * 默认值由后端 `OFFLINE_CONFIG_DEFAULTS` 补齐；总开关默认开（v1.8.0 UAT 裁决） */
+export const OFFLINE_DOWNLOAD_KEYS = {
+  enabled: 'offline_download_enabled',
+  deepAnalyze: 'offline_download_deep_analyze',
+  maxConcurrent: 'offline_download_max_concurrent',
+  maxFileSize: 'offline_download_max_file_size_mb',
+  maxItems: 'offline_download_max_items',
+  maxImages: 'offline_download_max_images',
+} as const;
+
 export const configService = {
   /** 获取服务端全部配置（key-value 映射，管理员） */
   async getConfig(): Promise<ServerConfig> {

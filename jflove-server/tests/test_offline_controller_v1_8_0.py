@@ -336,6 +336,23 @@ def test_admin_config_validation_and_defaults(offline_api, client) -> None:
     assert asyncio.run(policy())["max_concurrent"] == 3
 
 
+def test_admin_config_get_default_enabled(offline_api, client) -> None:
+    """全新部署（未写键）⇒ GET /config 返回总开关默认 "1"（AC-247）。"""
+    async def reset():
+        async with _db() as db:
+            await db.execute(
+                "DELETE FROM config WHERE key = ?", ("offline_download_enabled",)
+            )
+            await db.commit()
+        config_service.invalidate_cache()
+
+    asyncio.run(reset())
+    resp = encrypted_get(client, offline_api["admin"], "/api/v1/config")
+    assert resp.status_code == 200
+    config = decrypt_response(offline_api["admin"], resp)["config"]
+    assert config["offline_download_enabled"] == "1"
+
+
 def test_response_headers_do_not_leak_filename(offline_api, client) -> None:
     """响应头不出现文件名 / 路径（§9.4）。"""
     resp = encrypted_get(client, offline_api["alice"], "/api/v1/offline/tasks")

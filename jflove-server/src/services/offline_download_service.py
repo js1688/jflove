@@ -142,7 +142,7 @@ class _TaskError(Exception):
 
 
 async def get_policy(db: aiosqlite.Connection) -> dict:
-    """读取全局策略（管理员可配，默认关；非法值回落默认并夹到硬边界）。"""
+    """读取全局策略（管理员可配，默认开；非法值回落默认并夹到硬边界）。"""
 
     async def _int(key: str, default: int, low: int, high: int) -> int:
         raw = await config_service.get(db, key, str(default))
@@ -152,7 +152,7 @@ async def get_policy(db: aiosqlite.Connection) -> dict:
             value = default
         return max(low, min(high, value))
 
-    enabled = (await config_service.get(db, OFFLINE_ENABLED_KEY, "0")) == "1"
+    enabled = (await config_service.get(db, OFFLINE_ENABLED_KEY, "1")) == "1"
     deep = (await config_service.get(db, OFFLINE_DEEP_ANALYZE_KEY, "1")) == "1"
     return {
         "enabled": enabled,
@@ -1302,7 +1302,7 @@ ERROR_MESSAGES = _ERROR_MESSAGES
 
 #: 全局策略默认值（GET /config 未落库时展示默认，管理员改后立即生效）
 OFFLINE_CONFIG_DEFAULTS = {
-    OFFLINE_ENABLED_KEY: "0",
+    OFFLINE_ENABLED_KEY: "1",
     OFFLINE_DEEP_ANALYZE_KEY: "1",
     OFFLINE_MAX_CONCURRENT_KEY: str(OFFLINE_DEFAULT_MAX_CONCURRENT),
     OFFLINE_MAX_FILE_SIZE_KEY: str(OFFLINE_DEFAULT_MAX_FILE_SIZE_MB),

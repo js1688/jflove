@@ -138,6 +138,23 @@ def test_get_policy_defaults_and_clamps(env) -> None:
     assert policy["max_images"] == 200
 
 
+def test_get_policy_default_enabled(env) -> None:
+    """未落库（全新部署）⇒ 总开关默认开启（AC-247，2026-10-21 UAT 裁决）。"""
+    config_service.invalidate_cache()
+
+    async def run():
+        async with _db() as db:
+            # 模拟全新部署：删掉显式配置行，只剩代码默认值
+            await db.execute(
+                "DELETE FROM config WHERE key = ?", ("offline_download_enabled",)
+            )
+            await db.commit()
+            return await service.get_policy(db)
+
+    policy = asyncio.run(run())
+    assert policy["enabled"] is True
+
+
 def test_meta_reports_no_writable_disk(env, no_perm_session) -> None:
     """没有可写磁盘 ⇒ can_use=false + no_writable_disk（AC-214）。"""
     config_service.invalidate_cache()
