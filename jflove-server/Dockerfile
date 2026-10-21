@@ -5,7 +5,7 @@
 FROM python:3.14-slim
 
 LABEL maintainer="jflove devops"
-LABEL version="1.7.0"
+LABEL version="1.8.0"
 LABEL description="JFLove 后端服务（FastAPI + SQLite + 端到端加密）"
 
 WORKDIR /app
@@ -26,6 +26,35 @@ COPY requirements.txt /app/requirements.txt
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} --upgrade pip && \
     pip install --no-cache-dir -i ${PIP_INDEX_URL} -r /app/requirements.txt
+
+# v1.8.0：离线下载的站点解析组件必须随镜像版本固定（I-6：禁止运行时在线自更新）
+RUN python -c "import yt_dlp, httpx; print('yt-dlp', yt_dlp.version.__version__, 'httpx', httpx.__version__)"
+
+# v1.8.0：深度分析（L3）的 Chromium 运行时。
+#   WITH_BROWSER=1（默认）安装 Chromium 并做启动校验；
+#   WITH_BROWSER=0 明确降级并**响亮报警**（AC-239：缺失不得静默）。
+ARG WITH_BROWSER=1
+# 可选：Chromium 下载慢时可切镜像源（如 https://npmmirror.com/mirrors/playwright）
+ARG PLAYWRIGHT_DOWNLOAD_HOST=""
+RUN if [ "${WITH_BROWSER}" = "1" ]; then \
+        if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST}" ]; then \
+            export PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST}"; \
+        fi; \
+        python -m playwright install --with-deps chromium; \
+    else \
+        echo '[WARN] WITH_BROWSER=0：镜像未安装 Chromium，深度分析不可用（/offline/meta 会返回 deep_analyze_available=false）'; \
+    fi
+
+# v1.8.0：构建期验证深度分析组件真的能启动（不能只“装上了”）。
+RUN if [ "${WITH_BROWSER}" = "1" ]; then \
+        python -c "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, args=['--no-sandbox']); b.close(); p.stop(); print('chromium ok')" \
+        || (echo '[FATAL] Chromium 启动校验失败，深度分析不可用' && exit 1); \
+    else \
+        echo '[WARN] 已跳过 Chromium 启动校验（WITH_BROWSER=0）'; \
+    fi
+
+# v1.8.0：ffprobe / ffmpeg 只允许处理本地文件（设计 §1.4），构建期确认二进制存在
+RUN ffprobe -version >/dev/null 2>&1 || (echo '[FATAL] 系统 ffprobe 不可用' && exit 1)
 
 # v1.4.1：imageio-ffmpeg 二进制做可执行兜底（无系统 ffmpeg 的开发机仍可用；
 # 主路径已在 media_probe.get_ffmpeg_exe 优先用系统 ffmpeg）。失败不阻断构建。

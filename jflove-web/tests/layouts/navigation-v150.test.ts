@@ -22,22 +22,22 @@ function read(relative: string): string {
   return readFileSync(resolve(SRC, relative), 'utf8');
 }
 
-describe('Web 移动布局导航 6 → 4（v1.7.0 移除同步；AC-18 / AC-20）', () => {
+describe('Web 移动布局导航（v1.7.0 移除同步 → 4 项；v1.8.0 补入离线下载 → 5 项；AC-18 / AC-20 / AC-200）', () => {
   const mobileLayout = read('layouts/MobileLayout.tsx');
 
-  it('底部导航恰好 4 项，顺序为 文件/笔记/传输/设置', () => {
+  it('底部导航恰好 5 项，顺序为 文件/笔记/传输/离线/设置', () => {
     const block = mobileLayout.split('const TABS: TabEntry[] = [')[1].split('];')[0];
     const labels = [...block.matchAll(/label: '([^']+)'/g)].map((m) => m[1]);
-    expect(labels).toEqual(['文件', '笔记', '传输', '设置']);
+    expect(labels).toEqual(['文件', '笔记', '传输', '离线', '设置']);
     expect(labels).not.toContain('修复');
     // v1.7.0：浏览器端不提供同步能力，不得再出现「同步」tab
     expect(labels).not.toContain('同步');
   });
 
-  it('导航项路由与移动端 App 的信息架构一致', () => {
+  it('导航项路由与移动端 App 的信息架构一致（含 v1.8.0 的 /offline）', () => {
     const block = mobileLayout.split('const TABS: TabEntry[] = [')[1].split('];')[0];
     const paths = [...block.matchAll(/path: '([^']+)'/g)].map((m) => m[1]);
-    expect(paths).toEqual(['/files', '/notes', '/transfer', '/settings']);
+    expect(paths).toEqual(['/files', '/notes', '/transfer', '/offline', '/settings']);
     expect(paths).not.toContain('/sync');
   });
 
@@ -97,6 +97,53 @@ describe('Web 路由与修复中心可达性（AC-18）', () => {
     expect(tabsPage).toContain("import { RepairCenterContent } from './RepairCenterPage'");
     expect(repairPage).toContain('export function RepairCenterContent()');
     expect(repairPage).toContain('export function RepairTasksView(');
+  });
+});
+
+describe('离线下载入口与路由（v1.8.0 / F30 / AC-200 / AC-232）', () => {
+  const routes = read('config/routes.tsx');
+  const desktopLayout = read('layouts/DesktopLayout.tsx');
+  const mobileLayout = read('layouts/MobileLayout.tsx');
+  const page = read('pages/OfflineDownloadPage.tsx');
+  const service = read('services/offline-download-service.ts');
+
+  it('/offline 路由指向 OfflineDownloadPage', () => {
+    expect(routes).toContain("import { OfflineDownloadPage } from '../pages/OfflineDownloadPage'");
+    expect(routes).toContain("{ path: 'offline', element: <OfflineDownloadPage /> }");
+  });
+
+  it('PC 侧栏有「离线下载」入口', () => {
+    expect(desktopLayout).toContain("{ path: '/offline', label: '离线下载', icon: 'download' }");
+  });
+
+  it('移动浏览器底部菜单有「离线」入口', () => {
+    expect(mobileLayout).toContain("{ path: '/offline', label: '离线', icon: 'download' }");
+  });
+
+  it('页面不直接发请求，全部经 service → http-client 加密信封', () => {
+    expect(page).toContain(
+      "import { offlineDownloadService } from '../services/offline-download-service'",
+    );
+    expect(page).not.toContain('fetch(');
+    expect(page).not.toContain('localStorage.setItem');
+    expect(page).not.toContain('sessionStorage');
+    expect(service).toContain("from '../utils/http-client'");
+    expect(service).not.toContain('fetch(');
+    // 10 个接口全部在 /api/v1/offline 前缀下，且无路径参数
+    const paths = [...service.matchAll(/'\/api\/v1\/offline\/[a-z-]+'/g)].map((m) => m[0]);
+    expect(new Set(paths).size).toBe(10);
+    for (const path of paths) {
+      expect(path).toMatch(/^'\/api\/v1\/offline\/[a-z-]+'$/);
+    }
+  });
+
+  it('轮询遵守可见性守卫并在卸载时清理定时器（AC-232）', () => {
+    expect(page).toContain("document.visibilityState !== 'visible'");
+    expect(page).toContain("document.addEventListener('visibilitychange'");
+    expect(page).toContain("document.removeEventListener('visibilitychange'");
+    expect(page).toContain('clearInterval');
+    // 间隔来自 /offline/meta 的 poll_interval_ms（默认 2500）
+    expect(page).toContain('resolvePollInterval(meta?.poll_interval_ms)');
   });
 });
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../config/design_tokens.dart';
+import '../../config/routes.dart';
 import '../../models/virtual_disk.dart';
 import '../../providers/file_provider.dart';
 import '../../widgets/app_card.dart';
@@ -23,7 +24,17 @@ class FileListPage extends ConsumerWidget {
     final t = context.tokens;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('文件管理')),
+      appBar: AppBar(
+        title: const Text('文件管理'),
+        actions: [
+          // v1.8.0：离线下载中心入口（只读页，需求 F30）
+          IconButton(
+            icon: const Icon(Icons.cloud_download_outlined),
+            tooltip: '离线下载中心',
+            onPressed: () => context.push(AppRoutes.offlineDownload),
+          ),
+        ],
+      ),
       body: diskListAsync.when(
         data: (disks) {
           if (disks.isEmpty) {

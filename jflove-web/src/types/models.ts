@@ -124,6 +124,155 @@ export interface ServerConfig {
   config: Record<string, string>;
 }
 
+// ── 离线下载（v1.8.0，接口前缀 /api/v1/offline，全部加密信封、无路径参数）──
+
+/**
+ * 任务状态（与后端 `offline_download_tasks.status` 一致）
+ *
+ * 状态机：queued → analyzing → ready → downloading → merging → success
+ * 失败/取消可从任意进行中状态进入 failed / canceled。
+ */
+export type OfflineTaskStatus =
+  | 'queued'
+  | 'analyzing'
+  | 'ready'
+  | 'downloading'
+  | 'merging'
+  | 'success'
+  | 'failed'
+  | 'canceled';
+
+/** 清单项类型（视频 / 音频 / 图片 / 字幕） */
+export type OfflineItemKind = 'video' | 'audio' | 'image' | 'subtitle';
+
+/**
+ * 任务行（`GET /offline/tasks` / `GET /offline/detail` 的 `task`）
+ *
+ * 字段与设计文档 §2.2.2 `TaskRow` 严格一致；`status_text` 是服务端给的中文状态文案，
+ * 界面直接展示，避免前端各写一份状态映射。
+ */
+export interface OfflineTask {
+  id: number;
+  /** 服务端返回的创建者用户名；任务已按账号隔离，界面不再展示 */
+  username?: string;
+  source_domain: string;
+  page_title: string;
+  status: OfflineTaskStatus;
+  status_text: string;
+  item_total: number;
+  item_done: number;
+  bytes_total: number;
+  bytes_done: number;
+  speed_bps: number;
+  target_disk_name: string;
+  target_rel_path: string;
+  error_code: string;
+  error_message: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  /** 自己的任务 **且** 对目标磁盘仍有 write 权限才为 true（服务端算好，前端不自行判断） */
+  can_operate: boolean;
+}
+
+/** 清单项（`GET /offline/detail` 的 `items[]`，字段同 §2.2.3 `ItemRow`） */
+export interface OfflineItem {
+  id: number;
+  kind: OfflineItemKind | string;
+  display_name: string;
+  ext: string;
+  width: number;
+  height: number;
+  duration_ms: number;
+  est_size: number;
+  is_estimated: boolean;
+  is_selected: boolean;
+  status: string;
+  error_message: string;
+}
+
+/** 任务详情（含清单与「是否还能继续抓下一页」） */
+export interface OfflineTaskDetail {
+  task: OfflineTask;
+  items: OfflineItem[];
+  has_more_images: boolean;
+}
+
+/** 可写磁盘（`/offline/meta` 已按该账号 write 权限过滤，客户端不自行判断） */
+export interface OfflineWritableDisk {
+  disk_id: number;
+  name: string;
+}
+
+/** 当前账号的默认目录配置（`valid=false` 表示磁盘删除/权限收回/目录不存在） */
+export interface OfflineConfig {
+  disk_id: number;
+  rel_path: string;
+  valid: boolean;
+}
+
+/** 不可用原因四态（`/offline/meta` 的 `unusable_reason`，另有一个空串表示可用） */
+export type OfflineUnusableReason =
+  | ''
+  | 'disabled'
+  | 'no_writable_disk'
+  | 'not_configured'
+  | 'config_invalid';
+
+/** 客户端初始化元信息（`GET /offline/meta`，字段同设计文档 §2.2.7） */
+export interface OfflineMeta {
+  enabled: boolean;
+  deep_analyze_enabled: boolean;
+  deep_analyze_available: boolean;
+  can_use: boolean;
+  configured: boolean;
+  unusable_reason: OfflineUnusableReason | string;
+  config: OfflineConfig;
+  writable_disks: OfflineWritableDisk[];
+  max_items: number;
+  max_file_size: number;
+  max_images: number;
+  /** 轮询间隔（毫秒）；后端当前固定 2500 */
+  poll_interval_ms: number;
+}
+
+/** `POST /offline/analyze` 响应 */
+export interface OfflineAnalyzeResult {
+  task_id: number;
+  status: string;
+  source_domain: string;
+  page_title: string;
+}
+
+/** `GET /offline/tasks` 响应 */
+export interface OfflineTaskList {
+  total: number;
+  tasks: OfflineTask[];
+}
+
+/** `POST /offline/select` 响应 */
+export interface OfflineSelectResult {
+  task_id: number;
+  status: string;
+  selected: number;
+  bytes_total: number;
+}
+
+/** `POST /offline/next-page` 响应 */
+export interface OfflineNextPageResult {
+  added: number;
+  item_total: number;
+  has_more: boolean;
+  page_index: number;
+}
+
+/** `POST /offline/settings` 响应 */
+export interface OfflineSettingsResult {
+  configured: boolean;
+  disk_id: number;
+  rel_path: string;
+}
+
 // ── API 错误 ──
 
 export class ApiError extends Error {

@@ -65,6 +65,28 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
   产物被运行中的实例占用时 `build.py` 会自动改名（onedir → **整目录** `JFLove-new/`，安装包 → `*-setup-new.exe`），
   这时要在回复里说明"当前装的是哪一份"。
 
+## 人工体验（UAT）构建（Phase 6.5，禁止发布 tag）
+
+- **触发**：用户说「人工体验 / UAT / 先给我构建物试试」，且**没有**宣布发布 → 属 Phase 6.5，不是 Phase 8。
+- **方式**：用 `workflow_dispatch`（ref = 当前分支）触发 `.github/workflows/build-*.yml`，
+  **禁止打 `v<版本>` tag** —— 本仓库 tag 会触发 `release.yml` 创建 Draft Release，等于提前进入 Phase 8；
+  且 tag 版本必须与 `version.json` 严格相等，`-rc/-uat` 后缀会被 CI 拒绝。
+- **产物口径**：UAT 以 **CI 产物**为准；记录 CI run 链接、`head_sha`、artifact 名与 sha256。
+  本地产物只能作兜底，不得替代 CI 产物写“UAT 通过”。
+- **迭代**：修复后提交新 commit → 重新 dispatch；版本号保持不变，用 commit SHA 区分轮次。
+- **出口**：`文档记录/人工体验记录/<版本号>.md` 有用户「人工体验通过（无阻断问题）」后，
+  才允许在 Phase 8 打 `v<版本>` tag；tag 前复查该签署。
+
+## 实机验证产物版本（强制）
+
+- 测试/发布阶段做任何“实机验证”前，**必须用当前 `version.json` 的源码重新构建/打包**；
+  产物版本必须能在安装包名、界面「关于/页脚」或 `version.json` 对上。
+- **禁止**用上一版本 Release 包、缓存 zip、历史 APK 代替当前版本：
+  `windows_wine.sh` 默认 `VERSION=v1.7.0`，必须显式 `VERSION=v<当前版本>`/`URL=<当前版本产物>`；
+  当前版本包无法在本机构建时，报告写「阻塞：当前版本包未构建」，不得写「通过」。
+- 实机验证入口与探测顺序见 `scripts/verify/README.md` 与 `lessons` L48–L55；
+  先 `source scripts/verify/env.sh`，不要用默认 `PATH` 判断 `adb`/`wine`/`java` 缺失。
+
 ## 构建规则（强制）
 
 - **统一打包入口（强制）**：所有本地打包一律走仓库根 `python build.py`，**禁止直接调用各模块 build.py / flutter build**：

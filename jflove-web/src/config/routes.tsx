@@ -9,6 +9,7 @@ import { FilePreviewPage } from '../pages/FilePreviewPage';
 import { NoteListPage } from '../pages/NoteListPage';
 import { NoteEditPage } from '../pages/NoteEditPage';
 import { TransferTabsPage } from '../pages/TransferTabsPage';
+import { OfflineDownloadPage } from '../pages/OfflineDownloadPage';
 import { SecurityPage } from '../pages/SecurityPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { AdminUsersPage } from '../pages/admin/AdminUsersPage';
@@ -69,6 +70,9 @@ export const router = createBrowserRouter([
       // `/repair` 保留以兼容深链与「查看修复进度」跳转，落在同一页的「修复」标签。
       { path: 'transfer', element: <TransferTabsPage /> },
       { path: 'repair', element: <TransferTabsPage /> },
+      // v1.8.0：离线下载（需求 F30 / 设计文档 §4）。任务中心与「新建任务」同页，
+      // 与修复中心同款交互（标签切换）。
+      { path: 'offline', element: <OfflineDownloadPage /> },
       { path: 'security', element: <SecurityPage /> },
       { path: 'settings', element: <SettingsPage /> },
       {

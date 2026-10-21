@@ -10,3 +10,7 @@ pydantic>=2.0
 pydantic-settings>=2.0
 # v1.4.0：内置静态 FFmpeg/ffprobe 二进制（无需在系统安装 FFmpeg），用于媒体修复
 imageio-ffmpeg>=0.5.1
+# v1.8.0：服务端离线下载（出站 HTTP / 站点解析 / 深度分析）
+httpx==0.28.1
+yt-dlp==2026.8.19
+playwright==1.64.0

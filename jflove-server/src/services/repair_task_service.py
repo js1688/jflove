@@ -151,7 +151,7 @@ async def create_task(
         db, disk_id, rel_path, filename
     )
     if existing:
-        raise ValueError("该文件已有修复任务，请先删除任务记录后再修复")
+        raise ValueError("该文件正在处理中，请稍后再试")
 
     # 失败重试不留垃圾：清理该文件历史任务产物与半成品（按任务记录精确清理）
     await _cleanup_file_artifacts(db, disk_id, rel_path, filename)
@@ -175,7 +175,7 @@ async def cancel_task(
     :raises PermissionError: 无写+删权限
     :raises ValueError: 任务不存在 / 状态不可取消
     """
-    task = await repair_task_repository.find_by_id(db, task_id)
+    task = await repair_task_repository.find_by_id_for_user(db, task_id, user_id)
     if not task:
         raise ValueError("任务不存在")
     if not await has_repair_permission(db, user_id, role, task["disk_id"]):
@@ -203,7 +203,7 @@ async def override_origin(
     :raises ValueError: 任务非 success / 产物缺失 / 原文件不存在
     :raises OSError: 替换失败（产物保留、原文件不动，任务状态不变）
     """
-    task = await repair_task_repository.find_by_id(db, task_id)
+    task = await repair_task_repository.find_by_id_for_user(db, task_id, user_id)
     if not task:
         raise ValueError("任务不存在")
     if task["status"] != "success":
@@ -237,7 +237,7 @@ async def delete_artifact(
     :raises PermissionError: 无写+删权限
     :raises ValueError: 任务不存在 / 状态不允许 / 产物不存在
     """
-    task = await repair_task_repository.find_by_id(db, task_id)
+    task = await repair_task_repository.find_by_id_for_user(db, task_id, user_id)
     if not task:
         raise ValueError("任务不存在")
     if task["status"] != "success":

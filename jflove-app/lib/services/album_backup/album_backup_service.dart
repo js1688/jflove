@@ -13,7 +13,10 @@ import 'album_backup_store.dart';
 
 /// 相册备份进度快照（传输页展示用）
 class AlbumBackupProgress {
-  /// 待备份数量（当前实现按本轮扫描上限估算，0 表示暂无）
+  /// 手机相册总数（拿不到权限时为 0）
+  final int total;
+
+  /// 待备份数量（总数 - 已备份 - 失败；负数归零）
   final int pending;
 
   /// 正在上传数量
@@ -26,6 +29,7 @@ class AlbumBackupProgress {
   final int failed;
 
   const AlbumBackupProgress({
+    this.total = 0,
     this.pending = 0,
     this.uploading = 0,
     this.done = 0,
@@ -71,6 +75,9 @@ class AlbumBackupService {
   final StreamController<AlbumBackupProgress> _progress =
       StreamController<AlbumBackupProgress>.broadcast();
   StreamSubscription<List<TransferTask>>? _taskSub;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  /// 刚完成但可能还没写入 sqflite 的资源（issue #6：防扫描窗口内重复提交）
+  final Set<String> _recentlyDone = {};
 
   /// 单轮最多提交的上传任务数（避免一次塞爆传输队列）
   static const int _maxSubmitPerRound = 20;
@@ -101,6 +108,7 @@ class AlbumBackupService {
     _config = await _configStore.load();
     if (_config.enabled && _config.isConfigured && _config.hasMediaType) {
       _startTimer();
+      _watchConnectivity();
     }
     await emitProgress();
   }
@@ -111,9 +119,11 @@ class AlbumBackupService {
     await _configStore.save(config);
     if (config.enabled && config.isConfigured && config.hasMediaType) {
       _startTimer();
+      _watchConnectivity();
       unawaited(scanAndUpload());
     } else {
       _stopTimer();
+      _stopConnectivity();
     }
     await emitProgress();
   }
@@ -128,13 +138,33 @@ class AlbumBackupService {
   Future<AlbumBackupProgress> emitProgress() async {
     final done = await _store.backedUpCount();
     final failed = await _store.failedCount();
+    final total = await _albumTotal();
+    final pending = (total - done - failed).clamp(0, total);
     final snapshot = AlbumBackupProgress(
+      total: total,
+      pending: pending,
       uploading: _pending.length,
       done: done,
       failed: failed,
     );
     if (!_progress.isClosed) _progress.add(snapshot);
     return snapshot;
+  }
+
+  /// 读取手机相册总数（issue #6：界面要显示「手机相册 X 张 / 已备份 Y 张」）。
+  ///
+  /// 拿不到权限 / 查询失败时返回 0：**不**弹错、不影响备份主流程。
+  Future<int> _albumTotal() async {
+    try {
+      final paths = await PhotoManager.getAssetPathList(
+        type: RequestType.common,
+        onlyAll: true,
+      );
+      if (paths.isEmpty) return 0;
+      return await paths.first.assetCountAsync;
+    } catch (_) {
+      return 0;
+    }
   }
 
   /// 立即扫描并提交上传（幂等：已在处理中则直接返回）
@@ -174,7 +204,8 @@ class AlbumBackupService {
           if (submitted >= _maxSubmitPerRound) break;
           if (backed.contains(asset.id) ||
               failed.contains(asset.id) ||
-              pendingAssetIds.contains(asset.id)) {
+              pendingAssetIds.contains(asset.id) ||
+              _recentlyDone.contains(asset.id)) {
             continue;
           }
           if (!_matchesType(asset)) continue;
@@ -212,6 +243,7 @@ class AlbumBackupService {
   /// 释放资源
   Future<void> dispose() async {
     _stopTimer();
+    _stopConnectivity();
     await _taskSub?.cancel();
     _taskSub = null;
     await _progress.close();
@@ -231,6 +263,20 @@ class AlbumBackupService {
   void _stopTimer() {
     _timer?.cancel();
     _timer = null;
+  }
+
+  /// Wi-Fi/以太网恢复时**立即**补一次扫描（issue #6 ①：不必等满 60 秒）。
+  void _watchConnectivity() {
+    _connectivitySub ??= Connectivity().onConnectivityChanged.listen((results) {
+      final onWifi = results.contains(ConnectivityResult.wifi) ||
+          results.contains(ConnectivityResult.ethernet);
+      if (onWifi) unawaited(scanAndUpload());
+    });
+  }
+
+  void _stopConnectivity() {
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
   }
 
   /// 判断当前是否满足「仅 Wi-Fi / 仅充电」条件
@@ -308,6 +354,7 @@ class AlbumBackupService {
 
       if (task.status == TaskStatus.completed) {
         _pending.remove(task.id);
+        _recentlyDone.add(pending.assetId);
         changed = true;
         unawaited(_store.markBackedUp(AlbumBackupRecord(
           assetId: pending.assetId,

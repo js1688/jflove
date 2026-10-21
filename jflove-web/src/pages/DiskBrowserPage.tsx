@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, useLocation } from 'react-router';
 import { useFileStore } from '../stores/file-store';
 import { repairService } from '../services/repair-service';
 import { useFiles } from '../hooks/use-files';
@@ -79,11 +79,21 @@ function MenuItem({
 export function DiskBrowserPage() {
   const { diskId } = useParams<{ diskId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const store = useFileStore();
   const { uploadFiles, downloadFile } = useFiles();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [path, setPath] = useState('');
+  /**
+   * v1.8.0：支持「在文件管理中打开」直达目录（离线下载产物所在目录）。
+   *
+   * 目标路径经 **router state** 传入，而不是 `?path=` 查询串 —— 与预览上下文同一口径：
+   * 不把磁盘内的用户路径写进地址栏 / 历史 URL（安全宪法 §9.4）。
+   * 只在**首次挂载**读取；之后目录浏览由本地 state 驱动，点面包屑根目录即可恢复。
+   */
+  const initialBrowsePath = (location.state as { browsePath?: string } | null)?.browsePath;
+
+  const [path, setPath] = useState(initialBrowsePath ?? '');
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number; y: number; item: FileItem;

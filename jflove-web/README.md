@@ -163,6 +163,7 @@ jflove-web/
 │   │   ├── TransferTabsPage.tsx    # 传输/修复合并页（/transfer 与 /repair 的页签容器）
 │   │   ├── TransferPage.tsx        # 传输任务视图（由 TransferTabsPage 引用）
 │   │   ├── RepairCenterPage.tsx    # 修复中心视图（由 TransferTabsPage 引用）
+│   │   ├── OfflineDownloadPage.tsx # 离线下载（任务中心 + 新建任务 + 我的默认目录）
 │   │   ├── SecurityPage.tsx        # 安全状态
 │   │   ├── SettingsPage.tsx        # 设置
 │   │   └── admin/
@@ -178,6 +179,7 @@ jflove-web/
 │   │   ├── LoadingSpinner.tsx      # 加载指示器
 │   │   ├── EmptyState.tsx          # 空状态
 │   │   ├── ErrorBanner.tsx         # 错误提示
+│   │   ├── offline/                # NewTaskPanel / OfflineSettingsModal（离线下载子视图）
 │   │   ├── markdown/               # MarkdownRenderer / MermaidBlock / MermaidViewer
 │   │   └── ui/                     # Button / Feedback / Icon / Overlay
 │   ├── hooks/
@@ -190,6 +192,7 @@ jflove-web/
 │   │   ├── file-service.ts         # 文件管理
 │   │   ├── note-service.ts         # 笔记管理
 │   │   ├── repair-service.ts       # 媒体离线修复任务
+│   │   ├── offline-download-service.ts # 离线下载（/api/v1/offline 的 10 个接口）
 │   │   ├── user-service.ts         # 用户管理
 │   │   ├── disk-service.ts         # 磁盘管理
 │   │   ├── permission-service.ts   # 权限管理
@@ -214,15 +217,17 @@ jflove-web/
 │   │   ├── format.ts               # 格式化工具
 │   │   ├── markdown.ts             # Markdown 解析辅助
 │   │   ├── markdown-insert.ts      # Markdown 工具栏插入
+│   │   ├── offline-download.ts     # 离线下载纯函数（快捷选择 / 终态 / 四态文案）
 │   │   └── mermaid/                # 离线 Mermaid 渲染（loader / renderer / cache / sanitize）
 │   └── types/
-│       ├── models.ts               # 数据模型
+│       ├── models.ts               # 数据模型（含 v1.8.0 离线下载类型）
 │       └── api.ts                  # API 类型
 └── tests/
     ├── setup.ts
-    ├── utils/                      # crypto / http-client / stream-frame 测试
-    ├── services/                   # server-history-service 测试
+    ├── utils/                      # crypto / http-client / stream-frame / offline-download 测试
+    ├── services/                   # server-history-service / offline-download-service 测试
     ├── stores/                     # auth-store / transfer-store 测试
+    ├── layouts/                    # 导航与路由结构回归
     └── components/                 # PageHeader 组件测试
 ```
 
@@ -241,6 +246,7 @@ jflove-web/
 | `/notes/:noteId` | NoteEditPage | JWT | AppLayout |
 | `/transfer` | TransferTabsPage（页签一：传输任务） | JWT | AppLayout |
 | `/repair` | TransferTabsPage（页签二：修复中心） | JWT | AppLayout |
+| `/offline` | OfflineDownloadPage（任务中心 + 新建任务 + 我的默认目录） | JWT | AppLayout |
 | `/security` | SecurityPage | JWT | AppLayout |
 | `/settings` | SettingsPage | JWT | AppLayout |
 | `/admin/users` | AdminUsersPage | admin | AppLayout |
@@ -255,4 +261,5 @@ jflove-web/
 - **同步管理**：浏览器端**不提供**（v1.7.0 起移除该页面）——同步能力只在桌面端（云盘挂载）与移动端（相册备份）提供；访问旧 `/sync` 深链会落到兜底路由
 - **视频/音频预览**：**MSE 主路径**（`src/utils/media-source-player.ts` 的 `playWithMSE`）边下边播 + 拖动 seek，**HTTP 与 HTTPS 均可用**（v1.4.0 起移除 Service Worker 流式代理，不再依赖安全上下文；单入口构建、无 `dist/sw.js`）；MSE 不可行时才回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
 - **PDF 预览**：暂不支持（与桌面端/移动端一致），提示下载后使用本地程序打开
+- **离线下载**：接口前缀 `/api/v1/offline`（10 个，全部加密信封、无路径参数）。任务列表/详情按账号隔离；默认目录按账号存在服务端（不写 localStorage，三端一致）。轮询间隔取 `/offline/meta` 的 `poll_interval_ms`（默认 2.5s），**页面切到后台或任务全部终态即停止**（AC-232）。无可写磁盘时整页显示「你没有可写入的磁盘，无法使用离线下载」并禁用新建任务；总开关关闭 / 未配置目录 / 目录失效分别有对应中文提示。总开关关闭时**侧栏与底部菜单入口不做置灰**（导航层拿不到 `/offline/meta`，避免每个页面多发一次请求），置灰提示落在页面内（AC-200 的页面内部分）
 - **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗）+ `highlight.js`（代码高亮）+ `mermaid`（图表渲染），支持标题/加粗/斜体/列表/引用/代码块等

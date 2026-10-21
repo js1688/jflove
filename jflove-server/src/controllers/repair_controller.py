@@ -3,13 +3,13 @@
 
 手动离线修复的任务管理接口：
   - 创建任务（文件管理右键「修复损坏媒体」/ 播放失败弹窗「立即修复」）
-  - 任务列表（全平台共享，所有登录用户可见；只读账号可看不可操作）
+  - 任务列表/操作（**按账号隔离**：只对自己的任务可见可操作，D10）
   - 取消 / 覆盖原文件 / 删除产物 / 删除记录
 
 安全约定（对照 §9 安全宪法）：
   - 全部接口为加密 body JSON（decrypt_request_body + encrypt_response），
     不在明文白名单；task_id 等参数在加密 body 内，无路径参数路由
-  - 操作类接口统一校验磁盘写+删权限（与创建者无关，任务全平台共享）
+  - 操作类接口先按 `(task_id, user_id)` 取任务，他人任务一律 404；再校验磁盘写+删权限
   - 错误统一经 HTTPException 抛出，由全局 handler 加密
 """
 
@@ -85,8 +85,7 @@ async def create_task(request: Request, db: aiosqlite.Connection = Depends(get_d
     "/tasks",
     summary="修复任务列表（v1.4.2）",
     description=(
-        "分页查询修复任务（**全平台共享**：所有登录用户可见同一列表，"
-        "避免多账号重复修复；username 字段仅供展示）。\n\n"
+        "分页查询**当前账号自己的**修复任务（D10：记录按账号隔离）。\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：JWT 令牌\n"
         "- `page`：页码（默认 1）\n"
@@ -100,15 +99,17 @@ async def create_task(request: Request, db: aiosqlite.Connection = Depends(get_d
     ),
 )
 async def list_tasks(request: Request, db: aiosqlite.Connection = Depends(get_db)):
-    """任务列表（全平台共享，轮询刷新）"""
+    """任务列表（仅自己的；轮询刷新）"""
     body = await decrypt_request_body(request)
-    await _get_user(request, db, body)  # 仅鉴权（列表全平台共享，不区分用户）
+    user = await _get_user(request, db, body)
     try:
         page = max(1, int(body.get("page", 1)))
         page_size = max(1, min(100, int(body.get("page_size", 50))))
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="分页参数非法")
-    rows, total = await repair_task_repository.list_tasks(db, page, page_size)
+    rows, total = await repair_task_repository.list_tasks(
+        db, user["id"], page, page_size
+    )
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {
         "total": total,
@@ -124,7 +125,7 @@ async def list_tasks(request: Request, db: aiosqlite.Connection = Depends(get_db
         "请求体（加密后）字段：\n"
         "- `token`：JWT 令牌\n"
         "- `task_id`：任务 ID\n\n"
-        "错误：403 无写+删权限；400 任务不存在/状态不可取消"
+        "错误：403 无写+删权限；404 任务不存在（含他人任务）；400 状态不可取消"
     ),
 )
 async def cancel_task(request: Request, db: aiosqlite.Connection = Depends(get_db)):
@@ -139,7 +140,7 @@ async def cancel_task(request: Request, db: aiosqlite.Connection = Depends(get_d
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_repair_value_error(e)
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {"message": "任务已取消"})
 
@@ -168,7 +169,7 @@ async def override_origin(request: Request, db: aiosqlite.Connection = Depends(g
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_repair_value_error(e)
     except OSError:
         raise HTTPException(status_code=500, detail="覆盖失败，产物已保留")
     session_id = request.headers.get("X-Session-ID", "")
@@ -197,7 +198,7 @@ async def delete_artifact(request: Request, db: aiosqlite.Connection = Depends(g
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _raise_repair_value_error(e)
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {"message": "产物已删除"})
 
@@ -221,11 +222,11 @@ async def delete_record(request: Request, db: aiosqlite.Connection = Depends(get
     task_id = int(body.get("task_id", 0))
     if not task_id:
         raise HTTPException(status_code=400, detail="task_id 不能为空")
-    task = await repair_task_repository.find_by_id(db, task_id)
-    if not task or task["status"] not in (
-        "success", "failed", "canceled", "overridden",
-    ):
-        raise HTTPException(status_code=400, detail="任务不存在或未结束")
+    task = await repair_task_repository.find_by_id_for_user(db, task_id, user["id"])
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if task["status"] not in ("success", "failed", "canceled", "overridden"):
+        raise HTTPException(status_code=400, detail="任务未结束，不可删除")
     if not await repair_task_service.has_repair_permission(
         db, user["id"], user["role"], task["disk_id"]
     ):
@@ -235,9 +236,8 @@ async def delete_record(request: Request, db: aiosqlite.Connection = Depends(get
     return encrypt_response(session_id, {"message": "记录已删除"})
 
 
-async def _require_terminal(db: aiosqlite.Connection, task_id: int) -> bool:
-    """校验任务存在且处于终态（success/failed/canceled/overridden）。"""
-    task = await repair_task_repository.find_by_id(db, task_id)
-    return bool(task) and task["status"] in (
-        "success", "failed", "canceled", "overridden",
-    )
+def _raise_repair_value_error(exc: ValueError) -> None:
+    """任务不存在/非本人任务一律 404（D10：不泄露存在性）。"""
+    if str(exc) == "任务不存在":
+        raise HTTPException(status_code=404, detail="任务不存在") from exc
+    raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -131,17 +131,26 @@ python3 scripts/verify/xinput.py --display "$DISP" text 'http://127.0.0.1:8989'
 
 - 判据：日志「JFLove 桌面应用已启动（v…，Web UI）」+ 窗口 `WM_CLASS=JFLove` +
   点击/输入后服务端出现对应请求（200）。
+- **必须先 `source scripts/verify/env.sh`**；不要用默认 `PATH` 判 `wine`/`Xvnc`/`java` 缺失。
+- **必须使用当前版本构建产物**（`python build.py -m desktop` 或当前源码 `ui/dist`）；
+  禁止用历史 Release 包/旧 onedir 代替。
 - 像素证据：`jflove-desktop/venv-linux/bin/python scripts/verify/desktop_shot.py`
   （`QT_QPA_PLATFORM=offscreen` 下 `QWidget.grab()`，锁屏也能跑）。
 - **用户会话锁屏时** KWin 把窗口标 `_NET_WM_STATE_HIDDEN`，X11 截屏全黑；
   不要误判成应用坏了，必须用独立 Xvnc（L50）。
 - 默认地址是 `http://localhost.jflove.cn:8989`，本机不解析；验证时改成 `http://127.0.0.1:8989`。
 
-### Windows：产物 + wine（本机可操作）
+### Windows：**当前版本**产物 + wine（本机可操作）
 
 ```bash
-scripts/verify/windows_wine.sh --skip-download   # 已下载 zip 时复用
+# 先构建当前版本 Windows 便携包（或由 CI 产出当前 tag 的 artifact），再验证；
+# 禁止用上一版本 Release 包/缓存 zip。
+VERSION=v<当前版本> URL=<当前版本便携包 URL> \
+  scripts/verify/windows_wine.sh --skip-download
 ```
+
+> `windows_wine.sh` 默认 `VERSION=v1.7.0`；**必须显式传当前版本**。
+> 当前版本包无法在本机构建时，报告写「阻塞：当前版本包未构建」，不得用历史包写“通过”。
 
 - 发布便携包**缺 `icuuc.dll`**（Qt 依赖 Windows 系统 ICU）；脚本会补 ICU。
   首次使用新 `WINEPREFIX` 还要先 `winetricks -q vcrun2022`。

@@ -39,7 +39,12 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 > **判据 = 真实启动 + 可操作 + 可取证**：画面/截图 + 日志或 HTTP 状态 + 状态确实改变。
 > 「进程活着」「页面能打开」都不算通过；只截图不点击/不输入也不算。
 
-1. **先探测，再开跑**（一次，缓存结论；不要每加一个用例就重探）：
+1. **先 source `scripts/verify/env.sh`，再探测**（一次，缓存结论；不要每加一个用例就重探）：
+   - 默认 `PATH` 找不到 ≠ 环境没有：`adb` 在 `$ANDROID_HOME/platform-tools`、wine 在 `$JF_WINE_BIN`、
+     JDK 可能在 `/home/<user>/文档/jdk/jdk-21.0.10`（`JAVA_HOME` 必须显式设，否则 Gradle 选到无 `javac` 的 JRE）；
+   - 先读 `scripts/verify/README.md` 与 `lessons` L48–L57，按其中的真实路径探测；
+   - Playwright 自带 Chromium 缺失时，先探测 `BROWSER_MANAGER.available()`（代码会回退系统 Edge/Chromium），
+     不要直接判“L3 不可用”。
 
    | 端 / 能力 | 探测命令 | 判据 |
    | --- | --- | --- |
@@ -55,19 +60,26 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
    | GUI 基础 | `command -v Xvnc kwin_x11 ffmpeg` | 锁屏/无显示时用独立 Xvnc |
    | iOS / 鸿蒙 | `uname -s` = Darwin / 有对应工具链 | 一律跳过 |
 
-2. **操作级验证（硬约束）**：
+2. **当前版本产物（硬约束，禁止历史包）**：
+   - 实机验证前必须构建**当前工作区**的产物：Android `JAVA_HOME=<jdk> flutter build apk --debug`；
+     桌面 `python build.py -m desktop`；Web `npm run build`；服务端 `python build.py -m server`。
+   - **禁止**用上一版本 Release 包/缓存 zip/历史 APK 代替当前版本；产物版本必须与 `version.json` 对得上。
+   - `windows_wine.sh` 默认 `VERSION=v1.7.0`，必须显式 `VERSION=v<当前版本>` 或 `URL=<当前版本产物>`；
+     当前版本包无法在本机构建时，报告写“阻塞：当前版本包未构建”，**不得写通过**。
+3. **操作级验证（硬约束）**：
    - Web：CDP/Playwright **点击或输入**，再截图；只截首屏不算。
    - 桌面 / Windows：Xvnc + `kwin_x11` + `scripts/verify/xinput.py` 点击/输入。
    - Android：`uiautomator dump` 取控件 `bounds` → `input tap/text`。
    - 每端至少一条证据链：「点击/输入 → 服务端日志出现对应请求（200）」。
-3. **独立显示**：用户会话锁屏时 KWin 把窗口标 `_NET_WM_STATE_HIDDEN`，截屏黑/白；
+4. **独立显示**：用户会话锁屏时 KWin 把窗口标 `_NET_WM_STATE_HIDDEN`，截屏黑/白；
    用 `Xvnc :99 + kwin_x11`，**Xvnc 必须配 WM**，否则 Qt 键盘事件不生效（L50）。
-4. **报告两栏**：`能做（附命令 + 证据）` / `跳过（附真实探测输出）`；禁止把截图当唯一判据。
-5. **禁止的跳过理由**：静态分析/单元测试永远可做；无设备/无显示/非目标平台只能跳过设备级/平台专属。
-6. **设备级用例**：有设备就执行到底（安装/启动/截图/热重载/流式下载）。
-7. **Windows/wine 边界**：wine 能做 UI 可操作验证（补 `icuuc.dll` + Xvnc），
-   GPU/媒体/安装器/CfAPI 不在覆盖内，**发布门禁仍以 CI/真机为准**。
-8. **MCP 说明**：`.mcp.json` 是 VS Code 格式，DSH 未加载；默认走 `scripts/verify/` 的 CLI，
+5. **报告两栏**：`能做（附命令 + 证据 + 产物版本）` / `跳过（附真实探测输出）`；禁止把截图当唯一判据。
+6. **禁止的跳过理由**：静态分析/单元测试永远可做；无设备/无显示/非目标平台只能跳过设备级/平台专属；
+   且必须先按 `env.sh` 路径探测、尝试 Xvnc/系统浏览器等兜底后才能判缺失。
+7. **设备级用例**：有设备就执行到底（安装/启动/截图/热重载/流式下载）。
+8. **Windows/wine 边界**：wine 能做 UI 可操作验证（补 `icuuc.dll` + Xvnc），
+   GPU/媒体/安装器/CfAPI 不在覆盖内，**发布门禁仍以 CI/真机为准**；**必须用当前版本包**。
+9. **MCP 说明**：`.mcp.json` 是 VS Code 格式，DSH 未加载；默认走 `scripts/verify/` 的 CLI，
    MCP 仅 VS Code 可选（L55）。
 
 ## 报告证据门禁（强制）
@@ -82,6 +94,17 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 - **只读代码 / 只跑 pytest 不构成验证完成**：至少一条「点击/输入 → 服务端接口 200」证据。
 - `scripts/verify/run_all.sh` 生成的 `/tmp/jf-verify-summary.md` 可直接作为表格来源；
   截图/日志留 `/tmp`，报告引用路径即可，不往仓库塞大文件。
+
+## 人工体验（Phase 6.5 / UAT）支持（强制）
+
+- **入口**：Phase 6 证据门禁通过后才进入；UAT 只用**当前分支的 CI 构建物**（按 commit SHA 追溯），
+  禁止拿历史版本/本地缓存包冒充。
+- **反馈处理**：先复现、再分类（代码 BUG / 体验问题 / 需求-设计问题）；代码与体验问题修完，
+  重跑相关端实机 + 全量门禁，**版本号不变**；需求/设计问题退回 Phase 1/2。
+- **记录**：每轮更新 `文档记录/人工体验记录/<版本号>.md`，写清 commit / CI run / artifact / 哈希、
+  问题闭环（现象→根因→修复→复验证据）。
+- **出口判据**：用户在记录里明确写「人工体验通过（无阻断问题）」；已知未覆盖项要么关闭，要么被用户书面接受。
+- **禁止**：UAT 阶段打发布 tag / 发 Release / 改版本号 / 把「CI 没跑」「本机没验」写成通过。
 
 ## 测试设计纪律
 

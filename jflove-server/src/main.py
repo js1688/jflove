@@ -18,8 +18,14 @@ from src.controllers import (
     config_controller,
     sync_controller,
     repair_controller,
+    offline_download_controller,
 )
-from src.services import auth_service, repair_task_service, file_service
+from src.services import (
+    auth_service,
+    offline_download_service,
+    repair_task_service,
+    file_service,
+)
 from src.utils.crypto import encrypt
 from src.utils.logger import get_logger
 
@@ -75,6 +81,8 @@ async def lifespan(app: FastAPI):
     logger.info("数据库初始化完成")
     # v1.4.2：启动离线修复队列 worker（重启恢复：中断任务标记失败 + 清理半成品）
     await repair_task_service.start_workers(_repair_db_factory)
+    # v1.8.0：启动离线下载分析/下载队列（独立 worker，与媒体修复互不抢额度）
+    await offline_download_service.start_workers(_repair_db_factory)
     # v1.7.0：过期上传临时目录清理（启动即跑一次，之后每小时）
     cleanup_task = asyncio.create_task(_upload_cleanup_loop())
     try:
@@ -83,6 +91,7 @@ async def lifespan(app: FastAPI):
         cleanup_task.cancel()
         with suppress(asyncio.CancelledError):
             await cleanup_task
+        await offline_download_service.stop_workers()
         await repair_task_service.stop_workers()
         logger.info("服务关闭")
 
@@ -109,7 +118,7 @@ async def _repair_db_factory():
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.7.0",
+    version="1.8.0",
     lifespan=lifespan,
 )
 
@@ -133,6 +142,7 @@ app.include_router(note_controller.router)
 app.include_router(config_controller.router)
 app.include_router(sync_controller.router)
 app.include_router(repair_controller.router)
+app.include_router(offline_download_controller.router)
 
 
 @app.get("/health")

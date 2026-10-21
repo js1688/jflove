@@ -2,8 +2,12 @@
 
 JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲染）** 的私有文档与笔记协同管理桌面应用，界面与 Web 端同一套，同时保留托盘、本地解码的媒体预览、原生文件对话框与系统拖放上传。
 
-> **当前版本：v1.7.0**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
+> **当前版本：v1.8.0**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
 
+> **v1.8.0**：新增「离线下载」页（任务中心 + 新建任务 + 设置，服务端异步分析网页并抓取媒体到账号自己的磁盘目录）；
+> 修复 issue #7（拖动主窗视频画面不跟随/黑屏：`QVideoWidget` 原生 surface 在几何变化后显式重绘）与
+> issue #5（Linux FUSE 卸载后 `.fuse_hidden*` 残留：卸载后递归清理）。#3 并入 #7。
+>
 > **v1.5.1**：Web 端品牌标识与桌面端统一（猫猫 logo）；系统设置移除**已失效**的「允许重编码降级」开关（服务端自 v1.4.2 起已不读取该键）；
 > 修复原生媒体浮层「关窗后残留」与「拖动主窗画面不跟随」；笔记页大纲改为**右侧可折叠竖栏**、打开笔记默认进入预览模式（有内容时）；
 > 修复「200 响应是加密信封但解不开却被当明文成功」的静默降级；版本号同步补入界面侧常量（此前界面会显示旧版本号）。

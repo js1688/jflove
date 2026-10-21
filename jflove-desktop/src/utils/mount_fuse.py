@@ -546,10 +546,31 @@ class LinuxFuseMount:
             if self._ready:
                 self._unmount()
                 self._ready = False
+                # issue #5：卸载后清理 libfuse 在底层目录留下的 .fuse_hidden*。
+                # 这些文件是"文件仍被打开时被 unlink"产生的临时改名；卸载后已无
+                # 打开的 fd，可以安全删除（否则用户看到目录删不干净）。
+                self._cleanup_fuse_hidden()
         thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=5.0)
         self._close_fd()
+
+    def _cleanup_fuse_hidden(self) -> None:
+        """删除底层目录里残留的 `.fuse_hidden*`（卸载后调用，幂等）。"""
+        if not self._base:
+            return
+        removed = 0
+        for root, _dirs, files in os.walk(self._base):
+            for name in files:
+                if not name.startswith(".fuse_hidden"):
+                    continue
+                try:
+                    os.unlink(os.path.join(root, name))
+                    removed += 1
+                except OSError:
+                    continue
+        if removed:
+            logger.info("清理 FUSE 残留文件: mount=%s count=%s", self.mount_id, removed)
 
     def _run(self) -> None:
         """挂载线程：`fuse_main` 阻塞到卸载为止"""

@@ -164,7 +164,9 @@ adb exec-out screencap -p > /tmp/android.png
 
 > 规则来源：`lessons` L48（环境自适应验证）/ L49（Flutter/Android 工具链硬坑）。
 
-**开工前先探测，回复里先给「能做 / 跳过」两栏，再执行。**
+**开工前先 `source scripts/verify/env.sh` 再探测，回复里先给「能做 / 跳过」两栏，再执行。**
+默认 `PATH` 没有 `adb`/`java` 不等于环境没有：`adb` 在 `$ANDROID_HOME/platform-tools`，
+JDK 可能在 `/home/<user>/文档/jdk/jdk-21.0.10`（构建前必须显式 `JAVA_HOME` 并确认 `javac` 可用）。
 
 | 能力 | 探测命令 | 判据 |
 | --- | --- | --- |
@@ -172,13 +174,15 @@ adb exec-out screencap -p > /tmp/android.png
 | 单元 / Widget 测试（恒可） | `flutter test` | 全通过（无需设备） |
 | Android 模拟器 | `adb devices` | 出现 `emulator-xxxx device` |
 | Android 真机 | `adb devices` + 设备序列号非 `emulator-` 前缀 | 出现真机 `device` |
-| Android 构建 | `flutter build apk --debug` | 需 Android SDK；产物 `build/app/outputs/flutter-apk/app-debug.apk` |
+| Android 构建 | `JAVA_HOME=<JDK> flutter build apk --debug` | 需 Android SDK + **带 javac 的 JDK**；产物 `build/app/outputs/flutter-apk/app-debug.apk` |
 | 鸿蒙 | `flutter build hap` 可用性 | 需 DevEco Studio —— **未安装即跳过** |
 | iOS | `uname -s` = Darwin | 非 macOS 一律跳过 |
 
 - **必须做**：静态分析 + 单元测试（这两项**永远可做**，"没有设备"不构成跳过理由）。
 - **能做才做**：设备类验证（安装 / 启动 / 截图 / 热重载 / logcat）—— 有设备就**自动执行到底**，
   不要停在"已构建 APK"。
+- **必须使用当前版本 APK**：`flutter build apk --debug` 必须基于当前工作区源码；
+  禁止用 `build/` 里的历史 APK 或上一版本 Release APK；产物版本需与 `version.json` 对得上。
 - **必须先声明跳过**：拿不到能力的端，在回复里写「跳过：<能力> —— 原因：<探测命令的真实输出>」，
   **不得**改写成"已通过"或含糊带过。
 - 构建失败先 `flutter clean` 再重试；Gradle 锁冲突删 `android/.gradle` 后重试。

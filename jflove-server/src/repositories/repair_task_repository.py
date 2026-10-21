@@ -52,10 +52,26 @@ async def insert(
 
 
 async def find_by_id(db: aiosqlite.Connection, task_id: int) -> aiosqlite.Row | None:
-    """按 ID 查询未删除任务，不存在返回 None。"""
+    """按 ID 查询未删除任务（**仅供 worker / 内部流程**）。"""
     async with db.execute(
         "SELECT * FROM media_repair_tasks WHERE id = ? AND deleted_at IS NULL",
         (task_id,),
+    ) as cur:
+        return await cur.fetchone()
+
+
+async def find_by_id_for_user(
+    db: aiosqlite.Connection, task_id: int, user_id: int
+) -> aiosqlite.Row | None:
+    """
+    按 (task_id, user_id) 查询任务（D10：他人任务按不存在返回 None）。
+
+    面向用户的详情/操作一律用本函数，**不要**先查再判断归属。
+    """
+    async with db.execute(
+        "SELECT * FROM media_repair_tasks"
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
+        (task_id, user_id),
     ) as cur:
         return await cur.fetchone()
 
@@ -80,22 +96,25 @@ async def find_active_by_file(
 
 
 async def list_tasks(
-    db: aiosqlite.Connection, page: int = 1, page_size: int = 50
+    db: aiosqlite.Connection, user_id: int, page: int = 1, page_size: int = 50
 ) -> tuple[list[aiosqlite.Row], int]:
     """
-    分页查询任务列表（全平台共享，按创建时间倒序）。
+    分页查询**某账号自己的**任务（D10：不再全平台共享）。
 
     :returns: (任务行列表, 总条数)
     """
     async with db.execute(
-        "SELECT COUNT(*) AS c FROM media_repair_tasks WHERE deleted_at IS NULL"
+        "SELECT COUNT(*) AS c FROM media_repair_tasks"
+        " WHERE user_id = ? AND deleted_at IS NULL",
+        (user_id,),
     ) as cur:
         total = (await cur.fetchone())["c"]
     offset = max(0, (page - 1) * page_size)
     async with db.execute(
-        "SELECT * FROM media_repair_tasks WHERE deleted_at IS NULL"
+        "SELECT * FROM media_repair_tasks"
+        " WHERE user_id = ? AND deleted_at IS NULL"
         " ORDER BY id DESC LIMIT ? OFFSET ?",
-        (page_size, offset),
+        (user_id, page_size, offset),
     ) as cur:
         rows = await cur.fetchall()
     return rows, int(total)

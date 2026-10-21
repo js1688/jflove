@@ -203,6 +203,47 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
   可复现且不依赖会话配置；需要 MCP 时再在 profile 里加 server 并重启会话。
 - **判据**：技能里写「MCP 工具」的地方必须注明是 VS Code 路径；DSH 的验证判据不得依赖 MCP 工具存在。
 
+### L56. 验证环境必须按项目入口探测，不能拿默认 `PATH` 判缺失
+- **现象**：用默认 `PATH` 跑 `which adb` / `which wine` / `java -version` 判为“环境没有”，
+  于是把 Android / Windows / L3 全部标记跳过；实际上：
+  - `adb` 在 `$ANDROID_HOME/platform-tools/adb`；
+  - wine 在 `$JF_WINE_BIN`（PortProton 自带运行时）；
+  - JDK 在 `/home/<user>/文档/jdk/jdk-21.0.10`，只是 `JAVA_HOME` 没设，
+    Gradle 选了系统 `/usr/lib/jvm/java-25-openjdk`（只有 JRE，无 `javac`）；
+  - Playwright 自带 Chromium 缺失时，系统 `microsoft-edge` 可作 Chromium 内核兜底。
+- **正确做法**：
+  1. 必须先 `source scripts/verify/env.sh`，再按 `scripts/verify/README.md` 与 L48 的表探测；
+  2. JDK：显式 `JAVA_HOME=<带 javac 的 JDK>` 并 `"$JAVA_HOME/bin/javac" -version` 自证；
+  3. Playwright：先 `BROWSER_MANAGER.available()`（代码自带系统浏览器兜底），再判 L3；
+  4. 只有**按上述入口探测后**仍缺失，才允许写“跳过”，并附真实探测输出。
+- **判据**：报告里“跳过”的每条都能对应一条项目文档规定的探测命令输出，而不是 `which` 的默认 PATH 结果。
+
+### L57. 实机验证必须用**当前版本**构建产物，禁止历史 Release 包
+- **现象**：v1.8.0 的 Windows 实机验证直接复用 `/tmp/jf-win-verify` 里的 **v1.7.0** 便携包，
+  这只能证明 wine 能跑 v1.7，不能证明 v1.8；等于没有验证。
+- **正确做法**：
+  1. 验证前用当前工作区构建当前版本产物（Android APK / 桌面 onedir/安装包 / 服务端镜像 / Web dist）；
+  2. 产物版本必须与 `version.json` 对得上（界面页脚 / 文件名 / 包内版本）；
+  3. `windows_wine.sh` 默认 `VERSION=v1.7.0`，必须显式 `VERSION=v<当前版本>` 或 `URL=<当前版本产物>`；
+  4. 当前版本包在当前环境确实无法构建时，报告写「阻塞：当前版本包未构建」，
+     **不得**用历史包写“通过”，也不得把历史包的截图放进当前版本证据表。
+- **判据**：每条实机证据都能回答“这是哪个版本、由哪条构建命令产出”；答不上来就不算验证。
+
+### L58. UAT 构建物不能靠「发布 tag」触发
+
+- **现象**：想给用户一份“先体验”的构建物，顺手 `git push origin v<版本>`；结果同时触发了
+  `release.yml`（创建 Draft Release）与 `build-*.yml`（把产物挂到 Release Assets）——
+  人工体验还没开始，版本发布记录/Release 已经先产生了。
+- **根因**：本仓库的 tag 语义 = 发布（`release.yml` 只监听 `push tags: v*`），不是“打个包”。
+  且构建 workflow 会校验 `tag 版本 == version.json`，`v<版本>-rc1` 这类后缀会直接失败。
+- **正确做法**：
+  - UAT/体验包一律用 **`workflow_dispatch`（ref = 当前分支）** 触发 `build-*.yml`；
+  - 产物按 **CI run + head_sha + artifact 名 + sha256** 交付，版本号保持不变；
+  - 每轮修复 = 新 commit + 新 dispatch，用 SHA 区分，不新开版本号、不打 tag；
+  - 只有 Phase 6.5 记录里出现用户「人工体验通过（无阻断问题）」后，Phase 8 才打 `v<版本>` tag。
+- **判据**：UAT 期间远端**没有新增 tag / Release**；UAT 记录能对上 CI run 的 `head_sha`；
+  发布 tag 只在 UAT 签署之后出现。
+
 ---
 
 ## 三、流程与协作
@@ -800,3 +841,5 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 - [ ] 起服务用的是 `run_server.py` 而不是 `uvicorn src.main` 吗？（L53）
 - [ ] 截图工具按环境选对了吗（Xvnc→ffmpeg / 应用内 grab / adb / CDP）？（L54）
 - [ ] 是否把 `.mcp.json` 误当成 DSH 的 MCP 配置？（L55）
+- [ ] 判“环境缺失”前，有没有先 `source scripts/verify/env.sh` 并按文档路径探测 `adb`/`wine`/JDK/Chromium？（L56）
+- [ ] 实机验证用的是**当前版本构建产物**吗？有没有拿上一版本 Release 包/缓存 zip 冒充？（L57）

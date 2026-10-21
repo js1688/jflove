@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,11 +27,24 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
   AlbumBackupConfig _config = AlbumBackupConfig.empty;
   bool _loading = true;
   bool _busy = false;
+  Timer? _progressTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // issue #6 ②：数量统计要**定时刷新**（上传完成不一定经过本页事件循环）。
+    _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      unawaited(ref.read(albumBackupServiceProvider).emitProgress());
+    });
+  }
+
+  @override
+  void dispose() {
+    _progressTimer?.cancel();
+    _progressTimer = null;
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -262,7 +277,8 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
             data: (p) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: Text(
-                '已备份 ${p.done} 项 · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项',
+                '手机相册 ${p.total} 张 / 已备份 ${p.done} 张'
+                ' · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项',
                 style: TextStyle(fontSize: 12.5, color: t.fgDefault),
               ),
             ),

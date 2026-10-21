@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, useSearchParams } from 'react-router';
 import { useFileStore } from '../stores/file-store';
 import { onBridgeEvent } from '../utils/desktop-bridge';
 import { repairService } from '../services/repair-service';
@@ -80,12 +80,16 @@ function MenuItem({
 export function DiskBrowserPage() {
   const { diskId } = useParams<{ diskId: string }>();
   const navigate = useNavigate();
+  // 深链支持：`/files/<diskId>?path=<相对目录>` 直接打开指定目录。
+  // 离线下载任务中心的「在文件管理中打开」用它定位产物所在目录（v1.8.0）。
+  const [searchParams] = useSearchParams();
   const store = useFileStore();
   // 桌面端：上传/下载都走**原生对话框**（选文件 / 另存为），
   // 字节与加密全部在 Python 侧完成 —— 不再需要隐藏的 <input type="file">
   const { pickAndUpload, uploadFiles, downloadFile } = useFiles();
 
-  const [path, setPath] = useState('');
+  // 初始目录可来自查询参数（仅首次挂载读取；页内导航仍由本地 state 控制）
+  const [path, setPath] = useState(() => searchParams.get('path') ?? '');
   const [error, setError] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number; y: number; item: FileItem;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'config/routes.dart';
 import 'config/theme.dart';
 import 'providers/session_provider.dart';
 import 'providers/theme_provider.dart';
@@ -12,6 +13,7 @@ import 'pages/files/file_preview_page.dart';
 import 'pages/notes/note_list_page.dart';
 import 'pages/notes/note_edit_page.dart';
 import 'pages/transfer/transfer_page.dart';
+import 'pages/offline/offline_download_page.dart';
 import 'pages/settings/settings_page.dart';
 import 'pages/admin/admin_users_page.dart';
 import 'pages/admin/admin_disks_page.dart';
@@ -67,6 +69,12 @@ class JFLoveApp extends ConsumerWidget {
           ],
         ),
         // 独立页面（不显示底部导航）
+        // v1.8.0：离线下载中心（只读）—— 入口在设置页，路径集中定义于
+        // `lib/config/routes.dart`（`AppRoutes.offlineDownload`）。
+        GoRoute(
+          path: AppRoutes.offlineDownload,
+          builder: (_, _) => const OfflineDownloadPage(),
+        ),
         // 注意：/files/preview 必须在 /files/:diskId 之前，否则 "preview" 会被当作 diskId
         GoRoute(
           path: '/files/preview',

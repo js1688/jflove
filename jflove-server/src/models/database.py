@@ -117,6 +117,87 @@ CREATE TABLE IF NOT EXISTS media_repair_tasks (
 )
 """
 
+# ── v1.8.0：服务端离线下载（网址分析 + 媒体抓取）──────────────
+# 设计依据：`文档记录/设计文档/v1.8.0.md` §2.1。
+#
+# 记录可见性（D10）：任务表带 `user_id`，**列表/详情/操作一律按 `user_id` 过滤**，
+# 不因为"修复中心原来共享"就照抄——记录会带出来源 URL / 文件名 / 目标目录，跨账号可见即泄露。
+_CREATE_OFFLINE_TASKS = """
+CREATE TABLE IF NOT EXISTS offline_download_tasks (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id            INTEGER NOT NULL,
+    username           TEXT    NOT NULL DEFAULT '',
+    source_url         TEXT    NOT NULL,
+    source_domain      TEXT    NOT NULL DEFAULT '',
+    page_title         TEXT    NOT NULL DEFAULT '',
+    status             TEXT    NOT NULL DEFAULT 'queued',
+    analysis_level     TEXT    NOT NULL DEFAULT '',
+    analysis_expire_at TEXT,
+    image_page_index   INTEGER NOT NULL DEFAULT 1,
+    target_disk_id     INTEGER NOT NULL DEFAULT 0,
+    target_rel_path    TEXT    NOT NULL DEFAULT '',
+    pack_zip           INTEGER NOT NULL DEFAULT 0,
+    item_total         INTEGER NOT NULL DEFAULT 0,
+    item_done          INTEGER NOT NULL DEFAULT 0,
+    bytes_total        INTEGER NOT NULL DEFAULT 0,
+    bytes_done         INTEGER NOT NULL DEFAULT 0,
+    speed_bps          INTEGER NOT NULL DEFAULT 0,
+    error_code         TEXT    NOT NULL DEFAULT '',
+    error_message      TEXT    NOT NULL DEFAULT '',
+    started_at         TEXT,
+    finished_at        TEXT,
+    created_at         TEXT    NOT NULL,
+    updated_at         TEXT    NOT NULL,
+    deleted_at         TEXT
+)
+"""
+
+_CREATE_OFFLINE_ITEMS = """
+CREATE TABLE IF NOT EXISTS offline_download_items (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id       INTEGER NOT NULL,
+    kind          TEXT    NOT NULL,
+    display_name  TEXT    NOT NULL,
+    ext           TEXT    NOT NULL DEFAULT 'mp4',
+    source_url    TEXT    NOT NULL,
+    aux_url       TEXT    NOT NULL DEFAULT '',
+    protocol      TEXT    NOT NULL DEFAULT 'http',
+    variant_id    TEXT    NOT NULL DEFAULT '',
+    vcodec        TEXT    NOT NULL DEFAULT '',
+    acodec        TEXT    NOT NULL DEFAULT '',
+    width         INTEGER NOT NULL DEFAULT 0,
+    height        INTEGER NOT NULL DEFAULT 0,
+    duration_ms   INTEGER NOT NULL DEFAULT 0,
+    est_size      INTEGER NOT NULL DEFAULT 0,
+    is_estimated  INTEGER NOT NULL DEFAULT 1,
+    is_selected   INTEGER NOT NULL DEFAULT 0,
+    status        TEXT    NOT NULL DEFAULT 'pending',
+    bytes_done    INTEGER NOT NULL DEFAULT 0,
+    output_name   TEXT    NOT NULL DEFAULT '',
+    error_code    TEXT    NOT NULL DEFAULT '',
+    error_message TEXT    NOT NULL DEFAULT '',
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL,
+    deleted_at    TEXT
+)
+"""
+
+# 账号级默认目录（D9）：**每个账号一行**，唯一性用部分唯一索引保证
+# （列级 UNIQUE 会与软删除冲突：取消配置后该账号再也插不回来）。
+_CREATE_OFFLINE_SETTINGS = """
+CREATE TABLE IF NOT EXISTS offline_download_settings (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          INTEGER NOT NULL,
+    default_disk_id  INTEGER NOT NULL,
+    default_rel_path TEXT    NOT NULL DEFAULT '',
+    created_at       TEXT    NOT NULL,
+    updated_at       TEXT    NOT NULL,
+    deleted_at       TEXT
+)
+"""
+
+
 _INDEXES = [
     # username 用**普通索引**（v1.5.0 反馈修复：原来是 `UNIQUE` 列约束）。
     # 原因：软删除（AGENTS.md §5.2 要求 deleted_at）会让历史行永久占用用户名，
@@ -136,6 +217,16 @@ _INDEXES = [
     # v1.7.0：变更日志按磁盘 + 路径查询（rev 查询走主键，无需额外索引）
     "CREATE INDEX IF NOT EXISTS file_changes_disk_id_idx ON file_changes(disk_id)",
     "CREATE INDEX IF NOT EXISTS file_changes_rel_path_idx ON file_changes(rel_path)",
+    # v1.8.0：离线下载（列表按账号过滤 → user_id 索引是必需的）
+    "CREATE INDEX IF NOT EXISTS offline_download_tasks_user_id_idx"
+    " ON offline_download_tasks(user_id)",
+    "CREATE INDEX IF NOT EXISTS offline_download_tasks_status_idx"
+    " ON offline_download_tasks(status)",
+    "CREATE INDEX IF NOT EXISTS offline_download_items_task_id_idx"
+    " ON offline_download_items(task_id)",
+    # 一个账号只允许一行**活跃**配置（D9）；软删除后可用同名重建
+    "CREATE UNIQUE INDEX IF NOT EXISTS offline_download_settings_user_active_uidx"
+    " ON offline_download_settings(user_id) WHERE deleted_at IS NULL",
 ]
 
 
@@ -190,6 +281,9 @@ def expected_schema() -> dict[str, str]:
         "config": _CREATE_CONFIG,
         "media_repair_tasks": _CREATE_MEDIA_REPAIR_TASKS,
         "file_changes": _CREATE_FILE_CHANGES,
+        "offline_download_tasks": _CREATE_OFFLINE_TASKS,
+        "offline_download_items": _CREATE_OFFLINE_ITEMS,
+        "offline_download_settings": _CREATE_OFFLINE_SETTINGS,
     }
 
 
@@ -343,6 +437,10 @@ async def init_db() -> None:
         await db.execute(_CREATE_MEDIA_REPAIR_TASKS)
         # v1.7.0：文件变更日志（挂载云盘的增量同步基础）
         await db.execute(_CREATE_FILE_CHANGES)
+        # v1.8.0：离线下载（任务 / 可下载项 / 账号级默认目录）
+        await db.execute(_CREATE_OFFLINE_TASKS)
+        await db.execute(_CREATE_OFFLINE_ITEMS)
+        await db.execute(_CREATE_OFFLINE_SETTINGS)
 
         # ── 运行时迁移：为 users 表添加缺失字段（已存在则跳过）──
         async with db.execute("PRAGMA table_info(users)") as cur:

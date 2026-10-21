@@ -40,6 +40,9 @@ const NAV_ITEMS: NavEntry[] = [
   // 这里不能继续保留独立导航项 —— 否则同一个功能在侧栏和页签里各有一个入口，
   // 用户会以为重复。`/repair` 路由仍然保留（深链与「查看修复进度」跳转）。
   { path: '/transfer', label: '传输任务', icon: 'transfer' },
+  // 离线下载（v1.8.0 F30）：独立业务页，服务端异步分析网页并抓取媒体，
+  // 与「传输任务」（本地上传/下载）不是同一功能，因此单独一个入口。
+  { path: '/offline', label: '离线下载', icon: 'download' },
 ];
 
 /** 底部固定项（对标桌面端 NavigationItemPosition.BOTTOM） */

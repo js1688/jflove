@@ -31,6 +31,8 @@ const NAV_ITEMS: NavEntry[] = [
   // v1.7.0：移除「同步管理」——同步能力只在桌面端（挂载）与移动端（相册备份）提供，
   // 浏览器端不具备本地文件系统访问能力，保留该入口只会误导用户。
   { path: '/transfer', label: '传输任务', icon: 'transfer' },
+  // v1.8.0：离线下载入口（需求 F30；页面 `/offline`，任务中心 + 新建任务同页）
+  { path: '/offline', label: '离线下载', icon: 'download' },
 ];
 
 /** 底部固定项（对标桌面端 NavigationItemPosition.BOTTOM） */

@@ -5,6 +5,7 @@
  *   - **底部导航 6 项收敛为 5 项**（文件/笔记/同步/传输/设置）；
  *     「修复中心」不再是导航项，其功能并入传输页（需求 §2.5 / AC-18），
  *     `/repair` 路由保留以兼容深链与 Web 端联动；
+ *   - v1.8.0：同步 tab 移除后补入「离线下载」（当前为 文件/笔记/传输/离线/设置 5 项）；
  *   - 图标矢量化（原先 6 个 emoji）+ 选中指示器；
  *   - 高度改用令牌 `--tabbar-h`，并补齐**安全区适配**
  *     （原先 `safe-area-bottom` 类名在全项目无任何定义，是空效果）；
@@ -26,6 +27,8 @@ const TABS: TabEntry[] = [
   { path: '/notes', label: '笔记', icon: 'notes', prefix: true },
   // v1.7.0：移除「同步」tab（浏览器端不提供同步能力）
   { path: '/transfer', label: '传输', icon: 'transfer', prefix: true },
+  // v1.8.0：离线下载入口（需求 F30；移动浏览器为第 5 个底部菜单项）
+  { path: '/offline', label: '离线', icon: 'download' },
   { path: '/settings', label: '设置', icon: 'settings' },
 ];
 

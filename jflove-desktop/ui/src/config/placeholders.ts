@@ -30,12 +30,13 @@ export interface PlaceholderEntry {
   implemented?: boolean;
 }
 
-/** 主导航 4 项 */
+/** 主导航 5 项 */
 export const MAIN_PLACEHOLDERS: PlaceholderEntry[] = [
   { path: '/files', label: '文件管理', icon: 'files', node: 'N7' },
   { path: '/notes', label: '笔记管理', icon: 'notes', node: 'N8', implemented: true },
   { path: '/sync', label: '云盘挂载', icon: 'sync', node: 'N9', implemented: true },
   { path: '/transfer', label: '传输任务', icon: 'transfer', node: 'N10', implemented: true },
+  { path: '/offline', label: '离线下载', icon: 'download', node: 'N18', implemented: true },
 ];
 
 /** 底部固定项 2 项 */

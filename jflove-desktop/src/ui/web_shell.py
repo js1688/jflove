@@ -1140,7 +1140,14 @@ class WebShell(QMainWindow):
         self._safe_overlay_refresh()
 
     def moveEvent(self, event: QEvent) -> None:
-        """主窗被拖动：交回基类处理后触发浮层重贴合"""
+        """
+        主窗被拖动：交回基类处理后触发浮层重贴合。
+
+        #7 修复点不在"少刷新一次"，而在 `MediaOverlay._apply_geometry`：
+        QVideoWidget 是原生子窗口，几何跟随之后还必须显式 `update/repaint`
+        才会在拖动中重绘（否则 Linux 上表现成画面滞后/黑屏）。
+        这里仍保持"一帧一次"的合帧策略，避免拖动抖动。
+        """
         super().moveEvent(event)
         self._schedule_overlay_refresh()
 

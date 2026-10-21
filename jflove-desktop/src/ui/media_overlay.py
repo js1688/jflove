@@ -410,6 +410,12 @@ class MediaOverlay(QObject):
         )
         size = QSize(max(1, int(round(rect.get("w", 1)))), max(1, int(round(rect.get("h", 1)))))
         self.window.setGeometry(top_left.x(), top_left.y(), size.width(), size.height())
+        # issue #7：QVideoWidget 是原生子窗口，主窗移动时合成器可能来不及给它
+        # 重绘（拖动中画面滞后/黑屏）。几何更新后显式刷新视频 surface。
+        if self._kind == "video" and self.window.isVisible():
+            self.video.update()
+            self.video.repaint()
+            self.window.update()
 
     def _on_position(self, position: int) -> None:
         if self._publish and self._visible:

@@ -60,6 +60,10 @@ scripts/verify/server.sh stop
   不要只用手写 curl 调加密接口）。
 - 改 controller / 加密中间件 / 流式接口时，先补这条真实客户端调用再收工；详细入口见
   `testing` 技能的「实机验证入口」与 `scripts/verify/README.md`。
+- **实机验证必须基于当前版本源码**：先按当前 `version.json` 构建/启动（含 `Dockerfile` 的当前镜像）；
+  禁止用上一版本镜像/Release 包代替。
+- **L3（Playwright）**：自带 Chromium 缺失时，`media_analyzer_service` 会回退系统 Edge/Chromium；
+  先探测 `BROWSER_MANAGER.available()`，不要用“没下载 Chromium”直接判 L3 不可用。
 
 ## 数据库变更硬约束
 

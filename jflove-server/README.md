@@ -222,6 +222,35 @@ python build.py -m all             # 四端统一入口（缺 docker 时 server/
 
 启动服务后访问 `http://localhost:8989/docs`（Swagger UI）。
 
+### 离线下载接口（v1.8.0）
+
+服务端按用户给的「无需登录网页地址」分析视频/音频/图片，下载到**该账号自己配置的**虚拟磁盘目录。
+10 个接口均加密、无路径参数、按账号隔离（他人 task_id 一律 404）：
+
+| 接口 | 用途 |
+|------|------|
+| `POST /api/v1/offline/analyze` | 创建分析任务（先校验总开关/账号目录/SSRF） |
+| `GET /api/v1/offline/tasks` | 自己的任务列表 |
+| `GET /api/v1/offline/detail` | 任务详情 + 清单 |
+| `POST /api/v1/offline/select` | 勾选并开始下载（磁盘写权限/余量/体积上限） |
+| `POST /api/v1/offline/next-page` | 图片追加下一页 |
+| `POST /api/v1/offline/cancel` / `retry` / `delete-record` | 取消 / 重试 / 删除记录（不删文件） |
+| `GET /api/v1/offline/meta` | 初始化元信息（自己的默认目录与可写磁盘） |
+| `POST /api/v1/offline/settings` | 保存/清除自己的默认目录 |
+
+- **出站收敛**：只有 `src/utils/outbound_http.py` 直接 import `httpx`；每一跳重定向都过 `ssrf_guard`；
+  yt-dlp/浏览器经 `egress_proxy`（127.0.0.1 + 随机令牌）出网；ffmpeg/ffprobe 只读本地文件并带
+  `-protocol_whitelist file,crypto`。
+- **产物**：先写目标目录下 `.jflove-download/<task_id>/`，成功后 `os.replace` 原子改名；同一文件
+  再次下载默认 `Range` 续传；同名不同内容追加 `_<sha1[:8]>`。
+- **签名过期自愈（AC-225）**：下载遇到 401/403/404/410（`url_expired`）时，自动对**原页面**重新分析
+  **一次**并刷新清单地址，再从断点继续；重分析后仍失败 → 任务 `failed` + 「媒体地址已过期」，由用户手动重试。
+  分析队列已满（≥20 条排队/分析中）时不自动重分析；已成功项与用户勾选在重分析后保持原样。
+- **配置**：全局策略（开关/深度分析/并发/上限）在 `config` 表，仅管理员；账号默认目录在
+  `offline_download_settings`，普通账号可用但必须有该磁盘的 write 权限。
+- **已知限制**：需要登录的站点/DRM/直播/代理不做；深度分析需镜像带 Chromium（`WITH_BROWSER=1`）；
+  `max_items` 只约束非图片项（图片由 `max_images` 单独约束）。
+
 ### 挂载云盘增量接口（变更日志）
 
 桌面端「云盘挂载」依赖两个只做增量的接口（均为加密信封 + 需磁盘读权限）：

@@ -13,6 +13,7 @@ import { SecurityPage } from '../pages/SecurityPage';
 import { ScratchWorkspace } from '../components/scratch/ScratchWorkspace';
 import { SyncPage } from '../pages/SyncPage';
 import { TransferTabsPage } from '../pages/TransferTabsPage';
+import { OfflineDownloadPage } from '../pages/offline-download/OfflineDownloadPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { AdminSystemPage } from '../pages/admin/AdminSystemPage';
 import { AdminUsersPage } from '../pages/admin/AdminUsersPage';
@@ -125,6 +126,8 @@ export const router = createHashRouter([
       // 传输任务与修复中心同一页的两个标签（/repair 保留以兼容深链）
       { path: 'transfer', element: <TransferTabsPage /> },
       { path: 'repair', element: <TransferTabsPage /> },
+      // 离线下载（v1.8.0 F30）：任务中心 + 新建任务同页（页签切换），设置面板在页内打开
+      { path: 'offline', element: <OfflineDownloadPage /> },
       { path: 'notes/:noteId', element: <NoteEditPage /> },
       { path: 'security', element: <SecurityPage /> },
       { path: 'settings', element: <SettingsPage /> },

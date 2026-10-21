@@ -342,7 +342,7 @@ class Test修复任务API:
         # 进行中：重复创建被拒
         self._create(client, env["admin"], env, "repair_dup.mp4")
         data = self._create(client, env["admin"], env, "repair_dup.mp4", expect=400)
-        assert "已有修复任务" in str(data.get("detail", ""))
+        assert "该文件正在处理中" in str(data.get("detail", ""))
         # 等终态：终态后仍被拒（v1.4.2 hotfix：终态记录同样拦截）
         resp = encrypted_request(
             client, env["admin"], "GET", "/api/v1/files/repair/tasks",
@@ -352,7 +352,7 @@ class Test修复任务API:
         dup = next(t for t in tasks if t["filename"] == "repair_dup.mp4")
         _wait_task_terminal(client, env["admin"], dup["id"])
         data = self._create(client, env["admin"], env, "repair_dup.mp4", expect=400)
-        assert "已有修复任务" in str(data.get("detail", ""))
+        assert "该文件正在处理中" in str(data.get("detail", ""))
         # 删除记录后：可重新修复
         encrypted_request(
             client, env["admin"], "POST", "/api/v1/files/repair/delete-record",
@@ -376,8 +376,8 @@ class Test修复任务API:
                 )
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
-    def test_任务列表_全平台共享(self, client, env):
-        """bob（另一账号）能看到 admin 创建的任务（全平台共享，AC-13）"""
+    def test_任务列表_按账号隔离(self, client, env):
+        """v1.8.0 D10：bob（另一账号）看不到 admin 创建的任务（AC-243）"""
         _gen_media(env["disk_root"], "repair_shared.mp4")
         self._create(client, env["admin"], env, "repair_shared.mp4")
         resp = encrypted_request(
@@ -386,7 +386,7 @@ class Test修复任务API:
         )
         assert resp.status_code == 200
         names = [t["filename"] for t in decrypt_response(env["bob"], resp)["tasks"]]
-        assert "repair_shared.mp4" in names
+        assert "repair_shared.mp4" not in names
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
     def test_覆盖_直接替换不留备份(self, client, env):
@@ -675,7 +675,34 @@ class Test越权防护:
             )
 
     @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
-    def test_只读账号_删除记录_403(self, client, env):
+    def test_admin也看不到他人修复记录_404(self, client, env):
+        """D10：管理员同样只看到自己的记录；他人 task_id 操作 404（AC-243）"""
+        _gen_media(env["disk_root"], "sec_isolation.mp4")
+        data = _create_repair(client, env["alice"], env, "sec_isolation.mp4")
+        task_id = data["task_id"]
+
+        resp = encrypted_request(
+            client, env["admin"], "GET", "/api/v1/files/repair/tasks",
+            {"page": 1, "page_size": 100},
+        )
+        admin_ids = [t["id"] for t in decrypt_response(env["admin"], resp)["tasks"]]
+        assert task_id not in admin_ids, "管理员不应看到他人修复任务"
+
+        resp = encrypted_request(
+            client, env["alice"], "GET", "/api/v1/files/repair/tasks",
+            {"page": 1, "page_size": 100},
+        )
+        alice_ids = [t["id"] for t in decrypt_response(env["alice"], resp)["tasks"]]
+        assert task_id in alice_ids
+
+        cancel = encrypted_request(
+            client, env["admin"], "POST", "/api/v1/files/repair/cancel",
+            {"task_id": task_id},
+        )
+        assert cancel.status_code == 404, "他人 task_id 必须按不存在处理（404）"
+
+    @pytest.mark.skipif(not _ffmpeg_available(), reason="imageio-ffmpeg 不可用")
+    def test_只读账号_删除他人记录_404(self, client, env):
         """M-1：只读账号（无写+删）删除任务记录 → 403"""
         _gen_media(env["disk_root"], "sec_delrec.mp4")
         data = _create_repair(client, env["admin"], env, "sec_delrec.mp4")
@@ -692,8 +719,9 @@ class Test越权防护:
                 client, env["bob"], "POST", "/api/v1/files/repair/delete-record",
                 {"task_id": task_id},
             )
-            assert resp.status_code == 403, (
-                f"只读账号删记录应 403，实际 {resp.status_code}"
+            # v1.8.0 D10：他人任务一律 404（不是 403，不泄露存在性）
+            assert resp.status_code == 404, (
+                f"他人任务删记录应 404，实际 {resp.status_code}"
             )
         finally:
             encrypted_request(

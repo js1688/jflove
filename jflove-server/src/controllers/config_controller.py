@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 import aiosqlite
 
 from src.models.database import get_db
-from src.services import config_service, auth_service
+from src.services import config_service, auth_service, offline_download_service
 from src.utils.middleware import decrypt_request_body, encrypt_response
 
 router = APIRouter(prefix="/api/v1/config", tags=["系统配置"])
@@ -51,6 +51,9 @@ async def get_config(request: Request, db: aiosqlite.Connection = Depends(get_db
     """获取全部系统配置项（管理员权限）"""
     _, _ = await _require_admin(request, db)
     config = await config_service.get_all(db)
+    # v1.8.0：离线下载全局策略未落库时展示默认值（管理员改后写库并立即生效）
+    for key, default in offline_download_service.OFFLINE_CONFIG_DEFAULTS.items():
+        config.setdefault(key, default)
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {"config": config})
 
@@ -77,6 +80,10 @@ async def update_config(request: Request, db: aiosqlite.Connection = Depends(get
     value = body.get("value", "")
     if not key:
         raise HTTPException(status_code=400, detail="key 不能为空")
+    try:
+        value = offline_download_service.validate_config_value(key, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await config_service.update(db, key, value)
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {"message": "配置已更新"})
