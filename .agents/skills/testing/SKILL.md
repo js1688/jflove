@@ -99,6 +99,25 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 
 - **入口**：Phase 6 证据门禁通过后才进入；UAT 只用**当前分支的 CI 构建物**（按 commit SHA 追溯），
   禁止拿历史版本/本地缓存包冒充。
+- **AI 必须主动触发构建（强制，不得只写步骤）**：进入 6.5 后由 AI **立即**对当前分支执行
+  `workflow_dispatch`，四个 workflow 一个不能少：
+  `build-desktop.yml` / `build-server.yml` / `build-web.yml` / `build-app.yml`。
+  - 首选：`gh workflow run <file> --ref <branch>`；
+  - 无 `gh` 时用 REST API（凭据从 `git credential fill` 取，**不要把 token 打印到输出/文档**）：
+    ```bash
+    TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')
+    curl -sS -o /dev/null -w "%{http_code}\n" -X POST \
+      -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+      "https://api.github.com/repos/<owner>/<repo>/actions/workflows/<file>/dispatches" \
+      -d '{"ref":"<branch>"}'
+    ```
+  - 判据：每个 dispatch **HTTP 204**；随后 `GET /repos/<owner>/<repo>/actions/runs?per_page=20`
+    逐个核对 run 的 `head_sha` 与目标 commit 一致，并把 **run id / URL / head_sha / 状态**回填
+    `文档记录/人工体验记录/<版本号>.md`；
+  - 凭据缺失（未登录 / token 无 `workflow` scope）→ 报告「**阻塞：无 workflow 触发凭据**」+ 用户手动步骤，
+    **不得**写成“已触发/已通过”，也**不得**默认把点按钮的活交给用户；
+  - 反例（2026-10-22 v1.8.1 首轮）：只写了「在 GitHub Actions 点 Run workflow」而没有真正触发，
+    用户看不到构建物、UAT 无法开始 → 视为 **流程缺陷**，必须自查。
 - **反馈处理**：先复现、再分类（代码 BUG / 体验问题 / 需求-设计问题）；代码与体验问题修完，
   重跑相关端实机 + 全量门禁，**版本号不变**；需求/设计问题退回 Phase 1/2。
 - **记录**：每轮更新 `文档记录/人工体验记录/<版本号>.md`，写清 commit / CI run / artifact / 哈希、

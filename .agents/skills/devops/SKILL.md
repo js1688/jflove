@@ -71,6 +71,18 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
 - **方式**：用 `workflow_dispatch`（ref = 当前分支）触发 `.github/workflows/build-*.yml`，
   **禁止打 `v<版本>` tag** —— 本仓库 tag 会触发 `release.yml` 创建 Draft Release，等于提前进入 Phase 8；
   且 tag 版本必须与 `version.json` 严格相等，`-rc/-uat` 后缀会被 CI 拒绝。
+- **触发责任在 AI（强制）**：必须由 AI 实际执行 dispatch 并核对 run，不得只输出操作步骤让用户点。
+  首选 `gh workflow run <file> --ref <branch>`；无 `gh` 时用 REST API：
+  ```bash
+  TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')
+  curl -sS -o /dev/null -w "%{http_code}\n" -X POST \
+    -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/<owner>/<repo>/actions/workflows/<file>/dispatches" \
+    -d '{"ref":"<branch>"}'
+  ```
+  四个文件 `build-desktop.yml` / `build-server.yml` / `build-web.yml` / `build-app.yml` 都要触发，
+  每个应返回 **204**；随后用 `GET .../actions/runs` 核对 `head_sha` 并回填记录。
+  凭据缺失 → 明确报告阻塞，不得声称已触发。
 - **代码一致性（强制）**：dispatch 前 `git rev-parse HEAD` 记下目标 commit；dispatch 后核对 run 的
   `head_sha` 是否一致，并保留 checkout 日志 `git fetch ... +<sha>` 行；可跑
   `python scripts/verify/check_uat_build.py --sha <commit>`（exit 0 才可用）；不一致就废弃该轮产物重新 dispatch。

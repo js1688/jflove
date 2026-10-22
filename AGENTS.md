@@ -450,6 +450,11 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
    - 五端证据齐全，**已知未覆盖项**在测试报告中显式列出（不得藏）；
    - 当前分支已提交并推送，CI 构建物可按 commit SHA 追溯。
 2. **构建物规则（强制）**
+   - **AI 必须亲自触发**：进入 Phase 6.5 后由 AI 立即对当前分支 dispatch
+     `build-desktop.yml` / `build-server.yml` / `build-web.yml` / `build-app.yml` 四个 workflow，
+     并逐个核对 run 的 `head_sha`；**禁止只写操作步骤让用户点**。无 `gh` 时用 GitHub REST API
+     （`POST /repos/<owner>/<repo>/actions/workflows/<file>/dispatches`，凭据取 `git credential fill`，
+     不得打印 token）。凭据缺失时必须报告「阻塞：无 workflow 触发凭据」，不得写成已触发/已通过；
    - UAT 构建一律用 **`workflow_dispatch`（ref = 当前分支）** 触发 `.github/workflows/build-*.yml`；
      **禁止打 `v<版本>` 发布 tag** —— 本仓库的 tag 会触发 `release.yml` 创建 Draft Release，属 Phase 8；
    - **代码一致性（强制）**：dispatch 前先 `git rev-parse HEAD` 记下目标 commit；dispatch 后核对 run 的
