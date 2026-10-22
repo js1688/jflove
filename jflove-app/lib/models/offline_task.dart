@@ -436,3 +436,132 @@ class OfflineMeta {
     );
   }
 }
+
+// ── 写接口响应模型（v1.8.1：移动端从只读补成完整功能）──────────────
+
+/// `POST /offline/analyze` 响应
+class OfflineAnalyzeResult {
+  const OfflineAnalyzeResult({
+    this.taskId = 0,
+    this.status = '',
+    this.sourceDomain = '',
+    this.pageTitle = '',
+  });
+
+  final int taskId;
+  final String status;
+  final String sourceDomain;
+  final String pageTitle;
+
+  factory OfflineAnalyzeResult.fromJson(Map<String, dynamic>? json) {
+    final map = json ?? const <String, dynamic>{};
+    return OfflineAnalyzeResult(
+      taskId: _asInt(map['task_id']),
+      status: _asString(map['status']),
+      sourceDomain: _asString(map['source_domain']),
+      pageTitle: _asString(map['page_title']),
+    );
+  }
+}
+
+/// `POST /offline/select` 响应
+class OfflineSelectResult {
+  const OfflineSelectResult({
+    this.taskId = 0,
+    this.status = '',
+    this.selected = 0,
+    this.bytesTotal = 0,
+  });
+
+  final int taskId;
+  final String status;
+
+  /// 本次实际勾选并进入下载队列的项数
+  final int selected;
+
+  /// 本次下载总字节（服务端按已选项 est_size 估算）
+  final int bytesTotal;
+
+  factory OfflineSelectResult.fromJson(Map<String, dynamic>? json) {
+    final map = json ?? const <String, dynamic>{};
+    return OfflineSelectResult(
+      taskId: _asInt(map['task_id']),
+      status: _asString(map['status']),
+      selected: _asInt(map['selected']),
+      bytesTotal: _asInt(map['bytes_total']),
+    );
+  }
+}
+
+/// `POST /offline/next-page` 响应（图片追加下一页）
+class OfflineNextPageResult {
+  const OfflineNextPageResult({
+    this.added = 0,
+    this.itemTotal = 0,
+    this.hasMore = false,
+    this.pageIndex = 0,
+  });
+
+  final int added;
+  final int itemTotal;
+  final bool hasMore;
+  final int pageIndex;
+
+  factory OfflineNextPageResult.fromJson(Map<String, dynamic>? json) {
+    final map = json ?? const <String, dynamic>{};
+    return OfflineNextPageResult(
+      added: _asInt(map['added']),
+      itemTotal: _asInt(map['item_total']),
+      hasMore: _asBool(map['has_more']),
+      pageIndex: _asInt(map['page_index']),
+    );
+  }
+}
+
+/// `POST /offline/settings` 响应（保存/清除默认目录）
+class OfflineSettingsResult {
+  const OfflineSettingsResult({
+    this.configured = false,
+    this.diskId = 0,
+    this.relPath = '',
+  });
+
+  final bool configured;
+  final int diskId;
+  final String relPath;
+
+  factory OfflineSettingsResult.fromJson(Map<String, dynamic>? json) {
+    final map = json ?? const <String, dynamic>{};
+    return OfflineSettingsResult(
+      configured: _asBool(map['configured']),
+      diskId: _asInt(map['disk_id']),
+      relPath: _asString(map['rel_path']),
+    );
+  }
+}
+
+/// `POST /offline/cancel|retry|delete-record` 通用动作响应
+class OfflineTaskAction {
+  const OfflineTaskAction({
+    this.taskId = 0,
+    this.status = '',
+    this.deleted = false,
+  });
+
+  final int taskId;
+
+  /// 动作后的任务状态（删除记录时为空串）
+  final String status;
+
+  /// 仅 `delete-record` 返回 true
+  final bool deleted;
+
+  factory OfflineTaskAction.fromJson(Map<String, dynamic>? json) {
+    final map = json ?? const <String, dynamic>{};
+    return OfflineTaskAction(
+      taskId: _asInt(map['task_id']),
+      status: _asString(map['status']),
+      deleted: _asBool(map['deleted']),
+    );
+  }
+}

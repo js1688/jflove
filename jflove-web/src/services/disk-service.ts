@@ -7,11 +7,12 @@
  *   - PUT       /api/v1/virtual-disks/{disk_id}         更新（body: name, real_path）
  *   - DELETE    /api/v1/virtual-disks/{disk_id}         删除
  *   - GET       /api/v1/virtual-disks/{disk_id}/browse  浏览子目录（body: path）
+ *   - GET       /api/v1/virtual-disks/server-dirs       浏览服务器任意目录（v1.8.1，仅管理员）
  * 只读接口（list/browse）走加密 GET + URL query 信封（浏览器 GET 无法携带 body）。
  */
 
 import { httpClient } from '../utils/http-client';
-import type { VirtualDisk, DiskDir } from '../types/models';
+import type { VirtualDisk, DiskDir, ServerDirListing } from '../types/models';
 
 export const diskService = {
   /** 管理员获取全部磁盘列表 */
@@ -50,5 +51,17 @@ export const diskService = {
       { path },
     );
     return resp.dirs;
+  },
+
+  /**
+   * 浏览服务器本机目录（v1.8.1，仅管理员；只返回目录）。
+   *
+   * @param path 绝对路径；留空由服务端从 roots 第一项开始
+   */
+  async browseServerDirs(path?: string): Promise<ServerDirListing> {
+    return httpClient.get<ServerDirListing>(
+      '/api/v1/virtual-disks/server-dirs',
+      path ? { path } : {},
+    );
   },
 };

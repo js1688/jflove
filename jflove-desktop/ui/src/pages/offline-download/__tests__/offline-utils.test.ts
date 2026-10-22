@@ -146,10 +146,30 @@ describe('状态与展示格式化', () => {
   });
 
   it('进度优先按字节、无字节时按项目数', () => {
-    expect(taskPercent({ bytes_done: 50, bytes_total: 200, item_done: 0, item_total: 0 })).toBe(25);
-    expect(taskPercent({ bytes_done: 0, bytes_total: 0, item_done: 1, item_total: 4 })).toBe(25);
-    expect(taskPercent({ bytes_done: 0, bytes_total: 0, item_done: 0, item_total: 0 })).toBe(0);
-    expect(taskPercent({ bytes_done: 300, bytes_total: 200, item_done: 0, item_total: 0 })).toBe(100);
+    expect(
+      taskPercent({ status: 'downloading', bytes_done: 50, bytes_total: 200, item_done: 0, item_total: 0 }),
+    ).toBe(25);
+    expect(
+      taskPercent({ status: 'downloading', bytes_done: 0, bytes_total: 0, item_done: 1, item_total: 4 }),
+    ).toBe(25);
+    expect(
+      taskPercent({ status: 'queued', bytes_done: 0, bytes_total: 0, item_done: 0, item_total: 0 }),
+    ).toBe(0);
+    expect(
+      taskPercent({ status: 'merging', bytes_done: 300, bytes_total: 200, item_done: 0, item_total: 0 }),
+    ).toBe(100);
+  });
+
+  it('成功任务无条件 100%（v1.8.1 / AC-255：不按字节估算值回退）', () => {
+    expect(
+      taskPercent({ status: 'success', bytes_done: 99, bytes_total: 100, item_done: 0, item_total: 0 }),
+    ).toBe(100);
+    expect(
+      taskPercent({ status: 'success', bytes_done: 0, bytes_total: 0, item_done: 0, item_total: 0 }),
+    ).toBe(100);
+    expect(
+      taskPercent({ status: 'success', bytes_done: 1, bytes_total: 4, item_done: 1, item_total: 4 }),
+    ).toBe(100);
   });
 
   it('时长 / 大小 / 速度格式化', () => {

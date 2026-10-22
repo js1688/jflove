@@ -58,6 +58,37 @@ async def list_disks(request: Request, db: aiosqlite.Connection = Depends(get_db
     return encrypt_response(session_id, {"disks": disks})
 
 
+@router.get(
+    "/server-dirs",
+    summary="浏览服务器本机目录（管理员）",
+    description=(
+        "列出服务端某个绝对路径下的子目录，用于添加/编辑虚拟磁盘时选择真实路径。\n\n"
+        "**只返回目录，不返回文件名、文件内容或文件大小**；仅管理员可调用。\n\n"
+        "请求体（加密后 / GET 使用 query 信封）字段：\n"
+        "- `token`：管理员 JWT 令牌\n"
+        "- `path`：绝对路径；留空表示从 roots 第一项开始\n\n"
+        "响应体（加密后）字段：\n"
+        "- `path`：当前绝对路径\n"
+        "- `parent`：上一级绝对路径（根目录为 null）\n"
+        "- `dirs`：子目录列表，每项含 `name`、`path`\n"
+        "- `roots`：常见起始目录，每项含 `name`、`path`\n"
+        "- `truncated`：目录数超过上限时为 true"
+    ),
+)
+async def browse_server_dirs(
+    request: Request, db: aiosqlite.Connection = Depends(get_db)
+):
+    """浏览服务器本机子目录（管理员权限，只读）。"""
+    _, body = await _require_admin(request, db)
+    path = str(body.get("path", "") or "").strip()
+    try:
+        result = virtual_disk_service.list_server_dirs(path)
+    except virtual_disk_service.ServerDirError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
+    session_id = request.headers.get("X-Session-ID", "")
+    return encrypt_response(session_id, result)
+
+
 @router.post(
     "",
     summary="创建虚拟磁盘",

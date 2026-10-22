@@ -8,6 +8,7 @@ import '../../providers/file_provider.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_state.dart';
+import '../../widgets/server_dir_picker_dialog.dart';
 
 /// 磁盘管理页（admin）
 ///
@@ -164,12 +165,29 @@ class AdminDisksPage extends ConsumerWidget {
               decoration: const InputDecoration(labelText: '磁盘名称'),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: pathCtrl,
-              decoration: const InputDecoration(
-                labelText: '真实路径',
-                hintText: '/data/docs',
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: pathCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '真实路径',
+                      hintText: '/data/docs',
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.folder_open_outlined),
+                  tooltip: '浏览服务器目录',
+                  onPressed: () async {
+                    final picked = await ServerDirPickerDialog.show(
+                      ctx,
+                      initialPath: pathCtrl.text.trim(),
+                    );
+                    if (picked != null) pathCtrl.text = picked;
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -216,9 +234,26 @@ class AdminDisksPage extends ConsumerWidget {
               decoration: const InputDecoration(labelText: '磁盘名称'),
             ),
             const SizedBox(height: 8),
-            TextField(
-              controller: pathCtrl,
-              decoration: const InputDecoration(labelText: '真实路径'),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: pathCtrl,
+                    decoration: const InputDecoration(labelText: '真实路径'),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.folder_open_outlined),
+                  tooltip: '浏览服务器目录',
+                  onPressed: () async {
+                    final picked = await ServerDirPickerDialog.show(
+                      ctx,
+                      initialPath: pathCtrl.text.trim(),
+                    );
+                    if (picked != null) pathCtrl.text = picked;
+                  },
+                ),
+              ],
             ),
           ],
         ),

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jflove_app/models/offline_task.dart';
 
-/// 离线下载只读模型容错测试（v1.8.0）
+/// 离线下载模型容错测试（v1.8.0 / v1.8.1）
 ///
 /// 设计文档 §5 要求 `fromJson` 容错：**字段缺失不崩**。页面所有展示都建立在
 /// 这些模型上，一条脏数据不应让整页白屏，因此这里把"字段缺失 / null /
@@ -228,4 +228,65 @@ void main() {
       expect(empty.writableDisks, isEmpty);
     });
   });
+
+  group('写接口响应模型（v1.8.1）', () {
+    test('OfflineAnalyzeResult：字段缺失 / 类型不符都回落默认值', () {
+      final ok = OfflineAnalyzeResult.fromJson({
+        'task_id': '12',
+        'status': 'analyzing',
+        'source_domain': 'example.com',
+        'page_title': '页面',
+      });
+      expect(ok.taskId, 12);
+      expect(ok.status, 'analyzing');
+      expect(ok.sourceDomain, 'example.com');
+      expect(ok.pageTitle, '页面');
+
+      final empty = OfflineAnalyzeResult.fromJson(null);
+      expect(empty.taskId, 0);
+      expect(empty.status, '');
+    });
+
+    test('OfflineSelectResult / OfflineTaskAction 解析', () {
+      final selected = OfflineSelectResult.fromJson({
+        'task_id': 12,
+        'status': 'downloading',
+        'selected': 3,
+        'bytes_total': 999,
+      });
+      expect(selected.selected, 3);
+      expect(selected.bytesTotal, 999);
+
+      final deleted = OfflineTaskAction.fromJson({
+        'task_id': 12,
+        'deleted': true,
+      });
+      expect(deleted.taskId, 12);
+      expect(deleted.deleted, isTrue);
+      expect(deleted.status, '');
+    });
+
+    test('OfflineNextPageResult / OfflineSettingsResult 解析', () {
+      final next = OfflineNextPageResult.fromJson({
+        'added': 5,
+        'item_total': 20,
+        'has_more': true,
+        'page_index': 2,
+      });
+      expect(next.added, 5);
+      expect(next.itemTotal, 20);
+      expect(next.hasMore, isTrue);
+      expect(next.pageIndex, 2);
+
+      final settings = OfflineSettingsResult.fromJson({
+        'configured': true,
+        'disk_id': 3,
+        'rel_path': 'dl',
+      });
+      expect(settings.configured, isTrue);
+      expect(settings.diskId, 3);
+      expect(settings.relPath, 'dl');
+    });
+  });
+
 }

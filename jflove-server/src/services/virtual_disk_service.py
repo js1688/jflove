@@ -5,12 +5,113 @@
 """
 
 import os
+import string
+import sys
 import aiosqlite
 
 from src.repositories import virtual_disk_repository
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+#: 服务器目录浏览单次返回上限（防止超大目录拖垮界面；超限时 truncated=True）
+SERVER_DIR_LIMIT = 2000
+
+
+class ServerDirError(Exception):
+    """服务器目录浏览的业务错误（带 HTTP 状态码，供 controller 直接映射）。"""
+
+    def __init__(self, message: str, status: int = 400):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
+def _server_roots() -> list[dict]:
+    """
+    返回服务器目录浏览的常见起点（POSIX：/、/storage、/data、~；Windows：各盘符 + ~）。
+
+    :returns: `[{"name": 展示名, "path": 绝对路径}]`，去重且只保留真实存在的目录
+    """
+    candidates: list[str] = []
+    if sys.platform == "win32":
+        for letter in string.ascii_uppercase:
+            root = f"{letter}:\\"
+            if os.path.isdir(root):
+                candidates.append(root)
+    else:
+        candidates.extend(["/", "/storage", "/data"])
+    home = os.path.expanduser("~")
+    if home:
+        candidates.append(home)
+
+    roots: list[dict] = []
+    seen: set[str] = set()
+    for raw in candidates:
+        normalized = os.path.normpath(raw)
+        key = os.path.normcase(normalized)
+        if key in seen or not os.path.isdir(normalized):
+            continue
+        seen.add(key)
+        name = os.path.basename(normalized.rstrip("\\/")) or normalized
+        roots.append({"name": name, "path": normalized})
+    return roots
+
+
+def list_server_dirs(path: str = "") -> dict:
+    """
+    列出服务器本机某个绝对路径下的子目录（只列目录，不读文件）。
+
+    :param path: 绝对路径；空字符串表示使用 roots 第一项
+    :returns: `path` / `parent` / `dirs` / `roots` / `truncated`
+    :raises ServerDirError: 路径非法、目录不存在或无权限（带状态码）
+    """
+    roots = _server_roots()
+    if not path:
+        if not roots:
+            raise ServerDirError("没有可访问的目录", status=404)
+        path = roots[0]["path"]
+
+    if not os.path.isabs(path):
+        raise ServerDirError("路径必须是绝对路径", status=400)
+
+    current = os.path.normpath(path)
+    if not os.path.isdir(current):
+        raise ServerDirError("目录不存在", status=404)
+
+    entries: list[dict] = []
+    truncated = False
+    try:
+        with os.scandir(current) as iterator:
+            for entry in iterator:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    if not entry.is_dir():
+                        continue
+                except OSError:
+                    continue
+                if len(entries) >= SERVER_DIR_LIMIT:
+                    truncated = True
+                    break
+                entries.append(
+                    {"name": entry.name, "path": os.path.join(current, entry.name)}
+                )
+    except PermissionError:
+        raise ServerDirError("无权限访问该目录", status=403)
+
+    entries.sort(key=lambda item: item["name"].casefold())
+    parent = os.path.dirname(current)
+    if not parent or os.path.normcase(parent) == os.path.normcase(current):
+        parent = None
+
+    return {
+        "path": current,
+        "parent": parent,
+        "dirs": entries,
+        "roots": roots,
+        "truncated": truncated,
+    }
 
 
 async def list_disks(db: aiosqlite.Connection) -> list[dict]:

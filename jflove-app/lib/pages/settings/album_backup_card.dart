@@ -11,6 +11,7 @@ import '../../providers/file_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../services/album_backup/album_backup_config.dart';
 import '../../widgets/app_card.dart';
+import '../../widgets/virtual_disk_dir_picker.dart';
 
 /// 相册自动同步设置卡（v1.7.0）
 ///
@@ -102,13 +103,15 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
       _snack('没有可用的磁盘');
       return;
     }
-    final picked = await showDialog<({int diskId, String path})>(
-      context: context,
-      builder: (_) => _PickTargetDialog(
-        disks: disks,
-        initialDiskId: _config.diskId,
-        initialPath: _config.remotePath,
-      ),
+    // v1.8.1：远端目录改为「磁盘 + 目录选择器」，不再要求手写子路径
+    final picked = await VirtualDiskDirPicker.show(
+      context,
+      disks: disks
+          .map((d) => DirPickerDisk(id: d.id, name: d.name))
+          .toList(growable: false),
+      initialDiskId: _config.diskId,
+      initialPath: _config.remotePath,
+      title: '选择远端目标目录',
     );
     if (picked == null) return;
     await _apply(_config.copyWith(diskId: picked.diskId, remotePath: picked.path));
@@ -352,97 +355,6 @@ class _SwitchRow extends StatelessWidget {
       title: Text(label),
       value: value,
       onChanged: onChanged,
-    );
-  }
-}
-
-/// 选择远端目标目录的对话框（磁盘下拉 + 子路径输入）
-class _PickTargetDialog extends StatefulWidget {
-  final List<VirtualDisk> disks;
-  final int initialDiskId;
-  final String initialPath;
-
-  const _PickTargetDialog({
-    required this.disks,
-    required this.initialDiskId,
-    required this.initialPath,
-  });
-
-  @override
-  State<_PickTargetDialog> createState() => _PickTargetDialogState();
-}
-
-class _PickTargetDialogState extends State<_PickTargetDialog> {
-  late int _diskId;
-  late final TextEditingController _pathController;
-
-  @override
-  void initState() {
-    super.initState();
-    _diskId = widget.initialDiskId > 0
-        ? widget.initialDiskId
-        : widget.disks.first.id;
-    _pathController = TextEditingController(text: widget.initialPath);
-  }
-
-  @override
-  void dispose() {
-    _pathController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('选择远端目标目录'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('第 1 步：选择磁盘'),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<int>(
-            initialValue: _diskId,
-            items: widget.disks
-                .map((d) => DropdownMenuItem(value: d.id, child: Text(d.name)))
-                .toList(),
-            onChanged: (v) {
-              if (v != null) setState(() => _diskId = v);
-            },
-          ),
-          const SizedBox(height: 16),
-          const Text('第 2 步：填写子目录（留空 = 根目录）'),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _pathController,
-            decoration: const InputDecoration(
-              hintText: '例如 手机相册',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '备份文件会按「年/月」分层存放在该目录下。',
-            style: TextStyle(fontSize: 12),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: () {
-            final path = _pathController.text.trim().replaceAll(
-                  RegExp(r'^/+|/+$'),
-                  '',
-                );
-            Navigator.of(context).pop((diskId: _diskId, path: path));
-          },
-          child: const Text('确定'),
-        ),
-      ],
     );
   }
 }

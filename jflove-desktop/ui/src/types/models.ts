@@ -56,6 +56,26 @@ export interface DiskDir {
   path: string;
 }
 
+/** 服务器目录浏览的单条目录（v1.8.1：GET /virtual-disks/server-dirs，仅管理员） */
+export interface ServerDirEntry {
+  name: string;
+  path: string;
+}
+
+/** 服务器目录浏览响应（只含目录，不含文件） */
+export interface ServerDirListing {
+  /** 当前规范化绝对路径 */
+  path: string;
+  /** 上一级绝对路径；根目录 / 盘符根为 null */
+  parent: string | null;
+  /** 当前目录下的子目录（隐藏目录已由服务端过滤） */
+  dirs: ServerDirEntry[];
+  /** 本机常见起点，供选择器快捷跳转 */
+  roots: ServerDirEntry[];
+  /** 子目录数超过服务端上限时为 true */
+  truncated: boolean;
+}
+
 // ── 文件/目录 ──
 
 export interface FileItem {

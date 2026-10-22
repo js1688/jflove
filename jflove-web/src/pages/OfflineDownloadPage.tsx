@@ -47,7 +47,6 @@ import {
   canRetryTask,
   formatIsoTime,
   isReadOnlyTask,
-  isTaskActive,
   resolvePollInterval,
   taskProgress,
   taskProgressText,
@@ -514,7 +513,6 @@ function TaskRow({
   onSelect,
   onOpenInFiles,
 }: TaskRowProps) {
-  const active = isTaskActive(task.status);
   const percent = taskProgress(task);
   const operable = canOperateTask(task) && !busy;
 
@@ -539,11 +537,10 @@ function TaskRow({
             {task.finished_at ? ` · 完成 ${formatIsoTime(task.finished_at)}` : ''}
           </p>
 
-          {active && (
-            <div className="mt-2">
-              <Progress value={percent} />
-            </div>
-          )}
+          {/* 进度条对所有状态可见：成功任务固定 100%（v1.8.1 / AC-256） */}
+          <div className="mt-2">
+            <Progress value={percent} />
+          </div>
           <p className="tabular mt-1 text-[11.5px] text-muted">{taskProgressText(task)}</p>
 
           <p className="mt-0.5 text-[11.5px] text-subtle">

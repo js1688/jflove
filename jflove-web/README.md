@@ -4,9 +4,13 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 
 支持 PC 端（侧边栏导航）和移动端（底部 TabBar 导航）双布局自适应。
 
-> **当前版本：v1.7.0**（版本号唯一真相 = 仓库根 `version.json`；本模块由 `python scripts/sync_version.py`
+> **当前版本：v1.8.1**（版本号唯一真相 = 仓库根 `version.json`；本模块由 `python scripts/sync_version.py`
 > 同步两处：`package.json` 的 `version` 与 `src/config/constants.ts` 的 `APP_VERSION`。
 > 改版本只改 `version.json` + 跑同步脚本，**不要手改任何一处版本号字段**；不存在 `build.py --version` 选项）
+
+> **v1.8.1**：成功任务进度条固定 100%（`taskProgress` 成功优先，文案带 `100%`）；
+> 磁盘管理新增「浏览…」服务器目录选择器（管理员只读接口 `GET /api/v1/virtual-disks/server-dirs`），
+> 手输真实路径保留为兜底。
 
 ---
 
@@ -174,6 +178,7 @@ jflove-web/
 │   ├── components/
 │   │   ├── PageHeader.tsx          # 页面标题栏（sticky 固定）
 │   │   ├── PathBreadcrumb.tsx      # 路径面包屑（含返回上级箭头）
+│   │   ├── ServerDirPickerModal.tsx # 服务器目录选择（v1.8.1）
 │   │   ├── DirTreeModal.tsx        # 目录树选择弹窗
 │   │   ├── ConfirmDialog.tsx       # 确认对话框
 │   │   ├── LoadingSpinner.tsx      # 加载指示器

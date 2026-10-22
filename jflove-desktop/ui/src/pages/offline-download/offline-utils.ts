@@ -99,13 +99,21 @@ export function formatSpeed(bytesPerSecond: number): string {
   return `${formatSize(bytesPerSecond)}/s`;
 }
 
-/** 任务进度百分比：优先按字节，字节未知时按已选项目数（0~100） */
+/**
+ * 任务进度百分比（0~100）。
+ *
+ * 产品口径（v1.8.1 / D15）：`status=success` 时无条件 100%，不按字节估算值回退
+ * （成功任务的 bytes_total 可能是估算值，会出现「已完成却 99%」的矛盾显示）。
+ * 其余状态：字节优先，字节未知时按已选项目数。
+ */
 export function taskPercent(task: {
+  status: string;
   bytes_done: number;
   bytes_total: number;
   item_done: number;
   item_total: number;
 }): number {
+  if (task.status === 'success') return 100;
   const total = Number(task.bytes_total) || 0;
   const done = Number(task.bytes_done) || 0;
   if (total > 0) return Math.max(0, Math.min(100, Math.round((done / total) * 100)));

@@ -116,14 +116,14 @@ class SettingsPage extends ConsumerWidget {
           // ---- 相册自动同步（v1.7.0 新增：替代原「同步管理」） ----
           const AlbumBackupCard(),
           const SizedBox(height: 12),
-          // ---- 离线下载（v1.8.0 新增：移动端只读入口，需求 F30） ----
+          // ---- 离线下载（v1.8.1：移动端完整功能入口，需求 F30 / F32） ----
           _SectionCard(
             title: '离线下载',
             icon: Icons.cloud_download_outlined,
             child: _SectionListTile(
               icon: Icons.download_for_offline_outlined,
               title: '离线下载中心',
-              subtitle: '查看任务进度与产物（只读）',
+              subtitle: '新建任务、查看进度与产物、管理任务',
               onTap: () => context.push(AppRoutes.offlineDownload),
             ),
           ),
@@ -222,7 +222,7 @@ class SettingsPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoRow(label: '版本', value: 'v1.8.0'),
+                _InfoRow(label: '版本', value: 'v1.8.1'),
                 const SizedBox(height: 6),
                 Text(
                   '私有文档 & 笔记管理系统',
@@ -616,7 +616,7 @@ class _AdminListTile extends StatelessWidget {
 /// 设置页通用列表项（图标 + 标题 + 可选副标题 + 右侧箭头）
 ///
 /// v1.8.0：「离线下载中心」入口使用；与管理面板的 [_AdminListTile] 视觉一致，
-/// 额外支持一行副标题说明（例如「只读」）。
+/// 额外支持一行副标题说明。
 class _SectionListTile extends StatelessWidget {
   final IconData icon;
   final String title;

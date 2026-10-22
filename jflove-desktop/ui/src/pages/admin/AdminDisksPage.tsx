@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { diskService } from '../../services/disk-service';
 import { PageHeader } from '../../components/PageHeader';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { ServerDirPickerModal } from '../../components/ServerDirPickerModal';
 import { useIsPC } from '../../hooks/use-responsive';
 import {
   Button,
@@ -49,6 +50,9 @@ export function AdminDisksPage() {
   const [editPath, setEditPath] = useState('');
 
   const [deleteDisk, setDeleteDisk] = useState<VirtualDisk | null>(null);
+
+  /** 服务器目录选择器归属的表单（v1.8.1：创建 / 编辑磁盘时点选真实路径） */
+  const [pickerFor, setPickerFor] = useState<'create' | 'edit' | null>(null);
 
   const loadDisks = async () => {
     setLoading(true);
@@ -286,6 +290,7 @@ export function AdminDisksPage() {
           onNameChange={setCreateName}
           path={createPath}
           onPathChange={setCreatePath}
+          onBrowse={() => setPickerFor('create')}
           onConfirm={handleCreate}
           onCancel={() => setShowCreate(false)}
         />
@@ -300,8 +305,22 @@ export function AdminDisksPage() {
           onNameChange={setEditName}
           path={editPath}
           onPathChange={setEditPath}
+          onBrowse={() => setPickerFor('edit')}
           onConfirm={handleEdit}
           onCancel={() => setEditDisk(null)}
+        />
+      )}
+
+      {/* 服务器目录选择器（v1.8.1） */}
+      {pickerFor && (
+        <ServerDirPickerModal
+          initialPath={pickerFor === 'create' ? createPath : editPath}
+          onSelect={(path) => {
+            if (pickerFor === 'create') setCreatePath(path);
+            else setEditPath(path);
+            setPickerFor(null);
+          }}
+          onClose={() => setPickerFor(null)}
         />
       )}
 
@@ -320,12 +339,14 @@ export function AdminDisksPage() {
   );
 }
 
-/** 磁盘表单弹窗（创建 / 编辑共用，v1.5.0 改用统一 Modal） */
+/** 磁盘表单弹窗（创建 / 编辑共用，v1.5.0 改用统一 Modal；v1.8.1 增加「浏览…」） */
 function DiskFormDialog({
-  title, icon, name, onNameChange, path, onPathChange, onConfirm, onCancel,
+  title, icon, name, onNameChange, path, onPathChange, onBrowse, onConfirm, onCancel,
 }: {
   title: string; icon: IconName;
   name: string; onNameChange: (v: string) => void; path: string; onPathChange: (v: string) => void;
+  /** 打开服务器目录选择器；文本框保留作为兜底 */
+  onBrowse: () => void;
   onConfirm: () => void; onCancel: () => void;
 }) {
   return (
@@ -333,7 +354,7 @@ function DiskFormDialog({
       open
       title={title}
       icon={icon}
-      width={420}
+      width={440}
       onClose={onCancel}
       footer={
         <>
@@ -353,14 +374,22 @@ function DiskFormDialog({
         onChange={e => onNameChange(e.target.value)}
         className="input mb-3"
       />
-      <input
-        type="text"
-        placeholder="磁盘路径"
-        value={path}
-        onChange={e => onPathChange(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && onConfirm()}
-        className="input"
-      />
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="磁盘路径（可点右侧浏览选择）"
+          value={path}
+          onChange={e => onPathChange(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && onConfirm()}
+          className="input min-w-0 flex-1"
+        />
+        <Button size="sm" icon="folder" onClick={onBrowse}>
+          浏览…
+        </Button>
+      </div>
+      <p className="mt-2 text-[12px] text-subtle">
+        从服务器目录树选择，或直接输入绝对路径。
+      </p>
     </Modal>
   );
 }

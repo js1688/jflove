@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../config/design_tokens.dart';
+import '../../config/routes.dart';
 import '../../models/offline_task.dart';
 import '../../providers/offline_provider.dart';
 import '../../utils/exception.dart';
@@ -11,22 +13,21 @@ import '../../utils/logger.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_state.dart';
+import '../../widgets/virtual_disk_dir_picker.dart';
+import 'offline_error_text.dart';
+import 'offline_format.dart';
+import 'offline_settings_sheet.dart';
 
-/// 离线下载中心（移动端**只读**，v1.8.0）
+/// 离线下载中心（移动端完整功能，v1.8.1）
 ///
-/// 设计依据：`文档记录/设计文档/v1.8.0.md` §5（移动端设计） +
-/// `文档记录/需求文档/v1.8.0.md` F27.5 / F30 / AC-231：
-///   - 只展示任务列表与进度（状态 / 来源域名 / 产物名 / 目标 / 失败原因）；
-///   - **不提供**任何创建 / 勾选 / 操作入口 —— 任务动作只在桌面端与 Web 端；
+/// 设计依据：`文档记录/设计文档/v1.8.1.md` §5 + 需求 v1.8.1 F32 / AC-248~253：
+///   - 任务中心：列表 + 进度 + 新建入口 + 设置入口 + 任务操作；
+///   - 详情：清单、失败原因、取消 / 重试 / 删除记录 / 追加图片页 / 去选择；
 ///   - 2.5s 轮询，**仅页面可见时**（切后台立即停，`dispose` 内停掉定时器）；
 ///   - 下拉刷新。
 ///
-/// 只读边界（强制）：本文件不调用任何写接口，HTTP 一律经
-/// `lib/services/offline_download_service.dart` → `http_service.dart`（加密信封）。
-///
-/// 轮询为何不随"全部终态"停止：移动端可能同时开着桌面端 / Web 端，任务由
-/// 其它端创建；持续轮询才能满足 F27.4（同一账号三端在 2.5s 内看到同一份列表）。
-/// 移动端设计只以"页面可见"为停止条件（§5），本页严格照此实现。
+/// 约束：HTTP 一律经 `OfflineDownloadService` → `http_service.dart`（加密信封）；
+/// token / session_key 不进入日志。
 class OfflineDownloadPage extends ConsumerStatefulWidget {
   const OfflineDownloadPage({super.key});
 
@@ -40,7 +41,7 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
   /// 轮询间隔（F27.3：2.5s；移动端固定，不跟随 `meta.poll_interval_ms`）
   static const Duration _pollInterval = Duration(milliseconds: 2500);
 
-  /// 单页拉取条数（只读页不做分页交互，一次拉满一页即可）
+  /// 单页拉取条数（移动端一次拉满一页即可）
   static const int _pageSize = 50;
 
   List<OfflineTask> _tasks = const [];
@@ -140,22 +141,73 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
   /// 下拉刷新 / 顶部刷新（元信息一并更新）
   Future<void> _refresh() => _load(includeMeta: true);
 
-  /// 元信息不可用时的顶部提示（只解释原因，不提供任何操作）
-  String? _unavailableText() {
-    if (_meta.enabled && _meta.canUse) return null;
+  /// 元信息不可用时的顶部提示（不可用原因 + 是否引导去设置）
+  ({String text, bool needsSettings})? _unavailableNotice() {
+    if (_meta.enabled && _meta.canUse && _meta.configured && _meta.configValid) {
+      return null;
+    }
     switch (_meta.unusableReason) {
       case 'disabled':
-        return '服务端已关闭离线下载功能';
+        return (text: '服务端已关闭离线下载功能', needsSettings: false);
       case 'no_writable_disk':
-        return '你没有可写入的磁盘，暂时无法使用离线下载';
+        return (
+          text: '你没有可写入的磁盘，暂时无法使用离线下载',
+          needsSettings: false,
+        );
       case 'not_configured':
-        return '尚未设置离线下载目录，可在桌面端或 Web 端配置';
+        return (text: '尚未设置离线下载默认目录', needsSettings: true);
       case 'config_invalid':
-        return '离线下载目录已失效，请在桌面端或 Web 端重新配置';
+        return (text: '离线下载默认目录已失效，请重新配置', needsSettings: true);
       default:
-        if (!_meta.enabled) return '服务端已关闭离线下载功能';
-        if (!_meta.canUse) return '离线下载当前不可用';
+        if (!_meta.enabled) {
+          return (text: '服务端已关闭离线下载功能', needsSettings: false);
+        }
+        if (!_meta.canUse) {
+          return (text: '离线下载当前不可用', needsSettings: false);
+        }
+        if (!_meta.configured || !_meta.configValid) {
+          return (text: '尚未配置可用的默认目录', needsSettings: true);
+        }
         return null;
+    }
+  }
+
+  Future<void> _openNewTask() async {
+    // MaterialApp.router + GoRouter：必须用 go_router 的 push，不能用 Navigator.pushNamed
+    final created = await context.push<bool>(AppRoutes.offlineNew);
+    if (!mounted) return;
+    if (created == true) {
+      await _refresh();
+    }
+  }
+
+  Future<void> _openSettings() async {
+    await showOfflineSettingsSheet(
+      context,
+      meta: _meta,
+      onSaved: _refresh,
+    );
+  }
+
+  /// 统一的任务动作：成功后刷新列表 + 用中文提示失败原因
+  Future<void> _runTaskAction(
+    Future<void> Function() action,
+    String successText,
+  ) async {
+    try {
+      await action();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successText)));
+      await _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(offlineOperationError(e, fallback: '操作失败')),
+        ),
+      );
     }
   }
 
@@ -164,7 +216,11 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _OfflineDetailSheet(task: task),
+      builder: (_) => _OfflineDetailSheet(
+        task: task,
+        meta: _meta,
+        onChanged: _refresh,
+      ),
     );
   }
 
@@ -175,11 +231,21 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
         title: const Text('离线下载中心'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: '设置',
+            onPressed: _openSettings,
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: '刷新',
             onPressed: _refresh,
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openNewTask,
+        icon: const Icon(Icons.add),
+        label: const Text('新建任务'),
       ),
       body: _buildBody(context),
     );
@@ -201,7 +267,8 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
       );
     }
 
-    final banner = _unavailableText();
+    final notice = _unavailableNotice();
+    final bannerExtra = notice == null ? 0 : 1;
     if (_tasks.isEmpty) {
       return RefreshIndicator(
         onRefresh: _refresh,
@@ -210,16 +277,24 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
-              if (banner != null) ...[
-                _MetaBanner(text: banner),
+              if (notice != null) ...[
+                _MetaBanner(
+                  text: notice.text,
+                  onSettings: notice.needsSettings ? _openSettings : null,
+                ),
                 const SizedBox(height: 12),
               ],
               SizedBox(
                 height: constraints.maxHeight * 0.7,
-                child: const EmptyState(
+                child: EmptyState(
                   icon: Icons.cloud_download_outlined,
                   title: '暂无离线下载任务',
-                  subtitle: '任务在桌面端或 Web 端发起后，这里会显示进度（本页只读）',
+                  subtitle: '点右下角「新建任务」发起，或等桌面端 / Web 端创建后同步显示',
+                  action: FilledButton.icon(
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('新建任务'),
+                    onPressed: _openNewTask,
+                  ),
                 ),
               ),
             ],
@@ -228,33 +303,54 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
       );
     }
 
-    final bannerExtra = banner == null ? 0 : 1;
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView.builder(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
         itemCount: _tasks.length + bannerExtra,
         itemBuilder: (context, index) {
           if (bannerExtra == 1 && index == 0) {
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _MetaBanner(text: banner!),
+              child: _MetaBanner(
+                text: notice!.text,
+                onSettings: notice.needsSettings ? _openSettings : null,
+              ),
             );
           }
           final task = _tasks[index - bannerExtra];
-          return _TaskCard(task: task, onTap: () => _openDetail(task));
+          return _TaskCard(
+            task: task,
+            onTap: () => _openDetail(task),
+            onCancel: () => _runTaskAction(
+              () => ref.read(offlineDownloadServiceProvider).cancel(task.id),
+              '任务已取消',
+            ),
+            onRetry: () => _runTaskAction(
+              () => ref.read(offlineDownloadServiceProvider).retry(task.id),
+              '已重新提交',
+            ),
+            onDelete: () => _runTaskAction(
+              () => ref
+                  .read(offlineDownloadServiceProvider)
+                  .deleteRecord(task.id),
+              '任务记录已删除',
+            ),
+            onSelect: () => _openDetail(task),
+          );
         },
       ),
     );
   }
 }
 
-/// 元信息不可用提示条（纯展示，无按钮）
+/// 元信息不可用提示条（可带「去设置」）
 class _MetaBanner extends StatelessWidget {
-  const _MetaBanner({required this.text});
+  const _MetaBanner({required this.text, this.onSettings});
 
   final String text;
+  final VoidCallback? onSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -280,23 +376,49 @@ class _MetaBanner extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: t.fgDefault, height: 1.4),
             ),
           ),
+          if (onSettings != null)
+            TextButton(onPressed: onSettings, child: const Text('去设置')),
         ],
       ),
     );
   }
 }
 
-/// 任务卡片（只读展示；点开进入只读详情）
+/// 任务卡片（展示 + 操作入口）
 class _TaskCard extends StatelessWidget {
-  const _TaskCard({required this.task, required this.onTap});
+  const _TaskCard({
+    required this.task,
+    required this.onTap,
+    required this.onCancel,
+    required this.onRetry,
+    required this.onDelete,
+    required this.onSelect,
+  });
 
   final OfflineTask task;
   final VoidCallback onTap;
+  final VoidCallback onCancel;
+  final VoidCallback onRetry;
+  final VoidCallback onDelete;
+  final VoidCallback onSelect;
+
+  bool get _canCancel => const {
+    'queued',
+    'analyzing',
+    'downloading',
+    'merging',
+  }.contains(task.status);
+
+  bool get _canRetry =>
+      (task.status == 'failed' || task.status == 'canceled') &&
+      canRetryErrorCode(task.errorCode);
+
+  bool get _canDelete => task.isTerminal || task.status == 'ready';
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    final created = _formatDateTime(task.createdAt);
+    final created = formatDateTime(task.createdAt);
     return AppCard(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -364,8 +486,8 @@ class _TaskCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${_formatSize(task.bytesDone)} / '
-                    '${_formatSize(task.bytesTotal)}',
+                    '${formatSize(task.bytesDone)} / '
+                    '${formatSize(task.bytesTotal)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 12, color: t.fgMuted),
@@ -375,7 +497,7 @@ class _TaskCard extends StatelessWidget {
                 const Spacer(),
               if (task.isTransferring && task.speedBps > 0)
                 Text(
-                  '${_formatSize(task.speedBps)}/s',
+                  '${formatSize(task.speedBps)}/s',
                   style: TextStyle(fontSize: 12, color: t.fgMuted),
                 ),
             ],
@@ -394,14 +516,14 @@ class _TaskCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(fontSize: 12, color: t.fgMuted),
           ),
-          // 失败原因（中文，服务端下发）
+          // 失败原因（中文，服务端下发 + 本地建议）
           if (task.hasError) ...[
             SizedBox(height: t.s2),
             Text(
-              task.errorMessage,
-              maxLines: 3,
+              offlineErrorText(task.errorCode, task.errorMessage),
+              maxLines: 4,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, color: AppTokens.danger500),
+              style: const TextStyle(fontSize: 12.5, color: AppTokens.danger500),
             ),
           ],
           if (created != null) ...[
@@ -411,17 +533,48 @@ class _TaskCard extends StatelessWidget {
               style: TextStyle(fontSize: 11.5, color: t.fgSubtle),
             ),
           ],
+          // 操作入口（v1.8.1）
+          if (_canCancel || _canRetry || _canDelete || task.status == 'ready')
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (task.status == 'ready')
+                    TextButton(onPressed: onSelect, child: const Text('去选择')),
+                  if (_canCancel)
+                    TextButton(onPressed: onCancel, child: const Text('取消')),
+                  if (_canRetry)
+                    TextButton(onPressed: onRetry, child: const Text('重试')),
+                  if (_canDelete)
+                    TextButton(
+                      onPressed: onDelete,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppTokens.danger500,
+                      ),
+                      child: const Text('删除记录'),
+                    ),
+                ],
+              ),
+            ),
         ],
       ),
     );
   }
 }
 
-/// 只读详情（来源域名 / 产物名 / 目标目录 / 失败原因 + 清单）
+/// 详情 / 勾选弹层
 class _OfflineDetailSheet extends ConsumerStatefulWidget {
-  const _OfflineDetailSheet({required this.task});
+  const _OfflineDetailSheet({
+    required this.task,
+    required this.meta,
+    required this.onChanged,
+  });
 
   final OfflineTask task;
+  final OfflineMeta meta;
+  final Future<void> Function() onChanged;
 
   @override
   ConsumerState<_OfflineDetailSheet> createState() =>
@@ -431,11 +584,20 @@ class _OfflineDetailSheet extends ConsumerStatefulWidget {
 class _OfflineDetailSheetState extends ConsumerState<_OfflineDetailSheet> {
   OfflineTaskDetail? _detail;
   bool _loading = true;
+  bool _busy = false;
   String? _error;
+  final Set<int> _selected = <int>{};
+  int _targetDiskId = 0;
+  String _targetPath = '';
+  bool _packZip = false;
+
+  OfflineTask get _task => _detail?.task ?? widget.task;
 
   @override
   void initState() {
     super.initState();
+    _targetDiskId = widget.meta.configDiskId;
+    _targetPath = widget.meta.configRelPath;
     _load();
   }
 
@@ -455,28 +617,128 @@ class _OfflineDetailSheetState extends ConsumerState<_OfflineDetailSheet> {
         _detail = detail;
         _loading = false;
         _error = null;
+        if (detail.task.status == 'ready') {
+          _selected
+            ..clear()
+            ..addAll(detail.items.map((item) => item.id));
+        }
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = userFacingError(e, fallback: '任务详情加载失败');
+        _error = offlineOperationError(e, fallback: '任务详情加载失败');
       });
     }
+  }
+
+  Future<void> _run(Future<void> Function() action, String successText) async {
+    setState(() => _busy = true);
+    try {
+      await action();
+      await widget.onChanged();
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successText)));
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = offlineOperationError(e, fallback: '操作失败');
+      });
+    }
+  }
+
+  Future<void> _nextPage() async {
+    setState(() => _busy = true);
+    try {
+      final result = await ref
+          .read(offlineDownloadServiceProvider)
+          .nextPage(widget.task.id);
+      await _load();
+      await widget.onChanged();
+      if (!mounted) return;
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已追加 ${result.added} 张图片')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = offlineOperationError(e, fallback: '追加下一页失败');
+      });
+    }
+  }
+
+  Future<void> _pickTarget() async {
+    final disks = widget.meta.writableDisks;
+    if (disks.isEmpty) return;
+    final picked = await VirtualDiskDirPicker.show(
+      context,
+      disks: disks
+          .map((d) => DirPickerDisk(id: d.diskId, name: d.name))
+          .toList(growable: false),
+      initialDiskId: _targetDiskId,
+      initialPath: _targetPath,
+      title: '选择目标目录',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _targetDiskId = picked.diskId;
+      _targetPath = picked.path;
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_selected.isEmpty) {
+      setState(() => _error = '请至少勾选一项');
+      return;
+    }
+    if (_targetDiskId <= 0) {
+      setState(() => _error = '请选择目标目录');
+      return;
+    }
+    await _run(
+      () => ref
+          .read(offlineDownloadServiceProvider)
+          .select(
+            taskId: widget.task.id,
+            itemIds: _selected.toList(growable: false),
+            diskId: _targetDiskId,
+            targetPath: _targetPath,
+            packZip: _packZip,
+          ),
+      '已开始下载',
+    );
+  }
+
+  String _targetLabel() {
+    var diskName = '';
+    for (final disk in widget.meta.writableDisks) {
+      if (disk.diskId == _targetDiskId) {
+        diskName = disk.name;
+        break;
+      }
+    }
+    if (diskName.isEmpty) return '未选择';
+    return '$diskName / ${_targetPath.isEmpty ? '磁盘根目录' : _targetPath}';
   }
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    // 详情请求未返回前先用列表里的任务行兜底展示（不白屏）
-    final task = _detail?.task ?? widget.task;
+    final task = _task;
     final items = _detail?.items ?? const <OfflineItem>[];
-    final created = _formatDateTime(task.createdAt);
-    final started = _formatDateTime(task.startedAt);
-    final finished = _formatDateTime(task.finishedAt);
+    final ready = task.status == 'ready';
+    final created = formatDateTime(task.createdAt);
+    final started = formatDateTime(task.startedAt);
+    final finished = formatDateTime(task.finishedAt);
 
     return SizedBox(
-      height: MediaQuery.sizeOf(context).height * 0.82,
+      height: MediaQuery.sizeOf(context).height * 0.86,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -520,8 +782,8 @@ class _OfflineDetailSheetState extends ConsumerState<_OfflineDetailSheet> {
                   label: '进度',
                   value: task.bytesTotal > 0
                       ? '${task.progressPercent}% · '
-                            '${_formatSize(task.bytesDone)} / '
-                            '${_formatSize(task.bytesTotal)}'
+                            '${formatSize(task.bytesDone)} / '
+                            '${formatSize(task.bytesTotal)}'
                       : '${task.progressPercent}%',
                 ),
                 if (task.itemTotal > 0)
@@ -533,16 +795,35 @@ class _OfflineDetailSheetState extends ConsumerState<_OfflineDetailSheet> {
                 if (started != null) _DetailRow(label: '开始时间', value: started),
                 if (finished != null)
                   _DetailRow(label: '完成时间', value: finished),
-                // 失败原因（中文，含错误码便于排查）
                 if (task.hasError)
                   _DetailRow(
                     label: '失败原因',
-                    value: task.errorCode.isEmpty
-                        ? task.errorMessage
-                        : '${task.errorMessage}（${task.errorCode}）',
+                    value: offlineErrorText(
+                      task.errorCode,
+                      task.errorMessage,
+                    ),
                     danger: true,
                   ),
-                const Divider(height: 28),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      height: 1.4,
+                      color: AppTokens.danger500,
+                    ),
+                  ),
+                ],
+                if (ready) ...[
+                  const Divider(height: 24),
+                  Text(
+                    '选择要下载的项（已全选，可取消勾选）',
+                    style: TextStyle(fontSize: 12.5, color: t.fgMuted),
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                const Divider(height: 24),
                 Row(
                   children: [
                     Text(
@@ -564,15 +845,7 @@ class _OfflineDetailSheetState extends ConsumerState<_OfflineDetailSheet> {
                 const SizedBox(height: 10),
                 if (_loading)
                   const _ItemsSkeleton()
-                else if (_error != null) ...[
-                  Text(
-                    _error!,
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      color: AppTokens.danger500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
+                else if (_error != null && items.isEmpty)
                   Align(
                     alignment: Alignment.centerLeft,
                     child: OutlinedButton.icon(
@@ -580,21 +853,141 @@ class _OfflineDetailSheetState extends ConsumerState<_OfflineDetailSheet> {
                       label: const Text('重新加载'),
                       onPressed: _load,
                     ),
-                  ),
-                ] else if (items.isEmpty)
+                  )
+                else if (items.isEmpty)
                   Text(
                     '该任务没有可展示的清单项',
                     style: TextStyle(fontSize: 12.5, color: t.fgMuted),
                   )
                 else
-                  ...items.map((item) => _ItemRow(item: item)),
-                if (_detail?.hasMoreImages ?? false) ...[
+                  ...items.map(
+                    (item) => ready
+                        ? Material(
+                            color: Colors.transparent,
+                            child: CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              value: _selected.contains(item.id),
+                              onChanged: _busy
+                                  ? null
+                                  : (checked) {
+                                      setState(() {
+                                        if (checked == true) {
+                                          _selected.add(item.id);
+                                        } else {
+                                          _selected.remove(item.id);
+                                        }
+                                      });
+                                    },
+                              title: _ItemRow(item: item),
+                            ),
+                          )
+                        : _ItemRow(item: item),
+                  ),
+                if (ready) ...[
                   const SizedBox(height: 8),
-                  Text(
-                    '该任务还有更多图片未载入',
-                    style: TextStyle(fontSize: 12, color: t.fgSubtle),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '目标：${_targetLabel()}',
+                          style: TextStyle(fontSize: 12, color: t.fgMuted),
+                        ),
+                      ),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.folder_open_outlined, size: 16),
+                        label: const Text('选择'),
+                        onPressed: _busy ? null : _pickTarget,
+                      ),
+                    ],
+                  ),
+                  Material(
+                    color: Colors.transparent,
+                    child: SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('打包为 zip'),
+                      value: _packZip,
+                      onChanged: _busy
+                          ? null
+                          : (v) => setState(() => _packZip = v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('开始下载'),
+                      onPressed: _busy ? null : _submit,
+                    ),
                   ),
                 ],
+                if ((_detail?.hasMoreImages ?? false) && ready) ...[
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      label: const Text('追加下一页'),
+                      onPressed: _busy ? null : _nextPage,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    if (const {
+                      'queued',
+                      'analyzing',
+                      'downloading',
+                      'merging',
+                    }.contains(task.status))
+                      TextButton.icon(
+                        icon: const Icon(Icons.close, size: 16),
+                        label: const Text('取消任务'),
+                        onPressed: _busy
+                            ? null
+                            : () => _run(
+                                () => ref
+                                    .read(offlineDownloadServiceProvider)
+                                    .cancel(task.id),
+                                '任务已取消',
+                              ),
+                      ),
+                    if ((task.status == 'failed' || task.status == 'canceled') &&
+                        canRetryErrorCode(task.errorCode))
+                      TextButton.icon(
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('重试'),
+                        onPressed: _busy
+                            ? null
+                            : () => _run(
+                                () => ref
+                                    .read(offlineDownloadServiceProvider)
+                                    .retry(task.id),
+                                '已重新提交',
+                              ),
+                      ),
+                    if (task.isTerminal || ready)
+                      TextButton.icon(
+                        icon: const Icon(Icons.delete_outline, size: 16),
+                        label: const Text('删除记录'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppTokens.danger500,
+                        ),
+                        onPressed: _busy
+                            ? null
+                            : () => _run(
+                                () => ref
+                                    .read(offlineDownloadServiceProvider)
+                                    .deleteRecord(task.id),
+                                '任务记录已删除',
+                              ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -675,7 +1068,7 @@ class _ItemsSkeleton extends StatelessWidget {
   }
 }
 
-/// 详情里的清单项行（只读）
+/// 详情里的清单项行
 class _ItemRow extends StatelessWidget {
   const _ItemRow({required this.item});
 
@@ -687,12 +1080,12 @@ class _ItemRow extends StatelessWidget {
     final metaParts = <String>[
       if (item.ext.trim().isNotEmpty) item.ext.trim().toUpperCase(),
       if (item.resolutionText.isNotEmpty) item.resolutionText,
-      if (item.durationMs > 0) _formatDuration(item.durationMs),
+      if (item.durationMs > 0) formatDuration(item.durationMs),
       if (item.estSize > 0)
-        '${item.isEstimated ? '约 ' : ''}${_formatSize(item.estSize)}',
+        '${item.isEstimated ? '约 ' : ''}${formatSize(item.estSize)}',
     ];
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -773,39 +1166,4 @@ IconData _kindIcon(String kind) {
     default:
       return Icons.insert_drive_file_outlined;
   }
-}
-
-/// 字节数格式化（1024 进制，与传输/修复页口径一致）
-String _formatSize(int bytes) {
-  if (bytes < 1024) return '$bytes B';
-  if (bytes < 1024 * 1024) {
-    return '${(bytes / 1024).toStringAsFixed(1)} KB';
-  }
-  if (bytes < 1024 * 1024 * 1024) {
-    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
-  }
-  return '${(bytes / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
-}
-
-/// 时长格式化（毫秒 → `m:ss` / `h:mm:ss`）
-String _formatDuration(int milliseconds) {
-  final totalSeconds = milliseconds ~/ 1000;
-  final hours = totalSeconds ~/ 3600;
-  final minutes = (totalSeconds % 3600) ~/ 60;
-  final seconds = totalSeconds % 60;
-  final mm = minutes.toString().padLeft(2, '0');
-  final ss = seconds.toString().padLeft(2, '0');
-  return hours > 0 ? '$hours:$mm:$ss' : '$minutes:$ss';
-}
-
-/// ISO8601 字符串 → 本地时间 `yyyy-MM-dd HH:mm:ss`
-///
-/// 服务端下发的是 UTC ISO8601；解析失败时原样返回，不抛异常。
-String? _formatDateTime(String? iso) {
-  final value = iso?.trim() ?? '';
-  if (value.isEmpty) return null;
-  final parsed = DateTime.tryParse(value);
-  if (parsed == null) return value;
-  final local = parsed.toLocal().toString();
-  return local.length >= 19 ? local.substring(0, 19) : local;
 }

@@ -202,6 +202,19 @@ describe('任务终态与进度', () => {
     expect(taskProgress(task({ id: 1, item_total: 0 }))).toBe(0);
   });
 
+  it('成功任务无条件 100%（v1.8.1 / AC-256：不按字节估算值回退）', () => {
+    expect(
+      taskProgress(task({ id: 1, status: 'success', bytes_total: 100, bytes_done: 99 })),
+    ).toBe(100);
+    expect(
+      taskProgress(task({ id: 1, status: 'success', bytes_total: 0, item_total: 4, item_done: 1 })),
+    ).toBe(100);
+    // 页面文案同口径带 100%（AC-256「页面成功任务显示 100%」）
+    expect(
+      taskProgressText(task({ id: 1, status: 'success', bytes_total: 100, bytes_done: 99 })),
+    ).toContain('100%');
+  });
+
   it('任务状态徽章配色', () => {
     expect(taskStatusTone('success')).toBe('success');
     expect(taskStatusTone('failed')).toBe('danger');

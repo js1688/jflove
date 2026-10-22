@@ -14,6 +14,7 @@ import 'pages/notes/note_list_page.dart';
 import 'pages/notes/note_edit_page.dart';
 import 'pages/transfer/transfer_page.dart';
 import 'pages/offline/offline_download_page.dart';
+import 'pages/offline/offline_new_task_page.dart';
 import 'pages/settings/settings_page.dart';
 import 'pages/admin/admin_users_page.dart';
 import 'pages/admin/admin_disks_page.dart';
@@ -69,8 +70,13 @@ class JFLoveApp extends ConsumerWidget {
           ],
         ),
         // 独立页面（不显示底部导航）
-        // v1.8.0：离线下载中心（只读）—— 入口在设置页，路径集中定义于
+        // v1.8.1：离线下载中心（完整功能）—— 入口在设置页，路径集中定义于
         // `lib/config/routes.dart`（`AppRoutes.offlineDownload`）。
+        // 注意：`/offline/new` 必须在 `/offline` 之前注册，避免被前缀规则吞掉。
+        GoRoute(
+          path: AppRoutes.offlineNew,
+          builder: (_, _) => const OfflineNewTaskPage(),
+        ),
         GoRoute(
           path: AppRoutes.offlineDownload,
           builder: (_, _) => const OfflineDownloadPage(),

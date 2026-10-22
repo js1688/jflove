@@ -65,4 +65,16 @@ class DiskService {
     final dirs = resp['dirs'] as List<dynamic>;
     return dirs.cast<Map<String, dynamic>>();
   }
+
+  /// 浏览服务器本机目录（管理员；v1.8.1 新增接口）
+  ///
+  /// 对应服务端：GET /api/v1/virtual-disks/server-dirs（仅管理员、只列目录）。
+  /// [path] 为绝对路径；空字符串表示由服务端从 roots 第一项开始。
+  /// 返回：`path` / `parent` / `dirs` / `roots` / `truncated`。
+  Future<Map<String, dynamic>> browseServerDirs({String path = ''}) async {
+    return _http.encryptedGet(
+      '/api/v1/virtual-disks/server-dirs',
+      path.trim().isEmpty ? null : {'path': path.trim()},
+    );
+  }
 }

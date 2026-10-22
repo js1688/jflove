@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:jflove_app/config/theme.dart';
 import 'package:jflove_app/models/offline_task.dart';
 import 'package:jflove_app/pages/offline/offline_download_page.dart';
@@ -9,32 +10,37 @@ import 'package:jflove_app/services/offline_download_service.dart';
 import 'package:jflove_app/utils/http_service.dart';
 import 'package:jflove_app/utils/session.dart';
 
-/// 假只读服务：记录调用次数，永不出网
+/// 假离线下载服务：记录调用次数，永不出网
 class _FakeOfflineService extends OfflineDownloadService {
   _FakeOfflineService({
-    required this.list,
+    required List<OfflineTask> tasks,
     this.detailResult,
-    this.metaResult = OfflineMeta.empty,
-  }) : super(HttpService(SessionManager()));
+    this.metaResult = _readyMeta,
+  }) : _tasks = List<OfflineTask>.of(tasks),
+       super(HttpService(SessionManager()));
 
-  final OfflineTaskList list;
+  final List<OfflineTask> _tasks;
   final OfflineTaskDetail? detailResult;
   final OfflineMeta metaResult;
 
   int tasksCalls = 0;
   int detailCalls = 0;
   int metaCalls = 0;
+  int cancelCalls = 0;
+  int retryCalls = 0;
+  int deleteCalls = 0;
 
   @override
   Future<OfflineTaskList> tasks({int page = 1, int pageSize = 20}) async {
     tasksCalls++;
-    return list;
+    return OfflineTaskList(total: _tasks.length, tasks: _tasks);
   }
 
   @override
   Future<OfflineTaskDetail> detail(int taskId) async {
     detailCalls++;
-    return detailResult ?? OfflineTaskDetail(task: list.tasks.first);
+    if (detailResult != null) return detailResult!;
+    return OfflineTaskDetail(task: _tasks.first);
   }
 
   @override
@@ -42,7 +48,37 @@ class _FakeOfflineService extends OfflineDownloadService {
     metaCalls++;
     return metaResult;
   }
+
+  @override
+  Future<OfflineTaskAction> cancel(int taskId) async {
+    cancelCalls++;
+    return OfflineTaskAction(taskId: taskId, status: 'canceled');
+  }
+
+  @override
+  Future<OfflineTaskAction> retry(int taskId) async {
+    retryCalls++;
+    return OfflineTaskAction(taskId: taskId, status: 'downloading');
+  }
+
+  @override
+  Future<OfflineTaskAction> deleteRecord(int taskId) async {
+    deleteCalls++;
+    _tasks.removeWhere((task) => task.id == taskId);
+    return OfflineTaskAction(taskId: taskId, deleted: true);
+  }
 }
+
+/// 默认元信息：已配置目录、有可写磁盘（任务中心可用）
+const _readyMeta = OfflineMeta(
+  enabled: true,
+  canUse: true,
+  configured: true,
+  configDiskId: 1,
+  configRelPath: 'downloads',
+  configValid: true,
+  writableDisks: [OfflineWritableDisk(diskId: 1, name: '主磁盘')],
+);
 
 const _doneTask = OfflineTask(
   id: 1,
@@ -75,22 +111,53 @@ const _failedTask = OfflineTask(
   createdAt: '2026-10-20T09:00:00+00:00',
 );
 
-/// 只读页测试（v1.8.0 / AC-231 / AC-232）
+const _canceledTask = OfflineTask(
+  id: 4,
+  username: 'alice',
+  sourceDomain: 'example.org',
+  pageTitle: '已取消产物',
+  status: 'canceled',
+  statusText: '已取消',
+  itemTotal: 1,
+  bytesTotal: 1024,
+  bytesDone: 256,
+  targetDiskName: '主磁盘',
+  targetRelPath: 'downloads',
+  createdAt: '2026-10-20T07:00:00+00:00',
+);
+
+const _activeTask = OfflineTask(
+  id: 3,
+  username: 'alice',
+  sourceDomain: 'example.net',
+  pageTitle: '进行中产物',
+  status: 'downloading',
+  statusText: '下载中',
+  itemTotal: 4,
+  itemDone: 1,
+  bytesTotal: 4096,
+  bytesDone: 1024,
+  targetDiskName: '主磁盘',
+  targetRelPath: 'downloads',
+  createdAt: '2026-10-20T08:00:00+00:00',
+  canOperate: true,
+);
+
+/// 任务中心测试（v1.8.1 / AC-248~250、AC-232）
 ///
 /// 三条事实必须锁死：
 ///   ① 列表能显示状态 / 进度 / 来源域名 / 产物名 / 目标 / 失败原因；
-///   ② **没有任何操作入口**（无按钮、无勾选控件，也不出现被禁的操作文案）；
+///   ② 有完整操作入口（新建 / 设置 / 取消 / 重试 / 删除记录）；
 ///   ③ 2.5s 轮询只在页面可见时进行，切后台立刻停（AC-232）。
 void main() {
-  /// 挂载页面（首屏会立刻拉一次任务 + 元信息）
   Future<_FakeOfflineService> pumpPage(
     WidgetTester tester, {
     List<OfflineTask> tasks = const [_doneTask, _failedTask],
     OfflineTaskDetail? detailResult,
-    OfflineMeta meta = OfflineMeta.empty,
+    OfflineMeta meta = _readyMeta,
   }) async {
     final fake = _FakeOfflineService(
-      list: OfflineTaskList(total: tasks.length, tasks: tasks),
+      tasks: tasks,
       detailResult: detailResult,
       metaResult: meta,
     );
@@ -121,45 +188,39 @@ void main() {
     expect(fake.tasksCalls, 1, reason: '首屏拉一次任务列表');
     expect(fake.metaCalls, 1, reason: '首屏拉一次元信息');
 
-    // 产物名
     expect(find.text('演示产物'), findsOneWidget);
     expect(find.text('失败产物'), findsOneWidget);
-    // 状态（服务端下发的中文文案，客户端不自行翻译）
     expect(find.text('已完成'), findsOneWidget);
     expect(find.text('失败'), findsOneWidget);
-    // 来源域名
     expect(find.textContaining('example.com'), findsOneWidget);
     expect(find.textContaining('video.example.org'), findsOneWidget);
-    // 目标
     expect(find.textContaining('主磁盘/downloads'), findsNWidgets(2));
-    // 进度百分比 + 字节
     expect(find.text('100%'), findsOneWidget);
     expect(find.textContaining('2.0 KB / 2.0 KB'), findsOneWidget);
-    // 失败原因
-    expect(find.text('磁盘剩余空间不足'), findsOneWidget);
+    expect(find.textContaining('磁盘剩余空间不足'), findsOneWidget);
 
     await unmount(tester);
   });
 
-  testWidgets('只读：无任何操作按钮/勾选控件，也不出现被禁文案', (tester) async {
-    await pumpPage(tester);
+  testWidgets('完整功能入口：新建任务 / 设置 / 取消 / 重试 / 删除记录', (tester) async {
+    final fake = await pumpPage(
+      tester,
+      tasks: const [_activeTask, _doneTask, _canceledTask],
+    );
 
-    // 唯一允许的按钮是 AppBar 的刷新（不是任务操作）
-    expect(find.byType(FilledButton), findsNothing);
-    expect(find.byType(ElevatedButton), findsNothing);
-    expect(find.byType(TextButton), findsNothing);
-    expect(find.byType(Checkbox), findsNothing);
-    expect(find.byType(Switch), findsNothing);
-    expect(find.byType(TextField), findsNothing);
+    // 新建入口（FAB + 空态动作）与设置入口
+    expect(find.text('新建任务'), findsWidgets);
+    expect(find.byTooltip('设置'), findsOneWidget);
+    // 进行中 → 取消；失败 → 重试；终态 → 删除记录
+    expect(find.text('取消'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('删除记录'), findsAtLeastNWidgets(2));
 
-    // AC-231：0 命中「新建任务 / 开始下载 / 分析」；「操作类」文案同样不得出现
-    for (final banned in const ['新建任务', '开始下载', '分析', '取消', '重试', '勾选']) {
-      expect(
-        find.textContaining(banned),
-        findsNothing,
-        reason: '移动端只读页不得出现「$banned」',
-      );
-    }
+    // 删除记录：调服务 + 刷新列表
+    await tester.tap(find.text('删除记录').first);
+    await tester.pump();
+    await tester.pump();
+    expect(fake.deleteCalls, 1);
 
     await unmount(tester);
   });
@@ -169,18 +230,15 @@ void main() {
     final initialCalls = fake.tasksCalls;
     expect(initialCalls, 1);
 
-    // 前台：2.5s 后应有一轮新请求
     await tester.pump(const Duration(milliseconds: 2600));
     expect(fake.tasksCalls, greaterThan(initialCalls));
 
-    // 切后台：轮询立即停（不必等 5 秒缓冲）
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     final pausedCalls = fake.tasksCalls;
     await tester.pump(const Duration(seconds: 10));
     expect(fake.tasksCalls, pausedCalls, reason: '页面不可见时不得继续轮询（AC-232）');
 
-    // 回前台：恢复轮询 + 立刻补一次
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump(const Duration(milliseconds: 2600));
     expect(fake.tasksCalls, greaterThan(pausedCalls));
@@ -189,7 +247,7 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
   });
 
-  testWidgets('详情只读：来源域名/产物名/目标目录/失败原因 + 清单项', (tester) async {
+  testWidgets('详情：来源域名/产物名/目标目录/失败原因 + 清单项 + 操作', (tester) async {
     final fake = await pumpPage(
       tester,
       detailResult: const OfflineTaskDetail(
@@ -216,24 +274,21 @@ void main() {
 
     expect(fake.detailCalls, 1);
     expect(find.text('任务详情'), findsOneWidget);
-    // 需求要求详情展示的四项
     expect(find.text('来源域名'), findsOneWidget);
     expect(find.text('产物名'), findsOneWidget);
     expect(find.text('目标目录'), findsOneWidget);
     expect(find.text('失败原因'), findsOneWidget);
     expect(find.text('video.example.org'), findsOneWidget);
-    // 列表卡片（详情背后）与详情行各有一处失败原因
+    // 失败原因在卡片 + 详情各一处，并带中文建议
     expect(find.textContaining('磁盘剩余空间不足'), findsNWidgets(2));
-    // 清单项（只读展示：名称 + 分辨率 + 时长 + 估算大小）
+    expect(find.textContaining('清理目标磁盘空间后重试'), findsWidgets);
+    // 清单项（名称 + 分辨率 + 时长 + 估算大小）
     expect(find.text('片段 1'), findsOneWidget);
     expect(find.textContaining('1920x1080'), findsOneWidget);
     expect(find.textContaining('1:05'), findsOneWidget);
-    expect(find.text('该任务还有更多图片未载入'), findsOneWidget);
-    // 详情里同样没有任何输入/操作控件
-    expect(find.byType(TextField), findsNothing);
-    expect(find.byType(Checkbox), findsNothing);
+    // disk_full 属于不可重试类型：详情只提供删除记录
+    expect(find.text('删除记录'), findsWidgets);
 
-    // 关闭后回到列表，轮询仍在可见状态
     await tester.tap(find.byIcon(Icons.close_rounded));
     await tester.pumpAndSettle();
     expect(find.text('离线下载中心'), findsOneWidget);
@@ -241,7 +296,7 @@ void main() {
     await unmount(tester);
   });
 
-  testWidgets('元信息不可用时只显示提示条，不提供任何操作', (tester) async {
+  testWidgets('元信息不可用：显示中文原因，不阻断查看已有任务', (tester) async {
     await pumpPage(
       tester,
       meta: const OfflineMeta(
@@ -252,13 +307,50 @@ void main() {
     );
 
     expect(find.text('你没有可写入的磁盘，暂时无法使用离线下载'), findsOneWidget);
-    expect(find.byType(TextButton), findsNothing);
-    expect(find.byType(FilledButton), findsNothing);
+    // 仍可查看已有任务与进入新建页（新建页会再拦截）
+    expect(find.text('演示产物'), findsOneWidget);
+    expect(find.text('新建任务'), findsWidgets);
 
     await unmount(tester);
   });
 
-  testWidgets('加载失败显示错误态（重新加载），不出现任务操作文案', (tester) async {
+
+  testWidgets('「新建任务」通过 go_router 打开 /offline/new（回归：不能用 pushNamed）', (tester) async {
+    final fake = _FakeOfflineService(tasks: const []);
+    final router = GoRouter(
+      initialLocation: '/offline',
+      routes: [
+        GoRoute(
+          path: '/offline',
+          builder: (_, _) => const OfflineDownloadPage(),
+        ),
+        GoRoute(
+          path: '/offline/new',
+          builder: (_, _) => const Scaffold(body: Text('新建任务页')),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [offlineDownloadServiceProvider.overrideWithValue(fake)],
+        child: MaterialApp.router(
+          theme: AppTheme.light,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    await tester.tap(find.text('新建任务').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('新建任务页'), findsOneWidget);
+
+    await unmount(tester);
+  });
+
+  testWidgets('加载失败显示错误态（重新加载）', (tester) async {
     final fake = _FailingOfflineService();
     await tester.pumpWidget(
       ProviderScope(
@@ -274,9 +366,6 @@ void main() {
 
     expect(find.text('任务加载失败'), findsOneWidget);
     expect(find.text('重新加载'), findsOneWidget);
-    for (final banned in const ['新建任务', '开始下载', '分析', '取消', '重试']) {
-      expect(find.textContaining(banned), findsNothing);
-    }
 
     await unmount(tester);
   });

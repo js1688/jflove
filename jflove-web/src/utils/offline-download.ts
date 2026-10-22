@@ -65,12 +65,18 @@ export function allTasksTerminal(tasks: OfflineTask[]): boolean {
   return tasks.every((task) => isTerminalStatus(task.status));
 }
 
-/** 任务进度百分比（0~100）：优先按字节，字节未知（图片等）时按项数 */
+/**
+ * 任务进度百分比（0~100）。
+ *
+ * 产品口径（v1.8.1 / D15）：`status=success` 时无条件 100%，不按字节估算值回退
+ * （成功任务的 bytes_total 可能是估算值，会出现「已完成却 99%」的矛盾显示）。
+ * 其余状态：字节优先，字节未知（图片等）时按项数。
+ */
 export function taskProgress(task: OfflineTask): number {
   const clamp = (v: number) => Math.max(0, Math.min(100, v));
+  if (task.status === 'success') return 100;
   if (task.bytes_total > 0) return clamp((task.bytes_done / task.bytes_total) * 100);
   if (task.item_total > 0) return clamp((task.item_done / task.item_total) * 100);
-  if (task.status === 'success') return 100;
   return 0;
 }
 
@@ -224,9 +230,10 @@ export function taskProgressText(task: OfflineTask): string {
       return parts.join(' · ');
     }
     case 'success':
+      // v1.8.1 / AC-256：成功任务与桌面端同口径，明确显示 100%
       return `已完成 ${task.item_done || task.item_total} 项${
         task.bytes_total > 0 ? ` · ${formatSize(task.bytes_total)}` : ''
-      }`;
+      } · 100%`;
     case 'failed':
       return '下载失败';
     case 'canceled':
