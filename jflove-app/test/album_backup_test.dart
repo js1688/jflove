@@ -1,0 +1,534 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:jflove_app/services/album_backup/album_asset_source.dart';
+import 'package:jflove_app/services/album_backup/album_backup_config.dart';
+import 'package:jflove_app/services/album_backup/album_backup_service.dart';
+import 'package:jflove_app/services/album_backup/album_backup_store.dart';
+import 'package:jflove_app/services/album_backup/remote_file_index.dart';
+import 'package:jflove_app/services/transfer_service.dart';
+import 'package:jflove_app/utils/exception.dart';
+import 'package:jflove_app/utils/http_service.dart';
+import 'package:jflove_app/utils/session.dart';
+
+/// 相册备份单测（v1.8.2 / F38、F39）
+///
+/// 设计文档 §3.2 要求：坏资源隔离、视频关闭计数、跨轮游标、远端跳过。
+/// 这里通过 `AlbumAssetSource` / `RemoteFileIndex` / `AlbumBackupStore` 的
+/// 内存假实现完成，不依赖 photo_manager、sqflite 与真实网络。
+void main() {
+  late Directory tempDir;
+  late File smallFile;
+  late File mediumFile;
+
+  setUp(() async {
+    tempDir = await Directory.systemTemp.createTemp('album_backup_test_');
+    smallFile = File('${tempDir.path}/small.bin')
+      ..writeAsBytesSync(List<int>.filled(3, 1));
+    mediumFile = File('${tempDir.path}/medium.bin')
+      ..writeAsBytesSync(List<int>.filled(4, 2));
+  });
+
+  tearDown(() async {
+    if (tempDir.existsSync()) await tempDir.delete(recursive: true);
+  });
+
+  const baseConfig = AlbumBackupConfig(
+    enabled: true,
+    diskId: 7,
+    remotePath: 'Photos',
+    includePhotos: true,
+    includeVideos: true,
+    wifiOnly: false,
+    chargingOnly: false,
+  );
+
+  AlbumAsset asset(
+    String id, {
+    String? title,
+    AlbumMediaKind kind = AlbumMediaKind.image,
+    DateTime? createdAt,
+    Future<File?> Function()? openFile,
+  }) => AlbumAsset(
+    id: id,
+    title: title ?? '$id.jpg',
+    kind: kind,
+    createDateTime: createdAt ?? DateTime(2026, 10, 1),
+    openFile: openFile ?? () async => smallFile,
+  );
+
+  ({
+    AlbumBackupService service,
+    _FakeStore store,
+    _FakeAssetSource assets,
+    _FakeRemote remote,
+    _FakeTransfer transfer,
+  })
+  build({
+    required List<AlbumAsset> assets,
+    AlbumBackupConfig config = baseConfig,
+    _FakeRemote? remote,
+    Map<AlbumCountScope, int>? counts,
+  }) {
+    final store = _FakeStore();
+    final source = _FakeAssetSource(
+      assets: assets,
+      counts:
+          counts ??
+          {
+            AlbumCountScope.all: assets.length,
+            AlbumCountScope.image: assets
+                .where((a) => a.kind == AlbumMediaKind.image)
+                .length,
+            AlbumCountScope.video: assets
+                .where((a) => a.kind == AlbumMediaKind.video)
+                .length,
+          },
+    );
+    final remoteIndex = remote ?? _FakeRemote();
+    final transfer = _FakeTransfer();
+    final service = AlbumBackupService(
+      transfer,
+      store: store,
+      configStore: _FakeConfigStore(config),
+      assetSource: source,
+      remoteIndex: remoteIndex,
+      autoStart: false,
+    );
+    addTearDown(service.dispose);
+    return (
+      service: service,
+      store: store,
+      assets: source,
+      remote: remoteIndex,
+      transfer: transfer,
+    );
+  }
+
+  test('坏资源隔离：asset.file 抛异常只记失败，其余资源继续上传', () async {
+    final env = build(
+      assets: [
+        asset('good-1'),
+        asset('broken', openFile: () async => throw StateError('boom')),
+        asset('good-2'),
+      ],
+    );
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.transfer.uploads.length, 2, reason: '两个好资源都必须完成提交');
+    expect(
+      env.transfer.filenames,
+      containsAll(<String>['good-1.jpg', 'good-2.jpg']),
+    );
+    expect(env.store.failureEntries.length, 1, reason: '坏资源记为失败');
+    final failure = env.store.failureEntries.first;
+    expect(failure.reason, AlbumBackupFailureReason.unavailable);
+    expect(failure.reason.contains('/'), isFalse, reason: '失败原因不得含路径');
+
+    final progress = await env.service.emitProgress();
+    expect(progress.failed, 1);
+    expect(progress.total, 3);
+  });
+
+  test('视频开关关闭：视频计入「不在范围」，计数自洽（AC-285/286）', () async {
+    final env = build(
+      assets: [
+        asset('img-1'),
+        asset('img-2'),
+        asset('video-1', title: 'video-1.mp4', kind: AlbumMediaKind.video),
+      ],
+      config: baseConfig.copyWith(includeVideos: false),
+      counts: const {
+        AlbumCountScope.all: 3,
+        AlbumCountScope.image: 2,
+        AlbumCountScope.video: 1,
+      },
+    );
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.transfer.uploads.length, 2, reason: '视频不在范围内，不提交');
+    expect(env.transfer.filenames, isNot(contains('video-1.mp4')));
+
+    final progress = await env.service.emitProgress();
+    expect(progress.total, 3);
+    expect(progress.outOfScope, 1);
+    expect(progress.done, 0);
+    expect(progress.failed, 0);
+    expect(progress.pending, 2);
+    expect(
+      progress.done + progress.failed + progress.outOfScope + progress.pending,
+      progress.total,
+      reason: '已备份 + 失败 + 不在范围 + 待备份 = 总数',
+    );
+  });
+
+  test('跨轮游标：2500 张相册分两轮扫完并回绕到 0（AC-287）', () async {
+    final assets = List<AlbumAsset>.generate(2500, (i) => asset('asset-$i'));
+    final env = build(assets: assets);
+    await env.service.init();
+
+    // 预置「已备份」记录，避免 20 条/轮的上传上限干扰游标观察
+    for (final item in assets) {
+      env.store.backed[item.id] = AlbumBackupRecord(
+        assetId: item.id,
+        diskId: baseConfig.diskId,
+        remoteRoot: 'Photos',
+        remotePath: 'Photos/2026/10/${item.filename}',
+        size: 3,
+        backedAt: '2026-10-24T00:00:00Z',
+      );
+    }
+
+    await env.service.scanAndUpload();
+    expect(env.assets.visitedIds.length, 2000, reason: '首轮最多访问 2000 项');
+
+    await env.service.scanAndUpload();
+    expect(env.assets.visitedIds.length, 2500, reason: '第二轮续扫剩余 500 项');
+    expect(
+      env.assets.ranges.map((r) => r.$1),
+      containsAll(<int>[2000, 2200]),
+      reason: '第二轮必须从 2000 之后继续，而不是固定从 0 开始',
+    );
+
+    env.assets.ranges.clear();
+    await env.service.scanAndUpload();
+    expect(env.assets.ranges.first.$1, 0, reason: '扫到尾部后游标回绕到 0');
+  });
+
+  test('远端同名同大小跳过；同名不同大小仍上传（AC-280/281）', () async {
+    final remote = _FakeRemote(
+      dirs: {
+        'Photos/2026/10': [
+          const RemoteFileEntry(name: 'a.jpg', size: 3, isDir: false),
+          const RemoteFileEntry(name: 'c.jpg', size: 99, isDir: false),
+        ],
+      },
+    );
+    final env = build(
+      assets: [
+        asset('a'),
+        asset('b', openFile: () async => mediumFile),
+        asset('c'),
+      ],
+      remote: remote,
+    );
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.remote.calls, ['Photos/2026/10'], reason: '同一目录一轮只拉一次');
+    expect(env.transfer.filenames, containsAll(<String>['b.jpg', 'c.jpg']));
+    expect(
+      env.transfer.filenames,
+      isNot(contains('a.jpg')),
+      reason: '同名同大小应跳过',
+    );
+    expect(env.store.backed.keys, contains('a'));
+    expect(env.store.failureEntries, isEmpty);
+
+    final progress = await env.service.emitProgress();
+    expect(progress.skippedExisting, 1);
+    expect(progress.remoteCheckUnavailable, isFalse);
+  });
+
+  test('远端列表失败 fail-open：按本地记录继续上传并提示不可用（AC-283）', () async {
+    final remote = _FakeRemote(failDirs: {'Photos/2026/10'});
+    final env = build(assets: [asset('a'), asset('b')], remote: remote);
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.transfer.uploads.length, 2, reason: '列表失败不阻塞备份');
+    expect(env.remote.calls.length, 1, reason: '失败目录本轮只请求一次');
+    final progress = await env.service.emitProgress();
+    expect(progress.remoteCheckUnavailable, isTrue);
+  });
+
+  test('目标目录首次不存在：按空目录处理，不算远端校验失败（AC-280）', () async {
+    final remote = _FakeRemote(missingDirs: {'Photos/2026/10'});
+    final env = build(assets: [asset('a')], remote: remote);
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(remote.calls, ['Photos/2026/10']);
+    expect(env.transfer.uploads.length, 1, reason: '目录不存在应继续上传');
+    final progress = await env.service.emitProgress();
+    expect(
+      progress.remoteCheckUnavailable,
+      isFalse,
+      reason: '首次备份目录不存在属于正常情况，不应提示校验不可用',
+    );
+  });
+
+  test('更换目标目录：失败记录清空，历史失败资源重新入队（AC-282）', () async {
+    var broken = true;
+    final env = build(
+      assets: [
+        asset(
+          'a',
+          openFile: () async {
+            if (broken) throw StateError('boom');
+            return smallFile;
+          },
+        ),
+      ],
+      remote: _FakeRemote(),
+    );
+    await env.service.init();
+
+    for (var i = 0; i < 3; i++) {
+      await env.service.scanAndUpload();
+    }
+    expect(env.store.failureEntries.single.attempts, 3);
+
+    await env.service.setConfig(baseConfig.copyWith(remotePath: 'Backup'));
+    expect(env.store.failureEntries, isEmpty, reason: '换目标后旧失败状态不适用');
+    broken = false;
+
+    await env.service.scanAndUpload();
+    expect(env.transfer.uploads.length, 1);
+    expect(env.transfer.remoteDirs.single, 'Backup/2026/10');
+  });
+
+  test('更换目标目录：旧记录不生效，历史资源重新入队（AC-282）', () async {
+    final env = build(assets: [asset('a')], remote: _FakeRemote());
+    await env.service.init();
+    env.store.backed['a'] = const AlbumBackupRecord(
+      assetId: 'a',
+      diskId: 7,
+      remoteRoot: 'Photos',
+      remotePath: 'Photos/2026/10/a.jpg',
+      size: 3,
+      backedAt: '2026-10-24T00:00:00Z',
+    );
+
+    await env.service.scanAndUpload();
+    expect(env.transfer.uploads, isEmpty, reason: '当前目标已备份，跳过');
+
+    await env.service.setConfig(baseConfig.copyWith(remotePath: 'Backup'));
+    await env.service.scanAndUpload();
+
+    expect(env.transfer.uploads.length, 1, reason: '换目标目录后旧记录不得命中');
+    expect(env.transfer.remoteDirs.single, 'Backup/2026/10');
+  });
+
+  test('失败自动重试上限 3 次；手动「重试失败项」解锁（AC-288）', () async {
+    final env = build(assets: [asset('broken', openFile: () async => null)]);
+    await env.service.init();
+
+    for (var i = 0; i < 3; i++) {
+      await env.service.scanAndUpload();
+    }
+    expect(env.store.failureEntries.single.attempts, 3);
+    expect(
+      env.store.failureEntries.single.reason,
+      AlbumBackupFailureReason.unavailable,
+    );
+
+    // 第 4 轮不再自动重试（findAsset 不会因该失败项被调用）
+    env.assets.findCalls = 0;
+    await env.service.scanAndUpload();
+    expect(env.assets.findCalls, 0, reason: '达到 3 次后暂停自动重试');
+
+    await env.service.retryFailed();
+    expect(env.store.failureEntries.single.attempts, 1, reason: '手动解锁后重新计数');
+  });
+}
+
+// ── 假实现 ──────────────────────────────────────────
+
+class _FakeConfigStore extends AlbumBackupConfigStore {
+  _FakeConfigStore(this.value);
+
+  AlbumBackupConfig value;
+
+  @override
+  Future<AlbumBackupConfig> load() async => value;
+
+  @override
+  Future<void> save(AlbumBackupConfig config) async {
+    value = config;
+  }
+}
+
+class _FakeStore implements AlbumBackupStore {
+  final Map<String, AlbumBackupRecord> backed = {};
+  final Map<String, AlbumBackupFailure> failures = {};
+
+  int backfillCalls = 0;
+
+  List<AlbumBackupFailure> get failureEntries =>
+      failures.values.toList(growable: false);
+
+  @override
+  Future<void> backfillRemoteRoot(int diskId, String remoteRoot) async {
+    backfillCalls++;
+    for (final entry in backed.entries.toList(growable: false)) {
+      final record = entry.value;
+      if (record.diskId == diskId && record.remoteRoot.isEmpty) {
+        backed[entry.key] = AlbumBackupRecord(
+          assetId: record.assetId,
+          diskId: record.diskId,
+          remoteRoot: remoteRoot,
+          remotePath: record.remotePath,
+          size: record.size,
+          backedAt: record.backedAt,
+        );
+      }
+    }
+  }
+
+  @override
+  Future<Set<String>> backedUpIds({
+    required int diskId,
+    required String remoteRoot,
+  }) async => backed.values
+      .where((r) => r.diskId == diskId && r.remoteRoot == remoteRoot)
+      .map((r) => r.assetId)
+      .toSet();
+
+  @override
+  Future<int> backedUpCount({
+    required int diskId,
+    required String remoteRoot,
+  }) async => backed.values
+      .where((r) => r.diskId == diskId && r.remoteRoot == remoteRoot)
+      .length;
+
+  @override
+  Future<void> markBackedUp(AlbumBackupRecord record) async {
+    backed[record.assetId] = record;
+    failures.remove(record.assetId);
+  }
+
+  @override
+  Future<void> markFailed(String assetId, String reason) async {
+    final previous = failures[assetId]?.attempts ?? 0;
+    failures[assetId] = AlbumBackupFailure(
+      assetId: assetId,
+      reason: reason,
+      attempts: previous + 1,
+      triedAt: DateTime.now().toIso8601String(),
+    );
+  }
+
+  @override
+  Future<void> clearFailed(String assetId) async {
+    failures.remove(assetId);
+  }
+
+  @override
+  Future<void> clearAllFailures() async => failures.clear();
+
+  @override
+  Future<List<AlbumBackupFailure>> failedEntries() async => failureEntries;
+
+  @override
+  Future<int> failedCount() async => failures.length;
+
+  @override
+  Future<void> clearAll() async {
+    backed.clear();
+    failures.clear();
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+class _FakeAssetSource implements AlbumAssetSource {
+  _FakeAssetSource({required this.assets, required this.counts});
+
+  final List<AlbumAsset> assets;
+  final Map<AlbumCountScope, int> counts;
+
+  final List<String> visitedIds = [];
+  final List<(int, int)> ranges = [];
+  int findCalls = 0;
+
+  @override
+  Future<bool> ensurePermission() async => true;
+
+  @override
+  Future<int> albumCount(AlbumCountScope scope) async => counts[scope] ?? 0;
+
+  @override
+  Future<List<AlbumAsset>> listAssets({
+    required int start,
+    required int end,
+  }) async {
+    ranges.add((start, end));
+    if (start >= assets.length) return const [];
+    final stop = end > assets.length ? assets.length : end;
+    final page = assets.sublist(start, stop);
+    visitedIds.addAll(page.map((item) => item.id));
+    return page;
+  }
+
+  @override
+  Future<AlbumAsset?> findAsset(String id) async {
+    findCalls++;
+    for (final item in assets) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+}
+
+class _FakeRemote implements RemoteFileIndex {
+  _FakeRemote({
+    this.dirs = const {},
+    this.failDirs = const {},
+    this.missingDirs = const {},
+  });
+
+  final Map<String, List<RemoteFileEntry>> dirs;
+  final Set<String> failDirs;
+  final Set<String> missingDirs;
+  final List<String> calls = [];
+
+  @override
+  Future<List<RemoteFileEntry>> listFiles(int diskId, String path) async {
+    calls.add(path);
+    if (missingDirs.contains(path)) {
+      throw const AppException(code: 404, message: '路径不存在或不是目录');
+    }
+    if (failDirs.contains(path)) {
+      throw AppException.networkError('模拟列表失败');
+    }
+    return dirs[path] ?? const [];
+  }
+}
+
+class _FakeTransfer extends TransferService {
+  _FakeTransfer() : super(HttpService(SessionManager()));
+
+  final List<
+    ({int diskId, String remoteDir, String filename, int size, String? tag})
+  >
+  uploads = [];
+  int _next = 1;
+
+  List<String> get filenames => uploads.map((u) => u.filename).toList();
+
+  List<String> get remoteDirs => uploads.map((u) => u.remoteDir).toList();
+
+  @override
+  Future<String> submitUpload(
+    int diskId,
+    String remoteDir,
+    String localPath,
+    String filename,
+    int fileSize, {
+    String? tag,
+  }) async {
+    uploads.add((
+      diskId: diskId,
+      remoteDir: remoteDir,
+      filename: filename,
+      size: fileSize,
+      tag: tag,
+    ));
+    return 'task-${_next++}';
+  }
+}

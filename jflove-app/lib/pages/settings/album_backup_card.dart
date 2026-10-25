@@ -80,8 +80,9 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
         _snack('请先选择远端目标目录');
         return;
       }
-      final granted =
-          await ref.read(albumBackupServiceProvider).ensurePermission();
+      final granted = await ref
+          .read(albumBackupServiceProvider)
+          .ensurePermission();
       if (!granted) {
         _snack('未获得相册读取权限，请在系统设置中允许后重试');
         return;
@@ -114,7 +115,9 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
       title: '选择远端目标目录',
     );
     if (picked == null) return;
-    await _apply(_config.copyWith(diskId: picked.diskId, remotePath: picked.path));
+    await _apply(
+      _config.copyWith(diskId: picked.diskId, remotePath: picked.path),
+    );
   }
 
   Future<void> _showBackgroundHint() async {
@@ -129,19 +132,24 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
 
     String body;
     if (brand.contains('xiaomi') || brand.contains('redmi')) {
-      body = '小米/Redmi：设置 → 应用设置 → 应用管理 → JFLove → '
+      body =
+          '小米/Redmi：设置 → 应用设置 → 应用管理 → JFLove → '
           '省电策略选「无限制」，并打开「自启动」。';
     } else if (brand.contains('huawei') || brand.contains('honor')) {
-      body = '华为/荣耀：设置 → 应用 → 应用启动管理 → JFLove → '
+      body =
+          '华为/荣耀：设置 → 应用 → 应用启动管理 → JFLove → '
           '改为「手动管理」，允许自启动/关联启动/后台活动。';
     } else if (brand.contains('oppo') || brand.contains('realme')) {
-      body = 'OPPO/realme：设置 → 电池 → 应用耗电管理 → JFLove → '
+      body =
+          'OPPO/realme：设置 → 电池 → 应用耗电管理 → JFLove → '
           '允许后台运行与自启动。';
     } else if (brand.contains('vivo') || brand.contains('iqoo')) {
-      body = 'vivo/iQOO：设置 → 电池 → 后台耗电管理 → JFLove → '
+      body =
+          'vivo/iQOO：设置 → 电池 → 后台耗电管理 → JFLove → '
           '允许后台高耗电；并在 i管家允许自启动。';
     } else {
-      body = '若备份在后台中断，请在系统设置中允许本应用「自启动 / 后台运行」，'
+      body =
+          '若备份在后台中断，请在系统设置中允许本应用「自启动 / 后台运行」，'
           '并关闭针对本应用的电池优化。';
     }
     await showDialog<void>(
@@ -161,7 +169,46 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// 展开失败原因（中文、不含路径；区分永久不可用 / 暂时失败）
+  Future<void> _showFailureReasons() async {
+    final entries = await ref.read(albumBackupServiceProvider).failedEntries();
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('失败原因（${entries.length} 项）'),
+        content: entries.isEmpty
+            ? const Text('暂无失败记录')
+            : SizedBox(
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: entries.length,
+                  itemBuilder: (_, index) {
+                    final entry = entries[index];
+                    final kind = entry.permanent ? '永久不可用' : '暂时失败';
+                    return ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(entry.reason),
+                      subtitle: Text('$kind · 已尝试 ${entry.attempts} 次'),
+                    );
+                  },
+                ),
+              ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -246,7 +293,7 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
             subtitle: Text(
               _config.isConfigured
                   ? '磁盘 #${_config.diskId} · '
-                      '${_config.remotePath.isEmpty ? '根目录' : _config.remotePath}'
+                        '${_config.remotePath.isEmpty ? '根目录' : _config.remotePath}'
                   : '未选择',
             ),
             trailing: TextButton(
@@ -279,10 +326,39 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
           progressAsync.when(
             data: (p) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Text(
-                '手机相册 ${p.total} 张 / 已备份 ${p.done} 张'
-                ' · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项',
-                style: TextStyle(fontSize: 12.5, color: t.fgDefault),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '手机相册 ${p.total} 张 / 已备份 ${p.done} 张',
+                    style: TextStyle(fontSize: 12.5, color: t.fgDefault),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '待备份 ${p.pending} 项 · 上传中 ${p.uploading} 项',
+                    style: TextStyle(fontSize: 12.5, color: t.fgDefault),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '失败 ${p.failed} 项 · 不在范围 ${p.outOfScope} 项',
+                    style: TextStyle(fontSize: 12.5, color: t.fgDefault),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '远端已存在跳过 ${p.skippedExisting} 项',
+                    style: TextStyle(fontSize: 12.5, color: t.fgSubtle),
+                  ),
+                  if (p.remoteCheckUnavailable) ...[
+                    const SizedBox(height: 4),
+                    const Text(
+                      '远端校验暂不可用（本次按本地记录备份）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTokens.warning500,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             loading: () => const Padding(
@@ -304,9 +380,7 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
                 onPressed: _loading
                     ? null
                     : () async {
-                        await ref
-                            .read(albumBackupServiceProvider)
-                            .scanAndUpload();
+                        await ref.read(albumBackupServiceProvider).checkNow();
                         if (mounted) _snack('已触发一次检查');
                       },
               ),
@@ -322,6 +396,24 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
                         if (mounted) _snack('已重新排队失败项');
                       },
               ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.cloud_sync_outlined, size: 18),
+                label: const Text('重新核对远端'),
+                onPressed: _loading
+                    ? null
+                    : () async {
+                        await ref
+                            .read(albumBackupServiceProvider)
+                            .recheckRemote();
+                        if (mounted) _snack('已重新核对远端目录');
+                      },
+              ),
+              if ((progressAsync.asData?.value.failed ?? 0) > 0)
+                TextButton.icon(
+                  icon: const Icon(Icons.error_outline, size: 18),
+                  label: const Text('查看失败原因'),
+                  onPressed: _showFailureReasons,
+                ),
               TextButton.icon(
                 icon: const Icon(Icons.info_outline, size: 18),
                 label: const Text('后台运行设置'),

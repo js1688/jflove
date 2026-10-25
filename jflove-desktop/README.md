@@ -165,11 +165,37 @@ UI (Page) → Signal → Service (业务逻辑) → http_client → 后端 API
 | 层 | 目录 | 职责 |
 |----|------|------|
 | **UI 前端工程** | [`ui/`](jflove-desktop/ui/) | 全部业务界面（React + TS + Vite + Tailwind），与 Web 端同源快照、独立演进 |
-| **原生外壳** | [`src/ui/`](jflove-desktop/src/ui/) | `web_shell.py`（无边框窗口 / 桥注入 / 关闭=最小化到托盘）、`tray.py`、`media_overlay.py`（原生媒体浮层） |
+| **原生外壳** | [`src/ui/`](jflove-desktop/src/ui/) | `web_shell.py`（无边框窗口 / 桥注入 / 关闭=最小化到托盘）、`tray.py`、`media_overlay.py`（原生媒体浮层，默认 `QWebEngineView` native 子控件） |
 | **渲染层桥** | [`src/bridge/`](jflove-desktop/src/bridge/) | 白名单桥（`bridge.py` + `api_gateway.py` / `files.py` / `media.py` / `sync.py` / `transfer.py`）；JS **无网络出口** |
 | **组件（原生能力）** | [`src/components/`](jflove-desktop/src/components/) | `stream_proxy.py`（本地解密 + Range 206 流代理，媒体预览的唯一通路） |
 | **服务** | [`src/services/`](jflove-desktop/src/services/) | 与后端 API 交互的业务服务层 |
 | **工具** | [`src/utils/`](jflove-desktop/src/utils/) | 加密、HTTP 客户端、会话管理、工作线程 |
+
+### 原生媒体浮层（QWebEngineView 子控件）
+
+媒体预览的画面由 **OS 解码器**渲染（`QMediaPlayer` / Qt 图像解码），渲染层只画播放器外壳并上报
+预留矩形；它**不是独立顶层窗口**，而是 `QWebEngineView` 的 **native 子控件**：
+
+```
+QMainWindow
+└── QWebEngineView（页面）
+    └── MediaOverlay.window = QWidget(view)   ← WA_NativeWindow，坐标相对父控件
+        ├── QVideoWidget
+        └── QLabel（图片）
+```
+
+- 坐标：渲染层 `getBoundingClientRect()` 上报的就是**相对视口**的 CSS 像素，
+  子控件直接 `setGeometry(rect)`（CSS 像素 == Qt 逻辑像素，**无 dpr 换算**）；
+- 跟随：主窗移动/缩放/全屏/托盘恢复都由 Qt 父子关系自动完成，不再 `mapToGlobal` 反算；
+- 全屏：`setGeometry(0, 0, view.width(), view.height())`（子控件不调用 `showFullScreen()`）；
+- 层级：`show()` / 全屏切换 / 视口尺寸变化后 `raise_()`（`web_shell` 把 `view` 的 resize
+  转发给同一条合帧重贴合链路）；
+- **回退开关**：`JFLOVE_MEDIA_OVERLAY=window` 恢复 v1.8.1 的「独立无边框顶层窗口 + 全局坐标」
+  实现（排障用）；`get_view()` 尚不可用时自动回退并记 warning；
+- 几何取证脚本：[`scripts/verify/media_overlay_probe.py`](scripts/verify/media_overlay_probe.py)
+  （X11 判像素 + 全局跟随；Wayland 用结构性判据，`Xvfb`/`kwin_wayland` 用法见脚本 docstring）。
+
+> 安全口径不变：媒体仍由 Python 侧 `StreamProxy` 解密后交给 OS 解码器，渲染层不接触媒体字节/密钥。
 
 ### 通信层
 
@@ -349,7 +375,7 @@ jflove-desktop/
 │   ├── ui/                         # 原生外壳（无边框窗口 / 托盘 / 媒体浮层）
 │   │   ├── web_shell.py            # 承载 QtWebEngine、注入桥、关闭=最小化到托盘
 │   │   ├── tray.py                 # 系统托盘（显示窗口 / 主题 / 退出）
-│   │   └── media_overlay.py        # 原生媒体浮层（贴 Web 预留矩形，OS 解码器渲染）
+│   │   └── media_overlay.py        # 原生媒体浮层（native 子控件贴预留矩形，OS 解码器渲染）
 │   └── utils/
 │       ├── crypto.py               # X25519 + HKDF + ChaCha20-Poly1305
 │       ├── http_client.py          # 加密 HTTP 客户端（含信封形状判定）
@@ -367,7 +393,7 @@ jflove-desktop/
 │   ├── public/                     # logo-64/128/256.png 等静态资源
 │   └── dist/                       # 前端产物（构建生成；打包时作为 webui/ 进包）
 ├── packaging/                      # 打包资产（Windows Inno Setup / Linux RPM / spec / 桌面项）
-├── tests/                          # pytest（含 v1.5.1 浮层生命周期与信封用例）
+├── tests/                          # pytest（含浮层生命周期/子控件几何与信封用例）
 ├── poc/                            # 一次性验证脚本（非交付物）
 ├── images/                         # 应用图标 icon.ico / icon.png
 ├── build.py                        # 模块构建脚本（onedir + 安装包；交付走仓库根 build.py）

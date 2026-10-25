@@ -85,6 +85,7 @@ class OfflineTask {
     this.targetRelPath = '',
     this.errorCode = '',
     this.errorMessage = '',
+    this.analysisLevel = '',
     this.createdAt = '',
     this.startedAt,
     this.finishedAt,
@@ -137,6 +138,9 @@ class OfflineTask {
   /// 业务错误中文原因
   final String errorMessage;
 
+  /// v1.8.2：`partial` = 解析超时但返回了部分结果
+  final String analysisLevel;
+
   /// 创建时间（服务端 UTC ISO8601 字符串）
   final String createdAt;
 
@@ -169,6 +173,7 @@ class OfflineTask {
       targetRelPath: _asString(map['target_rel_path']),
       errorCode: _asString(map['error_code']),
       errorMessage: _asString(map['error_message']),
+      analysisLevel: _asString(map['analysis_level']),
       createdAt: _asString(map['created_at']),
       startedAt: _asStringOrNull(map['started_at']),
       finishedAt: _asStringOrNull(map['finished_at']),

@@ -664,3 +664,249 @@ def test_cleanup_task_temp_removes_hidden_dir(tmp_path) -> None:
     (hidden / "seg.ts").write_bytes(b"x")
     cleanup_task_temp(str(tmp_path), 7)
     assert not hidden.exists()
+
+
+def make_av_pair_fixture(
+    directory, *, video_duration: int = 2, audio_duration: int = 2
+) -> tuple[bytes, bytes]:
+    """生成「纯视频 mp4 + 纯音频 m4a」一对夹具（v1.8.2 / F36）。"""
+    video = directory / "v.mp4"
+    audio = directory / "a.m4a"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10",
+            "-t", str(video_duration), "-c:v", "libopenh264", "-b:v", "300k", "-an",
+            str(video),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "sine=frequency=440",
+            "-t", str(audio_duration), "-c:a", "aac", "-vn",
+            str(audio),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return video.read_bytes(), audio.read_bytes()
+
+
+def test_aux_url_is_downloaded_and_muxed(tmp_path) -> None:
+    """v1.8.2 / F36：音视频分离项必须请求 aux_url 并合并出音轨（issue #9）。"""
+    from src.services.media_fetcher_service import _probe_output
+
+    video_bytes, audio_bytes = make_av_pair_fixture(tmp_path)
+    outbound = FakeOutbound(
+        {
+            "https://cdn.example.com/v.mp4": video_bytes,
+            "https://cdn.example.com/a.m4a": audio_bytes,
+        }
+    )
+    outcome = asyncio.run(
+        MediaFetcherService(outbound).fetch_item(
+            str(tmp_path),
+            1,
+            {
+                "id": 1,
+                "kind": "video",
+                "ext": "mp4",
+                "height": 240,
+                "source_url": "https://cdn.example.com/v.mp4",
+                "aux_url": "https://cdn.example.com/a.m4a",
+                "protocol": "http",
+            },
+            title="Demo",
+        )
+    )
+    assert outcome.status == "success"
+    assert "https://cdn.example.com/a.m4a" in outbound.requests
+    probe = asyncio.run(_probe_output(outcome.output_path))
+    assert "audio" in probe["streams"], probe
+    assert "video" in probe["streams"], probe
+
+
+def test_aux_url_failure_fails_item_without_silent_video(tmp_path) -> None:
+    """v1.8.2 / F36.4：音轨 404 ⇒ 整项失败，不能落一个无声视频当成功。"""
+    video_bytes, _ = make_av_pair_fixture(tmp_path)
+    outbound = FakeOutbound({"https://cdn.example.com/v.mp4": video_bytes})
+    with pytest.raises(FetchError) as excinfo:
+        asyncio.run(
+            MediaFetcherService(outbound).fetch_item(
+                str(tmp_path),
+                1,
+                {
+                    "id": 1,
+                    "kind": "video",
+                    "ext": "mp4",
+                    "height": 240,
+                    "source_url": "https://cdn.example.com/v.mp4",
+                    "aux_url": "https://cdn.example.com/missing.m4a",
+                    "protocol": "http",
+                },
+                title="Demo",
+            )
+        )
+    assert excinfo.value.code in ("url_expired", "network_error", "merge_failed")
+    assert not (tmp_path / "Demo_240P.mp4").exists()
+
+
+def test_main_with_audio_skips_aux(tmp_path) -> None:
+    """M-4：主轨自带音轨时不得再请求 aux（HLS/DASH 已合并的常见情况）。"""
+    main = tmp_path / "av.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10",
+            "-f", "lavfi", "-i", "sine=frequency=440",
+            "-t", "2", "-c:v", "libopenh264", "-b:v", "300k", "-c:a", "aac",
+            str(main),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    outbound = FakeOutbound({"https://cdn.example.com/av.mp4": main.read_bytes()})
+    outcome = asyncio.run(
+        MediaFetcherService(outbound).fetch_item(
+            str(tmp_path),
+            1,
+            {
+                "id": 1,
+                "kind": "video",
+                "ext": "mp4",
+                "height": 240,
+                "source_url": "https://cdn.example.com/av.mp4",
+                "aux_url": "https://cdn.example.com/never.m4a",
+                "protocol": "http",
+            },
+            title="Demo",
+        )
+    )
+    assert outcome.status == "success"
+    assert "https://cdn.example.com/never.m4a" not in outbound.requests
+
+
+def test_merge_duration_mismatch_fails(tmp_path) -> None:
+    """M-1（F36.3）：音轨比主轨长 >1s ⇒ merge_failed，不落成片。"""
+    video_bytes, audio_bytes = make_av_pair_fixture(
+        tmp_path, video_duration=1, audio_duration=6
+    )
+    outbound = FakeOutbound(
+        {
+            "https://cdn.example.com/v.mp4": video_bytes,
+            "https://cdn.example.com/a.m4a": audio_bytes,
+        }
+    )
+    with pytest.raises(FetchError) as excinfo:
+        asyncio.run(
+            MediaFetcherService(outbound).fetch_item(
+                str(tmp_path),
+                1,
+                {
+                    "id": 1,
+                    "kind": "video",
+                    "ext": "mp4",
+                    "height": 240,
+                    "source_url": "https://cdn.example.com/v.mp4",
+                    "aux_url": "https://cdn.example.com/a.m4a",
+                    "protocol": "http",
+                },
+                title="Demo",
+            )
+        )
+    assert excinfo.value.code == "merge_failed"
+    assert not (tmp_path / "Demo_240P.mp4").exists()
+
+
+def test_ffmpeg_missing_fails_merge_without_output(tmp_path, monkeypatch) -> None:
+    """AC-274：ffmpeg 不可用 ⇒ merge_failed，且不落任何成片（不得静默无声）。"""
+    import src.services.media_fetcher_service as fetcher_module
+
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir()
+    target = tmp_path / "out"
+    video_bytes, audio_bytes = make_av_pair_fixture(fixtures)
+    outbound = FakeOutbound(
+        {
+            "https://cdn.example.com/v.mp4": video_bytes,
+            "https://cdn.example.com/a.m4a": audio_bytes,
+        }
+    )
+    monkeypatch.setattr(fetcher_module.media_probe, "get_ffmpeg_exe", lambda: None)
+    with pytest.raises(FetchError) as excinfo:
+        asyncio.run(
+            MediaFetcherService(outbound).fetch_item(
+                str(target),
+                "1",
+                {
+                    "id": 1,
+                    "kind": "video",
+                    "ext": "mp4",
+                    "height": 240,
+                    "source_url": "https://cdn.example.com/v.mp4",
+                    "aux_url": "https://cdn.example.com/a.m4a",
+                    "protocol": "http",
+                },
+                title="Demo",
+            )
+        )
+    assert excinfo.value.code == "merge_failed"
+    produced = list(target.glob("*.mp4")) if target.exists() else []
+    assert produced == []
+
+
+def make_hls_track(directory, *, video: bool) -> dict[str, bytes]:
+    """生成「纯视频 / 纯音频」HLS 轨道，键为带子目录前缀的 URL（R-1 回归）。"""
+    directory.mkdir(parents=True, exist_ok=True)
+    playlist = directory / "out.m3u8"
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+    if video:
+        command += [
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=10",
+            "-t", "2", "-c:v", "libopenh264", "-b:v", "300k", "-an",
+        ]
+    else:
+        command += [
+            "-f", "lavfi", "-i", "sine=frequency=440",
+            "-t", "2", "-c:a", "aac", "-vn",
+        ]
+    command += [
+        "-f", "hls", "-hls_time", "1", "-hls_list_size", "0",
+        "-hls_segment_filename", str(directory / "seg%03d.ts"),
+        str(playlist),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    prefix = f"https://cdn.example.com/{directory.name}"
+    files = {f"{prefix}/out.m3u8": playlist.read_bytes()}
+    for path in directory.iterdir():
+        if path.name != "out.m3u8":
+            files[f"{prefix}/{path.name}"] = path.read_bytes()
+    return files
+
+
+def test_hls_main_plus_hls_aux_merges_without_overwrite(tmp_path) -> None:
+    """R-1：HLS 主轨 + HLS 音轨必须合并成功（临时文件不得同名覆盖）。"""
+    files = make_hls_track(tmp_path / "v", video=True)
+    files.update(make_hls_track(tmp_path / "a", video=False))
+    outbound = FakeOutbound(files)
+    outcome = asyncio.run(
+        MediaFetcherService(outbound).fetch_item(
+            str(tmp_path / "out"),
+            1,
+            {
+                "id": 1,
+                "kind": "video",
+                "ext": "mp4",
+                "height": 240,
+                "source_url": "https://cdn.example.com/v/out.m3u8",
+                "aux_url": "https://cdn.example.com/a/out.m3u8",
+                "protocol": "m3u8",
+            },
+            title="Demo",
+        )
+    )
+    assert outcome.status == "success"
+    assert "https://cdn.example.com/a/out.m3u8" in outbound.requests

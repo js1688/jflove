@@ -75,7 +75,10 @@ class _TransferPageState extends ConsumerState<TransferPage>
           indicatorColor: AppTokens.brand500,
           indicatorSize: TabBarIndicatorSize.label,
           dividerColor: t.borderSubtle,
-          labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+          labelStyle: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
           unselectedLabelStyle: const TextStyle(fontSize: 14),
           tabs: const [
             Tab(text: '传输任务'),
@@ -85,10 +88,7 @@ class _TransferPageState extends ConsumerState<TransferPage>
       ),
       body: TabBarView(
         controller: _tabs,
-        children: const [
-          _TransferTaskList(),
-          RepairCenterContent(),
-        ],
+        children: const [_TransferTaskList(), RepairCenterContent()],
       ),
     );
   }
@@ -163,7 +163,8 @@ class _TransferTaskList extends ConsumerWidget {
                     child: ListView.builder(
                       padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                       itemCount: tasks.length,
-                      itemBuilder: (ctx, i) => _TransferTaskCard(task: tasks[i]),
+                      itemBuilder: (ctx, i) =>
+                          _TransferTaskCard(task: tasks[i]),
                     ),
                   ),
                 ],
@@ -199,7 +200,11 @@ class _AlbumBackupSummary extends ConsumerWidget {
       padding: const EdgeInsets.all(14),
       child: Row(
         children: [
-          Icon(Icons.photo_library_outlined, size: 18, color: AppTokens.brand600),
+          Icon(
+            Icons.photo_library_outlined,
+            size: 18,
+            color: AppTokens.brand600,
+          ),
           SizedBox(width: t.s2),
           Expanded(
             child: Column(
@@ -214,12 +219,31 @@ class _AlbumBackupSummary extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  enabled
-                      ? '已备份 ${p.done} 项 · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项'
-                      : '未开启——到「设置」页打开相册自动同步',
-                  style: TextStyle(fontSize: 12, color: t.fgSubtle),
-                ),
+                if (enabled) ...[
+                  Text(
+                    '已备份 ${p.done} 项 · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项',
+                    style: TextStyle(fontSize: 12, color: t.fgSubtle),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '不在范围 ${p.outOfScope} 项 · 远端已存在跳过 ${p.skippedExisting} 项',
+                    style: TextStyle(fontSize: 12, color: t.fgSubtle),
+                  ),
+                  if (p.remoteCheckUnavailable) ...[
+                    const SizedBox(height: 2),
+                    const Text(
+                      '远端校验暂不可用（按本地记录备份）',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTokens.warning500,
+                      ),
+                    ),
+                  ],
+                ] else
+                  Text(
+                    '未开启——到「设置」页打开相册自动同步',
+                    style: TextStyle(fontSize: 12, color: t.fgSubtle),
+                  ),
               ],
             ),
           ),
@@ -287,7 +311,10 @@ class _TransferTaskCard extends ConsumerWidget {
                 ),
               ),
               SizedBox(width: t.s2),
-              AppBadge(_statusText(task.status), tone: _statusTone(task.status)),
+              AppBadge(
+                _statusText(task.status),
+                tone: _statusTone(task.status),
+              ),
               if (isRunning) ...[
                 SizedBox(width: t.s1),
                 SizedBox(

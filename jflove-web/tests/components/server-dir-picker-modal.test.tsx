@@ -100,11 +100,20 @@ describe('Web 服务器目录选择器（AC-257）', () => {
     expect(browseMock).toHaveBeenCalledTimes(2);
   });
 
-  it('目录超限时提示进入更具体路径', async () => {
+  it('目录超限且服务端未下发 limit 时，文案回落 2000', async () => {
     browseMock.mockResolvedValueOnce({ ...STORAGE, truncated: true });
 
     render(<ServerDirPickerModal initialPath="/storage" onSelect={vi.fn()} onClose={vi.fn()} />);
 
     expect(await screen.findByText(/仅显示前 2000 项/)).toBeInTheDocument();
+  });
+
+  it('目录超限时文案使用响应 limit（v1.8.2 / C1 / AC-294）', async () => {
+    browseMock.mockResolvedValueOnce({ ...STORAGE, truncated: true, limit: 500 });
+
+    render(<ServerDirPickerModal initialPath="/storage" onSelect={vi.fn()} onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/仅显示前 500 项/)).toBeInTheDocument();
+    expect(screen.queryByText(/仅显示前 2000 项/)).not.toBeInTheDocument();
   });
 });

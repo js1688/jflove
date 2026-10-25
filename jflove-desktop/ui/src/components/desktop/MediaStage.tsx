@@ -1,8 +1,9 @@
 /**
  * 原生媒体舞台（桌面端专有）
  *
- * 把一块**由 Python 摆放的独立原生窗口**（`src/ui/media_overlay.py`）贴在下面这个
- * 占位 div 上。解码由 **OS 解码器**完成：
+ * 把一块**由 Python 摆放的原生画面**（`src/ui/media_overlay.py`）贴在下面这个
+ * 占位 div 上。v1.8.2（F40）起该原生画面是 `QWebEngineView` 的 native 子控件
+ * （坐标相对视口，随主窗移动/缩放/全屏），不再是独立顶层窗口。解码由 **OS 解码器**完成：
  *
  * - 视频/音频：`StreamProxy`（本地解密 + Range 206）→ `QMediaPlayer`
  * - 图片：Python 取回字节落临时文件 → Qt 原生解码（`QImageReader`）
@@ -13,8 +14,8 @@
  * （mkv/avi/flac/HEVC 等常常放不出来），而 OS 解码器兼容性强得多。
  * 渲染层在这里**只负责画框与上报位置**，画面永远不经过 Web 渲染。
  *
- * 位置同步：`getBoundingClientRect()` → `media.set_rect`；
- * 滚出视口 → `media.set_visible(false)` 隐藏原生窗口（避免残影）。
+ * 位置同步：`getBoundingClientRect()` → `media.set_rect`（相对视口的 CSS 像素，
+ * 与 Qt 逻辑像素一一对应）；滚出视口 → `media.set_visible(false)` 隐藏原生画面。
  * 经 P0-4 实测：CSS 像素与 Qt 设备无关像素一一对应，**无需 dpr 换算**。
  */
 import { useEffect, useRef } from 'react';
@@ -107,7 +108,7 @@ export function MediaStage({ aspect = '16 / 9', onState, onError, className }: M
       style={{ aspectRatio: aspect }}
       data-testid="media-stage"
     >
-      {/* 原生窗口会盖在这块区域上；这里只放"由本地解码器渲染"的说明，
+      {/* 原生画面（子控件）会盖在这块区域上；这里只放"由本地解码器渲染"的说明，
           用户若看到这段文字，说明原生浮层没贴上来（便于排查） */}
       <div className="grid h-full w-full place-items-center text-[12px] text-white/45">
         由本地解码器渲染（OS 解码器）

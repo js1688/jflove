@@ -25,6 +25,7 @@ class _FakeOfflineService extends OfflineDownloadService {
   int selectCalls = 0;
   int cancelCalls = 0;
   int detailIndex = 0;
+  int detailCalls = 0;
   int? lastTaskId;
   List<int>? lastItemIds;
   int? lastDiskId;
@@ -46,8 +47,11 @@ class _FakeOfflineService extends OfflineDownloadService {
 
   @override
   Future<OfflineTaskDetail> detail(int taskId) async {
+    detailCalls++;
     if (failDetail) throw StateError('poll boom');
-    final index = detailIndex < details.length ? detailIndex : details.length - 1;
+    final index = detailIndex < details.length
+        ? detailIndex
+        : details.length - 1;
     detailIndex++;
     return details[index];
   }
@@ -242,7 +246,6 @@ void main() {
     expect(fake.lastItemIds, <int>[2]);
   });
 
-
   testWidgets('分析轮询连续失败 3 次：落到失败态并给中文提示（审查 M-1）', (tester) async {
     final fake = _FakeOfflineService(
       details: const [_analyzingDetail],
@@ -272,6 +275,40 @@ void main() {
 
     expect(find.textContaining('已重试 3 次'), findsOneWidget);
     expect(find.text('分析'), findsOneWidget, reason: '失败后应可重新分析');
+    expect(find.text('重试分析'), findsOneWidget, reason: 'C2：失败后提供重试分析入口');
+  });
+
+  testWidgets('分析轮询退避：2.5s → 5s 才进行下一次（AC-295）', (tester) async {
+    final fake = _FakeOfflineService(details: const [_analyzingDetail]);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [offlineDownloadServiceProvider.overrideWithValue(fake)],
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: const OfflineNewTaskPage(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'https://example.com/v');
+    await tester.tap(find.text('分析'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(fake.detailCalls, 1, reason: '分析成功后立即查一次详情');
+
+    await tester.pump(const Duration(milliseconds: 2600));
+    await tester.pump();
+    expect(fake.detailCalls, 2, reason: '第一档间隔 2.5s');
+
+    await tester.pump(const Duration(milliseconds: 2600));
+    await tester.pump();
+    expect(fake.detailCalls, 2, reason: '第二档退避到 5s，2.5s 时不应再轮询');
+
+    await tester.pump(const Duration(milliseconds: 2500));
+    await tester.pump();
+    expect(fake.detailCalls, 3, reason: '5s 后执行下一次轮询');
   });
 
   testWidgets('非法 URL 不发请求，给中文提示', (tester) async {

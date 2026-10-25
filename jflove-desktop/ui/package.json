@@ -1,6 +1,6 @@
 {
   "name": "jflove-desktop-ui",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "private": true,
   "type": "module",
   "description": "JFLove 桌面端 Web UI：由 Qt 外壳（PySide6 + QtWebEngine）承载，经 QWebChannel 调用 Python 服务层",

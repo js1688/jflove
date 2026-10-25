@@ -74,6 +74,8 @@ export interface ServerDirListing {
   roots: ServerDirEntry[];
   /** 子目录数超过服务端上限时为 true */
   truncated: boolean;
+  /** 服务端列目录上限（v1.8.2 / C1）；旧服务端不返回时由前端回落 2000 */
+  limit?: number;
 }
 
 // ── 文件/目录 ──

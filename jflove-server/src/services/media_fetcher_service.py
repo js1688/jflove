@@ -448,10 +448,19 @@ class MediaFetcherService:
             if outcome.status == "failed":
                 raise FetchError(outcome.error_code or "network_error", outcome.error_message)
             return outcome
-        name = self._final_name(title, item)
+        # v1.8.2（F36）：音视频分离项（aux_url 非空）必须合并后再落盘。
+        # 不再按协议排除：HLS/DASH 主轨可能自带音轨（探测到 audio 即跳过 aux），
+        # 也可能是纯视频变体（M-4：必须补 aux，否则静默产出无声文件）。
+        needs_aux = kind == "video" and bool(str(item.get("aux_url") or "").strip())
+        name_item = {**item, "ext": "mp4"} if needs_aux else item
+        name = self._final_name(title, name_item)
         temp_path = os.path.join(tmp_root, f"item_{item.get('id', 0)}.part")
         try:
-            if str(item.get("protocol")) == "m3u8":
+            if needs_aux:
+                produced = await self._fetch_with_audio(
+                    item, tmp_root, referer=referer, progress=progress, cancel_event=cancel_event
+                )
+            elif str(item.get("protocol")) == "m3u8":
                 produced = await self._fetch_hls(
                     item, tmp_root, referer=referer, progress=progress, cancel_event=cancel_event
                 )
@@ -552,6 +561,147 @@ class MediaFetcherService:
         return outcomes
 
     # ── 各协议实现 ──────────────────────────────────────────────
+
+    async def _fetch_with_audio(
+        self,
+        item: dict,
+        tmp_root: str,
+        *,
+        referer: str = "",
+        progress=None,
+        cancel_event=None,
+    ) -> str:
+        """
+        音视频分离项：主轨 + `aux_url` 音轨分别下载，再用 ffmpeg `-c copy` 无损合并。
+
+        v1.8.2（F36）新增。合并失败/缺音轨一律抛 `merge_failed`，
+        **禁止**静默返回无音轨文件（需求 F36.4）。
+        """
+        protocol = str(item.get("protocol") or "http")
+        # R-1：主轨与音轨各用独立临时子目录 —— `_fetch_hls` / `_fetch_dash` 的
+        # 产物都叫 `merged.mp4`，同目录会互相覆盖（HLS 主轨 + HLS aux 必失败）。
+        main_dir = os.path.join(tmp_root, "av_main")
+        aux_dir = os.path.join(tmp_root, "av_aux")
+        os.makedirs(main_dir, exist_ok=True)
+        os.makedirs(aux_dir, exist_ok=True)
+        main_bytes = {"done": 0}
+
+        def on_main(done, total):
+            main_bytes["done"] = max(main_bytes["done"], int(done or 0))
+            if progress:
+                progress(int(done or 0), total)
+
+        def on_aux(done, total):
+            if progress:
+                progress(main_bytes["done"] + int(done or 0), None)
+
+        if protocol == "m3u8":
+            video_path = await self._fetch_hls(
+                item, main_dir, referer=referer, progress=on_main, cancel_event=cancel_event
+            )
+        elif protocol == "mpd_segments":
+            video_path = await self._fetch_dash(
+                item, main_dir, referer=referer, progress=on_main, cancel_event=cancel_event
+            )
+        else:
+            video_path = await self._fetch_direct(
+                item,
+                os.path.join(main_dir, "main_video.bin"),
+                referer=referer,
+                progress=on_main,
+                cancel_event=cancel_event,
+            )
+
+        # M-4：主轨（HLS/DASH 变体）可能已内嵌音轨 —— 探测到 audio 就不重复合并，
+        # 只有缺音轨时才下载 aux（避免无谓请求与双份音频）。
+        main_probe = await _probe_output(video_path)
+        main_streams = main_probe.get("streams", [])
+        if "audio" in main_streams:
+            return video_path
+
+        aux_url = str(item.get("aux_url") or "").strip()
+        audio_path = await self._fetch_aux_audio(
+            aux_url, aux_dir, referer=referer, progress=on_aux, cancel_event=cancel_event
+        )
+        output = os.path.join(tmp_root, "merged_av.mp4")
+        await _run_ffmpeg(
+            [
+                "-protocol_whitelist",
+                "file,crypto",
+                "-i",
+                video_path,
+                "-i",
+                audio_path,
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c",
+                "copy",
+                "-y",
+                output,
+            ]
+        )
+        probe = await _probe_output(output)
+        streams = probe.get("streams", [])
+        if "audio" not in streams:
+            raise FetchError("merge_failed", "合并产物缺少音轨")
+        if "video" not in streams:
+            raise FetchError("merge_failed", "合并产物缺少画面")
+        # M-1（F36.3）：合并产物时长必须与主轨一致（±1s），防止音轨错配/截断。
+        main_duration = float(main_probe.get("duration") or 0)
+        merged_duration = float(probe.get("duration") or 0)
+        if (
+            main_duration > 0
+            and merged_duration > 0
+            and abs(merged_duration - main_duration) > 1.0
+        ):
+            raise FetchError("merge_failed", "合并产物时长与主轨不一致")
+        return output
+
+    async def _fetch_aux_audio(
+        self,
+        aux_url: str,
+        tmp_root: str,
+        *,
+        referer: str = "",
+        progress=None,
+        cancel_event=None,
+    ) -> str:
+        """下载独立音轨：按 URL 后缀区分 HLS / DASH / 直链（不加数据库列）。"""
+        if not aux_url:
+            raise FetchError("merge_failed", "缺少音轨地址")
+        if cancel_event is not None and cancel_event.is_set():
+            raise FetchError("canceled")
+        lowered = aux_url.split("?", 1)[0].lower()
+        if lowered.endswith(".m3u8"):
+            return await self._fetch_hls(
+                {"source_url": aux_url, "kind": "audio", "ext": "m4a"},
+                tmp_root,
+                referer=referer,
+                progress=progress,
+                cancel_event=cancel_event,
+            )
+        if lowered.endswith(".mpd"):
+            text = await self._get_text(aux_url, referer)
+            reps = parse_mpd_reps(text, aux_url)
+            audio_id = next(
+                (rep_id for rep_id, rep in reps.items() if rep["kind"] == "audio"),
+                "",
+            )
+            if not audio_id:
+                raise FetchError("merge_failed", "音频清单为空")
+            return await self._download_rep(
+                reps[audio_id], tmp_root, "aux", referer, progress, cancel_event
+            )
+        # L-1：走 `_fetch_direct` 以便音轨阶段也能上报累计进度（Range/重试同直链）
+        return await self._fetch_direct(
+            {"source_url": aux_url},
+            os.path.join(tmp_root, "aux_audio.bin"),
+            referer=referer,
+            progress=progress,
+            cancel_event=cancel_event,
+        )
 
     async def _fetch_direct(
         self,

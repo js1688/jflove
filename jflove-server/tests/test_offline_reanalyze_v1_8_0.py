@@ -161,6 +161,9 @@ class _FakeFetcher:
 
 
 class _FakeOutbound:
+    def __init__(self, *args, **kwargs):  # v1.8.2：构造参数（超时）忽略
+        pass
+
     async def aclose(self):
         pass
 

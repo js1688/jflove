@@ -13,6 +13,9 @@ import type { ServerDirListing } from '../types/models';
 import { diskService } from '../services/disk-service';
 import { Button, Icon, Modal, toast } from './ui';
 
+/** 服务端未下发 `limit`（旧版本）时的回落值（v1.8.2 / C1 / AC-294） */
+const DEFAULT_SERVER_DIR_LIMIT = 2000;
+
 interface ServerDirPickerModalProps {
   /** 打开时定位的绝对路径；留空由服务端从 roots 第一项开始 */
   initialPath?: string;
@@ -72,6 +75,8 @@ export function ServerDirPickerModal({
   const currentPath = listing?.path ?? '';
   const rootPath = listing?.roots[0]?.path ?? '';
   const roots = listing?.roots ?? [];
+  /** 文案上限取自响应（v1.8.2 / C1），旧服务端缺省回落 2000 */
+  const dirLimit = listing?.limit ?? DEFAULT_SERVER_DIR_LIMIT;
 
   return (
     <Modal
@@ -141,7 +146,7 @@ export function ServerDirPickerModal({
 
       {listing?.truncated && (
         <div className="mb-2 rounded-md bg-warning-50 px-3 py-2 text-[12.5px] text-warning-700">
-          目录过多，仅显示前 2000 项，请进入更具体的路径。
+          目录过多，仅显示前 {dirLimit} 项，请进入更具体的路径。
         </div>
       )}
 

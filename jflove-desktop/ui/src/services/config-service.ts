@@ -16,7 +16,9 @@ export const MEDIA_REPAIR_KEYS = {
 } as const;
 
 /** 离线下载全局策略配置键（与后端 settings.py 的 OFFLINE_*_KEY 保持一致）
- * 默认值由后端 `OFFLINE_CONFIG_DEFAULTS` 补齐；总开关默认开（v1.8.0 UAT 裁决） */
+ * 默认值由后端 `OFFLINE_CONFIG_DEFAULTS` 补齐；总开关默认开（v1.8.0 UAT 裁决）。
+ * v1.8.2（F37.6）：新增 3 个超时项，范围/默认值与服务端 `validate_config_value` 同源
+ * （解析 90s / 30–180，连接 15s / 5–30，读取 60s / 15–120）。 */
 export const OFFLINE_DOWNLOAD_KEYS = {
   enabled: 'offline_download_enabled',
   deepAnalyze: 'offline_download_deep_analyze',
@@ -24,6 +26,9 @@ export const OFFLINE_DOWNLOAD_KEYS = {
   maxFileSize: 'offline_download_max_file_size_mb',
   maxItems: 'offline_download_max_items',
   maxImages: 'offline_download_max_images',
+  analyzeTimeout: 'offline_download_analyze_timeout_s',
+  connectTimeout: 'offline_download_connect_timeout_s',
+  readTimeout: 'offline_download_read_timeout_s',
 } as const;
 
 export const configService = {

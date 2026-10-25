@@ -1030,6 +1030,8 @@ class WebShell(QMainWindow):
         self._overlay = None
         #: 浮层重贴合是否已排队（合并同一帧内的多次 move/resize，见 _schedule_overlay_refresh）
         self._overlay_refresh_pending = False
+        #: 是否已把 view 的 resize 事件接到浮层重贴合（`attach_overlay()` 幂等安装）
+        self._overlay_view_filter_installed = False
 
         # 退出入口信号：接收者（self）活在 GUI 线程 ⇒ 跨线程发射自动排队，
         # 同线程发射为直接调用（同步、可断言返回值）。
@@ -1080,7 +1082,16 @@ class WebShell(QMainWindow):
 
     def attach_overlay(self, overlay) -> None:
         """
-        挂上原生媒体浮层，让主窗几何事件（拖动/缩放）能驱动它重新贴合。
+        挂上原生媒体浮层，让几何事件能驱动它重新贴合。
+
+        v1.8.2（F40）之后浮层默认是 `QWebEngineView` 的 **native 子控件**，
+        主窗移动/缩放由 Qt 父子关系自动跟随，不再依赖全局坐标反算；本类仍保留两件事：
+
+        1. `moveEvent` / `resizeEvent` 触发一次**合帧**重贴合 —— 回退模式
+           （`JFLOVE_MEDIA_OVERLAY=window` 的独立顶层窗口）完全依赖它；
+           子控件模式下则是一次廉价的同值 `setGeometry`（保证全屏铺满尺寸跟随主窗）；
+        2. 给 `view` 本身装 resize 转发（页面客户区尺寸变化时重设 geometry，
+           见设计文档 §4.1.2「新增对 view 的 resizeEvent 转发」）。
 
         只保存引用、**不 import 浮层模块** —— 用鸭子类型调用
         `overlay.refresh_geometry()` / `overlay.on_shell_hidden()`，
@@ -1089,16 +1100,33 @@ class WebShell(QMainWindow):
         :param overlay: 任意带 `refresh_geometry()` / `on_shell_hidden()` 的对象
         """
         self._overlay = overlay
+        self._install_overlay_view_filter()
+
+    def _install_overlay_view_filter(self) -> None:
+        """
+        把 `view` 的 resize 事件接到浮层重贴合（幂等，只装一次）。
+
+        为什么需要：子控件的几何是**相对父控件**的，父控件（= 页面客户区）尺寸
+        变化不一定会触发主窗的 `resizeEvent` 之外的事件；全屏铺满等场景依赖
+        `view.width()/height()`，装一次转发比在各处分派更可靠。
+        """
+        view = getattr(self, "view", None)
+        if view is None or self._overlay_view_filter_installed:
+            return
+        view.installEventFilter(self)
+        self._overlay_view_filter_installed = True
 
     def _schedule_overlay_refresh(self) -> None:
         """
-        把一次拖动/缩放产生的**连续几何事件合并成事件循环末尾的一次重贴合**。
+        把连续的几何事件（主窗移动/缩放、视口尺寸变化）**合并成事件循环末尾的一次重贴合**。
 
-        拖动主窗会连发大量 `moveEvent`/`resizeEvent`，逐次重算屏幕坐标既浪费又会让
-        浮层抖动；`QTimer.singleShot(0, ...)` + pending 标志只保留一次回调。
+        v1.8.2（F40）之后浮层默认是页面 view 的 native 子控件，拖动主窗由 Qt 父子
+        关系自动跟随，这条链路主要服务两件事：**回退模式**（顶层窗口，仍要按全局
+        坐标重算）与**全屏铺满/视口尺寸变化**（子控件按 `view.width()/height()` 重设）。
+        合并语义本身不变：`QTimer.singleShot(0, ...)` + pending 标志只保留一次回调。
 
         为什么延迟到当前事件循环之后：Windows 拖动期间 `moveEvent` 可能早于窗口几何
-        真正生效，此时 `mapToGlobal` 拿到的是旧坐标（表现为画面滞后一格）。
+        真正生效，此时（回退模式的）`mapToGlobal` 拿到的是旧坐标（表现为画面滞后一格）。
         延后一帧再取坐标即可拿到最终几何（真机验证项见开发记录「遗留问题」）。
 
         为什么**主窗不可见时不排队**：`hide_to_tray()` 隐藏主窗的过程中，平台仍可能
@@ -1139,9 +1167,27 @@ class WebShell(QMainWindow):
         self._overlay_refresh_pending = False
         self._safe_overlay_refresh()
 
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt 虚函数名
+        """
+        `view` 自身尺寸变化（窗口缩放 / 进入全屏）时转发一次浮层重贴合。
+
+        子控件模式的几何**相对父控件**，页面客户区尺寸变化后仍需按新视口重设
+        （尤其全屏铺满 = `view.width()/height()`）；按设计文档 §4.1.2
+        把 view 的 `resizeEvent` 转发到同一条合帧链路。
+
+        **始终返回 False**：这里只是旁观者，不得吞掉 view 的任何事件。
+        """
+        if watched is getattr(self, "view", None) and event.type() == QEvent.Type.Resize:
+            self._schedule_overlay_refresh()
+        return super().eventFilter(watched, event)
+
     def moveEvent(self, event: QEvent) -> None:
         """
         主窗被拖动：交回基类处理后触发浮层重贴合。
+
+        v1.8.2（F40）起默认实现是 native 子控件，移动由父子关系自动跟随，这里保留
+        触发是为了**回退模式**（顶层窗口）仍能正确重算全局坐标；子控件模式下是
+        一次廉价的同值 `setGeometry`。
 
         #7 修复点不在"少刷新一次"，而在 `MediaOverlay._apply_geometry`：
         QVideoWidget 是原生子窗口，几何跟随之后还必须显式 `update/repaint`
@@ -1152,7 +1198,7 @@ class WebShell(QMainWindow):
         self._schedule_overlay_refresh()
 
     def resizeEvent(self, event: QEvent) -> None:
-        """主窗被缩放：交回基类处理后触发浮层重贴合"""
+        """主窗被缩放：交回基类处理后触发浮层重贴合（回退模式必需，子控件模式兜底）"""
         super().resizeEvent(event)
         self._schedule_overlay_refresh()
 

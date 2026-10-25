@@ -4,13 +4,13 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 
 支持 PC 端（侧边栏导航）和移动端（底部 TabBar 导航）双布局自适应。
 
-> **当前版本：v1.8.1**（版本号唯一真相 = 仓库根 `version.json`；本模块由 `python scripts/sync_version.py`
+> **当前版本：v1.8.2**（版本号唯一真相 = 仓库根 `version.json`；本模块由 `python scripts/sync_version.py`
 > 同步两处：`package.json` 的 `version` 与 `src/config/constants.ts` 的 `APP_VERSION`。
 > 改版本只改 `version.json` + 跑同步脚本，**不要手改任何一处版本号字段**；不存在 `build.py --version` 选项）
 
-> **v1.8.1**：成功任务进度条固定 100%（`taskProgress` 成功优先，文案带 `100%`）；
-> 磁盘管理新增「浏览…」服务器目录选择器（管理员只读接口 `GET /api/v1/virtual-disks/server-dirs`），
-> 手输真实路径保留为兜底。
+> **v1.8.2**：管理员「系统设置 → 离线下载」新增解析 / 连接 / 读取三项超时
+> （默认 90/15/60 秒，允许 30~180 / 5~30 / 15~120，复用既有 `/api/v1/config` 加密接口，仅管理员可写）；
+> 服务器目录选择器的超限文案改用 `server-dirs` 响应新增的 `limit`（旧服务端缺省回落 2000）。
 
 ---
 
@@ -174,11 +174,11 @@ jflove-web/
 │   │       ├── AdminUsersPage.tsx   # 用户管理
 │   │       ├── AdminDisksPage.tsx   # 磁盘管理
 │   │       ├── AdminPermissionsPage.tsx # 权限配置
-│   │       └── AdminSystemPage.tsx  # 系统设置（媒体修复开关）
+│   │       └── AdminSystemPage.tsx  # 系统设置（媒体修复 / 离线下载 / 超时）
 │   ├── components/
 │   │   ├── PageHeader.tsx          # 页面标题栏（sticky 固定）
 │   │   ├── PathBreadcrumb.tsx      # 路径面包屑（含返回上级箭头）
-│   │   ├── ServerDirPickerModal.tsx # 服务器目录选择（v1.8.1）
+│   │   ├── ServerDirPickerModal.tsx # 服务器目录选择（v1.8.1；limit 文案 v1.8.2）
 │   │   ├── DirTreeModal.tsx        # 目录树选择弹窗
 │   │   ├── ConfirmDialog.tsx       # 确认对话框
 │   │   ├── LoadingSpinner.tsx      # 加载指示器
@@ -257,7 +257,7 @@ jflove-web/
 | `/admin/users` | AdminUsersPage | admin | AppLayout |
 | `/admin/disks` | AdminDisksPage | admin | AppLayout |
 | `/admin/permissions` | AdminPermissionsPage | admin | AppLayout |
-| `/admin/system` | AdminSystemPage（系统设置 / 媒体修复） | admin | AppLayout |
+| `/admin/system` | AdminSystemPage（系统设置 / 媒体修复 / 离线下载） | admin | AppLayout |
 
 ---
 
@@ -266,5 +266,5 @@ jflove-web/
 - **同步管理**：浏览器端**不提供**（v1.7.0 起移除该页面）——同步能力只在桌面端（云盘挂载）与移动端（相册备份）提供；访问旧 `/sync` 深链会落到兜底路由
 - **视频/音频预览**：**MSE 主路径**（`src/utils/media-source-player.ts` 的 `playWithMSE`）边下边播 + 拖动 seek，**HTTP 与 HTTPS 均可用**（v1.4.0 起移除 Service Worker 流式代理，不再依赖安全上下文；单入口构建、无 `dist/sw.js`）；MSE 不可行时才回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
 - **PDF 预览**：暂不支持（与桌面端/移动端一致），提示下载后使用本地程序打开
-- **离线下载**：接口前缀 `/api/v1/offline`（10 个，全部加密信封、无路径参数）。任务列表/详情按账号隔离；默认目录按账号存在服务端（不写 localStorage，三端一致）。轮询间隔取 `/offline/meta` 的 `poll_interval_ms`（默认 2.5s），**页面切到后台或任务全部终态即停止**（AC-232）。无可写磁盘时整页显示「你没有可写入的磁盘，无法使用离线下载」并禁用新建任务；总开关关闭 / 未配置目录 / 目录失效分别有对应中文提示。总开关关闭时**侧栏与底部菜单入口不做置灰**（导航层拿不到 `/offline/meta`，避免每个页面多发一次请求），置灰提示落在页面内（AC-200 的页面内部分）
+- **离线下载**：接口前缀 `/api/v1/offline`（10 个，全部加密信封、无路径参数）。任务列表/详情按账号隔离；默认目录按账号存在服务端（不写 localStorage，三端一致）。轮询间隔取 `/offline/meta` 的 `poll_interval_ms`（默认 2.5s），**页面切到后台或任务全部终态即停止**（AC-232）。无可写磁盘时整页显示「你没有可写入的磁盘，无法使用离线下载」并禁用新建任务；总开关关闭 / 未配置目录 / 目录失效分别有对应中文提示。总开关关闭时**侧栏与底部菜单入口不做置灰**（导航层拿不到 `/offline/meta`，避免每个页面多发一次请求），置灰提示落在页面内（AC-200 的页面内部分）。解析 / 连接 / 读取超时由管理员在「系统设置」修改（默认 90/15/60 秒，范围 30~180 / 5~30 / 15~120，保存后立即生效）
 - **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗）+ `highlight.js`（代码高亮）+ `mermaid`（图表渲染），支持标题/加粗/斜体/列表/引用/代码块等

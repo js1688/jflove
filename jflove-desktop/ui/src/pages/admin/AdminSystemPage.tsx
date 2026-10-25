@@ -23,6 +23,8 @@ import {
  * `media_repair_allow_transcode`（契约见 media_repair_service.py:11-13），
  * 本页只剩「修复并发数」，与 Web 端保持一致。
  * v1.8.0 UAT：新增「离线下载」卡片 —— 默认开启，管理员可在此应急熔断。
+ * v1.8.2（F37.6）：新增 3 个超时项（解析总超时 / 连接超时 / 读取超时），
+ * 范围与默认值和服务端 `validate_config_value` 同源（30–180 / 5–30 / 15–120）。
  */
 
 /** 离线下载数字项：前端只做前置提示，最终以后端 400 中文错误为准 */
@@ -54,6 +56,28 @@ const OFFLINE_NUMBER_FIELDS = [
     hint: '1~1000',
     min: 1,
     max: 1000,
+  },
+  // v1.8.2（F37.6）：超时三件套 —— 与后端 settings.py 的默认值/边界一致
+  {
+    key: OFFLINE_DOWNLOAD_KEYS.analyzeTimeout,
+    label: '解析总超时（秒）',
+    hint: '30~180',
+    min: 30,
+    max: 180,
+  },
+  {
+    key: OFFLINE_DOWNLOAD_KEYS.connectTimeout,
+    label: '连接超时（秒）',
+    hint: '5~30',
+    min: 5,
+    max: 30,
+  },
+  {
+    key: OFFLINE_DOWNLOAD_KEYS.readTimeout,
+    label: '读取超时（秒）',
+    hint: '15~120',
+    min: 15,
+    max: 120,
   },
 ] as const;
 
@@ -89,6 +113,13 @@ export function AdminSystemPage() {
           c[OFFLINE_DOWNLOAD_KEYS.maxItems] ?? '50',
         [OFFLINE_DOWNLOAD_KEYS.maxImages]:
           c[OFFLINE_DOWNLOAD_KEYS.maxImages] ?? '200',
+        // v1.8.2（F37.6）：超时默认值与后端 OFFLINE_CONFIG_DEFAULTS 一致
+        [OFFLINE_DOWNLOAD_KEYS.analyzeTimeout]:
+          c[OFFLINE_DOWNLOAD_KEYS.analyzeTimeout] ?? '90',
+        [OFFLINE_DOWNLOAD_KEYS.connectTimeout]:
+          c[OFFLINE_DOWNLOAD_KEYS.connectTimeout] ?? '15',
+        [OFFLINE_DOWNLOAD_KEYS.readTimeout]:
+          c[OFFLINE_DOWNLOAD_KEYS.readTimeout] ?? '60',
       });
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : '加载系统配置失败');
@@ -144,7 +175,7 @@ export function AdminSystemPage() {
     }
   };
 
-  /** 保存离线下载的 4 个数字项（逐项 PUT /config，任一项失败即停止并提示） */
+  /** 保存离线下载的数字项（逐项 PUT /config，任一项失败即停止并提示） */
   const saveOfflineNumbers = async () => {
     const payload: Array<[string, string]> = [];
     for (const field of OFFLINE_NUMBER_FIELDS) {
@@ -239,6 +270,7 @@ export function AdminSystemPage() {
             <p className="mb-4 text-[12.5px] leading-relaxed text-muted">
               网址分析 / 媒体抓取的全局策略，配置存于服务端、三端共享，修改后立即生效。
               总开关默认开启；关闭后三端入口置灰且不产生任何出站请求（应急熔断）。
+              三个超时项限制「解析总预算 / 出站连接 / 出站读取」，站点响应慢时可适当放宽。
             </p>
 
             <div className="flex flex-col divide-y divide-line-subtle">

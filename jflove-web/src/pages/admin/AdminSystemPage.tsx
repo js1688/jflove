@@ -14,7 +14,7 @@ import {
  *
  * 提供服务端共享配置（存服务端 config 表，三端共享）：
  *  - 离线媒体修复并发数（1~8，留空 = 按服务器 CPU 核数自动推导）
- *  - 离线下载全局策略（总开关 / 深度分析 / 并发 / 体积 / 项数 / 图片数）
+ *  - 离线下载全局策略（总开关 / 深度分析 / 并发 / 体积 / 项数 / 图片数 / 超时）
  *
  * 配置写入后立即生效、无需重启任何端。仅管理员可见（路由层 RequireAdmin 守卫）。
  * v1.8.0 UAT 裁决：离线下载默认开启，管理员可在此应急关闭。
@@ -49,6 +49,29 @@ const OFFLINE_NUMBER_FIELDS = [
     hint: '1~1000',
     min: 1,
     max: 1000,
+  },
+  // v1.8.2（F37.6）：三个超时项，默认与范围同服务端
+  // `offline_download_service.validate_config_value`（90/15/60，30~180 / 5~30 / 15~120）
+  {
+    key: OFFLINE_DOWNLOAD_KEYS.analyzeTimeout,
+    label: '解析总超时（秒）',
+    hint: '30~180',
+    min: 30,
+    max: 180,
+  },
+  {
+    key: OFFLINE_DOWNLOAD_KEYS.connectTimeout,
+    label: '连接超时（秒）',
+    hint: '5~30',
+    min: 5,
+    max: 30,
+  },
+  {
+    key: OFFLINE_DOWNLOAD_KEYS.readTimeout,
+    label: '读取超时（秒）',
+    hint: '15~120',
+    min: 15,
+    max: 120,
   },
 ] as const;
 
@@ -85,6 +108,13 @@ export function AdminSystemPage() {
           c[OFFLINE_DOWNLOAD_KEYS.maxItems] ?? '50',
         [OFFLINE_DOWNLOAD_KEYS.maxImages]:
           c[OFFLINE_DOWNLOAD_KEYS.maxImages] ?? '200',
+        // v1.8.2 超时默认值（与后端 OFFLINE_DEFAULT_*_TIMEOUT_S 一致）
+        [OFFLINE_DOWNLOAD_KEYS.analyzeTimeout]:
+          c[OFFLINE_DOWNLOAD_KEYS.analyzeTimeout] ?? '90',
+        [OFFLINE_DOWNLOAD_KEYS.connectTimeout]:
+          c[OFFLINE_DOWNLOAD_KEYS.connectTimeout] ?? '15',
+        [OFFLINE_DOWNLOAD_KEYS.readTimeout]:
+          c[OFFLINE_DOWNLOAD_KEYS.readTimeout] ?? '60',
       });
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : '加载系统配置失败');
@@ -140,7 +170,7 @@ export function AdminSystemPage() {
     }
   };
 
-  /** 保存离线下载的 4 个数字项（逐项 PUT /config，任一项失败即停止并提示） */
+  /** 保存离线下载的 7 个数字项（逐项 PUT /config，任一项失败即停止并提示） */
   const saveOfflineNumbers = async () => {
     const payload: Array<[string, string]> = [];
     for (const field of OFFLINE_NUMBER_FIELDS) {
@@ -233,7 +263,7 @@ export function AdminSystemPage() {
           <div className="mt-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <h2 className="mb-1 text-base font-semibold text-gray-800">离线下载</h2>
             <p className="mb-4 text-xs text-gray-500">
-              网址分析 / 媒体抓取的全局策略，配置保存在服务端、三端共享，修改后立即生效。
+              网址分析 / 媒体抓取的全局策略（含解析与出站超时），配置保存在服务端、三端共享，修改后立即生效。
               总开关默认开启；关闭后三端入口置灰且不产生任何出站请求（应急熔断）。
             </p>
 

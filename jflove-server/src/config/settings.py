@@ -60,11 +60,12 @@ REPAIR_PROGRESS_THROTTLE = 1.0
 # ── 离线下载 v1.8.0（网址分析 + 媒体抓取）─────────────────────────
 # 设计依据：`文档记录/设计文档/v1.8.0.md` §2.6.2「固定常量」段。
 #
-# 以下均为**不可由管理员配置**的实现常量；可配项走 config 表（键见 OFFLINE_*_KEY）。
+# 默认值/硬边界在此定义；**超时三项已改为管理员可配**（v1.8.2，键见 OFFLINE_*_TIMEOUT_KEY），
+# 其余仍为不可由管理员配置的实现常量；可配项走 config 表（键见 OFFLINE_*_KEY）。
 # 目标目录内的隐藏临时目录名（文件列表不展示、路径段访问一律拒绝）
 OFFLINE_DIR_NAME = ".jflove-download"
-# 单次分析总预算（秒，含无头浏览器启动与页面等待）
-OFFLINE_ANALYZE_TOTAL_TIMEOUT = 30.0
+# 单次分析总预算默认值（秒，含无头浏览器启动与页面等待）；管理员可配（30~180）
+OFFLINE_ANALYZE_TOTAL_TIMEOUT = 90.0
 # ready 清单有效期（秒）：媒体地址普遍带签名，久放必失效
 OFFLINE_ANALYSIS_TTL = 600.0
 # 同址分析结果复用窗口（秒）：窗口内直接复用 items（AC-208）
@@ -82,9 +83,9 @@ OFFLINE_HTML_MAX_BYTES = 5 * 1024 * 1024
 OFFLINE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 OFFLINE_SEGMENT_MAX_BYTES = 8 * 1024 * 1024
 OFFLINE_PLAYLIST_MAX_BYTES = 2 * 1024 * 1024
-# 出站超时（秒）：建立连接 / 读取
-OFFLINE_CONNECT_TIMEOUT = 10.0
-OFFLINE_READ_TIMEOUT = 30.0
+# 出站超时默认值（秒）：建立连接 / 读取；管理员可配（5~30 / 15~120）
+OFFLINE_CONNECT_TIMEOUT = 15.0
+OFFLINE_READ_TIMEOUT = 60.0
 # 进度落库节流（秒）
 OFFLINE_PROGRESS_THROTTLE = 1.0
 # 无头浏览器闲置回收（秒）
@@ -103,11 +104,24 @@ OFFLINE_MAX_CONCURRENT_KEY = "offline_download_max_concurrent"    # 下载并发
 OFFLINE_MAX_FILE_SIZE_KEY = "offline_download_max_file_size_mb"   # 单文件体积上限（MB）
 OFFLINE_MAX_ITEMS_KEY = "offline_download_max_items"              # 单次清单项数上限
 OFFLINE_MAX_IMAGES_KEY = "offline_download_max_images"            # 单页图片张数上限
+OFFLINE_ANALYZE_TIMEOUT_KEY = "offline_download_analyze_timeout_s"  # v1.8.2 解析总预算（秒，30~180）
+OFFLINE_CONNECT_TIMEOUT_KEY = "offline_download_connect_timeout_s"  # v1.8.2 出站连接超时（秒，5~30）
+OFFLINE_READ_TIMEOUT_KEY = "offline_download_read_timeout_s"        # v1.8.2 出站读取超时（秒，15~120）
 # 配置项默认值与硬边界（服务端校验，不信任客户端）
 OFFLINE_DEFAULT_MAX_CONCURRENT = 2
 OFFLINE_HARD_MAX_CONCURRENT = 4
 OFFLINE_DEFAULT_MAX_FILE_SIZE_MB = 4096
 OFFLINE_HARD_MAX_FILE_SIZE_MB = 102400
+# v1.8.2 超时配置的默认值与硬边界（秒）
+OFFLINE_DEFAULT_ANALYZE_TIMEOUT_S = 90
+OFFLINE_MIN_ANALYZE_TIMEOUT_S = 30
+OFFLINE_MAX_ANALYZE_TIMEOUT_S = 180
+OFFLINE_DEFAULT_CONNECT_TIMEOUT_S = 15
+OFFLINE_MIN_CONNECT_TIMEOUT_S = 5
+OFFLINE_MAX_CONNECT_TIMEOUT_S = 30
+OFFLINE_DEFAULT_READ_TIMEOUT_S = 60
+OFFLINE_MIN_READ_TIMEOUT_S = 15
+OFFLINE_MAX_READ_TIMEOUT_S = 120
 OFFLINE_DEFAULT_MAX_ITEMS = 50
 OFFLINE_HARD_MAX_ITEMS = 200
 OFFLINE_DEFAULT_MAX_IMAGES = 200

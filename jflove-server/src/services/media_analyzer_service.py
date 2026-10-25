@@ -39,6 +39,8 @@ from src.config.settings import (
     OFFLINE_ANALYSIS_REUSE_TTL,
     OFFLINE_ANALYZE_TOTAL_TIMEOUT,
     OFFLINE_BROWSER_IDLE_SECONDS,
+    OFFLINE_CONNECT_TIMEOUT,
+    OFFLINE_READ_TIMEOUT,
     OFFLINE_DEFAULT_MAX_IMAGES,
     OFFLINE_DEFAULT_MAX_ITEMS,
     OFFLINE_HTML_MAX_BYTES,
@@ -1128,8 +1130,13 @@ class MediaAnalyzerService:
         deep_available=None,
         browser_manager: _BrowserManager | None = None,
         resolver=None,
+        connect_timeout: float = OFFLINE_CONNECT_TIMEOUT,
+        read_timeout: float = OFFLINE_READ_TIMEOUT,
     ) -> None:
         self._outbound = outbound
+        #: v1.8.2：出站超时（管理员可配，由 S5 传入；单测默认常量）
+        self._connect_timeout = float(connect_timeout)
+        self._read_timeout = float(read_timeout)
         self._proxy_factory = proxy_factory
         self._ydl_factory = ydl_factory
         self._deep_analyzer = deep_analyzer
@@ -1179,9 +1186,18 @@ class MediaAnalyzerService:
             if cached is not None and time.monotonic() - cached[0] <= OFFLINE_ANALYSIS_REUSE_TTL:
                 return _copy_result(cached[1])
 
-        outbound = self._outbound or OutboundClient()
+        outbound = self._outbound or OutboundClient(
+            connect_timeout=self._connect_timeout,
+            read_timeout=self._read_timeout,
+        )
         created_outbound = self._outbound is None
         warnings: list[str] = []
+        # v1.8.2（F37.2）：L3 的 goto 超时与总预算联动（默认预算下 ≈54s，替代固定 20s）
+        goto_timeout_ms = 20000
+        if total_timeout and total_timeout > 0:
+            goto_timeout_ms = int(min(90000, max(20000, total_timeout * 1000 * 0.6)))
+        # v1.8.2（F37.4）：超时保留已抓到的部分结果（设计 v1.8.0 §2.3.3 的未落地项）
+        collected: dict = {"items": [], "title": ""}
         try:
             if total_timeout and total_timeout > 0:
                 async with asyncio.timeout(total_timeout):
@@ -1193,6 +1209,8 @@ class MediaAnalyzerService:
                         max_items=max_items,
                         max_images=max_images,
                         warnings=warnings,
+                        collected=collected,
+                        goto_timeout_ms=goto_timeout_ms,
                     )
             else:
                 result = await self._analyze_inner(
@@ -1203,12 +1221,34 @@ class MediaAnalyzerService:
                     max_items=max_items,
                     max_images=max_images,
                     warnings=warnings,
+                    collected=collected,
+                    goto_timeout_ms=goto_timeout_ms,
                 )
             if page_index == 1:
                 self._remember(cache_key, result)
             return result
         except TimeoutError as exc:
-            raise AnalysisError("net_timeout", "分析总预算超时") from exc
+            partial = list(collected.get("items") or [])
+            if partial:
+                # 已抓到部分结果：落 ready + warning，而不是整体失败
+                finalized, truncated = _finalize(partial, max_items, max_images)
+                if finalized:
+                    for index, item in enumerate(finalized):
+                        item.sort_order = index
+                    warnings.append("解析超时，已返回部分结果")
+                    return AnalysisResult(
+                        page_title=clean_title(str(collected.get("title") or "")) or "离线下载",
+                        items=finalized,
+                        level="partial",
+                        truncated=truncated,
+                        has_more_images=False,
+                        next_page_url="",
+                        warnings=warnings,
+                    )
+            budget = int(total_timeout) if total_timeout else int(OFFLINE_ANALYZE_TOTAL_TIMEOUT)
+            raise AnalysisError(
+                "net_timeout", f"解析超时（{budget}s），可稍后重试或让管理员调大解析超时"
+            ) from exc
         finally:
             if created_outbound:
                 await outbound.aclose()
@@ -1237,6 +1277,8 @@ class MediaAnalyzerService:
         max_items: int,
         max_images: int,
         warnings: list[str],
+        collected: dict | None = None,
+        goto_timeout_ms: int = 20000,
     ) -> AnalysisResult:
         """真正的分析流程（代理的启动/关闭都在这里，保证超时也能收尾）。"""
         proxy = self._proxy_factory()
@@ -1267,6 +1309,9 @@ class MediaAnalyzerService:
                 title = l2_result.title or l1_result.title
                 next_url = l2_result.next_page_url
                 level = "l1" if l1_result.items else "l2"
+                if collected is not None:
+                    collected["items"] = list(items)
+                    collected["title"] = title
 
                 has_av = any(item.kind in ("video", "audio") for item in items)
                 l3_error: AnalysisError | None = None
@@ -1277,7 +1322,9 @@ class MediaAnalyzerService:
                         l3_error = AnalysisError("deep_analyze_disabled")
                     else:
                         try:
-                            l3_items = await self._analyze_deep(url, proxy_url, outbound)
+                            l3_items = await self._analyze_deep(
+                                url, proxy_url, outbound, goto_timeout_ms=goto_timeout_ms
+                            )
                         except AnalysisError as exc:
                             l3_error = exc
                         except Exception as exc:
@@ -1286,6 +1333,8 @@ class MediaAnalyzerService:
                             if l3_items:
                                 items = _merge_items(items, l3_items)
                                 level = "l3"
+                                if collected is not None:
+                                    collected["items"] = list(items)
                             else:
                                 l3_error = AnalysisError("no_media")
                 if not items:
@@ -1567,15 +1616,27 @@ class MediaAnalyzerService:
     # ── L3: 浏览器嗅探 ──────────────────────────────────────────
 
     async def _analyze_deep(
-        self, url: str, proxy_url: str, outbound: OutboundClient
+        self,
+        url: str,
+        proxy_url: str,
+        outbound: OutboundClient,
+        *,
+        goto_timeout_ms: int = 20000,
     ) -> list[AnalyzedItem]:
         """L3：无头浏览器拦截媒体响应；只兜底，不替代前两级。"""
         if self._deep_analyzer is not None:
             return await self._deep_analyzer(url, proxy_url)
-        return await self._playwright_analyze(url, proxy_url, outbound)
+        return await self._playwright_analyze(
+            url, proxy_url, outbound, goto_timeout_ms=goto_timeout_ms
+        )
 
     async def _playwright_analyze(
-        self, url: str, proxy_url: str, outbound: OutboundClient
+        self,
+        url: str,
+        proxy_url: str,
+        outbound: OutboundClient,
+        *,
+        goto_timeout_ms: int = 20000,
     ) -> list[AnalyzedItem]:
         """Playwright 嗅探实现（浏览器缺失时由调用方决定降级文案）。"""
         context = await self._browser_manager.new_context(proxy_url)
@@ -1591,7 +1652,9 @@ class MediaAnalyzerService:
 
             page.on("response", on_response)
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                await page.goto(
+                    url, wait_until="domcontentloaded", timeout=goto_timeout_ms
+                )
             except Exception as exc:
                 # playwright 的 TimeoutError 不是内置 TimeoutError，按类名识别
                 if type(exc).__name__ == "TimeoutError":

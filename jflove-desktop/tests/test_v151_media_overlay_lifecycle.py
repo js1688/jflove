@@ -20,6 +20,12 @@ v1.5.1 回归：桌面端原生媒体浮层的**生命周期与几何同步**（
 `_force_repaint` 用 monkeypatch 计数（避免依赖真实 Chromium 重绘）。
 本文件**不**依赖真实媒体、不依赖时间 `sleep`。
 
+**本文件覆盖的是回退实现**：v1.8.2（F40）把默认实现改成 `QWebEngineView` 的
+native 子控件（见 `tests/test_v182_media_overlay_child.py`），v1.8.1 的独立顶层
+窗口实现保留为 `JFLOVE_MEDIA_OVERLAY=window` 回退路径。因此这里用 autouse
+fixture 显式选择 `window` 模式，**原有断言一条不改**，继续守住回退路径的
+托盘隐藏/恢复/全屏语义。
+
 **未覆盖（无法在无头环境稳定验证）**：真实 OS 窗口拖动时的整屏像素表现
 （画面是否随主窗移动、关窗后是否残留旧像素）—— 见
 `文档记录/桌面端开发记录/v1.5.1.md` 的「遗留问题」。
@@ -27,10 +33,18 @@ v1.5.1 回归：桌面端原生媒体浮层的**生命周期与几何同步**（
 
 from __future__ import annotations
 
+import pytest
 from PySide6.QtWidgets import QApplication, QWidget
 
 from src.ui.media_overlay import MediaOverlay
 from src.ui.web_shell import WebShell
+
+
+@pytest.fixture(autouse=True)
+def _legacy_window_mode(monkeypatch):
+    """本文件的用例针对**保留的回退实现**（顶层窗口 + 全局坐标），显式选择 window 模式"""
+    monkeypatch.setenv("JFLOVE_MEDIA_OVERLAY", "window")
+
 
 #: 测试用预留矩形（相对视口，CSS 像素）
 _RECT = {"x": 10, "y": 20, "w": 320, "h": 180, "visible": True}

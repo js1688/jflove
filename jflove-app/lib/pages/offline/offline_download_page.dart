@@ -804,6 +804,11 @@ class _OfflineDetailSheetState extends ConsumerState<_OfflineDetailSheet> {
                     ),
                     danger: true,
                   ),
+                if (task.analysisLevel == 'partial')
+                  _DetailRow(
+                    label: '解析',
+                    value: '解析超时，已返回部分结果（可重试补充）',
+                  ),
                 if (_error != null) ...[
                   const SizedBox(height: 8),
                   Text(

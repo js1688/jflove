@@ -50,7 +50,7 @@ SwitchListTile _switchTile(WidgetTester tester, String title) {
 }
 
 void main() {
-  testWidgets('默认值缺失时展示默认开启与 2/4096/50/200', (tester) async {
+  testWidgets('默认值缺失时展示默认开启与 2/4096/50/200/90/15/60', (tester) async {
     final service = _FakeConfigService();
     await _pumpCard(tester, service);
 
@@ -64,6 +64,9 @@ void main() {
       '4096',
       '50',
       '200',
+      '90',
+      '15',
+      '60',
     ]);
   });
 
@@ -94,11 +97,13 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
   });
 
-  testWidgets('保存数值配置逐项写入 4 个键', (tester) async {
+  testWidgets('保存数值配置逐项写入 7 个键', (tester) async {
     final service = _FakeConfigService();
     await _pumpCard(tester, service);
 
     await tester.enterText(find.byType(TextField).first, '3');
+    // v1.8.2：数字项从 4 增至 7，按钮可能滚出视口，先确保可见再点
+    await tester.ensureVisible(find.text('保存数值配置'));
     await tester.tap(find.text('保存数值配置'));
     await tester.pumpAndSettle();
 
@@ -109,6 +114,9 @@ void main() {
         'offline_download_max_file_size_mb=4096',
         'offline_download_max_items=50',
         'offline_download_max_images=200',
+        'offline_download_analyze_timeout_s=90',
+        'offline_download_connect_timeout_s=15',
+        'offline_download_read_timeout_s=60',
       ],
     );
     await tester.pump(const Duration(seconds: 5));

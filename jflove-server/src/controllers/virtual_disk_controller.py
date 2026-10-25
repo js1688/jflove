@@ -72,7 +72,8 @@ async def list_disks(request: Request, db: aiosqlite.Connection = Depends(get_db
         "- `parent`：上一级绝对路径（根目录为 null）\n"
         "- `dirs`：子目录列表，每项含 `name`、`path`\n"
         "- `roots`：常见起始目录，每项含 `name`、`path`\n"
-        "- `truncated`：目录数超过上限时为 true"
+        "- `truncated`：目录数超过上限时为 true\n"
+        "- `limit`：单层目录数量上限（v1.8.2，客户端据此渲染提示文案）"
     ),
 )
 async def browse_server_dirs(

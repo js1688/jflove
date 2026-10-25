@@ -2,7 +2,9 @@
 
 JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的个人数字工作台移动端：文件浏览与传输、笔记、媒体播放、相册自动备份。
 
-> **当前版本：v1.8.1（`pubspec.yaml` 中 `version: 1.8.1+1008001`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
+> **当前版本：v1.8.2（`pubspec.yaml` 中 `version: 1.8.2+1008002`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
+
+> **v1.8.2** — 相册备份可靠性：扫描前按远端 `YYYY/MM` 目录做**同名同大小去重**（重装后不再全量重传），本地记录按「磁盘 + 目标目录」限定；扫描改为**单资源隔离 + 失败原因可见 + 自动重试 ≤3 次 + 跨轮游标**；本地库 v1→v2（`remote_root` / `attempts`，老用户升级不触发全量重传）；离线分析轮询改指数退避并新增「重试分析」。
 
 > **v1.8.1** — 离线下载从「只读」补成**完整功能**：新建任务（分析 → 勾选 → 目标目录 → 开始下载）、取消 / 重试 / 删除记录、账号级默认目录设置、图片「追加下一页」；磁盘管理新增服务器目录选择器；相册备份远端目录改为「磁盘 + 目录选择器」。
 
@@ -24,7 +26,7 @@ JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构�
 | 流式代理 | `lib/utils/stream_proxy.dart`（本地 HTTP 代理，ExoPlayer 边下边播 + Range） |
 | 图表渲染 | webview_flutter（本地 HTML 页 + 内联离线 mermaid bundle，零网络依赖） |
 | Markdown | flutter_markdown + markdown（自定义 `MermaidBuilder`） |
-| 测试 | flutter_test（157 个用例，18 个测试文件） |
+| 测试 | flutter_test（208 个用例，25 个测试文件） |
 
 ### 设计令牌体系（v1.5.0）
 
@@ -52,6 +54,21 @@ Material 主题、图表色表、Markdown 高亮配色）。
 由用户点「重试」再发起请求（`ErrorState(onRetry: ...)`）。回归用例见
 `test/async_error_state_test.dart`。
 
+### 相册备份（v1.8.2：远端去重 / 失败可见 / 本地库 v2）
+
+- **远端去重**：每轮扫描对涉及的 `<root>/YYYY/MM` 调 `FileService.listFiles` 并做轮内缓存；
+  远端存在**同名同大小**文件即视为已备份、跳过上传，界面显示「远端已存在跳过 N 项」；
+  列表失败 **fail-open**（按本地记录继续）并提示「远端校验暂不可用」；首次备份时目录不存在按空目录处理。
+- **记录归属**：本地记录以 `disk_id + remote_root` 限定；换目标目录后旧记录不生效，历史资源重新入队。
+- **扫描健壮性**：`asset.file` / `length()` / `submitUpload` / `markFailed` 单资源隔离，
+  坏资源只记失败、不中止整轮；失败原因中文且不含路径，可展开查看；自动重试上限 3 次，可手动解锁。
+- **跨轮游标**：不再固定只扫 0–1999，按页推进、扫到尾部回绕，>2000 张相册也能逐步进入终态。
+- **计数自洽**：设置页 / 传输页展示总数、已备份、待备份、上传中、失败、不在范围（视频开关关闭）、远端跳过；
+  `已备份 + 失败 + 不在范围 + 待备份 = 总数`。
+- **本地库 v2**：`album_backup.remote_root`、`album_backup_fail.attempts`；
+  `onUpgrade(1→2)` 只加列，`init()` 按当前配置回填旧记录 `remote_root`，**升级不触发全量重传**。
+- **接口**：复用 `GET /api/v1/files/list`（加密 body：`disk_id` + `path`），未新增服务端接口 / 加密算法。
+
 ### 通信架构
 
 ```
@@ -72,9 +89,9 @@ Material 主题、图表色表、Markdown 高亮配色）。
 | `/files/preview` | 文件预览 | 图片/音视频/文本/**Markdown（含 Mermaid 图表）**全屏预览 |
 | `/notes` | 笔记列表 | 搜索 + CRUD |
 | `/notes/:noteId` | 笔记编辑 | 编辑/预览切换 + Markdown 工具栏 + **图表预览** + 未保存提示 |
-| `/offline` | 离线下载中心 | 任务列表/进度/来源域名/产物/目标/失败原因；取消 / 重试 / 删除记录 / 去选择；设置默认目录；2.5s 轮询（页面可见时） |
-| `/offline/new` | 新建离线下载任务 | 粘贴网址 → 分析（2.5s 轮询）→ 勾选清单 → 选择目标目录 → 开始下载 |
-| `/settings` | 设置 | 安全状态 + **外观（主题切换）** + **相册自动同步（v1.8.0 修复数量统计/Wi-Fi 恢复自动扫描）** + 账号 + 退出 + 管理入口 + 离线修复配置（admin） + 关于 |
+| `/offline` | 离线下载中心 | 任务列表/进度/来源域名/产物/目标/失败原因；取消 / 重试 / 删除记录 / 去选择；设置默认目录；页面可见时轮询 |
+| `/offline/new` | 新建离线下载任务 | 粘贴网址 → 分析（2.5→5→10→15→30s 退避轮询，失败可「重试分析」）→ 勾选清单 → 选择目标目录 → 开始下载 |
+| `/settings` | 设置 | 安全状态 + **外观（主题切换）** + **相册自动同步（远端去重 / 失败可见 / 手动重试）** + 账号 + 退出 + 管理入口 + 离线修复配置（admin） + 关于 |
 | `/transfer` | 传输任务 | 页签一：传输进度 + 统计 + 状态 |
 | `/repair` | 修复中心 | 兼容旧路径；实际落到传输页**页签二**（修复任务列表 + 验证播放 + 覆盖原文件） |
 | `/admin/users` | 用户管理 | 添加/删除/密码/启用禁用（admin） |
@@ -132,7 +149,7 @@ jflove-app/
 │   ├── widgets/               # 公共 UI 组件（app_card 统一卡片 / mermaid_block / empty_state …）
 │   └── utils/                 # crypto/http_service/session/stream_frame/stream_proxy/markdown/…
 ├── assets/mermaid/            # 离线图表渲染资源（renderer.html + mermaid.bundle.js）
-├── test/                      # 157 个测试用例（18 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget）
+├── test/                      # 208 个测试用例（25 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget/相册备份）
 ├── android/                   # Android 原生壳
 ├── pubspec.yaml
 └── README.md
@@ -149,7 +166,7 @@ jflove-app/
 | 身份认证 | JWT（ES256，通过加密 Body 传递） |
 | 文件流加密 | 64 KB 分片独立加密帧 [4B长度][12B nonce][密文+16B tag] |
 
-三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 157 个用例）。
+三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 208 个用例）。
 
 ---
 

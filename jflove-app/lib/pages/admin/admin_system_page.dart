@@ -280,6 +280,10 @@ const String _offlineMaxConcurrentKey = 'offline_download_max_concurrent';
 const String _offlineMaxFileSizeKey = 'offline_download_max_file_size_mb';
 const String _offlineMaxItemsKey = 'offline_download_max_items';
 const String _offlineMaxImagesKey = 'offline_download_max_images';
+// v1.8.2（F37.6）：解析 / 出站连接 / 出站读取超时（秒），与后端键名同源
+const String _offlineAnalyzeTimeoutKey = 'offline_download_analyze_timeout_s';
+const String _offlineConnectTimeoutKey = 'offline_download_connect_timeout_s';
+const String _offlineReadTimeoutKey = 'offline_download_read_timeout_s';
 
 /// 离线下载数字项（前端只做前置提示，最终以后端 400 中文错误为准）
 class _OfflineNumberField {
@@ -332,6 +336,30 @@ const List<_OfflineNumberField> _offlineNumberFields = [
     defaultValue: '200',
     min: 1,
     max: 1000,
+  ),
+  _OfflineNumberField(
+    key: _offlineAnalyzeTimeoutKey,
+    label: '解析总超时（秒）',
+    hint: '30~180',
+    defaultValue: '90',
+    min: 30,
+    max: 180,
+  ),
+  _OfflineNumberField(
+    key: _offlineConnectTimeoutKey,
+    label: '连接超时（秒）',
+    hint: '5~30',
+    defaultValue: '15',
+    min: 5,
+    max: 30,
+  ),
+  _OfflineNumberField(
+    key: _offlineReadTimeoutKey,
+    label: '读取超时（秒）',
+    hint: '15~120',
+    defaultValue: '60',
+    min: 15,
+    max: 120,
   ),
 ];
 

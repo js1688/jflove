@@ -246,8 +246,13 @@ python build.py -m all             # 四端统一入口（缺 docker 时 server/
 - **签名过期自愈（AC-225）**：下载遇到 401/403/404/410（`url_expired`）时，自动对**原页面**重新分析
   **一次**并刷新清单地址，再从断点继续；重分析后仍失败 → 任务 `failed` + 「媒体地址已过期」，由用户手动重试。
   分析队列已满（≥20 条排队/分析中）时不自动重分析；已成功项与用户勾选在重分析后保持原样。
-- **配置**：全局策略（开关/深度分析/并发/上限）在 `config` 表，仅管理员；账号默认目录在
+- **配置**：全局策略（开关/深度分析/并发/上限/超时）在 `config` 表，仅管理员；账号默认目录在
   `offline_download_settings`，普通账号可用但必须有该磁盘的 write 权限。
+- **音视频合并（v1.8.2）**：清单项带 `aux_url`（音视频分离站点，如 B 站）时，下载器会同时下载音轨并用
+  ffmpeg `-c copy` 无损合并，`ffprobe` 断言含音轨后才落盘；合并失败按 `merge_failed` 失败，不产出无声文件。
+- **超时可配（v1.8.2）**：`offline_download_analyze_timeout_s`（默认 90s，30~180）、
+  `offline_download_connect_timeout_s`（默认 15s，5~30）、`offline_download_read_timeout_s`（默认 60s，15~120）；
+  解析遇瞬态网络错误快速失败时自动重试 1 次；超时前已抓到的清单项会保留（`level=partial`）。
 - **已知限制**：需要登录的站点/DRM/直播/代理不做；深度分析需镜像带 Chromium（`WITH_BROWSER=1`）；
   `max_items` 只约束非图片项（图片由 `max_images` 单独约束）。
 
@@ -261,7 +266,8 @@ python build.py -m all             # 四端统一入口（缺 docker 时 server/
 | `GET /api/v1/virtual-disks/server-dirs` | 管理员 | 列出指定绝对路径下的子目录；用于三端「浏览…」选择器 |
 
 - **请求**（GET query 加密信封）：`token`（管理员 JWT）、`path`（绝对路径，可空 = 从 roots 第一项开始）。
-- **响应**（加密信封）：`path` / `parent` / `dirs`（`[{name, path}]`）/ `roots`（常见起点）/ `truncated`。
+- **响应**（加密信封）：`path` / `parent` / `dirs`（`[{name, path}]`）/ `roots`（常见起点）/ `truncated` /
+  `limit`（v1.8.2：单层目录数量上限，客户端据此渲染提示文案，不再硬编码 2000）。
 - **roots**：POSIX 为 `/`、`/storage`、`/data`、`~`；Windows 为各存在的盘符根 + `~`（去重且只保留真实存在的目录）。
 - **过滤**：隐藏目录（`.` 开头）不返回；按名称排序；单次最多 2000 条，超限 `truncated=true`。
 - **错误**：401 缺少 / 无效令牌；403 非管理员或目录无权限；400 路径不是绝对路径；404 目录不存在。

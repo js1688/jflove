@@ -74,6 +74,9 @@ export interface ServerDirListing {
   roots: ServerDirEntry[];
   /** 子目录数超过服务端上限时为 true */
   truncated: boolean;
+  /** 单层目录数量上限（v1.8.2 / C1，由服务端 `SERVER_DIR_LIMIT` 下发）；
+   * 旧服务端不返回该字段，客户端需回落 2000 */
+  limit?: number;
 }
 
 // ── 文件/目录 ──
@@ -188,6 +191,8 @@ export interface OfflineTask {
   target_rel_path: string;
   error_code: string;
   error_message: string;
+  /** v1.8.2：partial = 解析超时但返回了部分结果（客户端展示提示） */
+  analysis_level?: string;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

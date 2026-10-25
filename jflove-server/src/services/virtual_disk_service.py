@@ -111,6 +111,8 @@ def list_server_dirs(path: str = "") -> dict:
         "dirs": entries,
         "roots": roots,
         "truncated": truncated,
+        # v1.8.2（C1）：下发目录上限，三端文案不再硬编码「2000」
+        "limit": SERVER_DIR_LIMIT,
     }
 
 

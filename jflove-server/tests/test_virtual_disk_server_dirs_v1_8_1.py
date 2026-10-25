@@ -160,6 +160,8 @@ def test_truncated_when_over_limit(client, env, tmp_path: Path, monkeypatch) -> 
     data = decrypt_response(env["admin"], resp)
     assert data["truncated"] is True
     assert len(data["dirs"]) == 1
+    # v1.8.2 / C1：三端文案用接口下发值，不再硬编码 2000
+    assert data["limit"] == 1
 
 
 def test_default_path_uses_first_root(client, env) -> None:

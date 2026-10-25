@@ -51,6 +51,8 @@ export interface OfflineTask {
   target_rel_path: string;
   error_code: string;
   error_message: string;
+  /** v1.8.2：partial = 解析超时但返回了部分结果 */
+  analysis_level?: string;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

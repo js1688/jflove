@@ -28,6 +28,18 @@ import aiosqlite
 
 from src.config.settings import (
     OFFLINE_ANALYSIS_TTL,
+    OFFLINE_ANALYZE_TIMEOUT_KEY,
+    OFFLINE_CONNECT_TIMEOUT_KEY,
+    OFFLINE_READ_TIMEOUT_KEY,
+    OFFLINE_DEFAULT_ANALYZE_TIMEOUT_S,
+    OFFLINE_DEFAULT_CONNECT_TIMEOUT_S,
+    OFFLINE_DEFAULT_READ_TIMEOUT_S,
+    OFFLINE_MIN_ANALYZE_TIMEOUT_S,
+    OFFLINE_MAX_ANALYZE_TIMEOUT_S,
+    OFFLINE_MIN_CONNECT_TIMEOUT_S,
+    OFFLINE_MAX_CONNECT_TIMEOUT_S,
+    OFFLINE_MIN_READ_TIMEOUT_S,
+    OFFLINE_MAX_READ_TIMEOUT_S,
     OFFLINE_DEFAULT_MAX_CONCURRENT,
     OFFLINE_DEFAULT_MAX_FILE_SIZE_MB,
     OFFLINE_DEFAULT_MAX_IMAGES,
@@ -106,7 +118,7 @@ _ERROR_MESSAGES = {
     "content_invalid": "图片内容无法识别（可能经过站点加密）",
     "restart_interrupted": "服务重启导致任务中断",
     "canceled": "已取消",
-    "merge_failed": "合并产物失败",
+    "merge_failed": "音视频合并失败，可重试",
     "http_error": "源站返回异常状态",
     "network_error": "网络连接失败",
     "not_found": "任务不存在",
@@ -183,6 +195,25 @@ async def get_policy(db: aiosqlite.Connection) -> dict:
             OFFLINE_DEFAULT_MAX_IMAGES,
             1,
             OFFLINE_HARD_MAX_IMAGES,
+        ),
+        # v1.8.2：超时三项改为管理员可配（默认 90 / 15 / 60 秒）
+        "analyze_timeout_s": await _int(
+            OFFLINE_ANALYZE_TIMEOUT_KEY,
+            OFFLINE_DEFAULT_ANALYZE_TIMEOUT_S,
+            OFFLINE_MIN_ANALYZE_TIMEOUT_S,
+            OFFLINE_MAX_ANALYZE_TIMEOUT_S,
+        ),
+        "connect_timeout_s": await _int(
+            OFFLINE_CONNECT_TIMEOUT_KEY,
+            OFFLINE_DEFAULT_CONNECT_TIMEOUT_S,
+            OFFLINE_MIN_CONNECT_TIMEOUT_S,
+            OFFLINE_MAX_CONNECT_TIMEOUT_S,
+        ),
+        "read_timeout_s": await _int(
+            OFFLINE_READ_TIMEOUT_KEY,
+            OFFLINE_DEFAULT_READ_TIMEOUT_S,
+            OFFLINE_MIN_READ_TIMEOUT_S,
+            OFFLINE_MAX_READ_TIMEOUT_S,
         ),
     }
 
@@ -306,6 +337,10 @@ async def get_meta(db: aiosqlite.Connection, user: dict) -> dict:
         "max_items": policy["max_items"],
         "max_file_size": policy["max_file_bytes"],
         "max_images": policy["max_images"],
+        # v1.8.2：超时当前值（客户端展示/排障用，非管理员不可写）
+        "analyze_timeout_s": policy["analyze_timeout_s"],
+        "connect_timeout_s": policy["connect_timeout_s"],
+        "read_timeout_s": policy["read_timeout_s"],
         "poll_interval_ms": 2500,
     }
 
@@ -346,6 +381,8 @@ def task_to_dict(
         "status_text": _STATUS_TEXT.get(row["status"], row["status"]),
         "item_total": int(row["item_total"]),
         "item_done": int(row["item_done"]),
+        # v1.8.2（F37.4）：partial 表示解析超时但有部分结果，客户端据此提示
+        "analysis_level": row["analysis_level"],
         "bytes_total": int(row["bytes_total"]),
         "bytes_done": int(row["bytes_done"]),
         "speed_bps": int(row["speed_bps"]),
@@ -751,26 +788,58 @@ async def _run_analysis(db: aiosqlite.Connection, task_id: int) -> None:
         return
     await repo.set_status(db, task_id, "analyzing")
     policy = await get_policy(db)
-    service = MediaAnalyzerService()
-    try:
-        result = await service.analyze(
-            row["source_url"],
-            deep_enabled=policy["deep_analyze"],
-            max_items=policy["max_items"],
-            max_images=policy["max_images"],
-        )
-    except AnalysisError as exc:
-        await repo.set_status(
-            db, task_id, "failed", error_code=exc.code, error_message=exc.message
-        )
-        return
-    except Exception:
+    timeout_s = float(policy["analyze_timeout_s"])
+    service = MediaAnalyzerService(
+        connect_timeout=float(policy["connect_timeout_s"]),
+        read_timeout=float(policy["read_timeout_s"]),
+    )
+    # v1.8.2（F37.3）：瞬态网络错误允许重试 1 次，但**只在快速失败时**重试，
+    # 避免「预算 90s + 重试 90s」把用户等待翻倍。
+    started = time.monotonic()
+    result = None
+    last_error: AnalysisError | None = None
+    for attempt in range(2):
+        try:
+            result = await service.analyze(
+                row["source_url"],
+                deep_enabled=policy["deep_analyze"],
+                max_items=policy["max_items"],
+                max_images=policy["max_images"],
+                total_timeout=timeout_s,
+            )
+            break
+        except AnalysisError as exc:
+            last_error = exc
+            elapsed = time.monotonic() - started
+            if (
+                attempt == 0
+                and exc.code in ("net_timeout", "network_error")
+                and elapsed < timeout_s * 0.5
+            ):
+                await asyncio.sleep(2)
+                continue
+            await repo.set_status(
+                db, task_id, "failed", error_code=exc.code, error_message=exc.message
+            )
+            return
+        except Exception:
+            await repo.set_status(
+                db,
+                task_id,
+                "failed",
+                error_code="parser_outdated",
+                error_message=_ERROR_MESSAGES["parser_outdated"],
+            )
+            return
+    if result is None:
+        # 理论上不可达（两次失败都在循环内落库）；兜底防止静默返回。
+        assert last_error is not None
         await repo.set_status(
             db,
             task_id,
             "failed",
-            error_code="parser_outdated",
-            error_message=_ERROR_MESSAGES["parser_outdated"],
+            error_code=last_error.code,
+            error_message=last_error.message,
         )
         return
     current = await repo.find_task_any(db, task_id)
@@ -1058,7 +1127,10 @@ async def _run_download(db: aiosqlite.Connection, task_id: int) -> None:
     reporter = asyncio.create_task(_report_progress(db, task_id, state))
     try:
         await semaphore.acquire()
-        outbound = OutboundClient()
+        outbound = OutboundClient(
+            connect_timeout=float(policy["connect_timeout_s"]),
+            read_timeout=float(policy["read_timeout_s"]),
+        )
         try:
             fetcher = MediaFetcherService(outbound, max_file_bytes=policy["max_file_bytes"])
             reanalyzed = False
@@ -1345,6 +1417,9 @@ OFFLINE_CONFIG_DEFAULTS = {
     OFFLINE_MAX_FILE_SIZE_KEY: str(OFFLINE_DEFAULT_MAX_FILE_SIZE_MB),
     OFFLINE_MAX_ITEMS_KEY: str(OFFLINE_DEFAULT_MAX_ITEMS),
     OFFLINE_MAX_IMAGES_KEY: str(OFFLINE_DEFAULT_MAX_IMAGES),
+    OFFLINE_ANALYZE_TIMEOUT_KEY: str(OFFLINE_DEFAULT_ANALYZE_TIMEOUT_S),
+    OFFLINE_CONNECT_TIMEOUT_KEY: str(OFFLINE_DEFAULT_CONNECT_TIMEOUT_S),
+    OFFLINE_READ_TIMEOUT_KEY: str(OFFLINE_DEFAULT_READ_TIMEOUT_S),
 }
 
 
@@ -1365,6 +1440,18 @@ def validate_config_value(key: str, value: str) -> str:
         OFFLINE_MAX_FILE_SIZE_KEY: (1, OFFLINE_HARD_MAX_FILE_SIZE_MB),
         OFFLINE_MAX_ITEMS_KEY: (1, OFFLINE_HARD_MAX_ITEMS),
         OFFLINE_MAX_IMAGES_KEY: (1, OFFLINE_HARD_MAX_IMAGES),
+        OFFLINE_ANALYZE_TIMEOUT_KEY: (
+            OFFLINE_MIN_ANALYZE_TIMEOUT_S,
+            OFFLINE_MAX_ANALYZE_TIMEOUT_S,
+        ),
+        OFFLINE_CONNECT_TIMEOUT_KEY: (
+            OFFLINE_MIN_CONNECT_TIMEOUT_S,
+            OFFLINE_MAX_CONNECT_TIMEOUT_S,
+        ),
+        OFFLINE_READ_TIMEOUT_KEY: (
+            OFFLINE_MIN_READ_TIMEOUT_S,
+            OFFLINE_MAX_READ_TIMEOUT_S,
+        ),
     }
     if key in ranges:
         try:

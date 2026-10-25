@@ -36,7 +36,8 @@ enum _Phase { idle, analyzing, ready, submitting, failed }
 
 class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
     with WidgetsBindingObserver {
-  static const Duration _pollInterval = Duration(milliseconds: 2500);
+  /// 轮询退避（C2）：2.5s → 5s → 10s → 15s，封顶 30s
+  static const List<int> _pollBackoffMs = [2500, 5000, 10000, 15000, 30000];
 
   final TextEditingController _urlController = TextEditingController();
 
@@ -54,6 +55,9 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
 
   /// 连续轮询失败次数（达到 3 次转失败态，避免页面永久停在「分析中」）
   int _pollFailures = 0;
+
+  /// 当前退避档位（每次轮询后 +1，封顶到 30s）
+  int _pollTick = 0;
 
   int _targetDiskId = 0;
   String _targetPath = '';
@@ -76,9 +80,9 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // 回前台：分析中恢复 2.5s 轮询并立即补一次（后台期间定时器已停）
+      // 回前台：分析中立即补一次并恢复退避轮询（后台期间定时器已停）
       if (_phase == _Phase.analyzing) {
-        _startPolling();
+        // 回前台立即补一次（后台期间定时器已停），后续按当前档位退避
         _pollDetail();
       }
     } else {
@@ -87,10 +91,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
   }
 
   bool get _canAnalyze =>
-      _meta.enabled &&
-      _meta.canUse &&
-      _meta.configured &&
-      _meta.configValid;
+      _meta.enabled && _meta.canUse && _meta.configured && _meta.configValid;
 
   /// 默认目录是否可用（保存配置后可能变化）
   String? get _unavailableReason {
@@ -125,11 +126,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
   }
 
   Future<void> _openSettings() async {
-    await showOfflineSettingsSheet(
-      context,
-      meta: _meta,
-      onSaved: _loadMeta,
-    );
+    await showOfflineSettingsSheet(context, meta: _meta, onSaved: _loadMeta);
   }
 
   String? _validateUrl(String value) {
@@ -161,6 +158,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
       _selected.clear();
       _taskId = 0;
       _pollFailures = 0;
+      _pollTick = 0;
     });
     try {
       final result = await ref
@@ -168,7 +166,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
           .analyze(_urlController.text.trim());
       if (!mounted) return;
       setState(() => _taskId = result.taskId);
-      _startPolling();
+      // 立即查一次详情；后续间隔由 _scheduleNextPoll 按退避档位安排
       _pollDetail();
     } catch (e) {
       if (!mounted) return;
@@ -179,9 +177,17 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
     }
   }
 
-  void _startPolling() {
+  /// 按当前退避档位安排下一次轮询（单次 Timer，避免固定周期）
+  void _scheduleNextPoll() {
     _stopPolling();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => _pollDetail());
+    final index = _pollTick < _pollBackoffMs.length
+        ? _pollTick
+        : _pollBackoffMs.length - 1;
+    _pollTick++;
+    _pollTimer = Timer(
+      Duration(milliseconds: _pollBackoffMs[index]),
+      _pollDetail,
+    );
   }
 
   void _stopPolling() {
@@ -219,8 +225,9 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
           );
         });
       } else {
-        // queued / analyzing：继续等
+        // queued / analyzing：继续等（按退避档位安排下一次）
         if (mounted) setState(() => _detail = detail);
+        _scheduleNextPoll();
       }
     } catch (e) {
       if (!mounted) return;
@@ -233,6 +240,8 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
           _phase = _Phase.failed;
           _errorText = '$message（已重试 3 次，请检查网络后重新分析）';
         });
+      } else {
+        _scheduleNextPoll();
       }
     }
   }
@@ -252,11 +261,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              offlineOperationError(e, fallback: '取消分析失败'),
-            ),
-          ),
+          SnackBar(content: Text(offlineOperationError(e, fallback: '取消分析失败'))),
         );
       }
     }
@@ -472,6 +477,15 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
                     color: AppTokens.danger500,
                   ),
                 ),
+                if (_phase == _Phase.failed) ...[
+                  const SizedBox(height: 6),
+                  OutlinedButton.icon(
+                    key: const Key('offline-retry-analyze'),
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('重试分析'),
+                    onPressed: _canAnalyze ? _analyze : null,
+                  ),
+                ],
               ],
             ],
           ),
@@ -496,7 +510,8 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
       ];
     }
     final estimated = items.any((item) => item.isEstimated);
-    final summary = '已选 ${_selected.length} 项 · '
+    final summary =
+        '已选 ${_selected.length} 项 · '
         '${estimated ? '约 ' : ''}${formatSize(_selectedBytes)}';
     return [
       const SizedBox(height: 12),
@@ -537,10 +552,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
                   label: const Text('只要图片'),
                   onPressed: () => _selectByKind('image'),
                 ),
-                ActionChip(
-                  label: const Text('最高清'),
-                  onPressed: _selectHighest,
-                ),
+                ActionChip(label: const Text('最高清'), onPressed: _selectHighest),
               ],
             ),
             const SizedBox(height: 4),
@@ -581,10 +593,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
               ),
             ),
             const Divider(height: 20),
-            Text(
-              summary,
-              style: TextStyle(fontSize: 12.5, color: t.fgDefault),
-            ),
+            Text(summary, style: TextStyle(fontSize: 12.5, color: t.fgDefault)),
             const SizedBox(height: 10),
             Row(
               children: [
@@ -599,9 +608,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
                 OutlinedButton.icon(
                   icon: const Icon(Icons.folder_open_outlined, size: 16),
                   label: const Text('选择'),
-                  onPressed: _phase == _Phase.submitting
-                      ? null
-                      : _pickTarget,
+                  onPressed: _phase == _Phase.submitting ? null : _pickTarget,
                 ),
               ],
             ),
@@ -622,9 +629,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
               width: double.infinity,
               child: FilledButton.icon(
                 icon: const Icon(Icons.download, size: 18),
-                label: Text(
-                  _phase == _Phase.submitting ? '提交中…' : '开始下载',
-                ),
+                label: Text(_phase == _Phase.submitting ? '提交中…' : '开始下载'),
                 onPressed: _phase == _Phase.submitting ? null : _submit,
               ),
             ),
@@ -650,11 +655,7 @@ class _OfflineNewTaskPageState extends ConsumerState<OfflineNewTaskPage>
 
 /// 提示卡（不可用原因 + 可选操作按钮）
 class _NoticeCard extends StatelessWidget {
-  const _NoticeCard({
-    required this.text,
-    this.actionLabel,
-    this.onAction,
-  });
+  const _NoticeCard({required this.text, this.actionLabel, this.onAction});
 
   final String text;
   final String? actionLabel;

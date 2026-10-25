@@ -592,6 +592,42 @@ def test_analysis_total_timeout_maps_to_net_timeout() -> None:
     assert excinfo.value.code == "net_timeout"
 
 
+def test_analysis_timeout_keeps_partial_items() -> None:
+    """v1.8.2 / F37.4：超时前已抓到的清单项必须保留（设计 v1.8.0 §2.3.3）。"""
+    outbound = FakeOutbound()
+    service = make_service(outbound)
+
+    async def fake_inner(
+        url,
+        *,
+        outbound,
+        deep_enabled,
+        page_index,
+        max_items,
+        max_images,
+        warnings,
+        collected=None,
+        goto_timeout_ms=20000,
+    ):
+        collected["items"] = [
+            AnalyzedItem(
+                kind="video",
+                display_name="240P",
+                ext="mp4",
+                source_url="https://cdn.example.com/x.mp4",
+            )
+        ]
+        collected["title"] = "Demo"
+        raise TimeoutError
+
+    service._analyze_inner = fake_inner  # type: ignore[method-assign]
+    result = asyncio.run(service.analyze(PAGE, deep_enabled=False, total_timeout=1))
+    assert result.level == "partial"
+    assert len(result.items) == 1
+    assert result.items[0].sort_order == 0
+    assert any("部分结果" in warning for warning in result.warnings)
+
+
 def test_ssrf_blocked_before_any_request() -> None:
     """内网地址在分析入口直接拒，且 0 次出站请求（AC-234）。"""
     outbound = FakeOutbound()

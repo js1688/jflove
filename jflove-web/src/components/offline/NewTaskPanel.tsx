@@ -540,7 +540,7 @@ export function NewTaskPanel({
                     {[itemMetaText(item), itemSizeText(item)].filter(Boolean).join(' · ')}
                   </span>
                 </span>
-                {item.status === 'failed' && item.error_message && (
+                {item.error_message && (
                   <span className="max-w-[40%] truncate text-[11.5px] text-danger-700">
                     {item.error_message}
                   </span>

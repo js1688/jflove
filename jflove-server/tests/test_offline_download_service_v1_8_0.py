@@ -24,7 +24,7 @@ import pytest
 import src.models.database as database
 from src.repositories import offline_download_repository as repo
 from src.services import config_service, offline_download_service as service
-from src.services.media_analyzer_service import AnalysisResult, AnalyzedItem
+from src.services.media_analyzer_service import AnalysisError, AnalysisResult, AnalyzedItem
 from src.services.media_fetcher_service import FetchOutcome
 
 
@@ -153,6 +153,72 @@ def test_get_policy_default_enabled(env) -> None:
 
     policy = asyncio.run(run())
     assert policy["enabled"] is True
+
+
+def test_timeout_policy_defaults_and_clamp(env) -> None:
+    """v1.8.2 / F37：超时默认 90/15/60，越界值夹到硬边界。"""
+    config_service.invalidate_cache()
+
+    async def defaults():
+        async with _db() as db:
+            for key in (
+                "offline_download_analyze_timeout_s",
+                "offline_download_connect_timeout_s",
+                "offline_download_read_timeout_s",
+            ):
+                await db.execute("DELETE FROM config WHERE key = ?", (key,))
+            await db.commit()
+            config_service.invalidate_cache()
+            return await service.get_policy(db)
+
+    policy = asyncio.run(defaults())
+    assert policy["analyze_timeout_s"] == 90
+    assert policy["connect_timeout_s"] == 15
+    assert policy["read_timeout_s"] == 60
+
+    async def clamped():
+        async with _db() as db:
+            await config_service.update(db, "offline_download_analyze_timeout_s", "1")
+            await config_service.update(db, "offline_download_connect_timeout_s", "99")
+            await config_service.update(db, "offline_download_read_timeout_s", "60")
+            return await service.get_policy(db)
+
+    policy = asyncio.run(clamped())
+    assert policy["analyze_timeout_s"] == 30
+    assert policy["connect_timeout_s"] == 30
+    assert policy["read_timeout_s"] == 60
+
+
+def test_validate_timeout_config_values() -> None:
+    """v1.8.2 / F37：管理员写入的超时值必须落在范围内。"""
+    assert service.validate_config_value("offline_download_analyze_timeout_s", "120") == "120"
+    assert service.validate_config_value("offline_download_connect_timeout_s", "5") == "5"
+    assert service.validate_config_value("offline_download_read_timeout_s", "120") == "120"
+    for key, bad in (
+        ("offline_download_analyze_timeout_s", "10"),
+        ("offline_download_analyze_timeout_s", "181"),
+        ("offline_download_connect_timeout_s", "4"),
+        ("offline_download_read_timeout_s", "121"),
+        ("offline_download_read_timeout_s", "abc"),
+    ):
+        with pytest.raises(ValueError):
+            service.validate_config_value(key, bad)
+
+
+def test_meta_includes_timeout_values(offline_env) -> None:
+    """v1.8.2 / F37.5：get_meta 下发三项超时当前值（只读）。"""
+    async def run():
+        async with _db() as db:
+            # 显式写回默认值，避免受前序用例落库影响
+            await config_service.update(db, "offline_download_analyze_timeout_s", "90")
+            await config_service.update(db, "offline_download_connect_timeout_s", "15")
+            await config_service.update(db, "offline_download_read_timeout_s", "60")
+            return await service.get_meta(db, offline_env["alice_user"])
+
+    meta = asyncio.run(run())
+    assert meta["analyze_timeout_s"] == 90
+    assert meta["connect_timeout_s"] == 15
+    assert meta["read_timeout_s"] == 60
 
 
 def test_meta_reports_no_writable_disk(env, no_perm_session) -> None:
@@ -376,6 +442,103 @@ def test_store_analysis_and_run_analysis(offline_env, monkeypatch) -> None:
     assert len(items) == 1
 
 
+def test_analysis_note_and_level_are_exposed(offline_env, monkeypatch) -> None:
+    """v1.8.2（F36.5 / F37.4）：无音轨 note 落库、analysis_level 透出。"""
+    class FakeAnalyzer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def analyze(self, url, **kwargs):
+            return AnalysisResult(
+                page_title="Demo",
+                items=[
+                    AnalyzedItem(
+                        kind="video",
+                        display_name="240P",
+                        ext="mp4",
+                        source_url="https://cdn.example.com/v.mp4",
+                        protocol="http",
+                        est_size=100,
+                        note="无音轨",
+                    )
+                ],
+                level="partial",
+            )
+
+    monkeypatch.setattr(service, "MediaAnalyzerService", FakeAnalyzer)
+
+    async def run():
+        async with _db() as db:
+            task_id = await repo.insert_task(
+                db,
+                user_id=offline_env["alice_id"],
+                username="alice",
+                source_url="https://example.com/page",
+                source_domain="example.com",
+                status="queued",
+            )
+            await service._run_analysis(db, task_id)
+            items = await repo.list_items(db, task_id)
+            detail = await service.get_detail(db, offline_env["alice_user"], task_id)
+            return items, detail
+
+    items, detail = asyncio.run(run())
+    assert items[0]["error_message"] == "无音轨"
+    assert detail["task"]["analysis_level"] == "partial"
+
+
+def test_run_analysis_retries_transient_once(offline_env, monkeypatch) -> None:
+    """v1.8.2 / F37.3：瞬态网络错误快速失败时自动重试 1 次。"""
+    calls = {"n": 0}
+
+    class FakeAnalyzer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def analyze(self, url, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise AnalysisError("net_timeout", "临时超时")
+            return AnalysisResult(
+                page_title="Demo",
+                items=[
+                    AnalyzedItem(
+                        kind="video",
+                        display_name="240P",
+                        ext="mp4",
+                        source_url="https://cdn.example.com/v.mp4",
+                        protocol="http",
+                        est_size=100,
+                    )
+                ],
+                level="l2",
+            )
+
+    async def _noop(_seconds):
+        return None
+
+    monkeypatch.setattr(service, "MediaAnalyzerService", FakeAnalyzer)
+    monkeypatch.setattr(service.asyncio, "sleep", _noop)
+
+    async def run():
+        async with _db() as db:
+            task_id = await repo.insert_task(
+                db,
+                user_id=offline_env["alice_id"],
+                username="alice",
+                source_url="https://example.com/page",
+                source_domain="example.com",
+                status="queued",
+            )
+            await service._run_analysis(db, task_id)
+            row = await repo.find_task(db, task_id, offline_env["alice_id"])
+            return dict(row)
+
+    row = asyncio.run(run())
+    assert calls["n"] == 2
+    assert row["status"] == "ready"
+
+
 def test_run_download_success(offline_env, monkeypatch) -> None:
     """下载 worker：成功置 success 并回填产物名。"""
     class FakeFetcher:
@@ -393,6 +556,9 @@ def test_run_download_success(offline_env, monkeypatch) -> None:
             return []
 
     class FakeOutbound:
+        def __init__(self, *args, **kwargs):  # v1.8.2：构造参数（超时）忽略
+            pass
+
         async def aclose(self):
             pass
 

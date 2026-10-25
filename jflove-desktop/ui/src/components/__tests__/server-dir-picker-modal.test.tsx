@@ -115,4 +115,20 @@ describe('服务器目录选择器（AC-257）', () => {
       expect(screen.getByText(/仅显示前 2000 项/)).toBeTruthy(),
     );
   });
+
+  it('截断文案使用服务端返回的 limit（v1.8.2 / C1）', async () => {
+    serviceMock.browseServerDirs.mockResolvedValueOnce({
+      ...STORAGE,
+      truncated: true,
+      limit: 500,
+    });
+
+    render(<ServerDirPickerModal initialPath="/storage" onSelect={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/仅显示前 500 项/)).toBeTruthy(),
+    );
+    // 不得继续显示硬编码的旧口径
+    expect(screen.queryByText(/仅显示前 2000 项/)).toBeNull();
+  });
 });

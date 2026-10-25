@@ -547,6 +547,12 @@ function TaskRow({
             目标：{task.target_disk_name || '未指定'} / {task.target_rel_path || '—'}
           </p>
 
+          {task.analysis_level === 'partial' && (
+            <p className="mt-0.5 text-[11.5px] text-warning-700">
+              解析超时，已返回部分结果（可重试补充）
+            </p>
+          )}
+
           {task.error_message && (
             <p className="mt-0.5 text-[11.5px] text-danger-700">
               {task.error_code ? `${task.error_message}（${task.error_code}）` : task.error_message}

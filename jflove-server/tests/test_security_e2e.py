@@ -544,6 +544,18 @@ class Test路径参数权限绕过:
         # 业务规则：管理员不可删除（应 400）
         assert resp.status_code == 400
 
+    def test_普通用户不能修改离线下载超时配置(self, client, env):
+        """AC-276 / AC-300：PUT /config 为 admin-only，普通用户必须 403。"""
+        resp = encrypted_request(
+            client,
+            env["alice"],
+            "PUT",
+            "/api/v1/config",
+            {"key": "offline_download_analyze_timeout_s", "value": "120"},
+        )
+        assert resp.status_code == 403, f"普通用户改配置应 403，实际 {resp.status_code}"
+        decrypted = decrypt_response(env["alice"], resp)
+        assert "管理员" in decrypted.get("detail", "")
 
 # ════════════════════════════════════════════════════════════════ #
 #   测试组 6：JWT 不走 Authorization header

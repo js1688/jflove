@@ -39,6 +39,8 @@ class _ServerDirPickerDialogState extends ConsumerState<ServerDirPickerDialog> {
   List<Map<String, dynamic>> _dirs = const [];
   List<Map<String, dynamic>> _roots = const [];
   bool _truncated = false;
+  /// 服务端下发的单层目录上限（v1.8.2 / C1；旧服务端缺省回落 2000）
+  int _limit = 2000;
   bool _loading = true;
   String? _error;
 
@@ -74,6 +76,7 @@ class _ServerDirPickerDialogState extends ConsumerState<ServerDirPickerDialog> {
         _dirs = dirs;
         _roots = roots;
         _truncated = data['truncated'] == true;
+        _limit = (data['limit'] as num?)?.toInt() ?? 2000;
         _loading = false;
       });
     } catch (e) {
@@ -146,7 +149,7 @@ class _ServerDirPickerDialogState extends ConsumerState<ServerDirPickerDialog> {
               Padding(
                 padding: const EdgeInsets.only(top: 6),
                 child: Text(
-                  '目录过多，仅显示前 2000 项，请进入更具体的路径。',
+                  '目录过多，仅显示前 $_limit 项，请进入更具体的路径。',
                   style: TextStyle(fontSize: 12, color: t.fgMuted),
                 ),
               ),

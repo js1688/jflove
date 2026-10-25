@@ -391,8 +391,8 @@ async def replace_items(
             "INSERT INTO offline_download_items"
             " (task_id, kind, display_name, ext, source_url, aux_url, protocol,"
             "  variant_id, vcodec, acodec, width, height, duration_ms, est_size,"
-            "  is_estimated, sort_order, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "  is_estimated, sort_order, error_message, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 task_id,
                 item.get("kind", "video"),
@@ -410,6 +410,8 @@ async def replace_items(
                 int(item.get("est_size", 0) or 0),
                 1 if item.get("is_estimated", True) else 0,
                 order,
+                # v1.8.2（F36.5）：分析端的「无音轨」note 要落库给三端展示
+                str(item.get("note", "") or ""),
                 now,
                 now,
             ),

@@ -1,16 +1,22 @@
 /**
- * 服务器目录选择弹窗（v1.8.1 / D14 / AC-257）
+ * 服务器目录选择弹窗（v1.8.1 / D14 / AC-257；v1.8.2 / C1 使用服务端 limit）
  *
  * 用于「添加 / 编辑虚拟磁盘」时选择服务端真实路径。对应后端
  * `GET /api/v1/virtual-disks/server-dirs`（仅管理员、只列目录）。
  *
  * 渲染层无网络出口：请求统一经 `diskService.browseServerDirs` → 加密桥。
+ *
+ * v1.8.2（C1）：截断提示改读响应里的 `limit`（与后端 `SERVER_DIR_LIMIT` 同源），
+ * 旧服务端不返回该字段时回落 2000，避免两端各自硬编码漂移。
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import type { ServerDirListing } from '../types/models';
 import { diskService } from '../services/disk-service';
 import { Button, Icon, Modal } from './ui';
+
+/** 旧服务端不返回 `limit` 时的兜底上限（与 v1.8.1 文案一致） */
+const SERVER_DIR_LIMIT_FALLBACK = 2000;
 
 interface ServerDirPickerModalProps {
   /** 打开时定位的绝对路径；留空由服务端从 roots 第一项开始 */
@@ -69,6 +75,8 @@ export function ServerDirPickerModal({
   const currentPath = listing?.path ?? '';
   const rootPath = listing?.roots[0]?.path ?? '';
   const roots = listing?.roots ?? [];
+  /** 服务端列目录上限（v1.8.2 / C1）；旧服务端缺省时回落 2000 */
+  const dirLimit = listing?.limit ?? SERVER_DIR_LIMIT_FALLBACK;
 
   return (
     <Modal
@@ -138,7 +146,7 @@ export function ServerDirPickerModal({
 
       {listing?.truncated && (
         <div className="mb-2 rounded-md bg-warning-50 px-3 py-2 text-[12.5px] text-warning-700">
-          目录过多，仅显示前 2000 项，请进入更具体的路径。
+          目录过多，仅显示前 {dirLimit} 项，请进入更具体的路径。
         </div>
       )}
 

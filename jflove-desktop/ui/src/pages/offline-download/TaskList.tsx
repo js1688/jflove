@@ -263,6 +263,12 @@ export function TaskList({ pollIntervalMs, writableDisks, onSelectTask }: TaskLi
                   {task.item_total > 0 && <span>共 {task.item_total} 项</span>}
                 </div>
 
+                {task.analysis_level === 'partial' && (
+                  <p className="mt-1.5 text-[11.5px]" style={{ color: 'var(--warning-700)' }}>
+                    解析超时，已返回部分结果（可重试补充）
+                  </p>
+                )}
+
                 {task.error_message && (
                   <details className="mt-1.5 text-[11.5px]" style={{ color: 'var(--danger-700)' }}>
                     <summary className="cursor-pointer break-words">
