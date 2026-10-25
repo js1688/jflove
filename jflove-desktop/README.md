@@ -2,8 +2,12 @@
 
 JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲染）** 的个人数字工作台桌面端，界面与 Web 端同一套，并额外提供托盘、本地解码的媒体预览、原生文件对话框、系统拖放上传、内置文本编辑器与云盘挂载。
 
-> **当前版本：v1.8.1**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
+> **当前版本：v1.8.2**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
 
+> **v1.8.2**：媒体播放浮层改为 `QWebEngineView` 的 native 子控件（随主窗移动/缩放/全屏/托盘恢复，
+> Wayland 与 X11 均不再被主窗遮挡；`JFLOVE_MEDIA_OVERLAY=window` 可回退旧实现）；
+> 管理员「系统设置 → 离线下载」新增解析 / 连接 / 读取三项超时；目录选择器截断文案改用服务端 `limit`。
+>
 > **v1.8.1**：修复「已完成的任务进度条不是 100%」（`taskPercent` 改为成功优先满格）；
 > 磁盘管理新增「浏览…」服务器目录选择器（管理员只读接口 `GET /api/v1/virtual-disks/server-dirs`），
 > 手输真实路径保留为兜底。
