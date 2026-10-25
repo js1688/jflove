@@ -68,7 +68,7 @@ class _AlbumBackupPageState extends ConsumerState<AlbumBackupPage> {
     final p = service.progress;
     final failures = await service.failedEntries();
     final buffer = StringBuffer()
-      ..writeln('JFLove 1.8.3 (Android)')
+      ..writeln('JFLove（Android，版本见设置-关于）')
       ..writeln('阶段：${a.phase.name} · ${a.message}')
       ..writeln('计数：总数 ${p.total} / 已备份 ${p.done} / 上传中 ${p.uploading} '
           '/ 失败 ${p.failed} / 不在范围 ${p.outOfScope} / 远端跳过 ${p.skippedExisting}')
