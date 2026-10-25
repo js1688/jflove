@@ -13,7 +13,6 @@ import '../../services/disk_service.dart';
 import '../../utils/http_service.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
-import 'album_backup_card.dart';
 
 /// 设置页
 class SettingsPage extends ConsumerWidget {
@@ -113,18 +112,25 @@ class SettingsPage extends ConsumerWidget {
           // ---- 笔记目录配置 ----
           _NotesDirConfigCard(),
           const SizedBox(height: 12),
-          // ---- 相册自动同步（v1.7.0 新增：替代原「同步管理」） ----
-          const AlbumBackupCard(),
-          const SizedBox(height: 12),
-          // ---- 离线下载（v1.8.1：移动端完整功能入口，需求 F30 / F32） ----
+          // ---- 相册同步 / 离线下载（v1.8.3：已提升为底部一级入口，这里保留快捷方式） ----
           _SectionCard(
-            title: '离线下载',
-            icon: Icons.cloud_download_outlined,
-            child: _SectionListTile(
-              icon: Icons.download_for_offline_outlined,
-              title: '离线下载中心',
-              subtitle: '新建任务、查看进度与产物、管理任务',
-              onTap: () => context.push(AppRoutes.offlineDownload),
+            title: '同步与下载',
+            icon: Icons.sync_outlined,
+            child: Column(
+              children: [
+                _SectionListTile(
+                  icon: Icons.photo_library_outlined,
+                  title: '相册同步',
+                  subtitle: '自动备份、失败重试、查看已上传',
+                  onTap: () => context.go('/album'),
+                ),
+                _SectionListTile(
+                  icon: Icons.download_for_offline_outlined,
+                  title: '离线下载',
+                  subtitle: '新建任务、查看进度与产物、管理任务',
+                  onTap: () => context.go(AppRoutes.offlineDownload),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
@@ -222,7 +228,7 @@ class SettingsPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoRow(label: '版本', value: 'v1.8.2'),
+                _InfoRow(label: '版本', value: 'v1.8.3'),
                 const SizedBox(height: 6),
                 Text(
                   '私有文档 & 笔记管理系统',

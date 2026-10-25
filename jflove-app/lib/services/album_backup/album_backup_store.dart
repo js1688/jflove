@@ -96,6 +96,13 @@ abstract class AlbumBackupStore {
   /// 指定「磁盘 + 目标目录」下已备份数量
   Future<int> backedUpCount({required int diskId, required String remoteRoot});
 
+  /// 最近上传（按 backed_at 倒序，供相册页「最近上传」展示）
+  Future<List<AlbumBackupRecord>> recentBackedUp({
+    required int diskId,
+    required String remoteRoot,
+    int limit = 20,
+  });
+
   /// 标记某资源已备份（同主键覆盖，只保留当前目标记录），并清除失败记录
   Future<void> markBackedUp(AlbumBackupRecord record);
 
@@ -209,6 +216,34 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
       [diskId, remoteRoot],
     );
     return (rows.first['c'] as num?)?.toInt() ?? 0;
+  }
+
+  @override
+  Future<List<AlbumBackupRecord>> recentBackedUp({
+    required int diskId,
+    required String remoteRoot,
+    int limit = 20,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      'album_backup',
+      where: 'disk_id = ? AND remote_root = ?',
+      whereArgs: [diskId, remoteRoot],
+      orderBy: 'backed_at DESC',
+      limit: limit,
+    );
+    return rows
+        .map(
+          (row) => AlbumBackupRecord(
+            assetId: row['asset_id'] as String,
+            diskId: (row['disk_id'] as num).toInt(),
+            remoteRoot: row['remote_root'] as String? ?? '',
+            remotePath: row['remote_path'] as String,
+            size: (row['size'] as num).toInt(),
+            backedAt: row['backed_at'] as String,
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override

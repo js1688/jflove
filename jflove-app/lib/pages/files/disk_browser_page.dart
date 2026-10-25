@@ -21,7 +21,14 @@ import '../../widgets/path_breadcrumb.dart';
 class DiskBrowserPage extends ConsumerStatefulWidget {
   final int diskId;
 
-  const DiskBrowserPage({super.key, required this.diskId});
+  /// 初始进入的目录（v1.8.3：相册页「在文件中查看」直接定位到相册目标根）
+  final String initialPath;
+
+  const DiskBrowserPage({
+    super.key,
+    required this.diskId,
+    this.initialPath = '',
+  });
 
   @override
   ConsumerState<DiskBrowserPage> createState() => _DiskBrowserPageState();
@@ -29,6 +36,12 @@ class DiskBrowserPage extends ConsumerStatefulWidget {
 
 class _DiskBrowserPageState extends ConsumerState<DiskBrowserPage> {
   String _currentPath = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _currentPath = widget.initialPath;
+  }
 
   void _enterDir(String name) {
     setState(() {

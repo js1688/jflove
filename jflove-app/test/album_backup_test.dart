@@ -333,6 +333,43 @@ void main() {
     await env.service.retryFailed();
     expect(env.store.failureEntries.single.attempts, 1, reason: '手动解锁后重新计数');
   });
+
+  test('title 无扩展名时，用本地文件扩展名补全（v1.8.3 / F44）', () async {
+    final video = File('${tempDir.path}/original.mp4')
+      ..writeAsBytesSync(List<int>.filled(32, 7));
+    final env = build(
+      assets: [
+        asset(
+          'vid-1',
+          title: 'VID_1',
+          kind: AlbumMediaKind.video,
+          openFile: () async => video,
+        ),
+      ],
+    );
+    await env.service.init();
+
+    await env.service.scanAndUpload();
+
+    expect(env.transfer.filenames, ['VID_1.mp4']);
+  });
+
+  test('扫描期间发布 scanning 活动，结束后回到 idle（v1.8.3 / F43）', () async {
+    final env = build(
+      assets: List.generate(5, (i) => asset('a$i')),
+    );
+    final phases = <AlbumBackupPhase>[];
+    final sub = env.service.activityStream.listen((a) => phases.add(a.phase));
+    await env.service.init();
+
+    await env.service.scanAndUpload();
+    await sub.cancel();
+
+    expect(phases, contains(AlbumBackupPhase.scanning));
+    expect(env.service.activity.phase, AlbumBackupPhase.idle);
+    expect(env.service.activity.message, '空闲');
+  });
+
 }
 
 // ── 假实现 ──────────────────────────────────────────
@@ -386,6 +423,13 @@ class _FakeStore implements AlbumBackupStore {
       .where((r) => r.diskId == diskId && r.remoteRoot == remoteRoot)
       .map((r) => r.assetId)
       .toSet();
+
+  @override
+  Future<List<AlbumBackupRecord>> recentBackedUp({
+    required int diskId,
+    required String remoteRoot,
+    int limit = 20,
+  }) async => const [];
 
   @override
   Future<int> backedUpCount({

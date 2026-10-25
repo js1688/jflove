@@ -2,12 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
-
-import 'package:pointycastle/export.dart';
 
 import '../models/transfer_task.dart';
 import '../utils/exception.dart';
+import '../utils/file_hash.dart';
 import '../utils/http_service.dart';
 
 /// 传输任务管理器
@@ -100,38 +98,26 @@ class TransferService {
           ? ((totalBytes + uploadChunkSize - 1) ~/ uploadChunkSize)
           : 1;
 
-      // ── 阶段 1：流式计算 SHA256 并回调哈希进度 ──
-      final sha256 = SHA256Digest();
-      int hashed = 0;
-      final raf = await file.open(mode: FileMode.read);
-      try {
-        while (hashed < totalBytes) {
-          if (_cancelledTasks.contains(taskId)) {
-            _updateTask(taskId, status: TaskStatus.cancelled);
-            return;
-          }
-          final remaining = totalBytes - hashed;
-          final readLen = remaining < uploadChunkSize
-              ? remaining
-              : uploadChunkSize;
-          final chunk = await raf.read(readLen);
-          if (chunk.isEmpty) break;
-          sha256.update(Uint8List.fromList(chunk), 0, chunk.length);
-          hashed += chunk.length;
-          final pct = totalBytes > 0
-              ? ((hashed / totalBytes) * 100).round()
-              : 0;
-          _updateTask(taskId, transferred: hashed, percent: pct);
-        }
-      } finally {
-        await raf.close();
+      // ── 阶段 1：SHA256 移入后台 isolate，避免大视频阻塞 UI（v1.8.3 / F44） ──
+      if (_cancelledTasks.contains(taskId)) {
+        _updateTask(taskId, status: TaskStatus.cancelled);
+        return;
       }
-      // 从 Digest 中提取最终的 32 字节 SHA256 哈希并转十六进制
-      final hashOut = Uint8List(sha256.digestSize);
-      sha256.doFinal(hashOut, 0);
-      final fileHash = hashOut
-          .map((b) => b.toRadixString(16).padLeft(2, '0'))
-          .join();
+      final String fileHash;
+      try {
+        fileHash = await sha256FileInIsolate(localPath);
+      } catch (e) {
+        _updateTask(
+          taskId,
+          status: TaskStatus.failed,
+          error: '文件校验失败：${userFacingError(e, fallback: '无法读取文件')}',
+        );
+        return;
+      }
+      if (_cancelledTasks.contains(taskId)) {
+        _updateTask(taskId, status: TaskStatus.cancelled);
+        return;
+      }
 
       // ── 阶段 2：初始化上传会话 ──
       _updateTask(
@@ -424,6 +410,9 @@ class TransferService {
   String _generateId() =>
       '${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(99999)}';
 
+  /// 最近一次向 UI 广播的时刻（毫秒）；进度刷新节流到约 5 次/秒
+  int _lastNotifyMs = 0;
+
   void _updateTask(
     String taskId, {
     TaskStatus? status,
@@ -433,13 +422,27 @@ class TransferService {
   }) {
     final task = _tasks[taskId];
     if (task == null) return;
+    final statusChanged = status != null && status != task.status;
+    final errorChanged = error != null && error != task.error;
+    final percentChanged = percent != null && percent != task.percent;
     _tasks[taskId] = task.copyWith(
       status: status,
       transferred: transferred,
       percent: percent,
       error: error,
     );
-    _notify();
+    if (statusChanged || errorChanged) {
+      _lastNotifyMs = DateTime.now().millisecondsSinceEpoch;
+      _notify();
+      return;
+    }
+    if (percentChanged) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastNotifyMs >= 200) {
+        _lastNotifyMs = now;
+        _notify();
+      }
+    }
   }
 
   void _notify() {

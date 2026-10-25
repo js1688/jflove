@@ -18,7 +18,7 @@ void main() {
     appSource = File('lib/app.dart').readAsStringSync();
   });
 
-  test('底部导航恰好 4 项，且顺序为 文件/笔记/传输任务/设置（v1.7.0 移除同步）', () {
+  test('底部导航恰好 6 项，顺序为 文件/笔记/传输任务/离线下载/相册同步/设置（v1.8.3）', () {
     final labels = RegExp(r"label: '([^']+)'")
         .allMatches(appSource)
         .map((m) => m.group(1)!)
@@ -27,10 +27,10 @@ void main() {
     // app.dart 里只有底部导航会写 label:，若将来新增需同步调整本断言
     expect(
       labels,
-      ['文件', '笔记', '传输任务', '设置'],
-      reason: '底部导航项与顺序必须与设计文档一致（v1.7.0：5 → 4，移除「同步」）',
+      ['文件', '笔记', '传输任务', '离线下载', '相册同步', '设置'],
+      reason: '底部导航项与顺序必须与需求 v1.8.3 / AC-301 一致',
     );
-    expect(labels.length, 4);
+    expect(labels.length, 6);
     expect(labels, isNot(contains('修复中心')), reason: '修复中心已并入传输页页签');
     expect(labels, isNot(contains('同步')), reason: '同步管理已在 v1.7.0 移除');
   });
@@ -48,11 +48,16 @@ void main() {
     ).firstMatch(appSource);
     expect(routesBlock, isNotNull, reason: '未找到 _routes 常量，测试需要更新');
 
+    // v1.8.3：离线下载路由用 `AppRoutes.offlineDownload` 常量，先归一化成字面量
+    final navBlock = routesBlock!.group(1)!.replaceAll(
+      'AppRoutes.offlineDownload',
+      "'/offline'",
+    );
     final navRoutes = RegExp(r"'([^']+)'")
-        .allMatches(routesBlock!.group(1)!)
+        .allMatches(navBlock)
         .map((m) => m.group(1)!)
         .toList();
-    expect(navRoutes, ['/files', '/notes', '/transfer', '/settings']);
+    expect(navRoutes, ['/files', '/notes', '/transfer', '/offline', '/album', '/settings']);
     expect(navRoutes, isNot(contains('/repair')));
     expect(navRoutes, isNot(contains('/sync')));
     expect(routes, isNot(contains('/sync')), reason: '/sync 路由已在 v1.7.0 移除');

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import '../../models/transfer_task.dart';
 import '../../utils/exception.dart';
@@ -51,6 +52,48 @@ class AlbumBackupProgress {
   });
 
   static const AlbumBackupProgress empty = AlbumBackupProgress();
+}
+
+/// 相册备份当前活动（v1.8.3：页面进度/取消）
+enum AlbumBackupPhase {
+  /// 空闲
+  idle,
+
+  /// 正在核对远端目录
+  checkingRemote,
+
+  /// 正在扫描本地相册
+  scanning,
+
+  /// 正在上传
+  uploading,
+}
+
+/// 相册备份活动快照
+class AlbumBackupActivity {
+  final AlbumBackupPhase phase;
+
+  /// 中文阶段文案
+  final String message;
+
+  /// 本轮已处理资源数
+  final int processed;
+
+  /// 本轮预计处理数（0 = 未知）
+  final int total;
+
+  /// 是否可取消
+  final bool cancellable;
+
+  const AlbumBackupActivity({
+    this.phase = AlbumBackupPhase.idle,
+    this.message = '空闲',
+    this.processed = 0,
+    this.total = 0,
+    this.cancellable = false,
+  });
+
+  static const AlbumBackupActivity idle = AlbumBackupActivity();
 }
 
 /// 待确认结果的上传任务
@@ -115,6 +158,12 @@ class AlbumBackupService {
   final Map<String, _PendingUpload> _pending = {};
   final StreamController<AlbumBackupProgress> _progress =
       StreamController<AlbumBackupProgress>.broadcast();
+  final StreamController<AlbumBackupActivity> _activity =
+      StreamController<AlbumBackupActivity>.broadcast();
+  AlbumBackupActivity _currentActivity = AlbumBackupActivity.idle;
+  AlbumBackupProgress _currentProgress = AlbumBackupProgress.empty;
+  int _lastActivityAt = 0;
+  bool _cancelRequested = false;
   StreamSubscription<List<TransferTask>>? _taskSub;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
@@ -172,6 +221,15 @@ class AlbumBackupService {
   /// 进度流
   Stream<AlbumBackupProgress> get progressStream => _progress.stream;
 
+  /// 活动流（阶段/进度/是否可取消）
+  Stream<AlbumBackupActivity> get activityStream => _activity.stream;
+
+  /// 当前活动快照
+  AlbumBackupActivity get activity => _currentActivity;
+
+  /// 最近一次进度快照
+  AlbumBackupProgress get progress => _currentProgress;
+
   /// 当前归一化后的远端目标根目录
   String get _remoteRoot => _normalizeRoot(_config.remotePath);
 
@@ -191,6 +249,8 @@ class AlbumBackupService {
         _config.hasMediaType) {
       _startTimer();
       _watchConnectivity();
+      // v1.8.3：首帧后再扫描，避免启动即被大相册/大视频阻塞
+      unawaited(Future<void>.delayed(const Duration(seconds: 2), scanAndUpload));
     }
     await emitProgress();
   }
@@ -259,6 +319,7 @@ class AlbumBackupService {
       skippedExisting: _lastSkippedExisting,
       remoteCheckUnavailable: _remoteCheckFailed > 0,
     );
+    _currentProgress = snapshot;
     if (!_progress.isClosed) _progress.add(snapshot);
     return snapshot;
   }
@@ -272,12 +333,24 @@ class AlbumBackupService {
     if (!await _conditionsMet()) return;
 
     _scanning = true;
+    _cancelRequested = false;
     _remoteIndexCache.clear();
     _remoteIndexRequests = 0;
     _remoteCheckFailed = 0;
     _lastSkippedExisting = 0;
+    _emitActivity(
+      phase: _remoteIndex == null
+          ? AlbumBackupPhase.scanning
+          : AlbumBackupPhase.checkingRemote,
+      message: _remoteIndex == null ? '正在扫描相册' : '正在核对远端目录',
+      processed: 0,
+      total: 0,
+      cancellable: true,
+      force: true,
+    );
     try {
       if (!await _assetSource.ensurePermission()) return;
+      if (_cancelRequested) return;
       if (manual) await _store.clearAllFailures();
 
       final diskId = _config.diskId;
@@ -291,10 +364,19 @@ class AlbumBackupService {
       final pendingIds = _pending.values.map((item) => item.assetId).toSet();
       final attempted = <String>{};
       var submitted = 0;
+      final totalCount = await _assetSource.albumCount(AlbumCountScope.all);
+      _emitActivity(
+        phase: AlbumBackupPhase.scanning,
+        message: '正在扫描并上传',
+        processed: 0,
+        total: totalCount,
+        cancellable: true,
+        force: true,
+      );
 
       // ① 失败项自动重试：每轮最多 1 次；累计 3 次后暂停（手动可解锁）
       for (final failure in failures) {
-        if (submitted >= _maxSubmitPerRound) break;
+        if (_cancelRequested || submitted >= _maxSubmitPerRound) break;
         if (failure.attempts >= _maxAutoRetries) continue;
         if (backed.contains(failure.assetId) ||
             pendingIds.contains(failure.assetId)) {
@@ -334,7 +416,9 @@ class AlbumBackupService {
       // ② 跨轮游标扫描：从上次位置继续，扫到尾部回绕到 0
       var pageStart = _cursorOffset;
       var visited = 0;
-      while (visited < _maxScanPerRound && submitted < _maxSubmitPerRound) {
+      while (!_cancelRequested &&
+          visited < _maxScanPerRound &&
+          submitted < _maxSubmitPerRound) {
         final assets = await _assetSource.listAssets(
           start: pageStart,
           end: pageStart + _pageSize,
@@ -354,9 +438,15 @@ class AlbumBackupService {
           if (visited >= _maxScanPerRound || submitted >= _maxSubmitPerRound) {
             break;
           }
+          if (_cancelRequested) break;
           final asset = assets[i];
           visited++;
           _cursorOffset = pageStart + i + 1;
+          _emitActivity(
+            processed: visited,
+            total: totalCount,
+            message: submitted > 0 ? '正在扫描并上传' : '正在扫描',
+          );
 
           if (backed.contains(asset.id) ||
               pendingIds.contains(asset.id) ||
@@ -401,7 +491,16 @@ class AlbumBackupService {
       debugPrint('[相册备份] 扫描失败: ${e.runtimeType}');
     } finally {
       _scanning = false;
+      _cancelRequested = false;
       _remoteIndexCache.clear();
+      _emitActivity(
+        phase: AlbumBackupPhase.idle,
+        message: '空闲',
+        processed: 0,
+        total: 0,
+        cancellable: false,
+        force: true,
+      );
       await emitProgress();
     }
   }
@@ -410,9 +509,57 @@ class AlbumBackupService {
   Future<void> checkNow() => scanAndUpload(manual: true);
 
   /// 「重新核对远端」：清空本轮缓存并重新扫描（不清失败记录）
+  ///
+  /// v1.8.3：不 await 整轮扫描，页面通过 `activityStream` 展示进度；
+  /// 用户可随时 `cancelScan()`。
   Future<void> recheckRemote() async {
     _remoteIndexCache.clear();
     await scanAndUpload();
+  }
+
+  /// 停止本轮核对/扫描（不取消已提交的传输任务）
+  void cancelScan() {
+    _cancelRequested = true;
+    _emitActivity(force: true, message: '正在停止…', cancellable: false);
+  }
+
+  /// 单条失败重试
+  Future<void> retryOne(String assetId) async {
+    await _store.clearFailed(assetId);
+    unawaited(scanAndUpload());
+  }
+
+  /// 最近上传（只读本地记录）
+  Future<List<AlbumBackupRecord>> recentUploads({int limit = 20}) {
+    if (!_config.isConfigured) return Future.value(const []);
+    return _store.recentBackedUp(
+      diskId: _config.diskId,
+      remoteRoot: _remoteRoot,
+      limit: limit,
+    );
+  }
+
+  /// 发布活动快照；`force=false` 时按 250ms 节流
+  void _emitActivity({
+    AlbumBackupPhase? phase,
+    String? message,
+    int? processed,
+    int? total,
+    bool? cancellable,
+    bool force = false,
+  }) {
+    final next = AlbumBackupActivity(
+      phase: phase ?? _currentActivity.phase,
+      message: message ?? _currentActivity.message,
+      processed: processed ?? _currentActivity.processed,
+      total: total ?? _currentActivity.total,
+      cancellable: cancellable ?? _currentActivity.cancellable,
+    );
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (!force && now - _lastActivityAt < 250) return;
+    _lastActivityAt = now;
+    _currentActivity = next;
+    if (!_activity.isClosed) _activity.add(next);
   }
 
   /// 重试全部失败项（先清失败标记解除 3 次上限，再触发一次扫描）
@@ -438,6 +585,7 @@ class AlbumBackupService {
     await _taskSub?.cancel();
     _taskSub = null;
     await _progress.close();
+    await _activity.close();
     await _store.close();
   }
 
@@ -539,7 +687,12 @@ class AlbumBackupService {
       return _HandleOutcome.skipped;
     }
 
-    final filename = asset.filename;
+    var filename = asset.filename;
+    // v1.8.3：title 为空/无扩展名时补上本地文件扩展名，避免远端出现无后缀文件
+    if (!filename.contains('.')) {
+      final ext = p.extension(file.path);
+      if (ext.isNotEmpty) filename = '$filename$ext';
+    }
     final remoteDir = _remoteDirFor(asset, remoteRoot);
     final remotePath = remoteDir.isEmpty ? filename : '$remoteDir/$filename';
 

@@ -16,6 +16,7 @@ import 'pages/transfer/transfer_page.dart';
 import 'pages/offline/offline_download_page.dart';
 import 'pages/offline/offline_new_task_page.dart';
 import 'pages/settings/settings_page.dart';
+import 'pages/album/album_backup_page.dart';
 import 'pages/admin/admin_users_page.dart';
 import 'pages/admin/admin_disks_page.dart';
 import 'pages/admin/admin_permissions_page.dart';
@@ -60,6 +61,12 @@ class JFLoveApp extends ConsumerWidget {
             // v1.7.0：移除「同步管理」页 —— 移动端改为设置页的「相册自动同步」+
             // 传输页的备份进度，不再提供目录双向同步。
             GoRoute(path: '/transfer', builder: (_, _) => const TransferPage()),
+            // v1.8.3：离线下载与相册同步提升为一级入口（底部导航常驻）
+            GoRoute(
+              path: AppRoutes.offlineDownload,
+              builder: (_, _) => const OfflineDownloadPage(),
+            ),
+            GoRoute(path: '/album', builder: (_, _) => const AlbumBackupPage()),
             // v1.5.0：修复中心并入传输页第二个页签；旧路径 `/repair` 继续可用，
             // 直接落到该页签，避免旧书签 / 通知跳转失效。
             GoRoute(
@@ -76,10 +83,6 @@ class JFLoveApp extends ConsumerWidget {
         GoRoute(
           path: AppRoutes.offlineNew,
           builder: (_, _) => const OfflineNewTaskPage(),
-        ),
-        GoRoute(
-          path: AppRoutes.offlineDownload,
-          builder: (_, _) => const OfflineDownloadPage(),
         ),
         // 注意：/files/preview 必须在 /files/:diskId 之前，否则 "preview" 会被当作 diskId
         GoRoute(
@@ -149,6 +152,8 @@ class _AppScaffold extends StatelessWidget {
     '/files',
     '/notes',
     '/transfer',
+    AppRoutes.offlineDownload,
+    '/album',
     '/settings',
   ];
 
@@ -180,6 +185,16 @@ class _AppScaffold extends StatelessWidget {
             icon: Icon(Icons.cloud_download_outlined),
             selectedIcon: Icon(Icons.cloud_download),
             label: '传输任务',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.cloud_download_outlined),
+            selectedIcon: Icon(Icons.cloud_download),
+            label: '离线下载',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.photo_library_outlined),
+            selectedIcon: Icon(Icons.photo_library),
+            label: '相册同步',
           ),
           NavigationDestination(
             icon: Icon(Icons.settings_outlined),
