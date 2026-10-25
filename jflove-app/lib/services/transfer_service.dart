@@ -24,6 +24,9 @@ class TransferService {
   /// 最大并发任务数
   static const int maxConcurrent = 3;
 
+  /// 本地最多保留的传输任务记录数（v1.8.3，移动端；只裁剪已结束任务）
+  static const int maxTaskHistory = 50;
+
   TransferService(this._http);
 
   /// 任务列表流
@@ -61,6 +64,7 @@ class TransferService {
     );
     _tasks[taskId] = task;
     _notify();
+    _pruneTasks();
 
     // 排队等待调度
     final queued = _QueuedTask(
@@ -231,6 +235,7 @@ class TransferService {
     );
     _tasks[taskId] = task;
     _notify();
+    _pruneTasks();
 
     // 排队等待调度
     final queued = _QueuedTask(
@@ -434,6 +439,11 @@ class TransferService {
     if (statusChanged || errorChanged) {
       _lastNotifyMs = DateTime.now().millisecondsSinceEpoch;
       _notify();
+      if (status == TaskStatus.completed ||
+          status == TaskStatus.failed ||
+          status == TaskStatus.cancelled) {
+        _pruneTasks();
+      }
       return;
     }
     if (percentChanged) {
@@ -447,6 +457,25 @@ class TransferService {
 
   void _notify() {
     _taskController.add(_tasks.values.toList());
+  }
+
+  /// 裁剪历史记录：只删除「已结束」的最早任务，运行中/排队中永不删除
+  void _pruneTasks() {
+    if (_tasks.length <= maxTaskHistory) return;
+    final removable = _tasks.entries
+        .where(
+          (entry) =>
+              entry.value.status == TaskStatus.completed ||
+              entry.value.status == TaskStatus.failed ||
+              entry.value.status == TaskStatus.cancelled,
+        )
+        .map((entry) => entry.key)
+        .toList(growable: false);
+    for (final taskId in removable) {
+      if (_tasks.length <= maxTaskHistory) break;
+      _tasks.remove(taskId);
+      _cancelledTasks.remove(taskId);
+    }
   }
 
   /// 释放资源

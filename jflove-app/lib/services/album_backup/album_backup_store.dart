@@ -44,6 +44,9 @@ class AlbumBackupRecord {
   /// 记录时间（ISO8601）
   final String backedAt;
 
+  /// 媒体类型（`image` / `video` / 空串 = 老记录待识别；v1.8.3）
+  final String mediaKind;
+
   const AlbumBackupRecord({
     required this.assetId,
     required this.diskId,
@@ -51,6 +54,7 @@ class AlbumBackupRecord {
     required this.remotePath,
     required this.size,
     required this.backedAt,
+    this.mediaKind = '',
   });
 }
 
@@ -96,12 +100,33 @@ abstract class AlbumBackupStore {
   /// 指定「磁盘 + 目标目录」下已备份数量
   Future<int> backedUpCount({required int diskId, required String remoteRoot});
 
-  /// 最近上传（按 backed_at 倒序，供相册页「最近上传」展示）
+  /// 最近上传（按 backed_at 倒序）
   Future<List<AlbumBackupRecord>> recentBackedUp({
     required int diskId,
     required String remoteRoot,
     int limit = 20,
   });
+
+  /// 按媒体类型统计已备份数量（`image` / `video`；v1.8.3）
+  Future<Map<String, int>> backedUpCountByKind({
+    required int diskId,
+    required String remoteRoot,
+  });
+
+  /// 老记录（media_kind 为空）的 asset id 集合，用于扫描时一次性回填
+  Future<Set<String>> backedKindMissingIds({
+    required int diskId,
+    required String remoteRoot,
+  });
+
+  /// 回填某条记录的媒体类型
+  Future<void> setMediaKind(String assetId, String mediaKind);
+
+  /// 读取相册库内的键值元信息（上次扫描时间等）
+  Future<String?> getMeta(String key);
+
+  /// 写入相册库内的键值元信息
+  Future<void> setMeta(String key, String value);
 
   /// 标记某资源已备份（同主键覆盖，只保留当前目标记录），并清除失败记录
   Future<void> markBackedUp(AlbumBackupRecord record);
@@ -141,7 +166,7 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dir, 'album_backup.db'),
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE album_backup (
@@ -150,7 +175,8 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
             remote_root TEXT NOT NULL DEFAULT '',
             remote_path TEXT NOT NULL,
             size        INTEGER NOT NULL,
-            backed_at   TEXT NOT NULL
+            backed_at   TEXT NOT NULL,
+            media_kind  TEXT NOT NULL DEFAULT ''
           )
         ''');
         await db.execute('''
@@ -161,6 +187,9 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
             tried_at TEXT NOT NULL
           )
         ''');
+        await db.execute(
+          'CREATE TABLE album_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+        );
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         // v1 → v2：记录归属（remote_root）+ 失败重试次数（attempts）
@@ -170,6 +199,15 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
           );
           await db.execute(
             'ALTER TABLE album_backup_fail ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            "ALTER TABLE album_backup ADD COLUMN media_kind TEXT NOT NULL DEFAULT ''",
+          );
+          await db.execute(
+            'CREATE TABLE IF NOT EXISTS album_meta '
+            '(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
           );
         }
       },
@@ -241,6 +279,7 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
             remotePath: row['remote_path'] as String,
             size: (row['size'] as num).toInt(),
             backedAt: row['backed_at'] as String,
+            mediaKind: row['media_kind'] as String? ?? '',
           ),
         )
         .toList(growable: false);
@@ -256,6 +295,7 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
       'remote_path': record.remotePath,
       'size': record.size,
       'backed_at': record.backedAt,
+      'media_kind': record.mediaKind,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     await db.delete(
       'album_backup_fail',
@@ -325,6 +365,72 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
       'SELECT COUNT(*) AS c FROM album_backup_fail',
     );
     return (rows.first['c'] as num?)?.toInt() ?? 0;
+  }
+
+  @override
+  Future<Map<String, int>> backedUpCountByKind({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT media_kind, COUNT(*) AS c FROM album_backup '
+      'WHERE disk_id = ? AND remote_root = ? GROUP BY media_kind',
+      [diskId, remoteRoot],
+    );
+    return {
+      for (final row in rows)
+        (row['media_kind'] as String? ?? ''): (row['c'] as num).toInt(),
+    };
+  }
+
+  @override
+  Future<Set<String>> backedKindMissingIds({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      'album_backup',
+      columns: ['asset_id'],
+      where: "disk_id = ? AND remote_root = ? AND media_kind = ''",
+      whereArgs: [diskId, remoteRoot],
+    );
+    return {for (final row in rows) row['asset_id'] as String};
+  }
+
+  @override
+  Future<void> setMediaKind(String assetId, String mediaKind) async {
+    final db = await _open();
+    await db.update(
+      'album_backup',
+      {'media_kind': mediaKind},
+      where: 'asset_id = ?',
+      whereArgs: [assetId],
+    );
+  }
+
+  @override
+  Future<String?> getMeta(String key) async {
+    final db = await _open();
+    final rows = await db.query(
+      'album_meta',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['value'] as String;
+  }
+
+  @override
+  Future<void> setMeta(String key, String value) async {
+    final db = await _open();
+    await db.insert(
+      'album_meta',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   @override

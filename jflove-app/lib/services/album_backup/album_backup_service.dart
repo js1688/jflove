@@ -103,6 +103,7 @@ class _PendingUpload {
   final String remoteRoot;
   final String remotePath;
   final int size;
+  final String mediaKind;
 
   const _PendingUpload({
     required this.assetId,
@@ -110,6 +111,7 @@ class _PendingUpload {
     required this.remoteRoot,
     required this.remotePath,
     required this.size,
+    required this.mediaKind,
   });
 }
 
@@ -164,6 +166,26 @@ class AlbumBackupService {
   AlbumBackupProgress _currentProgress = AlbumBackupProgress.empty;
   int _lastActivityAt = 0;
   bool _cancelRequested = false;
+
+  /// 上次检测完成时间（本地持久化）
+  DateTime? _lastScanAt;
+
+  /// 上次检测新上传数量
+  int _lastScanUploaded = 0;
+
+  /// 上次检测远端已存在跳过数量
+  int _lastScanSkipped = 0;
+
+  /// 本轮提交上传数量（用于上次检测摘要）
+  int _lastSubmitted = 0;
+
+  /// 自动检测频率（秒）
+  static const int scanIntervalSeconds = 60;
+
+  /// 上次检测信息（相册页展示，避免黑匣子）
+  DateTime? get lastScanAt => _lastScanAt;
+  int get lastScanUploaded => _lastScanUploaded;
+  int get lastScanSkipped => _lastScanSkipped;
   StreamSubscription<List<TransferTask>>? _taskSub;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
@@ -243,6 +265,7 @@ class AlbumBackupService {
       // 本地库 v1 → v2：旧记录（remote_root='') 回填当前目标，升级不全量重传
       await _store.backfillRemoteRoot(_config.diskId, _remoteRoot);
     }
+    await _loadLastScan();
     if (_autoStart &&
         _config.enabled &&
         _config.isConfigured &&
@@ -334,6 +357,7 @@ class AlbumBackupService {
 
     _scanning = true;
     _cancelRequested = false;
+    _lastSubmitted = 0;
     _remoteIndexCache.clear();
     _remoteIndexRequests = 0;
     _remoteCheckFailed = 0;
@@ -356,6 +380,11 @@ class AlbumBackupService {
       final diskId = _config.diskId;
       final remoteRoot = _remoteRoot;
       final backed = await _store.backedUpIds(
+        diskId: diskId,
+        remoteRoot: remoteRoot,
+      );
+      // 老记录（v1/v2 无媒体类型）在扫描时顺手回填，用于图片/视频分类统计
+      final missingKinds = await _store.backedKindMissingIds(
         diskId: diskId,
         remoteRoot: remoteRoot,
       );
@@ -404,6 +433,7 @@ class AlbumBackupService {
           final outcome = await _handleAsset(asset, diskId, remoteRoot);
           if (outcome == _HandleOutcome.submitted) {
             submitted++;
+            _lastSubmitted = submitted;
             pendingIds.add(asset.id);
           } else if (outcome == _HandleOutcome.skippedExisting) {
             backed.add(asset.id);
@@ -451,6 +481,12 @@ class AlbumBackupService {
           if (backed.contains(asset.id) ||
               pendingIds.contains(asset.id) ||
               _recentlyDone.contains(asset.id)) {
+            if (missingKinds.remove(asset.id)) {
+              await _store.setMediaKind(
+                asset.id,
+                asset.kind == AlbumMediaKind.video ? 'video' : 'image',
+              );
+            }
             continue;
           }
           final priorFailure = failureById[asset.id];
@@ -491,6 +527,9 @@ class AlbumBackupService {
       debugPrint('[相册备份] 扫描失败: ${e.runtimeType}');
     } finally {
       _scanning = false;
+      if (!_cancelRequested) {
+        await _saveLastScan();
+      }
       _cancelRequested = false;
       _remoteIndexCache.clear();
       _emitActivity(
@@ -527,6 +566,54 @@ class AlbumBackupService {
   Future<void> retryOne(String assetId) async {
     await _store.clearFailed(assetId);
     unawaited(scanAndUpload());
+  }
+
+  /// 按媒体类型统计：图片/视频的总数与已同步数（v1.8.3）
+  Future<Map<String, int>> typeCounts() async {
+    final images = await _assetSource.albumCount(AlbumCountScope.image);
+    final videos = await _assetSource.albumCount(AlbumCountScope.video);
+    var imageDone = 0;
+    var videoDone = 0;
+    if (_config.isConfigured) {
+      final done = await _store.backedUpCountByKind(
+        diskId: _config.diskId,
+        remoteRoot: _remoteRoot,
+      );
+      imageDone = done['image'] ?? 0;
+      videoDone = done['video'] ?? 0;
+    }
+    return {
+      'imageTotal': images,
+      'imageDone': imageDone,
+      'videoTotal': videos,
+      'videoDone': videoDone,
+    };
+  }
+
+  Future<void> _loadLastScan() async {
+    try {
+      final at = await _store.getMeta('last_scan_at');
+      _lastScanAt = at == null ? null : DateTime.tryParse(at);
+      _lastScanUploaded =
+          int.tryParse(await _store.getMeta('last_scan_uploaded') ?? '') ?? 0;
+      _lastScanSkipped =
+          int.tryParse(await _store.getMeta('last_scan_skipped') ?? '') ?? 0;
+    } catch (_) {
+      // 元信息读取失败不影响主流程
+    }
+  }
+
+  Future<void> _saveLastScan() async {
+    _lastScanAt = DateTime.now();
+    _lastScanUploaded = _lastSubmitted;
+    _lastScanSkipped = _lastSkippedExisting;
+    try {
+      await _store.setMeta('last_scan_at', _lastScanAt!.toIso8601String());
+      await _store.setMeta('last_scan_uploaded', '$_lastScanUploaded');
+      await _store.setMeta('last_scan_skipped', '$_lastScanSkipped');
+    } catch (_) {
+      // 持久化失败只影响展示
+    }
   }
 
   /// 最近上传（只读本地记录）
@@ -687,6 +774,7 @@ class AlbumBackupService {
       return _HandleOutcome.skipped;
     }
 
+    final mediaKind = asset.kind == AlbumMediaKind.video ? 'video' : 'image';
     var filename = asset.filename;
     // v1.8.3：title 为空/无扩展名时补上本地文件扩展名，避免远端出现无后缀文件
     if (!filename.contains('.')) {
@@ -709,6 +797,7 @@ class AlbumBackupService {
             remotePath: remotePath,
             size: size,
             backedAt: DateTime.now().toIso8601String(),
+            mediaKind: mediaKind,
           ),
         );
         return _HandleOutcome.skippedExisting;
@@ -730,6 +819,7 @@ class AlbumBackupService {
         remoteRoot: remoteRoot,
         remotePath: remotePath,
         size: size,
+        mediaKind: mediaKind,
       );
       return _HandleOutcome.submitted;
     } catch (_) {
@@ -813,6 +903,7 @@ class AlbumBackupService {
               remotePath: pending.remotePath,
               size: pending.size,
               backedAt: DateTime.now().toIso8601String(),
+              mediaKind: pending.mediaKind,
             ),
           ),
         );

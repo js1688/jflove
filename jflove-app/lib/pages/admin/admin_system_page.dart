@@ -106,7 +106,6 @@ class MediaRepairConfigCardState
     extends ConsumerState<MediaRepairConfigCard> {
   bool _loading = true;
   bool _saving = false;
-  bool _allowTranscode = false;
   final TextEditingController _concurrentCtrl = TextEditingController();
   String? _errorMsg;
 
@@ -137,7 +136,6 @@ class MediaRepairConfigCardState
       final cfg = (resp['config'] as Map<String, dynamic>?) ?? {};
       if (!mounted) return;
       setState(() {
-        _allowTranscode = cfg['media_repair_allow_transcode'] == '1';
         _concurrentCtrl.text =
             (cfg['media_repair_max_concurrent'] as String?) ?? '';
         _loading = false;
@@ -167,11 +165,6 @@ class MediaRepairConfigCardState
     } finally {
       if (mounted) setState(() => _saving = false);
     }
-  }
-
-  void _toggleTranscode(bool next) {
-    setState(() => _allowTranscode = next);
-    _save('media_repair_allow_transcode', next ? '1' : '0');
   }
 
   void _saveConcurrent() {
@@ -222,21 +215,13 @@ class MediaRepairConfigCardState
           Text(
             'v1.4.2 起损坏媒体经「修复中心」手动离线修复（文件列表长按'
             '「修复损坏媒体」发起）。以下为修复队列配置：并发数 1~8 或留空'
-            '按服务器 CPU 核数自动推导；重编码为无损修复失败时的降级手段。',
+            '按服务器 CPU 核数自动推导。',
             style: TextStyle(
               fontSize: 12.5,
               height: 1.6,
               color: context.tokens.fgMuted,
             ),
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('允许重编码降级'),
-            subtitle: const Text('默认关闭；-c copy 失败时的极端兜底'),
-            value: _allowTranscode,
-            onChanged: _saving ? null : _toggleTranscode,
-          ),
-          const SizedBox(height: 4),
           Row(
             children: [
               Expanded(

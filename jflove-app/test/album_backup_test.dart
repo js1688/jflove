@@ -354,6 +354,60 @@ void main() {
     expect(env.transfer.filenames, ['VID_1.mp4']);
   });
 
+  test('图片/视频分类统计 + 上次检测时间（v1.8.3）', () async {
+    final env = build(
+      assets: [asset('img-1'), asset('vid-1', kind: AlbumMediaKind.video)],
+      counts: {
+        AlbumCountScope.all: 2,
+        AlbumCountScope.image: 1,
+        AlbumCountScope.video: 1,
+      },
+    );
+    env.store.backed['img-1'] = AlbumBackupRecord(
+      assetId: 'img-1',
+      diskId: baseConfig.diskId,
+      remoteRoot: baseConfig.remotePath,
+      remotePath: '${baseConfig.remotePath}/2026/10/img-1.jpg',
+      size: 3,
+      backedAt: '2026-10-01T00:00:00.000',
+      mediaKind: 'image',
+    );
+    env.store.backed['vid-1'] = AlbumBackupRecord(
+      assetId: 'vid-1',
+      diskId: baseConfig.diskId,
+      remoteRoot: baseConfig.remotePath,
+      remotePath: '${baseConfig.remotePath}/2026/10/vid-1.jpg',
+      size: 3,
+      backedAt: '2026-10-01T00:00:00.000',
+      mediaKind: 'video',
+    );
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    final counts = await env.service.typeCounts();
+    expect(counts['imageTotal'], 1);
+    expect(counts['videoTotal'], 1);
+    expect(counts['imageDone'], 1);
+    expect(counts['videoDone'], 1);
+    expect(env.service.lastScanAt, isNotNull);
+  });
+
+  test('老记录没有媒体类型时，扫描会回填（v1.8.3）', () async {
+    final env = build(assets: [asset('old-video', kind: AlbumMediaKind.video)]);
+    env.store.backed['old-video'] = AlbumBackupRecord(
+      assetId: 'old-video',
+      diskId: baseConfig.diskId,
+      remoteRoot: baseConfig.remotePath,
+      remotePath: '${baseConfig.remotePath}/2026/10/old-video.jpg',
+      size: 3,
+      backedAt: '2026-10-01T00:00:00.000',
+    );
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.store.backed['old-video']!.mediaKind, 'video');
+  });
+
   test('扫描期间发布 scanning 活动，结束后回到 idle（v1.8.3 / F43）', () async {
     final env = build(
       assets: List.generate(5, (i) => asset('a$i')),
@@ -430,6 +484,53 @@ class _FakeStore implements AlbumBackupStore {
     required String remoteRoot,
     int limit = 20,
   }) async => const [];
+
+  @override
+  Future<Map<String, int>> backedUpCountByKind({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    final counts = <String, int>{};
+    for (final record in backed.values) {
+      if (record.diskId != diskId || record.remoteRoot != remoteRoot) continue;
+      counts[record.mediaKind] = (counts[record.mediaKind] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  @override
+  Future<Set<String>> backedKindMissingIds({
+    required int diskId,
+    required String remoteRoot,
+  }) async => {
+    for (final record in backed.values)
+      if (record.diskId == diskId &&
+          record.remoteRoot == remoteRoot &&
+          record.mediaKind.isEmpty)
+        record.assetId,
+  };
+
+  @override
+  Future<void> setMediaKind(String assetId, String mediaKind) async {
+    final record = backed[assetId];
+    if (record == null) return;
+    backed[assetId] = AlbumBackupRecord(
+      assetId: record.assetId,
+      diskId: record.diskId,
+      remoteRoot: record.remoteRoot,
+      remotePath: record.remotePath,
+      size: record.size,
+      backedAt: record.backedAt,
+      mediaKind: mediaKind,
+    );
+  }
+
+  @override
+  Future<String?> getMeta(String key) async => null;
+
+  @override
+  Future<void> setMeta(String key, String value) async {}
+
 
   @override
   Future<int> backedUpCount({

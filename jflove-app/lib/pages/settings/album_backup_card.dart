@@ -10,6 +10,7 @@ import '../../providers/album_backup_provider.dart';
 import '../../providers/file_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../services/album_backup/album_backup_config.dart';
+import '../../services/album_backup/album_backup_service.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/virtual_disk_dir_picker.dart';
 
@@ -26,6 +27,7 @@ class AlbumBackupCard extends ConsumerStatefulWidget {
 
 class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
   AlbumBackupConfig _config = AlbumBackupConfig.empty;
+  Map<String, int> _typeCounts = const {};
   bool _loading = true;
   bool _busy = false;
   Timer? _progressTimer;
@@ -38,6 +40,7 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
     _progressTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted) return;
       unawaited(ref.read(albumBackupServiceProvider).emitProgress());
+      unawaited(_refreshTypeCounts());
     });
   }
 
@@ -52,10 +55,23 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
     final service = ref.read(albumBackupServiceProvider);
     await service.init();
     if (!mounted) return;
+    final counts = await service.typeCounts();
+    if (!mounted) return;
     setState(() {
       _config = service.config;
+      _typeCounts = counts;
       _loading = false;
     });
+  }
+
+  Future<void> _refreshTypeCounts() async {
+    try {
+      final counts = await ref.read(albumBackupServiceProvider).typeCounts();
+      if (!mounted) return;
+      setState(() => _typeCounts = counts);
+    } catch (_) {
+      // 统计失败不影响主流程
+    }
   }
 
   Future<void> _apply(AlbumBackupConfig next) async {
@@ -211,6 +227,19 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
     );
   }
 
+  String _lastScanText(AlbumBackupService service) {
+    final at = service.lastScanAt;
+    final uploaded = service.lastScanUploaded;
+    final skipped = service.lastScanSkipped;
+    final when = at == null
+        ? '尚未检测'
+        : '${at.month.toString().padLeft(2, '0')}-'
+              '${at.day.toString().padLeft(2, '0')} '
+              '${at.hour.toString().padLeft(2, '0')}:'
+              '${at.minute.toString().padLeft(2, '0')}';
+    return '上次检测：$when · 新增上传 $uploaded 项 · 跳过 $skipped 项 · 每 60 秒自动检测';
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
@@ -329,24 +358,43 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // v1.8.3：图片 / 视频分开统计，避免混在一起看不清
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _TypeStat(
+                          icon: Icons.image_outlined,
+                          label: '图片',
+                          total: _typeCounts['imageTotal'] ?? 0,
+                          done: _typeCounts['imageDone'] ?? 0,
+                          color: t.fgDefault,
+                        ),
+                      ),
+                      Expanded(
+                        child: _TypeStat(
+                          icon: Icons.videocam_outlined,
+                          label: '视频',
+                          total: _typeCounts['videoTotal'] ?? 0,
+                          done: _typeCounts['videoDone'] ?? 0,
+                          color: t.fgDefault,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
                   Text(
-                    '手机相册 ${p.total} 张 / 已备份 ${p.done} 张',
+                    '待备份 ${p.pending} 项 · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项',
                     style: TextStyle(fontSize: 12.5, color: t.fgDefault),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '待备份 ${p.pending} 项 · 上传中 ${p.uploading} 项',
-                    style: TextStyle(fontSize: 12.5, color: t.fgDefault),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '失败 ${p.failed} 项 · 不在范围 ${p.outOfScope} 项',
-                    style: TextStyle(fontSize: 12.5, color: t.fgDefault),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '远端已存在跳过 ${p.skippedExisting} 项',
+                    '不在范围 ${p.outOfScope} 项 · 远端已存在跳过 ${p.skippedExisting} 项',
                     style: TextStyle(fontSize: 12.5, color: t.fgSubtle),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _lastScanText(ref.read(albumBackupServiceProvider)),
+                    style: TextStyle(fontSize: 11.5, color: t.fgSubtle),
                   ),
                   if (p.remoteCheckUnavailable) ...[
                     const SizedBox(height: 4),
@@ -447,6 +495,38 @@ class _SwitchRow extends StatelessWidget {
       title: Text(label),
       value: value,
       onChanged: onChanged,
+    );
+  }
+}
+
+
+/// 单类媒体统计（图片/视频分开，v1.8.3）
+class _TypeStat extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final int total;
+  final int done;
+  final Color color;
+
+  const _TypeStat({
+    required this.icon,
+    required this.label,
+    required this.total,
+    required this.done,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 4),
+        Text(
+          '$label $done/$total 已同步',
+          style: TextStyle(fontSize: 12.5, color: color),
+        ),
+      ],
     );
   }
 }

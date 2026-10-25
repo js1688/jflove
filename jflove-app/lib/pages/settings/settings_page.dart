@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../config/design_tokens.dart';
-import '../../config/routes.dart';
 import '../../providers/note_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/theme_provider.dart';
@@ -111,28 +110,6 @@ class SettingsPage extends ConsumerWidget {
           const SizedBox(height: 12),
           // ---- 笔记目录配置 ----
           _NotesDirConfigCard(),
-          const SizedBox(height: 12),
-          // ---- 相册同步 / 离线下载（v1.8.3：已提升为底部一级入口，这里保留快捷方式） ----
-          _SectionCard(
-            title: '同步与下载',
-            icon: Icons.sync_outlined,
-            child: Column(
-              children: [
-                _SectionListTile(
-                  icon: Icons.photo_library_outlined,
-                  title: '相册同步',
-                  subtitle: '自动备份、失败重试、查看已上传',
-                  onTap: () => context.go('/album'),
-                ),
-                _SectionListTile(
-                  icon: Icons.download_for_offline_outlined,
-                  title: '离线下载',
-                  subtitle: '新建任务、查看进度与产物、管理任务',
-                  onTap: () => context.go(AppRoutes.offlineDownload),
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 12),
           // ---- 账号 ----
           _SectionCard(
@@ -612,36 +589,6 @@ class _AdminListTile extends StatelessWidget {
     return ListTile(
       leading: Icon(icon),
       title: Text(title),
-      trailing: const Icon(Icons.chevron_right, size: 20),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-    );
-  }
-}
-
-/// 设置页通用列表项（图标 + 标题 + 可选副标题 + 右侧箭头）
-///
-/// v1.8.0：「离线下载中心」入口使用；与管理面板的 [_AdminListTile] 视觉一致，
-/// 额外支持一行副标题说明。
-class _SectionListTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final VoidCallback onTap;
-
-  const _SectionListTile({
-    required this.icon,
-    required this.title,
-    required this.onTap,
-    this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: subtitle == null ? null : Text(subtitle!),
       trailing: const Icon(Icons.chevron_right, size: 20),
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 4),

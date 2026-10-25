@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../config/design_tokens.dart';
 import '../../models/transfer_task.dart';
-import '../../providers/album_backup_provider.dart';
 import '../../providers/transfer_provider.dart';
-import '../../services/album_backup/album_backup_service.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_state.dart';
@@ -118,7 +115,6 @@ class _TransferTaskList extends ConsumerWidget {
 
     return Column(
       children: [
-        const _AlbumBackupSummary(),
         Expanded(
           child: taskAsync.when(
             data: (tasks) {
@@ -179,80 +175,6 @@ class _TransferTaskList extends ConsumerWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// 相册备份摘要卡（v1.7.0）
-class _AlbumBackupSummary extends ConsumerWidget {
-  const _AlbumBackupSummary();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = context.tokens;
-    final configAsync = ref.watch(albumBackupConfigProvider);
-    final progressAsync = ref.watch(albumBackupProgressProvider);
-    final enabled = configAsync.asData?.value.enabled ?? false;
-    final p = progressAsync.asData?.value ?? AlbumBackupProgress.empty;
-
-    return AppCard(
-      margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Icon(
-            Icons.photo_library_outlined,
-            size: 18,
-            color: AppTokens.brand600,
-          ),
-          SizedBox(width: t.s2),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '相册备份',
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: t.fgDefault,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                if (enabled) ...[
-                  Text(
-                    '已备份 ${p.done} 项 · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项',
-                    style: TextStyle(fontSize: 12, color: t.fgSubtle),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '不在范围 ${p.outOfScope} 项 · 远端已存在跳过 ${p.skippedExisting} 项',
-                    style: TextStyle(fontSize: 12, color: t.fgSubtle),
-                  ),
-                  if (p.remoteCheckUnavailable) ...[
-                    const SizedBox(height: 2),
-                    const Text(
-                      '远端校验暂不可用（按本地记录备份）',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTokens.warning500,
-                      ),
-                    ),
-                  ],
-                ] else
-                  Text(
-                    '未开启——到「设置」页打开相册自动同步',
-                    style: TextStyle(fontSize: 12, color: t.fgSubtle),
-                  ),
-              ],
-            ),
-          ),
-          TextButton(
-            onPressed: () => context.go('/settings'),
-            child: const Text('设置'),
-          ),
-        ],
-      ),
     );
   }
 }
