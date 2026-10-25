@@ -128,6 +128,40 @@ abstract class AlbumBackupStore {
   /// 写入相册库内的键值元信息
   Future<void> setMeta(String key, String value);
 
+  /// 远端索引建立时间（null = 尚未建立）
+  Future<DateTime?> remoteIndexBuiltAt({
+    required int diskId,
+    required String remoteRoot,
+  });
+
+  /// 全量替换远端索引（一次扫描建立完整索引后写入）
+  Future<void> replaceRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+    required Map<String, Map<String, int>> entries,
+  });
+
+  /// 上传成功后增量维护本地索引
+  Future<void> upsertRemoteFile({
+    required int diskId,
+    required String remoteRoot,
+    required String dir,
+    required String name,
+    required int size,
+  });
+
+  /// 读取本地持久化的远端索引（`dir -> {name: size}`）
+  Future<Map<String, Map<String, int>>> loadRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+  });
+
+  /// 清空某目标的远端索引
+  Future<void> clearRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+  });
+
   /// 标记某资源已备份（同主键覆盖，只保留当前目标记录），并清除失败记录
   Future<void> markBackedUp(AlbumBackupRecord record);
 
@@ -166,7 +200,7 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dir, 'album_backup.db'),
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE album_backup (
@@ -190,6 +224,17 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
         await db.execute(
           'CREATE TABLE album_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
         );
+        await db.execute(
+          'CREATE TABLE album_remote_index ('
+          'disk_id INTEGER NOT NULL, remote_root TEXT NOT NULL, '
+          'dir TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, '
+          'PRIMARY KEY (disk_id, remote_root, dir, name))',
+        );
+        await db.execute(
+          'CREATE TABLE album_remote_meta ('
+          'disk_id INTEGER NOT NULL, remote_root TEXT NOT NULL, '
+          'built_at TEXT NOT NULL, PRIMARY KEY (disk_id, remote_root))',
+        );
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         // v1 → v2：记录归属（remote_root）+ 失败重试次数（attempts）
@@ -199,6 +244,19 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
           );
           await db.execute(
             'ALTER TABLE album_backup_fail ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 4) {
+          await db.execute(
+            'CREATE TABLE IF NOT EXISTS album_remote_index ('
+            'disk_id INTEGER NOT NULL, remote_root TEXT NOT NULL, '
+            'dir TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL DEFAULT 0, '
+            'PRIMARY KEY (disk_id, remote_root, dir, name))',
+          );
+          await db.execute(
+            'CREATE TABLE IF NOT EXISTS album_remote_meta ('
+            'disk_id INTEGER NOT NULL, remote_root TEXT NOT NULL, '
+            'built_at TEXT NOT NULL, PRIMARY KEY (disk_id, remote_root))',
           );
         }
         if (oldVersion < 3) {
@@ -430,6 +488,122 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
       'album_meta',
       {'key': key, 'value': value},
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<DateTime?> remoteIndexBuiltAt({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      'album_remote_meta',
+      columns: ['built_at'],
+      where: 'disk_id = ? AND remote_root = ?',
+      whereArgs: [diskId, remoteRoot],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return DateTime.tryParse(rows.first['built_at'] as String);
+  }
+
+  @override
+  Future<void> replaceRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+    required Map<String, Map<String, int>> entries,
+  }) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      await txn.delete(
+        'album_remote_index',
+        where: 'disk_id = ? AND remote_root = ?',
+        whereArgs: [diskId, remoteRoot],
+      );
+      final batch = txn.batch();
+      for (final dirEntry in entries.entries) {
+        for (final fileEntry in dirEntry.value.entries) {
+          batch.insert('album_remote_index', {
+            'disk_id': diskId,
+            'remote_root': remoteRoot,
+            'dir': dirEntry.key,
+            'name': fileEntry.key,
+            'size': fileEntry.value,
+          });
+        }
+      }
+      await batch.commit(noResult: true);
+      await txn.insert(
+        'album_remote_meta',
+        {
+          'disk_id': diskId,
+          'remote_root': remoteRoot,
+          'built_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
+  }
+
+  @override
+  Future<void> upsertRemoteFile({
+    required int diskId,
+    required String remoteRoot,
+    required String dir,
+    required String name,
+    required int size,
+  }) async {
+    final db = await _open();
+    await db.insert(
+      'album_remote_index',
+      {
+        'disk_id': diskId,
+        'remote_root': remoteRoot,
+        'dir': dir,
+        'name': name,
+        'size': size,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  @override
+  Future<Map<String, Map<String, int>>> loadRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      'album_remote_index',
+      columns: ['dir', 'name', 'size'],
+      where: 'disk_id = ? AND remote_root = ?',
+      whereArgs: [diskId, remoteRoot],
+    );
+    final result = <String, Map<String, int>>{};
+    for (final row in rows) {
+      final dir = row['dir'] as String;
+      result.putIfAbsent(dir, () => {})[row['name'] as String] =
+          (row['size'] as num).toInt();
+    }
+    return result;
+  }
+
+  @override
+  Future<void> clearRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    final db = await _open();
+    await db.delete(
+      'album_remote_index',
+      where: 'disk_id = ? AND remote_root = ?',
+      whereArgs: [diskId, remoteRoot],
+    );
+    await db.delete(
+      'album_remote_meta',
+      where: 'disk_id = ? AND remote_root = ?',
+      whereArgs: [diskId, remoteRoot],
     );
   }
 

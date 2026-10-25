@@ -214,7 +214,11 @@ void main() {
     await env.service.init();
     await env.service.scanAndUpload();
 
-    expect(env.remote.calls, ['Photos/2026/10'], reason: '同一目录一轮只拉一次');
+    expect(
+      env.remote.calls,
+      ['Photos', 'Photos/2026', 'Photos/2026/10'],
+      reason: '索引构建会从相册根递归遍历到目标月份目录',
+    );
     expect(env.transfer.filenames, contains('b.jpg'));
     expect(
       env.transfer.filenames,
@@ -234,25 +238,64 @@ void main() {
     expect(progress.remoteCheckUnavailable, isFalse);
   });
 
-  test('远端列表失败 fail-open：按本地记录继续上传并提示不可用（AC-283）', () async {
-    final remote = _FakeRemote(failDirs: {'Photos/2026/10'});
+  test('本地已有新鲜索引：不再拉远端目录，直接按索引跳过', () async {
+    final env = build(assets: [asset('a')], remote: _FakeRemote());
+    env.store.remoteIndex['Photos/2026/10'] = {'a.jpg': 3};
+    env.store.remoteBuiltAt = DateTime.now();
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.remote.calls, isEmpty, reason: '索引未过期不重复拉目录');
+    expect(env.transfer.uploads, isEmpty, reason: '索引命中直接算已上传');
+  });
+
+  test('远端删除文件：本地有记录也重新补传（用户裁决）', () async {
+    final env = build(assets: [asset('a')], remote: _FakeRemote());
+    env.store.remoteIndex['Photos/2026/10'] = const {};
+    env.store.remoteBuiltAt = DateTime.now();
+    env.store.backed['a'] = AlbumBackupRecord(
+      assetId: 'a',
+      diskId: baseConfig.diskId,
+      remoteRoot: baseConfig.remotePath,
+      remotePath: 'Photos/2026/10/a.jpg',
+      size: 3,
+      backedAt: '2026-10-24T00:00:00Z',
+      mediaKind: 'image',
+    );
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.transfer.uploads.length, 1, reason: '远端缺失应自动补传');
+    expect(env.transfer.filenames.single, 'a.jpg');
+  });
+
+  test('远端列表失败：暂停该目录上传并提示不可用，不盲传（AC-283 改造）', () async {
+    final remote = _FakeRemote(
+      dirs: const {'Photos/2026/10': []},
+      failDirs: {'Photos/2026/10'},
+    );
     final env = build(assets: [asset('a'), asset('b')], remote: remote);
     await env.service.init();
     await env.service.scanAndUpload();
 
-    expect(env.transfer.uploads.length, 2, reason: '列表失败不阻塞备份');
-    expect(env.remote.calls.length, 1, reason: '失败目录本轮只请求一次');
+    expect(env.transfer.uploads, isEmpty, reason: '没有远端索引不得盲传');
+    expect(env.remote.calls, isNotEmpty, reason: '索引构建会遍历到失败目录');
+    expect(env.remote.calls.last, 'Photos/2026/10');
     final progress = await env.service.emitProgress();
     expect(progress.remoteCheckUnavailable, isTrue);
+    expect(progress.remoteDeferred, 2);
   });
 
   test('目标目录首次不存在：按空目录处理，不算远端校验失败（AC-280）', () async {
-    final remote = _FakeRemote(missingDirs: {'Photos/2026/10'});
+    final remote = _FakeRemote(
+      dirs: const {'Photos/2026/10': []},
+      missingDirs: {'Photos/2026/10'},
+    );
     final env = build(assets: [asset('a')], remote: remote);
     await env.service.init();
     await env.service.scanAndUpload();
 
-    expect(remote.calls, ['Photos/2026/10']);
+    expect(remote.calls.length, 3, reason: '索引需遍历到目标月份目录');
     expect(env.transfer.uploads.length, 1, reason: '目录不存在应继续上传');
     final progress = await env.service.emitProgress();
     expect(
@@ -304,9 +347,7 @@ void main() {
       backedAt: '2026-10-24T00:00:00Z',
     );
 
-    await env.service.scanAndUpload();
-    expect(env.transfer.uploads, isEmpty, reason: '当前目标已备份，跳过');
-
+    // 直接切到新目标：旧目标的记录不得命中，历史资源应进入新目标队列
     await env.service.setConfig(baseConfig.copyWith(remotePath: 'Backup'));
     await env.service.scanAndUpload();
 
@@ -447,6 +488,8 @@ class _FakeConfigStore extends AlbumBackupConfigStore {
 class _FakeStore implements AlbumBackupStore {
   final Map<String, AlbumBackupRecord> backed = {};
   final Map<String, AlbumBackupFailure> failures = {};
+  final Map<String, Map<String, int>> remoteIndex = {};
+  DateTime? remoteBuiltAt;
 
   int backfillCalls = 0;
 
@@ -533,6 +576,53 @@ class _FakeStore implements AlbumBackupStore {
   @override
   Future<void> setMeta(String key, String value) async {}
 
+  @override
+  Future<DateTime?> remoteIndexBuiltAt({
+    required int diskId,
+    required String remoteRoot,
+  }) async => remoteBuiltAt;
+
+  @override
+  Future<void> replaceRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+    required Map<String, Map<String, int>> entries,
+  }) async {
+    remoteIndex
+      ..clear()
+      ..addAll({
+        for (final e in entries.entries) e.key: Map<String, int>.from(e.value),
+      });
+    remoteBuiltAt = DateTime.now();
+  }
+
+  @override
+  Future<void> upsertRemoteFile({
+    required int diskId,
+    required String remoteRoot,
+    required String dir,
+    required String name,
+    required int size,
+  }) async {
+    remoteIndex.putIfAbsent(dir, () => {})[name] = size;
+  }
+
+  @override
+  Future<Map<String, Map<String, int>>> loadRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+  }) async => {
+    for (final e in remoteIndex.entries) e.key: Map<String, int>.from(e.value),
+  };
+
+  @override
+  Future<void> clearRemoteIndex({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    remoteIndex.clear();
+    remoteBuiltAt = null;
+  }
 
   @override
   Future<int> backedUpCount({
@@ -643,7 +733,26 @@ class _FakeRemote implements RemoteFileIndex {
     if (failDirs.contains(path)) {
       throw AppException.networkError('模拟列表失败');
     }
-    return dirs[path] ?? const [];
+    final direct = dirs[path];
+    if (direct != null) return direct;
+    // 由 dirs 的完整路径反推子目录，支持索引构建时的递归遍历
+    final children = <String>{};
+    final prefix = path.isEmpty ? '' : '$path/';
+    for (final key in dirs.keys) {
+      if (path.isNotEmpty &&
+          key != path &&
+          !key.startsWith('$prefix')) {
+        continue;
+      }
+      final rest = key.substring(prefix.length);
+      if (rest.isEmpty) continue;
+      final segment = rest.split('/').first;
+      children.add(segment);
+    }
+    return [
+      for (final child in children)
+        RemoteFileEntry(name: child, size: 0, isDir: true),
+    ];
   }
 }
 

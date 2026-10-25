@@ -37,7 +37,10 @@ class AlbumBackupProgress {
   /// 本轮远端已存在并跳过的数量
   final int skippedExisting;
 
-  /// 本轮是否存在远端目录列表失败（fail-open）
+  /// 本轮因远端索引不可用而暂停上传的数量（下轮重试）
+  final int remoteDeferred;
+
+  /// 本轮是否存在远端目录列表失败（已暂停该目录上传，不再 fail-open）
   final bool remoteCheckUnavailable;
 
   const AlbumBackupProgress({
@@ -48,6 +51,7 @@ class AlbumBackupProgress {
     this.failed = 0,
     this.outOfScope = 0,
     this.skippedExisting = 0,
+    this.remoteDeferred = 0,
     this.remoteCheckUnavailable = false,
   });
 
@@ -102,6 +106,7 @@ class _PendingUpload {
   final int diskId;
   final String remoteRoot;
   final String remotePath;
+  final String remoteDir;
   final int size;
   final String mediaKind;
 
@@ -110,6 +115,7 @@ class _PendingUpload {
     required this.diskId,
     required this.remoteRoot,
     required this.remotePath,
+    required this.remoteDir,
     required this.size,
     required this.mediaKind,
   });
@@ -120,8 +126,11 @@ enum _HandleOutcome {
   /// 已提交上传
   submitted,
 
-  /// 远端已存在同名同大小文件（已补本地记录）
+  /// 远端已存在同名文件（已补本地记录）
   skippedExisting,
+
+  /// 远端索引不可用：暂停上传，下轮重试（不写失败记录）
+  deferred,
 
   /// 跳过 / 失败（已写失败记录或不在范围）
   skipped,
@@ -186,6 +195,9 @@ class AlbumBackupService {
   DateTime? get lastScanAt => _lastScanAt;
   int get lastScanUploaded => _lastScanUploaded;
   int get lastScanSkipped => _lastScanSkipped;
+
+  /// 远端索引建立时间（相册页展示）
+  DateTime? get remoteIndexBuiltAt => _remoteIndexBuiltAt;
   StreamSubscription<List<TransferTask>>? _taskSub;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
@@ -194,12 +206,26 @@ class AlbumBackupService {
 
   /// 跨轮游标：下一轮从该偏移继续（扫到尾部回绕 0）
 
-  /// 远端目录索引：`diskId:relDir` → {文件名: 大小}；null = 该目录本轮不可用
+  /// 本地持久化的远端索引（`dir -> {name: size}`），建立后跨轮复用
+  Map<String, Map<String, int>> _remoteIndexData = {};
+
+  /// 索引建立时间（null = 尚未建立）
+  DateTime? _remoteIndexBuiltAt;
+
+  /// 索引是否已完整建立（未建立完成时不允许上传）
+  bool _remoteIndexReady = false;
+
+  /// 是否正在建立索引（同一时刻只允许一个）
+  bool _indexBuilding = false;
+
+  /// 索引有效期：超过后自动重建（手动「立即检查/全量核对」强制重建）
   ///
-  /// v1.8.3 二次调整：索引跨轮保留（10 分钟），「全量核对远端」显式刷新，
-  /// 避免每轮重新列目录导致漏检或重复上传。
-  final Map<String, Map<String, int>?> _remoteIndexCache = {};
-  DateTime? _remoteIndexFetchedAt;
+  /// 10 分钟是为了兼顾「远端删除后能自动补传」与「不频繁拉目录」；
+  /// 手动核对可立即刷新。
+  static const Duration remoteIndexTtl = Duration(minutes: 10);
+
+  /// 本轮因远端索引不可用而暂停上传的数量
+  int _lastDeferred = 0;
 
   /// 本轮远端列表失败的目录数（>0 时界面提示「远端校验暂不可用」）
   int _remoteCheckFailed = 0;
@@ -260,6 +286,7 @@ class AlbumBackupService {
       await _store.backfillRemoteRoot(_config.diskId, _remoteRoot);
     }
     await _loadLastScan();
+    await _loadRemoteIndex();
     if (_autoStart &&
         _config.enabled &&
         _config.isConfigured &&
@@ -285,8 +312,9 @@ class AlbumBackupService {
       // 换磁盘/目标目录后，旧目标下的失败状态与远端索引不再适用：
       // 清空失败记录、重建索引，保证历史资源进入新目标的待传队列（F38.2 / AC-282）。
       await _store.clearAllFailures();
-      _remoteIndexCache.clear();
-      _remoteIndexFetchedAt = null;
+      _remoteIndexData = {};
+      _remoteIndexReady = false;
+      _remoteIndexBuiltAt = null;
     }
 
     if (_autoStart && config.enabled && config.isConfigured) {
@@ -334,6 +362,7 @@ class AlbumBackupService {
       failed: failed,
       outOfScope: outOfScope,
       skippedExisting: _lastSkippedExisting,
+      remoteDeferred: _lastDeferred,
       remoteCheckUnavailable: _remoteCheckFailed > 0,
     );
     _currentProgress = snapshot;
@@ -344,7 +373,10 @@ class AlbumBackupService {
   /// 立即扫描并提交上传（幂等：已在处理中则直接返回）
   ///
   /// [manual] 为 true 时（「立即检查」）清空失败记录，等价于手动解锁自动重试。
-  Future<void> scanAndUpload({bool manual = false}) async {
+  Future<void> scanAndUpload({
+    bool manual = false,
+    bool forceIndex = false,
+  }) async {
     if (_scanning || !_config.enabled || !_config.isConfigured) return;
     if (!_config.hasMediaType) return;
     if (!await _conditionsMet()) return;
@@ -352,22 +384,14 @@ class AlbumBackupService {
     _scanning = true;
     _cancelRequested = false;
     _lastSubmitted = 0;
-    // 索引 10 分钟内复用；过期或含失败项时重建（全量核对会显式清空）
-    final now = DateTime.now();
-    if (_remoteIndexFetchedAt == null ||
-        now.difference(_remoteIndexFetchedAt!) >
-            const Duration(minutes: 10)) {
-      _remoteIndexCache.clear();
-      _remoteIndexFetchedAt = now;
-    }
-    _remoteIndexCache.removeWhere((_, value) => value == null);
     _remoteCheckFailed = 0;
     _lastSkippedExisting = 0;
+    _lastDeferred = 0;
     _emitActivity(
       phase: _remoteIndex == null
           ? AlbumBackupPhase.scanning
           : AlbumBackupPhase.checkingRemote,
-      message: _remoteIndex == null ? '正在扫描相册' : '正在核对远端目录',
+      message: _remoteIndex == null ? '正在扫描相册' : '正在核对远端索引',
       processed: 0,
       total: 0,
       cancellable: true,
@@ -377,6 +401,21 @@ class AlbumBackupService {
       if (!await _assetSource.ensurePermission()) return;
       if (_cancelRequested) return;
       if (manual) await _store.clearAllFailures();
+
+      // 先建索引，再上传：索引未完整建立时绝不盲传
+      if (!await _ensureRemoteIndex(force: forceIndex || manual)) {
+        final total = await _assetSource.albumCount(AlbumCountScope.all);
+        _lastDeferred = total;
+        _emitActivity(
+          phase: AlbumBackupPhase.idle,
+          message: '远端索引不可用，已暂停上传（下轮重试）',
+          processed: 0,
+          total: 0,
+          cancellable: false,
+          force: true,
+        );
+        return;
+      }
 
       final diskId = _config.diskId;
       final remoteRoot = _remoteRoot;
@@ -431,13 +470,20 @@ class AlbumBackupService {
           continue;
         }
         try {
-          final outcome = await _handleAsset(asset, diskId, remoteRoot);
+          final outcome = await _handleAsset(
+              asset,
+              diskId,
+              remoteRoot,
+              backed: backed,
+            );
           if (outcome == _HandleOutcome.submitted) {
             submitted++;
             _lastSubmitted = submitted;
             pendingIds.add(asset.id);
           } else if (outcome == _HandleOutcome.skippedExisting) {
             backed.add(asset.id);
+          } else if (outcome == _HandleOutcome.deferred) {
+            _lastDeferred++;
           }
         } catch (_) {
           await _markFailed(asset.id, AlbumBackupFailureReason.readFailed);
@@ -472,15 +518,18 @@ class AlbumBackupService {
             message: submitted > 0 ? '正在扫描并上传' : '正在扫描',
           );
 
-          if (backed.contains(asset.id) ||
-              pendingIds.contains(asset.id) ||
+          // 老记录回填媒体类型（无论远端索引是否启用）
+          if (missingKinds.remove(asset.id)) {
+            await _store.setMediaKind(
+              asset.id,
+              asset.kind == AlbumMediaKind.video ? 'video' : 'image',
+            );
+          }
+          if (pendingIds.contains(asset.id) ||
               _recentlyDone.contains(asset.id)) {
-            if (missingKinds.remove(asset.id)) {
-              await _store.setMediaKind(
-                asset.id,
-                asset.kind == AlbumMediaKind.video ? 'video' : 'image',
-              );
-            }
+            continue;
+          }
+          if (backed.contains(asset.id) && _remoteIndex == null) {
             continue;
           }
           final priorFailure = failureById[asset.id];
@@ -495,12 +544,19 @@ class AlbumBackupService {
 
           // 单个资源独立 try/catch：任何异常都不得中止整轮
           try {
-            final outcome = await _handleAsset(asset, diskId, remoteRoot);
+            final outcome = await _handleAsset(
+              asset,
+              diskId,
+              remoteRoot,
+              backed: backed,
+            );
             if (outcome == _HandleOutcome.submitted) {
               submitted++;
               pendingIds.add(asset.id);
             } else if (outcome == _HandleOutcome.skippedExisting) {
               backed.add(asset.id);
+            } else if (outcome == _HandleOutcome.deferred) {
+              _lastDeferred++;
             }
           } catch (_) {
             await _markFailed(asset.id, AlbumBackupFailureReason.readFailed);
@@ -532,16 +588,17 @@ class AlbumBackupService {
   }
 
   /// 「立即检查」：手动解锁失败项后立刻扫描一次
-  Future<void> checkNow() => scanAndUpload(manual: true);
+  Future<void> checkNow() => scanAndUpload(manual: true, forceIndex: true);
 
   /// 「重新核对远端」：清空本轮缓存并重新扫描（不清失败记录）
   ///
   /// v1.8.3：不 await 整轮扫描，页面通过 `activityStream` 展示进度；
   /// 用户可随时 `cancelScan()`。
   Future<void> recheckRemote() async {
-    _remoteIndexCache.clear();
-    _remoteIndexFetchedAt = null;
-    await scanAndUpload();
+    _remoteIndexData = {};
+    _remoteIndexReady = false;
+    _remoteIndexBuiltAt = null;
+    await scanAndUpload(forceIndex: true);
   }
 
   /// 停止本轮核对/扫描（不取消已提交的传输任务）
@@ -576,6 +633,23 @@ class AlbumBackupService {
       'videoTotal': videos,
       'videoDone': videoDone,
     };
+  }
+
+  Future<void> _loadRemoteIndex() async {
+    if (_remoteIndex == null || !_config.isConfigured) return;
+    try {
+      _remoteIndexData = await _store.loadRemoteIndex(
+        diskId: _config.diskId,
+        remoteRoot: _remoteRoot,
+      );
+      _remoteIndexBuiltAt = await _store.remoteIndexBuiltAt(
+        diskId: _config.diskId,
+        remoteRoot: _remoteRoot,
+      );
+      _remoteIndexReady = _remoteIndexBuiltAt != null;
+    } catch (_) {
+      _remoteIndexReady = false;
+    }
   }
 
   Future<void> _loadLastScan() async {
@@ -734,33 +808,39 @@ class AlbumBackupService {
   Future<_HandleOutcome> _handleAsset(
     AlbumAsset asset,
     int diskId,
-    String remoteRoot,
-  ) async {
+    String remoteRoot, {
+    required Set<String> backed,
+  }) async {
     if (!_matchesType(asset)) return _HandleOutcome.skipped;
 
     final mediaKind = asset.kind == AlbumMediaKind.video ? 'video' : 'image';
     final remoteDir = _remoteDirFor(asset, remoteRoot);
     var filename = asset.filename;
 
-    // 远端优先：先查远端索引，命中同名即视为已备份 —— **不打开本地文件**。
-    // 这样已上传的大视频不会被 photo_manager 复制到缓存，也不会重复上传。
+    // 远端优先：查**本地持久化索引**，命中同名即视为已备份 —— 不打开本地文件。
+    // 索引未建立完成 ⇒ 暂停上传（deferred），绝不盲传。
     if (_remoteIndex != null) {
-      final index = await _remoteIndexFor(diskId, remoteDir);
-      if (index != null && index.containsKey(filename)) {
+      if (!_remoteIndexReady) return _HandleOutcome.deferred;
+      final dirIndex = _remoteIndexData[remoteDir];
+      final remoteSize = dirIndex?[filename];
+      if (remoteSize != null) {
         _lastSkippedExisting++;
-        await _store.markBackedUp(
-          AlbumBackupRecord(
-            assetId: asset.id,
-            diskId: diskId,
-            remoteRoot: remoteRoot,
-            remotePath: remoteDir.isEmpty ? filename : '$remoteDir/$filename',
-            size: index[filename] ?? 0,
-            backedAt: DateTime.now().toIso8601String(),
-            mediaKind: mediaKind,
-          ),
-        );
+        if (!backed.contains(asset.id)) {
+          await _store.markBackedUp(
+            AlbumBackupRecord(
+              assetId: asset.id,
+              diskId: diskId,
+              remoteRoot: remoteRoot,
+              remotePath: remoteDir.isEmpty ? filename : '$remoteDir/$filename',
+              size: remoteSize,
+              backedAt: DateTime.now().toIso8601String(),
+              mediaKind: mediaKind,
+            ),
+          );
+        }
         return _HandleOutcome.skippedExisting;
       }
+      // 索引中没有该文件（含「远端被删除」）：即使本地有记录也重新上传。
     }
 
     final File? file;
@@ -808,6 +888,7 @@ class AlbumBackupService {
         diskId: diskId,
         remoteRoot: remoteRoot,
         remotePath: remotePath,
+        remoteDir: remoteDir,
         size: size,
         mediaKind: mediaKind,
       );
@@ -818,35 +899,76 @@ class AlbumBackupService {
     }
   }
 
-  /// 读取（并缓存）远端目录索引；失败返回 null，由调用方 fail-open
+  /// 建立/刷新本地持久化远端索引（只在索引缺失、过期、手动检查时执行）
   ///
-  /// 同一轮扫描内每个目录只请求一次；单轮最多 `_maxRemoteDirRequests` 次。
-  Future<Map<String, int>?> _remoteIndexFor(
-    int diskId,
-    String remoteDir,
-  ) async {
-    final key = '$diskId:$remoteDir';
-    if (_remoteIndexCache.containsKey(key)) return _remoteIndexCache[key];
-    _remoteIndexFetchedAt ??= DateTime.now();
+  /// 约束（用户裁决）：
+  ///  - 建索引期间**不开始上传**；索引未就绪时上传一律 deferred；
+  ///  - 正在上传（有 pending 任务）时**不重建索引**，避免覆盖本地已维护的索引；
+  ///  - 只列目录与文件名/大小，不读取远端文件内容。
+  Future<bool> _ensureRemoteIndex({required bool force}) async {
+    if (_remoteIndex == null) return true;
+    if (_indexBuilding) return false;
+    final fresh =
+        _remoteIndexReady &&
+        _remoteIndexBuiltAt != null &&
+        DateTime.now().difference(_remoteIndexBuiltAt!) < remoteIndexTtl;
+    if (!force && fresh) return true;
+    // 正在上传时禁止重建（用现有索引继续；没有索引则由调用方暂停上传）
+    if (_pending.isNotEmpty) return _remoteIndexReady;
+
+    _indexBuilding = true;
+    _emitActivity(
+      phase: AlbumBackupPhase.checkingRemote,
+      message: '正在建立远端索引…',
+      processed: 0,
+      total: 0,
+      cancellable: true,
+      force: true,
+    );
     try {
-      final entries = await _remoteIndex!.listFiles(diskId, remoteDir);
-      final index = <String, int>{
-        for (final entry in entries)
-          if (!entry.isDir) entry.name: entry.size,
-      };
-      _remoteIndexCache[key] = index;
-      return index;
-    } catch (e) {
-      // 首次备份时目标 `YYYY/MM` 目录尚不存在：等价于「空目录」，不算校验失败
-      if (_isMissingDirectory(e)) {
-        const empty = <String, int>{};
-        _remoteIndexCache[key] = empty;
-        return empty;
+      final entries = <String, Map<String, int>>{};
+      final queue = <String>[_remoteRoot];
+      final visited = <String>{};
+      while (queue.isNotEmpty && !_cancelRequested) {
+        final dir = queue.removeAt(0);
+        if (!visited.add(dir)) continue;
+        final List<RemoteFileEntry> list;
+        try {
+          list = await _remoteIndex.listFiles(_config.diskId, dir);
+        } catch (e) {
+          if (_isMissingDirectory(e)) continue;
+          _remoteCheckFailed++;
+          _remoteIndexReady = false;
+          return false;
+        }
+        final byName = <String, int>{};
+        for (final entry in list) {
+          if (entry.isDir) {
+            queue.add(dir.isEmpty ? entry.name : '$dir/${entry.name}');
+          } else {
+            byName[entry.name] = entry.size;
+          }
+        }
+        if (byName.isNotEmpty) entries[dir] = byName;
+        _emitActivity(
+          message: '正在建立远端索引（已扫描 ${visited.length} 个目录）',
+          processed: visited.length,
+          total: 0,
+          cancellable: true,
+        );
       }
-      // 网络/权限失败：本轮该目录退回「按本地记录判断」
-      _remoteIndexCache[key] = null;
-      _remoteCheckFailed++;
-      return null;
+      if (_cancelRequested) return false;
+      await _store.replaceRemoteIndex(
+        diskId: _config.diskId,
+        remoteRoot: _remoteRoot,
+        entries: entries,
+      );
+      _remoteIndexData = entries;
+      _remoteIndexReady = true;
+      _remoteIndexBuiltAt = DateTime.now();
+      return true;
+    } finally {
+      _indexBuilding = false;
     }
   }
 
@@ -889,6 +1011,20 @@ class AlbumBackupService {
               backedAt: DateTime.now().toIso8601String(),
               mediaKind: pending.mediaKind,
             ),
+          ),
+        );
+        // 上传成功后立即维护本地索引，避免下轮重复上传
+        final remoteDir = pending.remoteDir;
+        final remoteName = pending.remotePath.split('/').last;
+        _remoteIndexData.putIfAbsent(remoteDir, () => {})[remoteName] =
+            pending.size;
+        unawaited(
+          _store.upsertRemoteFile(
+            diskId: pending.diskId,
+            remoteRoot: pending.remoteRoot,
+            dir: remoteDir,
+            name: remoteName,
+            size: pending.size,
           ),
         );
       } else if (task.status == TaskStatus.failed ||

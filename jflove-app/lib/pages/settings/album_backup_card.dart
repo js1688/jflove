@@ -240,6 +240,14 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
     return '上次检测：$when · 新增上传 $uploaded 项 · 跳过 $skipped 项 · 每 60 秒自动检测';
   }
 
+  String _indexText(AlbumBackupService service) {
+    final at = service.remoteIndexBuiltAt;
+    if (at == null) return '远端索引：尚未建立（上传前会先建立）';
+    final hh = at.hour.toString().padLeft(2, '0');
+    final mm = at.minute.toString().padLeft(2, '0');
+    return '远端索引：$hh:$mm 建立 · 最多 10 分钟刷新一次（可手动全量核对）';
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
@@ -403,9 +411,17 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
                     label: '远端已存在跳过',
                     value: '${p.skippedExisting} 项',
                   ),
+                  _KeyValueRow(
+                    label: '等待远端索引（已暂停）',
+                    value: '${p.remoteDeferred} 项',
+                  ),
                   const SizedBox(height: 6),
                   Text(
                     _lastScanText(ref.read(albumBackupServiceProvider)),
+                    style: TextStyle(fontSize: 11.5, color: t.fgSubtle),
+                  ),
+                  Text(
+                    _indexText(ref.read(albumBackupServiceProvider)),
                     style: TextStyle(fontSize: 11.5, color: t.fgSubtle),
                   ),
                   if (p.remoteCheckUnavailable) ...[
@@ -421,7 +437,7 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
                         borderRadius: BorderRadius.circular(t.rSm),
                       ),
                       child: const Text(
-                        '远端校验暂不可用：本次按本地记录备份，可能重复上传已存在文件。请检查网络/服务端后点「重新核对远端」。',
+                        '远端索引不可用：这些目录已暂停上传（不会盲传），下轮自动重试；请检查网络/服务端后点「全量核对远端」。',
                         style: TextStyle(
                           fontSize: 12,
                           color: AppTokens.warning500,
