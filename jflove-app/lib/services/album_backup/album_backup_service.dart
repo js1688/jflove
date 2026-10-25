@@ -822,16 +822,31 @@ class AlbumBackupService {
     if (_remoteIndex != null) {
       if (!_remoteIndexReady) return _HandleOutcome.deferred;
       final dirIndex = _remoteIndexData[remoteDir];
-      final remoteSize = dirIndex?[filename];
+      // 标题无扩展名时，远端文件名可能带 `.mp4`/`.jpg`：按唯一前缀匹配，
+      // 避免同一个视频因为“本地 title 无后缀”被重复上传。
+      String? matchedName;
+      if (dirIndex != null) {
+        if (dirIndex.containsKey(filename)) {
+          matchedName = filename;
+        } else if (!filename.contains('.')) {
+          final candidates = dirIndex.keys
+              .where((name) => name.startsWith('$filename.'))
+              .toList(growable: false);
+          if (candidates.length == 1) matchedName = candidates.first;
+        }
+      }
+      final remoteSize = matchedName == null ? null : dirIndex![matchedName];
       if (remoteSize != null) {
         _lastSkippedExisting++;
         if (!backed.contains(asset.id)) {
+          final remoteName = matchedName!;
           await _store.markBackedUp(
             AlbumBackupRecord(
               assetId: asset.id,
               diskId: diskId,
               remoteRoot: remoteRoot,
-              remotePath: remoteDir.isEmpty ? filename : '$remoteDir/$filename',
+              remotePath:
+                  remoteDir.isEmpty ? remoteName : '$remoteDir/$remoteName',
               size: remoteSize,
               backedAt: DateTime.now().toIso8601String(),
               mediaKind: mediaKind,

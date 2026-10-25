@@ -269,6 +269,20 @@ void main() {
     expect(env.transfer.filenames.single, 'a.jpg');
   });
 
+  test('本地标题无扩展名：按远端唯一前缀命中，不重复上传', () async {
+    final env = build(
+      assets: [asset('vid', title: 'vid', kind: AlbumMediaKind.video)],
+      remote: _FakeRemote(),
+    );
+    env.store.remoteIndex['Photos/2026/10'] = {'vid.mp4': 3};
+    env.store.remoteBuiltAt = DateTime.now();
+    await env.service.init();
+    await env.service.scanAndUpload();
+
+    expect(env.transfer.uploads, isEmpty);
+    expect(env.store.backed['vid']!.remotePath, 'Photos/2026/10/vid.mp4');
+  });
+
   test('远端列表失败：暂停该目录上传并提示不可用，不盲传（AC-283 改造）', () async {
     final remote = _FakeRemote(
       dirs: const {'Photos/2026/10': []},

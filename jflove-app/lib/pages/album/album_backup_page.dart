@@ -78,7 +78,7 @@ class _AlbumBackupPageState extends ConsumerState<AlbumBackupPage> {
           Text(
             '本页只展示同步概况；上传明细与失败记录在「传输任务」中查看。',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11.5, color: AppTokens.light.fgSubtle),
+            style: TextStyle(fontSize: 11.5, color: context.tokens.fgSubtle),
           ),
         ],
       ),
@@ -136,7 +136,7 @@ class _ActivityCard extends ConsumerWidget {
                   const SizedBox(height: 6),
                   Text(
                     a.total > 0 ? '${a.processed} / ${a.total}' : '正在处理…',
-                    style: TextStyle(fontSize: 11.5, color: AppTokens.light.fgSubtle),
+                    style: TextStyle(fontSize: 11.5, color: context.tokens.fgSubtle),
                   ),
                 ],
               ],
