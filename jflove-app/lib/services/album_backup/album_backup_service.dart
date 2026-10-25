@@ -193,13 +193,13 @@ class AlbumBackupService {
   final Set<String> _recentlyDone = {};
 
   /// 跨轮游标：下一轮从该偏移继续（扫到尾部回绕 0）
-  int _cursorOffset = 0;
 
-  /// 本轮远端目录索引：`diskId:relDir` → {文件名: 大小}；null = 该目录不可用
+  /// 远端目录索引：`diskId:relDir` → {文件名: 大小}；null = 该目录本轮不可用
+  ///
+  /// v1.8.3 二次调整：索引跨轮保留（10 分钟），「全量核对远端」显式刷新，
+  /// 避免每轮重新列目录导致漏检或重复上传。
   final Map<String, Map<String, int>?> _remoteIndexCache = {};
-
-  /// 本轮远端目录请求次数（上限 30，防止一次扫描打爆接口）
-  int _remoteIndexRequests = 0;
+  DateTime? _remoteIndexFetchedAt;
 
   /// 本轮远端列表失败的目录数（>0 时界面提示「远端校验暂不可用」）
   int _remoteCheckFailed = 0;
@@ -210,17 +210,11 @@ class AlbumBackupService {
   /// 单轮最多提交的上传任务数（避免一次塞爆传输队列）
   static const int _maxSubmitPerRound = 20;
 
-  /// 单轮最多访问的媒体数量（跨轮推进，不再永久饿死 >2000 的相册）
-  static const int _maxScanPerRound = 2000;
-
   /// 分页大小（photo_manager 单次查询条数）
   static const int _pageSize = 200;
 
   /// 单个失败项自动重试上限
   static const int _maxAutoRetries = 3;
-
-  /// 单轮最多请求的远端目录数
-  static const int _maxRemoteDirRequests = 30;
 
   AlbumBackupService(
     this._transfer, {
@@ -288,11 +282,11 @@ class AlbumBackupService {
     await _configStore.save(config);
 
     if (targetChanged) {
-      // 换磁盘/目标目录后，旧目标下的失败状态不再适用：清空失败记录并
-      // 让游标从头开始，保证历史资源进入新目标的待传队列（F38.2 / AC-282）。
+      // 换磁盘/目标目录后，旧目标下的失败状态与远端索引不再适用：
+      // 清空失败记录、重建索引，保证历史资源进入新目标的待传队列（F38.2 / AC-282）。
       await _store.clearAllFailures();
-      _cursorOffset = 0;
       _remoteIndexCache.clear();
+      _remoteIndexFetchedAt = null;
     }
 
     if (_autoStart && config.enabled && config.isConfigured) {
@@ -358,8 +352,15 @@ class AlbumBackupService {
     _scanning = true;
     _cancelRequested = false;
     _lastSubmitted = 0;
-    _remoteIndexCache.clear();
-    _remoteIndexRequests = 0;
+    // 索引 10 分钟内复用；过期或含失败项时重建（全量核对会显式清空）
+    final now = DateTime.now();
+    if (_remoteIndexFetchedAt == null ||
+        now.difference(_remoteIndexFetchedAt!) >
+            const Duration(minutes: 10)) {
+      _remoteIndexCache.clear();
+      _remoteIndexFetchedAt = now;
+    }
+    _remoteIndexCache.removeWhere((_, value) => value == null);
     _remoteCheckFailed = 0;
     _lastSkippedExisting = 0;
     _emitActivity(
@@ -443,35 +444,28 @@ class AlbumBackupService {
         }
       }
 
-      // ② 跨轮游标扫描：从上次位置继续，扫到尾部回绕到 0
-      var pageStart = _cursorOffset;
+      // ② 全量扫描：每轮从 0 扫到相册尾部（不再有 2000 上限）；
+      //    提交仍按 `_maxSubmitPerRound` 限流，未提交的下一轮继续。
+      var pageStart = 0;
       var visited = 0;
-      while (!_cancelRequested &&
-          visited < _maxScanPerRound &&
-          submitted < _maxSubmitPerRound) {
+      while (!_cancelRequested) {
         final assets = await _assetSource.listAssets(
           start: pageStart,
           end: pageStart + _pageSize,
         );
         if (assets.isEmpty) {
           if (pageStart == 0) {
-            _cursorOffset = 0;
-            break;
+                  break;
           }
           // 相册尾部：回绕到头部继续（坏资源/新资源不会永久饿死）
           pageStart = 0;
-          _cursorOffset = 0;
-          continue;
+              continue;
         }
 
         for (var i = 0; i < assets.length; i++) {
-          if (visited >= _maxScanPerRound || submitted >= _maxSubmitPerRound) {
-            break;
-          }
           if (_cancelRequested) break;
           final asset = assets[i];
           visited++;
-          _cursorOffset = pageStart + i + 1;
           _emitActivity(
             processed: visited,
             total: totalCount,
@@ -496,6 +490,8 @@ class AlbumBackupService {
             continue;
           }
           if (!_matchesType(asset)) continue;
+          // 已提交 20 项也继续扫描（保证全量核对），只是本轮不再提交
+          if (submitted >= _maxSubmitPerRound) continue;
 
           // 单个资源独立 try/catch：任何异常都不得中止整轮
           try {
@@ -511,16 +507,8 @@ class AlbumBackupService {
           }
         }
 
-        if (submitted >= _maxSubmitPerRound || visited >= _maxScanPerRound) {
-          break;
-        }
-        if (assets.length < _pageSize) {
-          // 已到相册尾部：下一轮从头开始
-          _cursorOffset = 0;
-          break;
-        }
+        if (assets.length < _pageSize) break;
         pageStart += assets.length;
-        _cursorOffset = pageStart;
       }
     } catch (e) {
       // 扫描级失败（权限/平台异常）不静默：写日志与失败计数，不输出文件名
@@ -531,7 +519,6 @@ class AlbumBackupService {
         await _saveLastScan();
       }
       _cancelRequested = false;
-      _remoteIndexCache.clear();
       _emitActivity(
         phase: AlbumBackupPhase.idle,
         message: '空闲',
@@ -553,6 +540,7 @@ class AlbumBackupService {
   /// 用户可随时 `cancelScan()`。
   Future<void> recheckRemote() async {
     _remoteIndexCache.clear();
+    _remoteIndexFetchedAt = null;
     await scanAndUpload();
   }
 
@@ -750,6 +738,31 @@ class AlbumBackupService {
   ) async {
     if (!_matchesType(asset)) return _HandleOutcome.skipped;
 
+    final mediaKind = asset.kind == AlbumMediaKind.video ? 'video' : 'image';
+    final remoteDir = _remoteDirFor(asset, remoteRoot);
+    var filename = asset.filename;
+
+    // 远端优先：先查远端索引，命中同名即视为已备份 —— **不打开本地文件**。
+    // 这样已上传的大视频不会被 photo_manager 复制到缓存，也不会重复上传。
+    if (_remoteIndex != null) {
+      final index = await _remoteIndexFor(diskId, remoteDir);
+      if (index != null && index.containsKey(filename)) {
+        _lastSkippedExisting++;
+        await _store.markBackedUp(
+          AlbumBackupRecord(
+            assetId: asset.id,
+            diskId: diskId,
+            remoteRoot: remoteRoot,
+            remotePath: remoteDir.isEmpty ? filename : '$remoteDir/$filename',
+            size: index[filename] ?? 0,
+            backedAt: DateTime.now().toIso8601String(),
+            mediaKind: mediaKind,
+          ),
+        );
+        return _HandleOutcome.skippedExisting;
+      }
+    }
+
     final File? file;
     try {
       file = await asset.file;
@@ -774,35 +787,12 @@ class AlbumBackupService {
       return _HandleOutcome.skipped;
     }
 
-    final mediaKind = asset.kind == AlbumMediaKind.video ? 'video' : 'image';
-    var filename = asset.filename;
     // v1.8.3：title 为空/无扩展名时补上本地文件扩展名，避免远端出现无后缀文件
     if (!filename.contains('.')) {
       final ext = p.extension(file.path);
       if (ext.isNotEmpty) filename = '$filename$ext';
     }
-    final remoteDir = _remoteDirFor(asset, remoteRoot);
     final remotePath = remoteDir.isEmpty ? filename : '$remoteDir/$filename';
-
-    // 远端去重：同名同大小 ⇒ 视为已备份（只读，失败 fail-open）
-    if (_remoteIndex != null) {
-      final index = await _remoteIndexFor(diskId, remoteDir);
-      if (index != null && index[filename] == size) {
-        _lastSkippedExisting++;
-        await _store.markBackedUp(
-          AlbumBackupRecord(
-            assetId: asset.id,
-            diskId: diskId,
-            remoteRoot: remoteRoot,
-            remotePath: remotePath,
-            size: size,
-            backedAt: DateTime.now().toIso8601String(),
-            mediaKind: mediaKind,
-          ),
-        );
-        return _HandleOutcome.skippedExisting;
-      }
-    }
 
     try {
       final taskId = await _transfer.submitUpload(
@@ -837,13 +827,7 @@ class AlbumBackupService {
   ) async {
     final key = '$diskId:$remoteDir';
     if (_remoteIndexCache.containsKey(key)) return _remoteIndexCache[key];
-    if (_remoteIndexRequests >= _maxRemoteDirRequests) {
-      // 超出本轮请求预算：按本地记录继续（fail-open）
-      _remoteIndexCache[key] = null;
-      _remoteCheckFailed++;
-      return null;
-    }
-    _remoteIndexRequests++;
+    _remoteIndexFetchedAt ??= DateTime.now();
     try {
       final entries = await _remoteIndex!.listFiles(diskId, remoteDir);
       final index = <String, int>{

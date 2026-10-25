@@ -164,12 +164,12 @@ void main() {
     );
   });
 
-  test('跨轮游标：2500 张相册分两轮扫完并回绕到 0（AC-287）', () async {
+  test('全量扫描：2500 张一轮扫完，不再有 2000 上限（AC-287 改造）', () async {
     final assets = List<AlbumAsset>.generate(2500, (i) => asset('asset-$i'));
     final env = build(assets: assets);
     await env.service.init();
 
-    // 预置「已备份」记录，避免 20 条/轮的上传上限干扰游标观察
+    // 预置「已备份」记录，避免 20 条/轮的上传上限干扰扫描观察
     for (final item in assets) {
       env.store.backed[item.id] = AlbumBackupRecord(
         assetId: item.id,
@@ -182,22 +182,19 @@ void main() {
     }
 
     await env.service.scanAndUpload();
-    expect(env.assets.visitedIds.length, 2000, reason: '首轮最多访问 2000 项');
-
-    await env.service.scanAndUpload();
-    expect(env.assets.visitedIds.length, 2500, reason: '第二轮续扫剩余 500 项');
+    expect(env.assets.visitedIds.length, 2500, reason: '必须全量扫到相册尾部');
     expect(
       env.assets.ranges.map((r) => r.$1),
-      containsAll(<int>[2000, 2200]),
-      reason: '第二轮必须从 2000 之后继续，而不是固定从 0 开始',
+      contains(2400),
+      reason: '最后一页（2400 起）也要访问到',
     );
 
     env.assets.ranges.clear();
     await env.service.scanAndUpload();
-    expect(env.assets.ranges.first.$1, 0, reason: '扫到尾部后游标回绕到 0');
+    expect(env.assets.ranges.first.$1, 0, reason: '每轮都从 0 开始全量扫描');
   });
 
-  test('远端同名同大小跳过；同名不同大小仍上传（AC-280/281）', () async {
+  test('远端同名优先跳过（避免重复流量）；不同名照常上传', () async {
     final remote = _FakeRemote(
       dirs: {
         'Photos/2026/10': [
@@ -218,17 +215,22 @@ void main() {
     await env.service.scanAndUpload();
 
     expect(env.remote.calls, ['Photos/2026/10'], reason: '同一目录一轮只拉一次');
-    expect(env.transfer.filenames, containsAll(<String>['b.jpg', 'c.jpg']));
+    expect(env.transfer.filenames, contains('b.jpg'));
     expect(
       env.transfer.filenames,
       isNot(contains('a.jpg')),
-      reason: '同名同大小应跳过',
+      reason: '远端同名应跳过',
     );
-    expect(env.store.backed.keys, contains('a'));
+    expect(
+      env.transfer.filenames,
+      isNot(contains('c.jpg')),
+      reason: '远端同名即跳过（不打开本地文件，优先避免重复流量）',
+    );
+    expect(env.store.backed.keys, containsAll(<String>['a', 'c']));
     expect(env.store.failureEntries, isEmpty);
 
     final progress = await env.service.emitProgress();
-    expect(progress.skippedExisting, 1);
+    expect(progress.skippedExisting, 2);
     expect(progress.remoteCheckUnavailable, isFalse);
   });
 

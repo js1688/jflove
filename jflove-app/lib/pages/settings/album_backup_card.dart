@@ -354,55 +354,78 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
           const Divider(height: 1),
           progressAsync.when(
             data: (p) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
+              padding: const EdgeInsets.fromLTRB(0, 12, 0, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // v1.8.3：图片 / 视频分开统计，避免混在一起看不清
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _TypeStat(
-                          icon: Icons.image_outlined,
-                          label: '图片',
-                          total: _typeCounts['imageTotal'] ?? 0,
-                          done: _typeCounts['imageDone'] ?? 0,
-                          color: t.fgDefault,
-                        ),
+                  Text(
+                    '同步明细',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: t.fgDefault,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _SyncTable(
+                    rows: [
+                      _SyncRowData(
+                        icon: Icons.image_outlined,
+                        label: '图片',
+                        total: _typeCounts['imageTotal'] ?? 0,
+                        done: _typeCounts['imageDone'] ?? 0,
                       ),
-                      Expanded(
-                        child: _TypeStat(
-                          icon: Icons.videocam_outlined,
-                          label: '视频',
-                          total: _typeCounts['videoTotal'] ?? 0,
-                          done: _typeCounts['videoDone'] ?? 0,
-                          color: t.fgDefault,
-                        ),
+                      _SyncRowData(
+                        icon: Icons.videocam_outlined,
+                        label: '视频',
+                        total: _typeCounts['videoTotal'] ?? 0,
+                        done: _typeCounts['videoDone'] ?? 0,
                       ),
                     ],
+                    totalColor: t.fgDefault,
+                    subtleColor: t.fgSubtle,
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 14),
                   Text(
-                    '待备份 ${p.pending} 项 · 上传中 ${p.uploading} 项 · 失败 ${p.failed} 项',
-                    style: TextStyle(fontSize: 12.5, color: t.fgDefault),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '不在范围 ${p.outOfScope} 项 · 远端已存在跳过 ${p.skippedExisting} 项',
-                    style: TextStyle(fontSize: 12.5, color: t.fgSubtle),
+                    '任务状态',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: t.fgDefault,
+                    ),
                   ),
                   const SizedBox(height: 4),
+                  _KeyValueRow(label: '待备份', value: '${p.pending} 项'),
+                  _KeyValueRow(label: '上传中', value: '${p.uploading} 项'),
+                  _KeyValueRow(label: '失败', value: '${p.failed} 项'),
+                  _KeyValueRow(label: '不在范围', value: '${p.outOfScope} 项'),
+                  _KeyValueRow(
+                    label: '远端已存在跳过',
+                    value: '${p.skippedExisting} 项',
+                  ),
+                  const SizedBox(height: 6),
                   Text(
                     _lastScanText(ref.read(albumBackupServiceProvider)),
                     style: TextStyle(fontSize: 11.5, color: t.fgSubtle),
                   ),
                   if (p.remoteCheckUnavailable) ...[
-                    const SizedBox(height: 4),
-                    const Text(
-                      '远端校验暂不可用（本次按本地记录备份）',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTokens.warning500,
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppTokens.warning500.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(t.rSm),
+                      ),
+                      child: const Text(
+                        '远端校验暂不可用：本次按本地记录备份，可能重复上传已存在文件。请检查网络/服务端后点「重新核对远端」。',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppTokens.warning500,
+                        ),
                       ),
                     ),
                   ],
@@ -416,6 +439,90 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
             error: (e, _) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: Text('读取备份进度失败：$e'),
+            ),
+          ),
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '操作',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: t.fgDefault,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _loading
+                      ? null
+                      : () async {
+                          await ref
+                              .read(albumBackupServiceProvider)
+                              .checkNow();
+                          if (mounted) _snack('已触发一次检查');
+                        },
+                  icon: const Icon(Icons.sync, size: 18),
+                  label: const Text('立即检查并上传'),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () async {
+                                await ref
+                                    .read(albumBackupServiceProvider)
+                                    .retryFailed();
+                                if (mounted) _snack('已重新排队失败项');
+                              },
+                        icon: const Icon(Icons.replay, size: 18),
+                        label: const Text('重试失败项'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () async {
+                                await ref
+                                    .read(albumBackupServiceProvider)
+                                    .recheckRemote();
+                                if (mounted) _snack('已开始全量核对远端');
+                              },
+                        icon: const Icon(Icons.cloud_sync_outlined, size: 18),
+                        label: const Text('全量核对远端'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    if ((progressAsync.asData?.value.failed ?? 0) > 0)
+                      Expanded(
+                        child: TextButton.icon(
+                          onPressed: _showFailureReasons,
+                          icon: const Icon(Icons.error_outline, size: 18),
+                          label: const Text('查看失败原因'),
+                        ),
+                      ),
+                    Expanded(
+                      child: TextButton.icon(
+                        onPressed: _showBackgroundHint,
+                        icon: const Icon(Icons.info_outline, size: 18),
+                        label: const Text('后台运行设置'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
           Wrap(
@@ -500,33 +607,126 @@ class _SwitchRow extends StatelessWidget {
 }
 
 
-/// 单类媒体统计（图片/视频分开，v1.8.3）
-class _TypeStat extends StatelessWidget {
+/// 同步明细表（v1.8.3：表单化展示，避免文案挤在一起）
+class _SyncRowData {
   final IconData icon;
   final String label;
   final int total;
   final int done;
-  final Color color;
 
-  const _TypeStat({
+  const _SyncRowData({
     required this.icon,
     required this.label,
     required this.total,
     required this.done,
-    required this.color,
+  });
+}
+
+class _SyncTable extends StatelessWidget {
+  final List<_SyncRowData> rows;
+  final Color totalColor;
+  final Color subtleColor;
+
+  const _SyncTable({
+    required this.rows,
+    required this.totalColor,
+    required this.subtleColor,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Table(
+      columnWidths: const {
+        0: FlexColumnWidth(1.4),
+        1: FlexColumnWidth(1),
+        2: FlexColumnWidth(1),
+        3: FlexColumnWidth(1),
+      },
       children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 4),
-        Text(
-          '$label $done/$total 已同步',
-          style: TextStyle(fontSize: 12.5, color: color),
+        TableRow(
+          children: [
+            _cell('类型', subtleColor, bold: true),
+            _cell('总数', subtleColor, bold: true, align: TextAlign.right),
+            _cell('已同步', subtleColor, bold: true, align: TextAlign.right),
+            _cell('待同步', subtleColor, bold: true, align: TextAlign.right),
+          ],
         ),
+        for (final row in rows)
+          TableRow(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(row.icon, size: 16, color: totalColor),
+                    const SizedBox(width: 6),
+                    Text(
+                      row.label,
+                      style: TextStyle(fontSize: 12.5, color: totalColor),
+                    ),
+                  ],
+                ),
+              ),
+              _cell('${row.total}', totalColor, align: TextAlign.right),
+              _cell('${row.done}', totalColor, align: TextAlign.right),
+              _cell(
+                '${row.total > row.done ? row.total - row.done : 0}',
+                subtleColor,
+                align: TextAlign.right,
+              ),
+            ],
+          ),
       ],
+    );
+  }
+
+  Widget _cell(
+    String text,
+    Color color, {
+    bool bold = false,
+    TextAlign align = TextAlign.left,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        text,
+        textAlign: align,
+        style: TextStyle(
+          fontSize: 12.5,
+          color: color,
+          fontWeight: bold ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
+    );
+  }
+}
+
+/// 两列表单行（标签左、数值右）
+class _KeyValueRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _KeyValueRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12.5, color: t.fgMuted),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(fontSize: 12.5, color: t.fgDefault),
+          ),
+        ],
+      ),
     );
   }
 }

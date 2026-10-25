@@ -57,26 +57,27 @@ class _AlbumBackupPageState extends ConsumerState<AlbumBackupPage> {
           const SizedBox(height: 8),
           const AlbumBackupCard(),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: _openRemoteFolder,
-                  icon: const Icon(Icons.folder_open_outlined, size: 18),
-                  label: const Text('在文件中查看已上传'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: () => context.go('/transfer'),
-                icon: const Icon(Icons.list_alt_outlined, size: 18),
-                label: const Text('传输明细'),
-              ),
-            ],
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: _openRemoteFolder,
+              icon: const Icon(Icons.folder_open_outlined, size: 18),
+              label: const Text('在文件中查看已上传'),
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              onPressed: () => context.go('/transfer'),
+              icon: const Icon(Icons.list_alt_outlined, size: 18),
+              label: const Text('去传输任务查看上传明细'),
+            ),
+          ),
+          const SizedBox(height: 4),
           Text(
-            '上传明细与失败记录请在「传输任务」中查看；本页只展示同步概况。',
+            '本页只展示同步概况；上传明细与失败记录在「传输任务」中查看。',
+            textAlign: TextAlign.center,
             style: TextStyle(fontSize: 11.5, color: AppTokens.light.fgSubtle),
           ),
         ],
