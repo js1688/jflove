@@ -541,57 +541,6 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
               ],
             ),
           ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                icon: const Icon(Icons.sync, size: 18),
-                label: const Text('立即检查'),
-                onPressed: _loading
-                    ? null
-                    : () async {
-                        await ref.read(albumBackupServiceProvider).checkNow();
-                        if (mounted) _snack('已触发一次检查');
-                      },
-              ),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.replay, size: 18),
-                label: const Text('重试失败项'),
-                onPressed: _loading
-                    ? null
-                    : () async {
-                        await ref
-                            .read(albumBackupServiceProvider)
-                            .retryFailed();
-                        if (mounted) _snack('已重新排队失败项');
-                      },
-              ),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.cloud_sync_outlined, size: 18),
-                label: const Text('重新核对远端'),
-                onPressed: _loading
-                    ? null
-                    : () async {
-                        await ref
-                            .read(albumBackupServiceProvider)
-                            .recheckRemote();
-                        if (mounted) _snack('已重新核对远端目录');
-                      },
-              ),
-              if ((progressAsync.asData?.value.failed ?? 0) > 0)
-                TextButton.icon(
-                  icon: const Icon(Icons.error_outline, size: 18),
-                  label: const Text('查看失败原因'),
-                  onPressed: _showFailureReasons,
-                ),
-              TextButton.icon(
-                icon: const Icon(Icons.info_outline, size: 18),
-                label: const Text('后台运行设置'),
-                onPressed: _showBackgroundHint,
-              ),
-            ],
-          ),
         ],
       ),
     );
