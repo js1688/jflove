@@ -15,6 +15,9 @@ class TransferTask {
   final int fileSize;
   final int transferred;
   final int percent;
+
+  /// 校验（SHA256）进度 0-100（仅 [TaskStatus.hashing] 阶段有意义，v1.8.4）
+  final int hashPercent;
   final TaskStatus status;
   final String? error;
 
@@ -32,6 +35,7 @@ class TransferTask {
     this.fileSize = 0,
     this.transferred = 0,
     this.percent = 0,
+    this.hashPercent = 0,
     this.status = TaskStatus.pending,
     this.error,
     this.tag,
@@ -45,6 +49,7 @@ class TransferTask {
     int? fileSize,
     int? transferred,
     int? percent,
+    int? hashPercent,
     TaskStatus? status,
     String? error,
     String? tag,
@@ -56,6 +61,7 @@ class TransferTask {
     fileSize: fileSize ?? this.fileSize,
     transferred: transferred ?? this.transferred,
     percent: percent ?? this.percent,
+    hashPercent: hashPercent ?? this.hashPercent,
     status: status ?? this.status,
     error: error ?? this.error,
     tag: tag ?? this.tag,

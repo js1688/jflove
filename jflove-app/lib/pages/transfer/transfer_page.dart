@@ -234,7 +234,7 @@ class _TransferTaskCard extends ConsumerWidget {
               ),
               SizedBox(width: t.s2),
               AppBadge(
-                _statusText(task.status),
+                _statusText(task),
                 tone: _statusTone(task.status),
               ),
               if (isRunning) ...[
@@ -260,7 +260,7 @@ class _TransferTaskCard extends ConsumerWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
-              value: task.fileSize > 0 ? task.percent / 100.0 : null,
+              value: _progressValue(task),
               minHeight: 6,
               backgroundColor: t.bgSunken,
               valueColor: AlwaysStoppedAnimation<Color>(AppTokens.brand500),
@@ -268,8 +268,12 @@ class _TransferTaskCard extends ConsumerWidget {
           ),
           SizedBox(height: t.s2),
           Text(
-            '${_formatSize(task.transferred)} / ${_formatSize(task.fileSize)}'
-            '（${task.percent}%）',
+            task.status == TaskStatus.hashing
+                // 校验阶段（v1.8.4）：大文件也能看见「文件在动」，不再是无进度黑洞
+                ? '已校验 ${_formatSize(task.transferred)} / '
+                      '${_formatSize(task.fileSize)}（${task.hashPercent}%）'
+                : '${_formatSize(task.transferred)} / '
+                      '${_formatSize(task.fileSize)}（${task.percent}%）',
             style: TextStyle(fontSize: 12, color: t.fgMuted),
           ),
           if (task.error != null) ...[
@@ -304,12 +308,20 @@ class _TransferTaskCard extends ConsumerWidget {
     );
   }
 
-  String _statusText(TaskStatus status) {
-    switch (status) {
+  /// 进度条取值：校验阶段用校验进度，避免长时间停在 0%
+  double? _progressValue(TransferTask task) {
+    if (task.status == TaskStatus.hashing) {
+      return task.hashPercent / 100.0;
+    }
+    return task.fileSize > 0 ? task.percent / 100.0 : null;
+  }
+
+  String _statusText(TransferTask task) {
+    switch (task.status) {
       case TaskStatus.pending:
         return '等待中';
       case TaskStatus.hashing:
-        return '校验中';
+        return task.hashPercent > 0 ? '校验中 ${task.hashPercent}%' : '校验中';
       case TaskStatus.running:
         return '传输中';
       case TaskStatus.completed:

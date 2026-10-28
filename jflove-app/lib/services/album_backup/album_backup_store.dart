@@ -165,20 +165,40 @@ abstract class AlbumBackupStore {
   /// 标记某资源已备份（同主键覆盖，只保留当前目标记录），并清除失败记录
   Future<void> markBackedUp(AlbumBackupRecord record);
 
-  /// 记录一次失败（`attempts` 自增 1）
-  Future<void> markFailed(String assetId, String reason);
+  /// 记录一次失败（`attempts` 自增 1；v1.8.4：按目标归属）
+  Future<void> markFailed(
+    String assetId,
+    String reason, {
+    required int diskId,
+    required String remoteRoot,
+  });
 
   /// 清除某资源的失败记录
   Future<void> clearFailed(String assetId);
 
-  /// 清空全部失败记录（手动「重试失败项 / 立即检查」解锁自动重试）
-  Future<void> clearAllFailures();
+  /// 清空**指定目标**的失败记录（手动「重试失败项 / 立即检查」解锁自动重试）
+  Future<void> clearAllFailures({
+    required int diskId,
+    required String remoteRoot,
+  });
 
-  /// 失败记录列表（按最近尝试时间倒序，供「查看原因」）
-  Future<List<AlbumBackupFailure>> failedEntries();
+  /// 指定目标的失败记录列表（按最近尝试时间倒序，供「查看原因」）
+  Future<List<AlbumBackupFailure>> failedEntries({
+    required int diskId,
+    required String remoteRoot,
+  });
 
-  /// 失败数量
-  Future<int> failedCount();
+  /// 指定目标的失败数量
+  Future<int> failedCount({
+    required int diskId,
+    required String remoteRoot,
+  });
+
+  /// 本地库 v4 → v5：把旧失败记录（无目标字段）回填到当前目标
+  Future<void> backfillFailureTarget({
+    required int diskId,
+    required String remoteRoot,
+  });
 
   /// 清空全部备份与失败记录（不影响远端文件）
   Future<void> clearAll();
@@ -200,7 +220,7 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
     final dir = await getDatabasesPath();
     final db = await openDatabase(
       p.join(dir, 'album_backup.db'),
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE album_backup (
@@ -215,10 +235,12 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
         ''');
         await db.execute('''
           CREATE TABLE album_backup_fail (
-            asset_id TEXT PRIMARY KEY,
-            reason   TEXT NOT NULL,
-            attempts INTEGER NOT NULL DEFAULT 0,
-            tried_at TEXT NOT NULL
+            asset_id    TEXT PRIMARY KEY,
+            reason      TEXT NOT NULL,
+            attempts    INTEGER NOT NULL DEFAULT 0,
+            tried_at    TEXT NOT NULL,
+            disk_id     INTEGER NOT NULL DEFAULT 0,
+            remote_root TEXT NOT NULL DEFAULT ''
           )
         ''');
         await db.execute(
@@ -257,6 +279,17 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
             'CREATE TABLE IF NOT EXISTS album_remote_meta ('
             'disk_id INTEGER NOT NULL, remote_root TEXT NOT NULL, '
             'built_at TEXT NOT NULL, PRIMARY KEY (disk_id, remote_root))',
+          );
+        }
+        if (oldVersion < 5) {
+          // v1.8.4（C1）：失败记录按「磁盘 + 目标根」隔离，换目标不再串味
+          await db.execute(
+            'ALTER TABLE album_backup_fail '
+            'ADD COLUMN disk_id INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            "ALTER TABLE album_backup_fail "
+            "ADD COLUMN remote_root TEXT NOT NULL DEFAULT ''",
           );
         }
         if (oldVersion < 3) {
@@ -363,7 +396,12 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
   }
 
   @override
-  Future<void> markFailed(String assetId, String reason) async {
+  Future<void> markFailed(
+    String assetId,
+    String reason, {
+    required int diskId,
+    required String remoteRoot,
+  }) async {
     final db = await _open();
     await db.transaction((txn) async {
       final rows = await txn.query(
@@ -380,8 +418,24 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
         'reason': reason,
         'attempts': previous + 1,
         'tried_at': DateTime.now().toIso8601String(),
+        'disk_id': diskId,
+        'remote_root': remoteRoot,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
+  }
+
+  @override
+  Future<void> backfillFailureTarget({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    final db = await _open();
+    // 旧记录（v4 及以前）没有目标归属：按当前目标认领，避免升级后失败数归零
+    await db.update(
+      'album_backup_fail',
+      {'disk_id': diskId, 'remote_root': remoteRoot},
+      where: "disk_id = 0 AND remote_root = ''",
+    );
   }
 
   @override
@@ -395,15 +449,30 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
   }
 
   @override
-  Future<void> clearAllFailures() async {
+  Future<void> clearAllFailures({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
     final db = await _open();
-    await db.delete('album_backup_fail');
+    await db.delete(
+      'album_backup_fail',
+      where: 'disk_id = ? AND remote_root = ?',
+      whereArgs: [diskId, remoteRoot],
+    );
   }
 
   @override
-  Future<List<AlbumBackupFailure>> failedEntries() async {
+  Future<List<AlbumBackupFailure>> failedEntries({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
     final db = await _open();
-    final rows = await db.query('album_backup_fail', orderBy: 'tried_at DESC');
+    final rows = await db.query(
+      'album_backup_fail',
+      where: 'disk_id = ? AND remote_root = ?',
+      whereArgs: [diskId, remoteRoot],
+      orderBy: 'tried_at DESC',
+    );
     return rows
         .map(
           (r) => AlbumBackupFailure(
@@ -417,10 +486,15 @@ class SqfliteAlbumBackupStore implements AlbumBackupStore {
   }
 
   @override
-  Future<int> failedCount() async {
+  Future<int> failedCount({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
     final db = await _open();
     final rows = await db.rawQuery(
-      'SELECT COUNT(*) AS c FROM album_backup_fail',
+      'SELECT COUNT(*) AS c FROM album_backup_fail '
+      'WHERE disk_id = ? AND remote_root = ?',
+      [diskId, remoteRoot],
     );
     return (rows.first['c'] as num?)?.toInt() ?? 0;
   }

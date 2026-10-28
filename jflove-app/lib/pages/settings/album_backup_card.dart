@@ -424,6 +424,14 @@ class _AlbumBackupCardState extends ConsumerState<AlbumBackupCard> {
                     _indexText(ref.read(albumBackupServiceProvider)),
                     style: TextStyle(fontSize: 11.5, color: t.fgSubtle),
                   ),
+                  if (p.indexRebuildDeferred)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '有上传任务进行中：远端索引暂不重建，上传完成后自动刷新',
+                        style: TextStyle(fontSize: 11.5, color: t.fgSubtle),
+                      ),
+                    ),
                   if (p.remoteCheckUnavailable) ...[
                     const SizedBox(height: 6),
                     Container(

@@ -319,7 +319,7 @@ void main() {
     );
   });
 
-  test('更换目标目录：失败记录清空，历史失败资源重新入队（AC-282）', () async {
+  test('更换目标目录：失败记录按目标隔离，新目标历史资源重新入队（v1.8.4 / C1）', () async {
     var broken = true;
     final env = build(
       assets: [
@@ -341,7 +341,16 @@ void main() {
     expect(env.store.failureEntries.single.attempts, 3);
 
     await env.service.setConfig(baseConfig.copyWith(remotePath: 'Backup'));
-    expect(env.store.failureEntries, isEmpty, reason: '换目标后旧失败状态不适用');
+    expect(
+      await env.store.failedCount(diskId: 7, remoteRoot: 'Backup'),
+      0,
+      reason: '新目标下不应继承旧目标的失败计数',
+    );
+    expect(
+      await env.store.failedCount(diskId: 7, remoteRoot: 'Photos'),
+      1,
+      reason: '旧目标的失败记录保留（回到旧目标仍可重试），不再靠清空规避',
+    );
     broken = false;
 
     await env.service.scanAndUpload();
@@ -389,6 +398,38 @@ void main() {
 
     await env.service.retryFailed();
     expect(env.store.failureEntries.single.attempts, 1, reason: '手动解锁后重新计数');
+  });
+
+  test('有上传进行中时跳过索引重建并说明原因（v1.8.4 / M-1）', () async {
+    final env = build(assets: [asset('a')], remote: _FakeRemote());
+    await env.service.init();
+    await env.service.scanAndUpload();
+    expect(env.transfer.uploads.length, 1, reason: '首轮应正常提交上传');
+
+    // 强制重建（等价「立即检查」）：此时仍有 pending 上传，应跳过而不是覆盖索引
+    await env.service.checkNow();
+    final progress = await env.service.emitProgress();
+    expect(
+      progress.indexRebuildDeferred,
+      isTrue,
+      reason: '界面需要能解释「为什么索引没刷新」',
+    );
+  });
+
+  test('传输队列已满时本轮不提交，剩余资源留到下一轮（v1.8.4 / M-2）', () async {
+    final env = build(
+      assets: [asset('a'), asset('b'), asset('c')],
+      remote: _FakeRemote(),
+    );
+    await env.service.init();
+
+    env.transfer.saturated = true;
+    await env.service.scanAndUpload();
+    expect(env.transfer.uploads, isEmpty, reason: '队列满时不得继续塞任务');
+
+    env.transfer.saturated = false;
+    await env.service.scanAndUpload();
+    expect(env.transfer.uploads.length, 3, reason: '下一轮恢复提交');
   });
 
   test('title 无扩展名时，用本地文件扩展名补全（v1.8.3 / F44）', () async {
@@ -502,6 +543,9 @@ class _FakeConfigStore extends AlbumBackupConfigStore {
 class _FakeStore implements AlbumBackupStore {
   final Map<String, AlbumBackupRecord> backed = {};
   final Map<String, AlbumBackupFailure> failures = {};
+
+  /// 失败记录的归属（C1：按「磁盘 + 目标根」隔离）
+  final Map<String, ({int diskId, String remoteRoot})> failureTargets = {};
   final Map<String, Map<String, int>> remoteIndex = {};
   DateTime? remoteBuiltAt;
 
@@ -509,6 +553,25 @@ class _FakeStore implements AlbumBackupStore {
 
   List<AlbumBackupFailure> get failureEntries =>
       failures.values.toList(growable: false);
+
+  bool _inTarget(String assetId, int diskId, String remoteRoot) {
+    final target = failureTargets[assetId];
+    if (target == null) return false;
+    return target.diskId == diskId && target.remoteRoot == remoteRoot;
+  }
+
+  @override
+  Future<void> backfillFailureTarget({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    for (final assetId in failures.keys) {
+      failureTargets.putIfAbsent(
+        assetId,
+        () => (diskId: diskId, remoteRoot: remoteRoot),
+      );
+    }
+  }
 
   @override
   Future<void> backfillRemoteRoot(int diskId, String remoteRoot) async {
@@ -650,10 +713,16 @@ class _FakeStore implements AlbumBackupStore {
   Future<void> markBackedUp(AlbumBackupRecord record) async {
     backed[record.assetId] = record;
     failures.remove(record.assetId);
+    failureTargets.remove(record.assetId);
   }
 
   @override
-  Future<void> markFailed(String assetId, String reason) async {
+  Future<void> markFailed(
+    String assetId,
+    String reason, {
+    required int diskId,
+    required String remoteRoot,
+  }) async {
     final previous = failures[assetId]?.attempts ?? 0;
     failures[assetId] = AlbumBackupFailure(
       assetId: assetId,
@@ -661,26 +730,48 @@ class _FakeStore implements AlbumBackupStore {
       attempts: previous + 1,
       triedAt: DateTime.now().toIso8601String(),
     );
+    failureTargets[assetId] = (diskId: diskId, remoteRoot: remoteRoot);
   }
 
   @override
   Future<void> clearFailed(String assetId) async {
     failures.remove(assetId);
+    failureTargets.remove(assetId);
   }
 
   @override
-  Future<void> clearAllFailures() async => failures.clear();
+  Future<void> clearAllFailures({
+    required int diskId,
+    required String remoteRoot,
+  }) async {
+    for (final assetId in failures.keys.toList(growable: false)) {
+      if (_inTarget(assetId, diskId, remoteRoot)) {
+        failures.remove(assetId);
+        failureTargets.remove(assetId);
+      }
+    }
+  }
 
   @override
-  Future<List<AlbumBackupFailure>> failedEntries() async => failureEntries;
+  Future<List<AlbumBackupFailure>> failedEntries({
+    required int diskId,
+    required String remoteRoot,
+  }) async => failures.entries
+      .where((e) => _inTarget(e.key, diskId, remoteRoot))
+      .map((e) => e.value)
+      .toList(growable: false);
 
   @override
-  Future<int> failedCount() async => failures.length;
+  Future<int> failedCount({
+    required int diskId,
+    required String remoteRoot,
+  }) async => failures.keys.where((id) => _inTarget(id, diskId, remoteRoot)).length;
 
   @override
   Future<void> clearAll() async {
     backed.clear();
     failures.clear();
+    failureTargets.clear();
   }
 
   @override
@@ -755,7 +846,7 @@ class _FakeRemote implements RemoteFileIndex {
     for (final key in dirs.keys) {
       if (path.isNotEmpty &&
           key != path &&
-          !key.startsWith('$prefix')) {
+          !key.startsWith(prefix)) {
         continue;
       }
       final rest = key.substring(prefix.length);
@@ -778,6 +869,12 @@ class _FakeTransfer extends TransferService {
   >
   uploads = [];
   int _next = 1;
+
+  /// 模拟传输队列已满（M-2）
+  bool saturated = false;
+
+  @override
+  bool get queueSaturated => saturated;
 
   List<String> get filenames => uploads.map((u) => u.filename).toList();
 

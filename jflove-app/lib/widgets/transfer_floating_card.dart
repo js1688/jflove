@@ -28,7 +28,13 @@ class TransferFloatingCard extends ConsumerWidget {
             .toList();
         if (running.isEmpty) return const SizedBox.shrink();
 
-        final totalProgress = running.fold<int>(0, (sum, t) => sum + t.percent);
+        // 校验中的任务用校验进度，否则平均进度会被长期拉在 0%（v1.8.4）
+        final totalProgress = running.fold<int>(
+          0,
+          (sum, t) =>
+              sum +
+              (t.status == TaskStatus.hashing ? t.hashPercent : t.percent),
+        );
         final avgProgress = running.isNotEmpty
             ? (totalProgress / running.length).round()
             : 0;

@@ -43,6 +43,9 @@ class AlbumBackupProgress {
   /// 本轮是否存在远端目录列表失败（已暂停该目录上传，不再 fail-open）
   final bool remoteCheckUnavailable;
 
+  /// 因存在进行中的上传，本轮远端索引暂不重建（v1.8.4 / M-1）
+  final bool indexRebuildDeferred;
+
   const AlbumBackupProgress({
     this.total = 0,
     this.pending = 0,
@@ -53,6 +56,7 @@ class AlbumBackupProgress {
     this.skippedExisting = 0,
     this.remoteDeferred = 0,
     this.remoteCheckUnavailable = false,
+    this.indexRebuildDeferred = false,
   });
 
   static const AlbumBackupProgress empty = AlbumBackupProgress();
@@ -218,6 +222,9 @@ class AlbumBackupService {
   /// 是否正在建立索引（同一时刻只允许一个）
   bool _indexBuilding = false;
 
+  /// 本轮是否因「有上传进行中」而跳过了索引重建（M-1：界面要说明原因）
+  bool _indexRebuildDeferred = false;
+
   /// 索引有效期：超过后自动重建（手动「立即检查/全量核对」强制重建）
   ///
   /// 10 分钟是为了兼顾「远端删除后能自动补传」与「不频繁拉目录」；
@@ -284,6 +291,11 @@ class AlbumBackupService {
     if (_config.isConfigured) {
       // 本地库 v1 → v2：旧记录（remote_root='') 回填当前目标，升级不全量重传
       await _store.backfillRemoteRoot(_config.diskId, _remoteRoot);
+      // 本地库 v4 → v5：旧失败记录（无目标字段）认领到当前目标，失败数不归零
+      await _store.backfillFailureTarget(
+        diskId: _config.diskId,
+        remoteRoot: _remoteRoot,
+      );
     }
     await _loadLastScan();
     await _loadRemoteIndex();
@@ -309,9 +321,8 @@ class AlbumBackupService {
     await _configStore.save(config);
 
     if (targetChanged) {
-      // 换磁盘/目标目录后，旧目标下的失败状态与远端索引不再适用：
-      // 清空失败记录、重建索引，保证历史资源进入新目标的待传队列（F38.2 / AC-282）。
-      await _store.clearAllFailures();
+      // 换磁盘/目标目录后只重建远端索引；失败记录自 v1.8.4 起按目标隔离（C1），
+      // 不再清空历史 —— 回到同一目标时失败项仍可继续重试。
       _remoteIndexData = {};
       _remoteIndexReady = false;
       _remoteIndexBuiltAt = null;
@@ -350,7 +361,12 @@ class AlbumBackupService {
             remoteRoot: _remoteRoot,
           )
         : 0;
-    final failed = await _store.failedCount();
+    final failed = _config.isConfigured
+        ? await _store.failedCount(
+            diskId: _config.diskId,
+            remoteRoot: _remoteRoot,
+          )
+        : 0;
     final remaining = total - done - failed - outOfScope;
     final pending = remaining < 0 ? 0 : remaining;
 
@@ -364,6 +380,7 @@ class AlbumBackupService {
       skippedExisting: _lastSkippedExisting,
       remoteDeferred: _lastDeferred,
       remoteCheckUnavailable: _remoteCheckFailed > 0,
+      indexRebuildDeferred: _indexRebuildDeferred,
     );
     _currentProgress = snapshot;
     if (!_progress.isClosed) _progress.add(snapshot);
@@ -387,6 +404,7 @@ class AlbumBackupService {
     _remoteCheckFailed = 0;
     _lastSkippedExisting = 0;
     _lastDeferred = 0;
+    _indexRebuildDeferred = false;
     _emitActivity(
       phase: _remoteIndex == null
           ? AlbumBackupPhase.scanning
@@ -400,7 +418,12 @@ class AlbumBackupService {
     try {
       if (!await _assetSource.ensurePermission()) return;
       if (_cancelRequested) return;
-      if (manual) await _store.clearAllFailures();
+      if (manual) {
+        await _store.clearAllFailures(
+          diskId: _config.diskId,
+          remoteRoot: _remoteRoot,
+        );
+      }
 
       // 先建索引，再上传：索引未完整建立时绝不盲传
       if (!await _ensureRemoteIndex(force: forceIndex || manual)) {
@@ -428,7 +451,10 @@ class AlbumBackupService {
         diskId: diskId,
         remoteRoot: remoteRoot,
       );
-      final failures = await _store.failedEntries();
+      final failures = await _store.failedEntries(
+        diskId: diskId,
+        remoteRoot: remoteRoot,
+      );
       final failureById = {for (final f in failures) f.assetId: f};
       final pendingIds = _pending.values.map((item) => item.assetId).toSet();
       final attempted = <String>{};
@@ -459,6 +485,8 @@ class AlbumBackupService {
           await _markFailed(
             failure.assetId,
             AlbumBackupFailureReason.readFailed,
+            diskId: diskId,
+            remoteRoot: remoteRoot,
           );
           continue;
         }
@@ -466,6 +494,8 @@ class AlbumBackupService {
           await _markFailed(
             failure.assetId,
             AlbumBackupFailureReason.unavailable,
+            diskId: diskId,
+            remoteRoot: remoteRoot,
           );
           continue;
         }
@@ -486,7 +516,12 @@ class AlbumBackupService {
             _lastDeferred++;
           }
         } catch (_) {
-          await _markFailed(asset.id, AlbumBackupFailureReason.readFailed);
+          await _markFailed(
+            asset.id,
+            AlbumBackupFailureReason.readFailed,
+            diskId: diskId,
+            remoteRoot: remoteRoot,
+          );
         }
       }
 
@@ -539,8 +574,10 @@ class AlbumBackupService {
             continue;
           }
           if (!_matchesType(asset)) continue;
-          // 已提交 20 项也继续扫描（保证全量核对），只是本轮不再提交
-          if (submitted >= _maxSubmitPerRound) continue;
+          // 已提交 20 项、或传输队列已满（M-2）都继续扫描但不提交，剩余留给下一轮
+          if (submitted >= _maxSubmitPerRound || _transfer.queueSaturated) {
+            continue;
+          }
 
           // 单个资源独立 try/catch：任何异常都不得中止整轮
           try {
@@ -713,13 +750,19 @@ class AlbumBackupService {
 
   /// 重试全部失败项（先清失败标记解除 3 次上限，再触发一次扫描）
   Future<void> retryFailed() async {
-    await _store.clearAllFailures();
+    await _store.clearAllFailures(
+      diskId: _config.diskId,
+      remoteRoot: _remoteRoot,
+    );
     await emitProgress();
     await scanAndUpload(manual: true);
   }
 
-  /// 失败记录（设置页「查看原因」）
-  Future<List<AlbumBackupFailure>> failedEntries() => _store.failedEntries();
+  /// 失败记录（设置页「查看原因」；只返回当前目标，C1）
+  Future<List<AlbumBackupFailure>> failedEntries() => _store.failedEntries(
+    diskId: _config.diskId,
+    remoteRoot: _remoteRoot,
+  );
 
   /// 清空本地备份记录（不影响远端文件）
   Future<void> clearRecords() async {
@@ -862,11 +905,21 @@ class AlbumBackupService {
     try {
       file = await asset.file;
     } catch (_) {
-      await _markFailed(asset.id, AlbumBackupFailureReason.unavailable);
+      await _markFailed(
+        asset.id,
+        AlbumBackupFailureReason.unavailable,
+        diskId: diskId,
+        remoteRoot: remoteRoot,
+      );
       return _HandleOutcome.skipped;
     }
     if (file == null) {
-      await _markFailed(asset.id, AlbumBackupFailureReason.unavailable);
+      await _markFailed(
+        asset.id,
+        AlbumBackupFailureReason.unavailable,
+        diskId: diskId,
+        remoteRoot: remoteRoot,
+      );
       return _HandleOutcome.skipped;
     }
 
@@ -874,11 +927,21 @@ class AlbumBackupService {
     try {
       size = await file.length();
     } catch (_) {
-      await _markFailed(asset.id, AlbumBackupFailureReason.readFailed);
+      await _markFailed(
+        asset.id,
+        AlbumBackupFailureReason.readFailed,
+        diskId: diskId,
+        remoteRoot: remoteRoot,
+      );
       return _HandleOutcome.skipped;
     }
     if (size <= 0) {
-      await _markFailed(asset.id, AlbumBackupFailureReason.readFailed);
+      await _markFailed(
+        asset.id,
+        AlbumBackupFailureReason.readFailed,
+        diskId: diskId,
+        remoteRoot: remoteRoot,
+      );
       return _HandleOutcome.skipped;
     }
 
@@ -909,7 +972,12 @@ class AlbumBackupService {
       );
       return _HandleOutcome.submitted;
     } catch (_) {
-      await _markFailed(asset.id, AlbumBackupFailureReason.uploadFailed);
+      await _markFailed(
+        asset.id,
+        AlbumBackupFailureReason.uploadFailed,
+        diskId: diskId,
+        remoteRoot: remoteRoot,
+      );
       return _HandleOutcome.skipped;
     }
   }
@@ -929,7 +997,11 @@ class AlbumBackupService {
         DateTime.now().difference(_remoteIndexBuiltAt!) < remoteIndexTtl;
     if (!force && fresh) return true;
     // 正在上传时禁止重建（用现有索引继续；没有索引则由调用方暂停上传）
-    if (_pending.isNotEmpty) return _remoteIndexReady;
+    if (_pending.isNotEmpty) {
+      _indexRebuildDeferred = true;
+      unawaited(emitProgress());
+      return _remoteIndexReady;
+    }
 
     _indexBuilding = true;
     _emitActivity(
@@ -981,6 +1053,7 @@ class AlbumBackupService {
       _remoteIndexData = entries;
       _remoteIndexReady = true;
       _remoteIndexBuiltAt = DateTime.now();
+      _indexRebuildDeferred = false;
       return true;
     } finally {
       _indexBuilding = false;
@@ -995,10 +1068,20 @@ class AlbumBackupService {
     return message.contains('路径不存在') || message.contains('不是目录');
   }
 
-  /// 写失败记录（自身异常也不得冒泡）
-  Future<void> _markFailed(String assetId, String reason) async {
+  /// 写失败记录（自身异常也不得冒泡；v1.8.4 起按目标归属，C1）
+  Future<void> _markFailed(
+    String assetId,
+    String reason, {
+    int? diskId,
+    String? remoteRoot,
+  }) async {
     try {
-      await _store.markFailed(assetId, reason);
+      await _store.markFailed(
+        assetId,
+        reason,
+        diskId: diskId ?? _config.diskId,
+        remoteRoot: remoteRoot ?? _remoteRoot,
+      );
     } catch (e) {
       debugPrint('[相册备份] 记录失败状态失败: ${e.runtimeType}');
     }
@@ -1049,7 +1132,14 @@ class AlbumBackupService {
         final reason = task.status == TaskStatus.cancelled
             ? AlbumBackupFailureReason.cancelled
             : AlbumBackupFailureReason.uploadFailed;
-        unawaited(_markFailed(pending.assetId, reason));
+        unawaited(
+          _markFailed(
+            pending.assetId,
+            reason,
+            diskId: pending.diskId,
+            remoteRoot: pending.remoteRoot,
+          ),
+        );
       }
     }
     if (changed) unawaited(emitProgress());

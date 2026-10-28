@@ -2,7 +2,9 @@
 
 JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的个人数字工作台移动端：文件浏览与传输、笔记、媒体播放、相册自动备份。
 
-> **当前版本：v1.8.3（`pubspec.yaml` 中 `version: 1.8.3+1008003`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
+> **当前版本：v1.8.4（`pubspec.yaml` 中 `version: 1.8.4+1008004`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
+
+> **v1.8.4** — 大文件同步卡死修复：上传拆成「校验段（并发 1）+ 上传段（并发 3）」两段式管线，**校验期间显示百分比与已校验字节**、可即时取消（kill isolate 并释放并发槽位）、无进展 90 秒自动超时；SHA256 改用 `package:crypto`（实测 37.5 → 62 MB/s）并新增**哈希缓存**（`path+size+mtime` 命中即复用，重试/重启不再重算）；相册备份新增**失败计数按目标隔离**（本地库 v4→v5）、**远端索引暂不重建的说明**、**未开始传输任务 ≥10 时本轮不提交**。
 
 > **v1.8.3** — 移动端信息架构与相册同步体验：底部导航改为 **6 个一级入口**（文件/笔记/传输任务/离线下载/相册同步/设置）；新增独立**相册同步页**（阶段/进度/停止、图片与视频分类计数、上次检测时间/频率、查看已上传、失败原因）；大视频上传的 **SHA256 移入后台 isolate** 并节流进度，修复核对远端/启动扫描时 UI 卡死；无扩展名的视频文件名自动补本地扩展名；移动端传输记录最多保留 50 条；移除设置页重复入口、传输页相册摘要与相册页最近列表；删除无效的「允许重编码降级」开关。
 
@@ -69,6 +71,10 @@ Material 主题、图表色表、Markdown 高亮配色）。
   `已备份 + 失败 + 不在范围 + 待备份 = 总数`。
 - **本地库 v2**：`album_backup.remote_root`、`album_backup_fail.attempts`；
   `onUpgrade(1→2)` 只加列，`init()` 按当前配置回填旧记录 `remote_root`，**升级不触发全量重传**。
+- **v1.8.4（本地库 v5）**：`album_backup_fail.disk_id / remote_root` —— 失败计数按「磁盘 + 目标根」隔离，
+  换目标不再清空历史（回到旧目标仍可继续重试）；`init()` 把旧记录认领到当前目标。
+- **v1.8.4 上传可观测性**：传输页「校验中 N% / 已校验 x / y」，校验与上传可重叠（1GB 上传时下一个文件已在校验）；
+  未开始传输任务 ≥10 时本轮只扫描不提交，剩余资源下一轮继续。
 - **接口**：复用 `GET /api/v1/files/list`（加密 body：`disk_id` + `path`），未新增服务端接口 / 加密算法。
 
 ### 通信架构
@@ -151,7 +157,7 @@ jflove-app/
 │   ├── widgets/               # 公共 UI 组件（app_card 统一卡片 / mermaid_block / empty_state …）
 │   └── utils/                 # crypto/http_service/session/stream_frame/stream_proxy/markdown/…
 ├── assets/mermaid/            # 离线图表渲染资源（renderer.html + mermaid.bundle.js）
-├── test/                      # 208 个测试用例（25 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget/相册备份）
+├── test/                      # 232 个测试用例（27 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget/相册备份/哈希与传输管线）
 ├── android/                   # Android 原生壳
 ├── pubspec.yaml
 └── README.md
