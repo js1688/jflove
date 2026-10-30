@@ -40,6 +40,13 @@ from src.utils.input_method import (  # noqa: E402
 configure_linux_qt_platform()
 setup_input_method()
 
+# QtWebEngine 启动参数必须早于 QApplication：Windows 下关闭 Chromium 的
+# 「窗口被遮挡/最小化就停止出帧」特性（native occlusion），避免最小化恢复后整片空白
+# （见 src/utils/webengine_flags.py 的根因说明；外壳侧另有显式唤醒兜底）。
+from src.utils.webengine_flags import apply_chromium_flags  # noqa: E402
+
+apply_chromium_flags()
+
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QMessageBox  # noqa: E402
 

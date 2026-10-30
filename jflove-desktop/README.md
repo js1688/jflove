@@ -201,6 +201,22 @@ QMainWindow
 
 > 安全口径不变：媒体仍由 Python 侧 `StreamProxy` 解密后交给 OS 解码器，渲染层不接触媒体字节/密钥。
 
+### 窗口最小化 / 托盘恢复后的画面唤醒
+
+Windows 上最小化会让 Chromium 把页面判为遮挡并**停止出帧**；恢复时若无人叫醒，表现是
+**DOM 正常、整片空白**。外壳在三条恢复路径（`showEvent` 非首次、`restore_from_tray`、
+`changeEvent` 的「最小化 → 恢复」边沿）上排队一次 `_wake_renderer()`（合帧、幂等）：
+
+1. 页面生命周期拉回 `Active`（`QWebEnginePage.setLifecycleState`）；
+2. `resize(w+1,h+1)` → `resize(w,h)` 强制重建合成 surface，随后 `update()/repaint()`。
+
+窗口仍最小化/不可见时不动尺寸；恢复后只做一次 180ms 补充唤醒。
+**不需要执行 JS**（尺寸变化由 Chromium 自己派发 DOM `resize`），外壳"零 `runJavaScript`"能力面不变。
+
+同时 `src/utils/webengine_flags.py` 在创建 `QApplication` 之前，把
+`--disable-features=CalculateNativeWinOcclusion` **合并**进 `QTWEBENGINE_CHROMIUM_FLAGS`
+（Windows 专属的遮挡节流优化，正是空白的触发条件；合并而非覆盖，保留用户既有参数）。
+
 ### 通信层
 
 ```

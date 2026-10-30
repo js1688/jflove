@@ -569,6 +569,12 @@ OPEN_PATHS_QUEUE_LIMIT = 64
 #: §7.5 ③ 的**一次**延迟重推间隔（渲染层按 `(path, size, mtime)` 去重）
 OPEN_PATHS_RETRY_MS = 1500
 
+#: 恢复窗口后「唤醒渲染器」的延迟复查间隔（毫秒）
+#:
+#: 平台把窗口真正映射/合成完可能晚于当前事件循环，故排一次复查；
+#: 只复查一次（见 `_wake_retry_scheduled`），避免长期空转。
+WAKE_RENDERER_RETRY_MS = 180
+
 
 class ShellControls(QObject):
     """窗口控制桥（QWebChannel 注册名 `shell`），供 Web 自绘标题栏调用"""
@@ -1030,6 +1036,14 @@ class WebShell(QMainWindow):
         self._overlay = None
         #: 浮层重贴合是否已排队（合并同一帧内的多次 move/resize，见 _schedule_overlay_refresh）
         self._overlay_refresh_pending = False
+        #: 渲染器唤醒是否已排队（恢复路径会同时经由 showEvent / changeEvent / 托盘）
+        self._wake_pending = False
+        #: 恢复后的延迟复查是否已排（每条恢复周期只复查一次）
+        self._wake_retry_scheduled = False
+        #: 上一次已知的「最小化」状态（用于识别 最小化 → 恢复 的边沿）
+        self._was_minimized = False
+        #: 是否已经显示过（首次 show 时页面还没加载，唤醒没有意义）
+        self._ever_shown = False
         #: 是否已把 view 的 resize 事件接到浮层重贴合（`attach_overlay()` 幂等安装）
         self._overlay_view_filter_installed = False
 
@@ -1248,13 +1262,113 @@ class WebShell(QMainWindow):
         self._ensure_paste_filter()
 
     def showEvent(self, event: QEvent) -> None:
-        """主窗显示（含从托盘恢复）：重新贴合浮层 + 确保粘贴过滤器已挂到渲染 widget"""
+        """主窗显示（含从托盘恢复）：唤醒渲染器 + 重新贴合浮层 + 确保粘贴过滤器已挂到渲染 widget"""
         super().showEvent(event)
+        # 首次显示不唤醒：此时页面尚未加载，抖动尺寸没有意义（唤醒只服务「恢复」场景）
+        if self._ever_shown:
+            self._schedule_wake_renderer("show")
+        self._ever_shown = True
         self._safe_overlay_refresh()
         # focusProxy（渲染 widget）在首次 show 时才创建，且不同平台插件的时机可能更晚：
         # 让出一帧再补挂；仍失败才告警（只告警一次）。
         if not self._ensure_paste_filter():
             QTimer.singleShot(0, lambda: self._ensure_paste_filter(warn=True))
+
+    # ── 恢复后唤醒渲染器（v1.8.4 追加修复） ──────────────
+
+    def _schedule_wake_renderer(self, reason: str) -> None:
+        """
+        排一次「恢复后唤醒渲染器」（合帧，幂等）。
+
+        为什么需要：窗最小化/隐藏后 Chromium 会把页面判为 occluded 并**停止出帧**；
+        恢复时若外壳只做 `showNormal()`，合成层不会自己补一帧，表现就是
+        **DOM 正常、整片空白**（用户实测：最小化再打开，整个面板空白）。
+        同源问题在 v1.5.0 BUG #4（原生浮层隐藏后不重绘）已经出现过，处置口径一致：
+        显式请求重绘 + 派发一次 JS `resize`。
+
+        为什么延到事件循环之后：`WindowStateChange` 到达时平台还没把窗口映射/合成完，
+        此刻 resize 抖动会被随后的布局覆盖掉，等于白做。
+
+        :param reason: 触发来源（`show` / `restore` / `window-state`），只用于日志
+        """
+        if self._wake_pending:
+            return
+        self._wake_pending = True
+        QTimer.singleShot(0, lambda: self._do_wake_renderer(reason))
+
+    def _do_wake_renderer(self, reason: str) -> None:
+        """执行唤醒；窗口仍最小化/不可见时**放弃**（此时动尺寸会把窗口改坏）"""
+        self._wake_pending = False
+        if self.isMinimized() or not self.isVisible():
+            return
+        if self._wake_renderer():
+            logger.debug("已唤醒渲染器（%s）", reason)
+        # 平台映射窗口可能晚一帧：只复查一次，避免反复抖动
+        if not self._wake_retry_scheduled:
+            self._wake_retry_scheduled = True
+            QTimer.singleShot(WAKE_RENDERER_RETRY_MS, self._wake_retry)
+
+    def _wake_retry(self) -> None:
+        """延迟复查：仍未最小化/不可见才补第二次"""
+        self._wake_retry_scheduled = False
+        if self.isMinimized() or not self.isVisible():
+            return
+        self._wake_renderer()
+
+    def _wake_renderer(self) -> bool:
+        """
+        让渲染器重新出一帧（异常一律吞掉：观感修复不得打断窗口交互）。
+
+        两步，缺一不可：
+
+        1. **页面生命周期拉回 Active**：被设备/系统冻结（Frozen）的页面永远不会
+           自己出帧，必须显式唤醒（`QWebEnginePage.setLifecycleState`）；
+        2. **1px 尺寸抖动 + `update()`/`repaint()`**：强制合成层重建 surface ——
+           这是 QtWebEngine「空白但有 DOM」的通用解法（单纯 `update()` 不会重建
+           surface）。尺寸变化由 Chromium 自己派发 DOM `resize`，前端随之重新布局，
+           **无需外壳执行任何 JS**（AC-87 能力面不变，见 `test_v162_context_menu`）。
+
+        :returns: 是否真的执行了唤醒动作
+        """
+        view = getattr(self, "view", None)
+        if view is None:
+            return False
+        acted = False
+        page = None
+        try:
+            page = view.page()
+        except Exception as exc:  # noqa: BLE001 - 页面已销毁时不修观感
+            logger.debug("取页面失败，跳过唤醒：%s", exc)
+            return False
+
+        if page is not None:
+            try:
+                state = QWebEnginePage.LifecycleState.Active
+                current = (
+                    page.lifecycleState()
+                    if hasattr(page, "lifecycleState")
+                    else None
+                )
+                if current != state:
+                    page.setLifecycleState(state)
+                    acted = True
+                    logger.info("渲染页面处于非活跃状态（%s），已拉回 Active", current)
+            except Exception as exc:  # noqa: BLE001 - 旧版本无该 API 时忽略
+                logger.debug("唤醒页面生命周期失败（忽略）：%s", exc)
+
+        try:
+            size = view.size()
+            if not size.isEmpty():
+                # 先 +1 再还原：只改尺寸不动布局文件注册的 sizeHint
+                view.resize(size.width() + 1, size.height() + 1)
+                view.resize(size)
+                acted = True
+            view.update()
+            view.repaint()
+        except Exception as exc:  # noqa: BLE001 - 重绘失败只影响观感
+            logger.debug("强制重绘失败（忽略）：%s", exc)
+
+        return acted
 
     @staticmethod
     def _harden_settings(view: QWebEngineView) -> None:
@@ -1349,10 +1463,11 @@ class WebShell(QMainWindow):
         self.tray = TrayController(self, publish_event=publish_event)
 
     def restore_from_tray(self) -> None:
-        """从托盘恢复窗口"""
+        """从托盘恢复窗口（显式唤醒渲染器，见 `_wake_renderer`）"""
         self.showNormal()
         self.activateWindow()
         self.raise_()
+        self._schedule_wake_renderer("restore")
 
     def hide_to_tray(self) -> None:
         """隐藏到托盘并气泡提示（应用继续在后台运行）"""
@@ -1889,10 +2004,17 @@ class WebShell(QMainWindow):
         self.hide_to_tray()
 
     def changeEvent(self, event: QEvent) -> None:
-        """窗口状态变化时把「是否最大化」推回页面（用于切换标题栏图标）"""
+        """
+        窗口状态变化：把「是否最大化」推回页面（切换标题栏图标），
+        并在 **最小化 → 恢复** 的边沿唤醒渲染器（否则合成层不出帧 ⇒ 面板空白）。
+        """
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange:
             self.shell_controls.maximizedChanged.emit(self.isMaximized())
+            minimized = self.isMinimized()
+            if self._was_minimized and not minimized:
+                self._schedule_wake_renderer("window-state")
+            self._was_minimized = minimized
 
 
 def build_app() -> QApplication:
