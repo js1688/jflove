@@ -228,6 +228,10 @@ QMainWindow
 **排障逃生开关**：仍不出帧时设 `JFLOVE_WEBENGINE_SOFTWARE_GPU=1` 启动，走软件合成
 （`--disable-gpu-compositing --disable-gpu`），可绕开 D3D 设备丢失路径。
 
+> 唤醒的 `view.hide()/show()` 会连带影响「媒体浮层」这个原生子控件，所以浮层在构造时就
+> `hide()` 自己（显式隐藏），只由 `_show_overlay()` 显示 —— 避免页面左上角冒出 100×30 幽灵黑框。
+> F40 的 child 模式 / 相对坐标 / 随主窗跟随 / 全屏铺满**全部保留**（X11 22 项 + Wayland 15 项探针全过）。
+
 ### 通信层
 
 ```

@@ -354,6 +354,57 @@ class TestWakeRobustness:
             shell.hide()
 
 
+class TestWakeDoesNotLeakOverlay:
+    """唤醒会 hide/show 视口：浮层子控件**不得**因此被隐式显示成幽灵框"""
+
+    def test_未打开的浮层不会被唤醒带出来(self, qapp):
+        from src.ui.media_overlay import MediaOverlay
+
+        shell = WebShell(objects={}, frameless=True)
+        shell.resize(900, 620)
+        shell.show()
+        qapp.processEvents()
+        overlay = MediaOverlay(get_view=lambda: shell.view)
+        overlay._force_repaint = lambda: None
+        try:
+            qapp.processEvents()
+            assert overlay.window.isVisible() is False, "浮层初始就可见（幽灵框）"
+
+            shell._wake_renderer(hard=True)
+            qapp.processEvents()
+            assert overlay.window.isVisible() is False, (
+                "视口 hide/show 把从未打开的浮层带了出来（页面左上角会多出黑框）"
+            )
+        finally:
+            overlay.window.hide()
+            shell.hide()
+
+    def test_正在预览的浮层在唤醒后仍然可见且几何不变(self, qapp):
+        from src.ui.media_overlay import MediaOverlay
+
+        shell = WebShell(objects={}, frameless=True)
+        shell.resize(900, 620)
+        shell.show()
+        qapp.processEvents()
+        overlay = MediaOverlay(get_view=lambda: shell.view)
+        overlay._force_repaint = lambda: None
+        try:
+            overlay.setRect('{"x":60,"y":80,"w":360,"h":220}')
+            overlay.setVisible(True)
+            qapp.processEvents()
+            assert overlay.window.isVisible() is True
+            geo = overlay.window.geometry().getRect()
+
+            shell._wake_renderer(hard=True)
+            qapp.processEvents()
+            assert overlay.window.isVisible() is True, "预览中的浮层被唤醒动作藏掉了"
+            assert overlay.window.geometry().getRect() == geo, "浮层几何被唤醒动作改动"
+            assert overlay.window.parent() is shell.view, "浮层不再挂在视口下（Linux 遮挡修复）"
+        finally:
+            overlay.close()
+            shell.hide()
+
+
 class TestWebengineFlags:
     def test_windows_注入关闭遮挡节流(self):
         merged = webengine_flags.build_chromium_flags("", platform="win32")

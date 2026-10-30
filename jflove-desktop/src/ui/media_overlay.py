@@ -122,6 +122,11 @@ class MediaOverlay(QObject):
         #: 实际生效的实现模式（子控件创建失败时会从 child 降级为 window）
         self.mode = resolve_overlay_mode(mode)
         self.window = self._build_window()
+        # **默认隐藏**：子控件是 view 的孩子，view 一旦被显式 show，Qt 会把"从未
+        # 显式隐藏过"的孩子一并显示出来 —— 结果是一个 100×30 的黑色幽灵框贴在页面
+        # 左上角（v1.8.4 的"恢复后唤醒渲染器"会 hide/show 视口，正是触发条件）。
+        # 所有显示路径都走 `_show_overlay()`（`window.show()`），显式隐藏不影响它们。
+        self.window.hide()
 
         layout = QVBoxLayout(self.window)
         layout.setContentsMargins(0, 0, 0, 0)
