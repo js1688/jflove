@@ -569,11 +569,17 @@ OPEN_PATHS_QUEUE_LIMIT = 64
 #: §7.5 ③ 的**一次**延迟重推间隔（渲染层按 `(path, size, mtime)` 去重）
 OPEN_PATHS_RETRY_MS = 1500
 
-#: 恢复窗口后「唤醒渲染器」的延迟复查间隔（毫秒）
+#: 恢复窗口后「轻量补帧」的延迟点（毫秒）
 #:
-#: 平台把窗口真正映射/合成完可能晚于当前事件循环，故排一次复查；
-#: 只复查一次（见 `_wake_retry_scheduled`），避免长期空转。
-WAKE_RENDERER_RETRY_MS = 180
+#: 用户实测：只补一帧时，恢复后画面能显示但**后续交互不再出帧**
+#: （点菜单逻辑生效、画面停在旧帧，再最小化一次才刷出来）。
+#: 平台重建 surface 需要几帧时间，故在恢复后的短时间内补几轮轻量唤醒；
+#: 每轮都很便宜（只刷可见性 + update），不做 hide/show，避免闪烁。
+WAKE_RENDERER_SOFT_RETRY_MS = (120, 400, 900)
+
+#: 窗口尚未 map 时的重试步长与次数上限（80ms × 12 ≈ 1 秒）
+WAKE_RENDERER_WAIT_STEP_MS = 80
+WAKE_RENDERER_WAIT_RETRIES = 12
 
 
 class ShellControls(QObject):
@@ -1038,8 +1044,10 @@ class WebShell(QMainWindow):
         self._overlay_refresh_pending = False
         #: 渲染器唤醒是否已排队（恢复路径会同时经由 showEvent / changeEvent / 托盘）
         self._wake_pending = False
-        #: 恢复后的延迟复查是否已排（每条恢复周期只复查一次）
-        self._wake_retry_scheduled = False
+        #: 本轮恢复周期是否已经完成过"硬唤醒"（hide/show 重建 surface）
+        self._hard_wake_done = False
+        #: 窗口尚未 map 时的重试余额（有上限，避免无限排队）
+        self._wake_wait_left = 0
         #: 上一次已知的「最小化」状态（用于识别 最小化 → 恢复 的边沿）
         self._was_minimized = False
         #: 是否已经显示过（首次 show 时页面还没加载，唤醒没有意义）
@@ -1280,53 +1288,126 @@ class WebShell(QMainWindow):
         """
         排一次「恢复后唤醒渲染器」（合帧，幂等）。
 
-        为什么需要：窗最小化/隐藏后 Chromium 会把页面判为 occluded 并**停止出帧**；
-        恢复时若外壳只做 `showNormal()`，合成层不会自己补一帧，表现就是
-        **DOM 正常、整片空白**（用户实测：最小化再打开，整个面板空白）。
-        同源问题在 v1.5.0 BUG #4（原生浮层隐藏后不重绘）已经出现过，处置口径一致：
-        显式请求重绘 + 派发一次 JS `resize`。
+        为什么需要：窗最小化/隐藏后 Chromium 会把页面判为 occluded/后台化，
+        **停止出帧**。恢复时若外壳只做 `showNormal()`，合成层不会自己补一帧：
+
+        - 首次实测症状：恢复后**整片空白**（DOM 正常、没有像素）；
+        - 加了"补一帧"之后的新症状：恢复后能显示，但**后续交互不再出帧**
+          （点菜单逻辑生效、画面停在旧帧，再最小化一次才刷出来）——
+          说明页面仍处于"被后台化"状态，**只补一帧不够，必须让它持续出帧**。
+
+        因此这里的动作分两层（见 `_wake_renderer`）：
+        1. **可见性契约**：`QWebEnginePage.setVisible(True)` + 生命周期 Active ——
+           告诉 Chromium"页面确实可见"，别再后台化；
+        2. **强制 re-expose**：`view.hide()/show()` + 窗口级 1px 抖动 ——
+           让 Qt/合成层重建 surface 并送出一次真实 expose（只补 `update()` 不够）。
 
         为什么延到事件循环之后：`WindowStateChange` 到达时平台还没把窗口映射/合成完，
-        此刻 resize 抖动会被随后的布局覆盖掉，等于白做。
+        此刻做抖动会被随后的布局覆盖掉。
 
         :param reason: 触发来源（`show` / `restore` / `window-state`），只用于日志
         """
+        self._hard_wake_done = False
+        self._wake_wait_left = WAKE_RENDERER_WAIT_RETRIES
         if self._wake_pending:
             return
         self._wake_pending = True
         QTimer.singleShot(0, lambda: self._do_wake_renderer(reason))
 
     def _do_wake_renderer(self, reason: str) -> None:
-        """执行唤醒；窗口仍最小化/不可见时**放弃**（此时动尺寸会把窗口改坏）"""
+        """
+        执行唤醒。
+
+        **窗口仍最小化/不可见时不能放弃**：恢复事件可能早于平台真正 map 窗口，
+        此时直接 return 会让整条恢复路径失去"硬唤醒"，只剩轻量补帧 ——
+        表现正是用户实测的"画面能显示，但之后点击不再刷新"。
+        这里改为「重新排队」，并在后续补帧里把没做成的硬唤醒补上。
+        """
         self._wake_pending = False
         if self.isMinimized() or not self.isVisible():
+            self._wait_until_mapped()
             return
-        if self._wake_renderer():
+        if self._wake_renderer(hard=True):
+            self._hard_wake_done = True
             logger.debug("已唤醒渲染器（%s）", reason)
-        # 平台映射窗口可能晚一帧：只复查一次，避免反复抖动
-        if not self._wake_retry_scheduled:
-            self._wake_retry_scheduled = True
-            QTimer.singleShot(WAKE_RENDERER_RETRY_MS, self._wake_retry)
+        # 平台重建 surface 需要几帧时间：恢复后的一小段时间内继续补帧
+        for delay in WAKE_RENDERER_SOFT_RETRY_MS:
+            QTimer.singleShot(delay, self._wake_retry)
+
+    def _wait_until_mapped(self) -> None:
+        """
+        窗口还没 map 时按小步长重试（**有上限**，用完即止）。
+
+        为什么要重试而不是放弃：恢复事件早于平台 map 很常见；一旦放弃，
+        本轮就只剩"软补帧"，surface 永远不重建 —— 正是"点击不刷新"的成因。
+        """
+        if self._wake_wait_left <= 0:
+            logger.debug("窗口迟迟未就绪，放弃本轮唤醒")
+            return
+        self._wake_wait_left -= 1
+        self._wake_pending = True
+        QTimer.singleShot(
+            WAKE_RENDERER_WAIT_STEP_MS,
+            lambda: self._do_wake_renderer("mapped"),
+        )
 
     def _wake_retry(self) -> None:
-        """延迟复查：仍未最小化/不可见才补第二次"""
-        self._wake_retry_scheduled = False
+        """
+        轻量补帧；**本轮还没做过硬唤醒时补做一次硬唤醒**。
+
+        用户实测「恢复后能显示，但点击不再刷新」的根因就在这里：
+        初次硬唤醒可能早于窗口 map 而被跳过，之后只有软补帧，surface 始终没重建。
+        """
         if self.isMinimized() or not self.isVisible():
             return
-        self._wake_renderer()
+        if not self._hard_wake_done:
+            if self._wake_renderer(hard=True):
+                self._hard_wake_done = True
+                logger.debug("补做硬唤醒（surface 重建）")
+            return
+        self._wake_renderer(hard=False)
 
-    def _wake_renderer(self) -> bool:
+    def _set_page_visible(self, visible: bool) -> None:
         """
-        让渲染器重新出一帧（异常一律吞掉：观感修复不得打断窗口交互）。
+        把页面可见性同步给 Chromium（**这是"出不出帧"的开关**）。
 
-        两步，缺一不可：
+        `QWebEnginePage.setVisible()` 是 Qt 提供的显式契约：不可见的页面会被
+        限流/停帧。此前外壳从未设置过它，完全依赖平台推断 —— 最小化后推断为
+        "不可见"，恢复后没人纠正，于是画面停在旧帧。
+        """
+        view = getattr(self, "view", None)
+        if view is None:
+            return
+        try:
+            # 恢复时渲染 widget 自己也必须可见：无边框窗口最小化/还原后，
+            # 平台有时不会把"可见"重新下发到子 widget。
+            if visible and not view.isVisible():
+                view.setVisible(True)
+            page = view.page()
+            if page is not None and hasattr(page, "setVisible"):
+                page.setVisible(visible)
+        except Exception as exc:  # noqa: BLE001 - 可见性同步失败不影响功能
+            logger.debug("同步页面可见性失败（忽略）：%s", exc)
 
-        1. **页面生命周期拉回 Active**：被设备/系统冻结（Frozen）的页面永远不会
-           自己出帧，必须显式唤醒（`QWebEnginePage.setLifecycleState`）；
-        2. **1px 尺寸抖动 + `update()`/`repaint()`**：强制合成层重建 surface ——
-           这是 QtWebEngine「空白但有 DOM」的通用解法（单纯 `update()` 不会重建
-           surface）。尺寸变化由 Chromium 自己派发 DOM `resize`，前端随之重新布局，
-           **无需外壳执行任何 JS**（AC-87 能力面不变，见 `test_v162_context_menu`）。
+    def _wake_renderer(self, hard: bool = False) -> bool:
+        """
+        让渲染器重新出帧（异常一律吞掉：观感修复不得打断窗口交互）。
+
+        :param hard: `True` = 恢复首次，除可见性外还强制 re-expose（hide/show）；
+                     `False` = 后续轻量补帧（只刷可见性 + 重绘，不闪烁）
+
+        顺序与理由：
+
+        1. **`page.setVisible(True)`**：Chromium 只给"可见"页面出帧；这一条是
+           本类问题的**根** —— 只重绘不纠可见性，下一次 DOM 变化照样不出帧；
+        2. **生命周期拉回 Active**：被冻结的页面永远不会自己出帧；
+        3. **hard 模式 `view.hide()/show()`**：让 Qt 重新送一次 expose、
+           合成层重建 surface（v1.5.0 BUG #4 同源经验：Chromium 不会自己补画）；
+        4. **窗口级 1px 抖动**：非最大化/全屏时把主窗尺寸 +1 再还原，触发一次
+           完整的重新布局与合成（**不动布局里的 view**，避免 surface 尺寸错配）；
+        5. **`update()`/`repaint()`**：把请求送达 Qt 的绘制链。
+
+        全程**不执行任何 JS**（AC-87 能力面不变）。
 
         :returns: 是否真的执行了唤醒动作
         """
@@ -1341,6 +1422,10 @@ class WebShell(QMainWindow):
             logger.debug("取页面失败，跳过唤醒：%s", exc)
             return False
 
+        # ① 可见性契约（最关键的一条）
+        self._set_page_visible(True)
+
+        # ② 生命周期
         if page is not None:
             try:
                 state = QWebEnginePage.LifecycleState.Active
@@ -1356,15 +1441,35 @@ class WebShell(QMainWindow):
             except Exception as exc:  # noqa: BLE001 - 旧版本无该 API 时忽略
                 logger.debug("唤醒页面生命周期失败（忽略）：%s", exc)
 
-        try:
-            size = view.size()
-            if not size.isEmpty():
-                # 先 +1 再还原：只改尺寸不动布局文件注册的 sizeHint
-                view.resize(size.width() + 1, size.height() + 1)
-                view.resize(size)
+        # ③ hard 模式：强制 re-expose
+        if hard:
+            try:
+                was_visible = view.isVisible()
+                view.hide()
+                view.show()
+                if not was_visible:
+                    view.setVisible(True)
                 acted = True
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("重新 expose 渲染 widget 失败（忽略）：%s", exc)
+
+        # ④ 窗口级 1px 抖动（最大化/全屏时不动，避免破坏状态）
+        try:
+            if not self.isMaximized() and not self.isFullScreen():
+                size = self.size()
+                if not size.isEmpty():
+                    self.resize(size.width() + 1, size.height() + 1)
+                    self.resize(size)
+                    acted = True
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("窗口尺寸抖动失败（忽略）：%s", exc)
+
+        # ⑤ Qt 绘制链
+        try:
             view.update()
-            view.repaint()
+            if hard:
+                view.repaint()
+            self.update()
         except Exception as exc:  # noqa: BLE001 - 重绘失败只影响观感
             logger.debug("强制重绘失败（忽略）：%s", exc)
 
@@ -1464,6 +1569,11 @@ class WebShell(QMainWindow):
 
     def restore_from_tray(self) -> None:
         """从托盘恢复窗口（显式唤醒渲染器，见 `_wake_renderer`）"""
+        # 先显式清掉"最小化"状态位：无边框窗口在部分平台上 showNormal() 不会
+        # 完全复位该标志，残留时 Chromium 会持续把页面当"不可见"而不出帧。
+        self.setWindowState(
+            self.windowState() & ~Qt.WindowState.WindowMinimized
+        )
         self.showNormal()
         self.activateWindow()
         self.raise_()
@@ -1477,6 +1587,9 @@ class WebShell(QMainWindow):
         if overlay is not None:
             overlay.on_shell_hidden()
         self.hide()
+        # 隐藏时同步可见性契约：让 Chromium 明确知道"页面不可见"，
+        # 恢复时再置回 True（否则它会一直按"可能可见"处理，恢复后不出帧）。
+        self._set_page_visible(False)
         tray = getattr(self, "tray", None)
         if tray is not None:
             tray.notify_minimized()

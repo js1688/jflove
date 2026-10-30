@@ -37,7 +37,9 @@ class _StubPage:
 
     def __init__(self, state: str = "active") -> None:
         self._state = state
+        self._visible = True
         self.lifecycle_calls: list[str] = []
+        self.visibility_calls: list[bool] = []
         self.js_calls: list[str] = []
 
     def lifecycleState(self) -> str:  # noqa: N802 - 对齐 Qt 命名
@@ -46,6 +48,13 @@ class _StubPage:
     def setLifecycleState(self, state: str) -> None:  # noqa: N802
         self._state = state
         self.lifecycle_calls.append(state)
+
+    def setVisible(self, visible: bool) -> None:  # noqa: N802
+        self._visible = visible
+        self.visibility_calls.append(visible)
+
+    def isVisible(self) -> bool:  # noqa: N802
+        return self._visible
 
     def runJavaScript(self, _script: str) -> None:  # noqa: N802
         self.js_calls.append(_script)
@@ -58,6 +67,9 @@ class _StubView:
         self._page = page or _StubPage()
         self._size = QSize(1180, 760)
         self.resizes: list[tuple[int, int]] = []
+        self.hide_calls = 0
+        self.show_calls = 0
+        self.visible = True
         self.updates = 0
         self.repaints = 0
 
@@ -77,6 +89,20 @@ class _StubView:
         else:
             self._size = QSize(args[0], args[1])
         self.resizes.append((self._size.width(), self._size.height()))
+
+    def hide(self) -> None:  # noqa: N802
+        self.hide_calls += 1
+        self.visible = False
+
+    def show(self) -> None:  # noqa: N802
+        self.show_calls += 1
+        self.visible = True
+
+    def isVisible(self) -> bool:  # noqa: N802
+        return self.visible
+
+    def setVisible(self, visible: bool) -> None:  # noqa: N802
+        self.visible = visible
 
     def update(self) -> None:  # noqa: N802
         self.updates += 1
@@ -100,7 +126,8 @@ def _window_state_event() -> QEvent:
 
 class TestWakeOnRestore:
     def test_最小化恢复边沿会排队唤醒(self, qapp):
-        shell, view = _shell_with_stub(qapp)
+        page = _StubPage()
+        shell, view = _shell_with_stub(qapp, page)
         shell.show()
         qapp.processEvents()
         try:
@@ -113,7 +140,12 @@ class TestWakeOnRestore:
             qapp.processEvents()
 
             assert view.updates >= 1, "恢复边沿未触发唤醒（重绘没有发生）"
-            assert view.resizes, "未做 1px 尺寸抖动（合成层不会重建 surface）"
+            assert page.visibility_calls.count(True) >= 1, (
+                "未把页面标为可见（Chromium 只给可见页面出帧，这是根因）"
+            )
+            assert view.hide_calls >= 1 and view.show_calls >= 1, (
+                "未强制 re-expose（只 update() 不够，合成层不会重建 surface）"
+            )
             assert shell._was_minimized is False, "边沿状态未更新（下次恢复会漏触发）"
         finally:
             shell.hide()
@@ -200,13 +232,24 @@ class TestWakeRendererActions:
         finally:
             shell.hide()
 
-    def test_1px_尺寸抖动后还原(self, qapp):
+    def test_抖动作用在窗口而不是布局里的_view(self, qapp):
+        """尺寸抖动必须走主窗：动 view 会让布局与 surface 尺寸错配"""
         shell, view = _shell_with_stub(qapp)
         try:
-            shell._wake_renderer()
-            assert view.resizes == [(1181, 761), (1180, 760)], (
-                f"尺寸抖动不符合预期：{view.resizes}"
-            )
+            size_before = shell.size()
+            view.resizes.clear()
+            shell._wake_renderer(hard=False)
+            assert view.resizes == [], f"不应直接 resize view：{view.resizes}"
+            assert shell.size() == size_before, "窗口尺寸应还原"
+        finally:
+            shell.hide()
+
+    def test_可见性契约被显式设置(self, qapp):
+        page = _StubPage()
+        shell, _view = _shell_with_stub(qapp, page)
+        try:
+            shell._wake_renderer(hard=False)
+            assert page.visibility_calls == [True], page.visibility_calls
         finally:
             shell.hide()
 
@@ -232,6 +275,81 @@ class TestWakeRendererActions:
         try:
             shell._wake_renderer()
             assert page.js_calls == [], "唤醒路径不应执行 JS（尺寸变化由 Chromium 自己派发）"
+        finally:
+            shell.hide()
+
+
+class TestWakeRobustness:
+    """「恢复后能显示但点击不刷新」的两个成因，各一条用例守住"""
+
+    def test_窗口未就绪时会重试而不是放弃(self, qapp):
+        shell, view = _shell_with_stub(qapp)
+        shell.show()
+        qapp.processEvents()
+        try:
+            shell.showMinimized()
+            qapp.processEvents()
+            view.updates = 0
+            view.hide_calls = 0
+
+            shell._schedule_wake_renderer("test")
+            qapp.processEvents()
+            # 仍最小化：不得执行硬唤醒，但余额必须被消耗（说明在排队重试）
+            assert view.hide_calls == 0, "最小化期间不应 re-expose"
+            assert shell._wake_wait_left < 12, "窗口未就绪时没有重试（余额未消耗）"
+        finally:
+            shell.hide()
+
+    def test_重试余额用尽后停止排队(self, qapp):
+        shell, view = _shell_with_stub(qapp)
+        try:
+            shell._wake_wait_left = 0
+            shell._wait_until_mapped()
+            assert shell._wake_wait_left == 0
+            assert shell._wake_pending is False, "余额用尽后不应继续排队"
+        finally:
+            shell.hide()
+
+    def test_补帧时会补做遗漏的硬唤醒(self, qapp):
+        """初次硬唤醒若被跳过（窗口未 map），软补帧必须补做一次"""
+        page = _StubPage()
+        shell, view = _shell_with_stub(qapp, page)
+        shell.show()
+        qapp.processEvents()
+        try:
+            shell._hard_wake_done = False
+            view.hide_calls = 0
+            view.show_calls = 0
+            shell._wake_retry()
+            assert view.hide_calls >= 1 and view.show_calls >= 1, (
+                "软补帧没有补做硬唤醒 ⇒ surface 永远不重建（用户症状）"
+            )
+            assert shell._hard_wake_done is True
+        finally:
+            shell.hide()
+
+    def test_已经硬唤醒过时补帧保持轻量(self, qapp):
+        shell, view = _shell_with_stub(qapp)
+        shell.show()
+        qapp.processEvents()
+        try:
+            shell._hard_wake_done = True
+            view.hide_calls = 0
+            shell._wake_retry()
+            assert view.hide_calls == 0, "已重建过 surface 时不应反复 hide/show（会闪）"
+        finally:
+            shell.hide()
+
+    def test_托盘恢复会清掉最小化状态位(self, qapp):
+        shell, _view = _shell_with_stub(qapp)
+        try:
+            shell.show()
+            qapp.processEvents()
+            shell.hide_to_tray()
+            qapp.processEvents()
+            shell.restore_from_tray()
+            qapp.processEvents()
+            assert not (shell.windowState() & shell.windowState().__class__.WindowMinimized)
         finally:
             shell.hide()
 
@@ -263,4 +381,21 @@ class TestWebengineFlags:
 
     def test_空值容错(self):
         merged = webengine_flags.build_chromium_flags(None, platform="win32")
-        assert merged == f"--disable-features={webengine_flags.OCCLUSION_FEATURE}"
+        assert merged.startswith(f"--disable-features={webengine_flags.OCCLUSION_FEATURE}")
+        for switch in webengine_flags.EXTRA_WINDOWS_SWITCHES:
+            assert switch in merged, f"缺少后台化开关 {switch}"
+
+    def test_逃生开关切到软件合成(self, monkeypatch):
+        monkeypatch.setenv(webengine_flags.SOFTWARE_GPU_ENV, "1")
+        merged = webengine_flags.build_chromium_flags("", platform="win32")
+        for switch in webengine_flags.SOFTWARE_GPU_SWITCHES:
+            assert switch in merged
+        # 软件合成同样幂等
+        assert webengine_flags.build_chromium_flags(merged, platform="win32") == merged
+
+    def test_后台化开关只加一次(self):
+        once = webengine_flags.build_chromium_flags("", platform="win32")
+        twice = webengine_flags.build_chromium_flags(once, platform="win32")
+        assert once == twice
+        for switch in webengine_flags.EXTRA_WINDOWS_SWITCHES:
+            assert twice.count(switch) == 1

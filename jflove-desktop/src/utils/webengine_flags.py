@@ -33,8 +33,27 @@ FLAGS_ENV = "QTWEBENGINE_CHROMIUM_FLAGS"
 #: 要关闭的 Chromium 特性（Windows 原生遮挡判定）
 OCCLUSION_FEATURE = "CalculateNativeWinOcclusion"
 
+#: 额外要关闭的两个"后台化"开关
+#:
+#: `CalculateNativeWinOcclusion` 只负责**判定**遮挡；真正让渲染进程降频/停帧的是
+#: 下面两个开关。用户实测"恢复后点菜单逻辑生效但画面不刷新、要再最小化一次"，
+#: 正是渲染进程被后台化后不再出帧的表现，所以三个一起关。
+EXTRA_WINDOWS_SWITCHES = (
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+)
+
 #: 需要注入该特性的平台（sys.platform 取值）
 WINDOWS_PLATFORM = "win32"
+
+#: 逃生开关：设置后改用**软件合成**（排障用，牺牲性能换"必有画面"）
+SOFTWARE_GPU_ENV = "JFLOVE_WEBENGINE_SOFTWARE_GPU"
+
+#: 软件合成时追加的开关
+#:
+#: 若用户真机上仍出现"最小化恢复后不出帧"，多半是 D3D 设备在最小化时丢失、
+#: 恢复后没能重建。此时关掉 GPU 合成即可完全绕开该路径。
+SOFTWARE_GPU_SWITCHES = ("--disable-gpu-compositing", "--disable-gpu")
 
 
 def build_chromium_flags(
@@ -49,6 +68,8 @@ def build_chromium_flags(
     :returns: 合并后的 flags（空格分隔）；非 Windows 原样返回
     """
     base = (existing or "").strip()
+    if os.environ.get(SOFTWARE_GPU_ENV):
+        return _with_switches(base, SOFTWARE_GPU_SWITCHES)
     if (platform or sys.platform) != WINDOWS_PLATFORM:
         return base
     if OCCLUSION_FEATURE in base:
@@ -56,6 +77,7 @@ def build_chromium_flags(
         return base
 
     tokens = base.split()
+    merged = False
     for index, token in enumerate(tokens):
         if token.startswith("--disable-features="):
             features = token.split("=", 1)[1].strip()
@@ -63,9 +85,20 @@ def build_chromium_flags(
                 tokens[index] = f"--disable-features={OCCLUSION_FEATURE}"
             else:
                 tokens[index] = f"{token},{OCCLUSION_FEATURE}"
-            return " ".join(tokens)
+            merged = True
+            break
+    if not merged:
+        tokens.append(f"--disable-features={OCCLUSION_FEATURE}")
 
-    tokens.append(f"--disable-features={OCCLUSION_FEATURE}")
+    return _with_switches(" ".join(tokens), EXTRA_WINDOWS_SWITCHES)
+
+
+def _with_switches(flags: str, switches: tuple[str, ...]) -> str:
+    """把若干独立开关追加进 flags（已存在则跳过，幂等）"""
+    tokens = flags.split()
+    for switch in switches:
+        if switch not in tokens:
+            tokens.append(switch)
     return " ".join(tokens)
 
 
