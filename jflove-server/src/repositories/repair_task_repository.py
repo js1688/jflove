@@ -216,3 +216,17 @@ async def mark_interrupted_as_failed(db: aiosqlite.Connection) -> int:
     )
     await db.commit()
     return cur.rowcount or 0
+
+
+async def list_all_with_artifacts(db: aiosqlite.Connection) -> list[aiosqlite.Row]:
+    """
+    查询全部仍登记了产物名的修复任务（v1.9.0 临时目录迁移用）。
+
+    :returns: 任务行（含 id / disk_id / rel_path / output_name）
+    """
+    async with db.execute(
+        "SELECT id, disk_id, rel_path, output_name, filename"
+        " FROM media_repair_tasks"
+        " WHERE output_name != '' AND deleted_at IS NULL",
+    ) as cur:
+        return await cur.fetchall()

@@ -32,6 +32,8 @@ from src.config.settings import (
     OFFLINE_MIN_IMAGE_SIDE,
     OFFLINE_DIR_NAME,
     OFFLINE_SEGMENT_CONCURRENCY,
+    TEMP_DIR_NAME,
+    TEMP_OFFLINE_SUBDIR,
 )
 from src.utils import media_probe
 from src.utils.image_probe import is_too_small, probe_image_file
@@ -427,9 +429,10 @@ class MediaFetcherService:
         referer: str = "",
         progress=None,
         cancel_event=None,
+        temp_root: str = "",
     ) -> FetchOutcome:
         """下载一条可下载项并原子落盘。"""
-        tmp_root = os.path.join(target_dir, OFFLINE_DIR_NAME, str(task_id))
+        tmp_root = _task_temp_root(target_dir, task_id, temp_root)
         os.makedirs(tmp_root, exist_ok=True)
         kind = str(item.get("kind") or "video")
         if kind == "image":
@@ -441,6 +444,7 @@ class MediaFetcherService:
                 referer=referer,
                 progress=progress,
                 cancel_event=cancel_event,
+                temp_root=temp_root,
             )
             if not outcomes:
                 raise FetchError("no_media", "图片尺寸过小，已跳过")
@@ -491,12 +495,13 @@ class MediaFetcherService:
         pack_zip: bool = False,
         progress=None,
         cancel_event=None,
+        temp_root: str = "",
     ) -> list[FetchOutcome]:
         """下载一批图片：单张直接落盘；多张落同名子目录；可选 zip。"""
         safe_title = _safe_title(title)
         subdir = safe_title if len(images) > 1 else ""
         final_dir = os.path.join(target_dir, subdir) if subdir else target_dir
-        tmp_root = os.path.join(target_dir, OFFLINE_DIR_NAME, str(task_id))
+        tmp_root = _task_temp_root(target_dir, task_id, temp_root)
         os.makedirs(final_dir, exist_ok=True)
         os.makedirs(tmp_root, exist_ok=True)
         outcomes: list[FetchOutcome] = []
@@ -1112,11 +1117,34 @@ def _outbound_code(exc: OutboundError) -> str:
     return "network_error"
 
 
-def cleanup_task_temp(target_dir: str, task_id: int) -> None:
-    """清理某任务在目标目录下的隐藏临时目录（成功/取消/失败收尾用）。"""
-    path = os.path.join(target_dir, OFFLINE_DIR_NAME, str(task_id))
-    if os.path.isdir(path):
-        shutil.rmtree(path, ignore_errors=True)
+def _task_temp_root(target_dir: str, task_id: int, temp_root: str = "") -> str:
+    """
+    计算某离线下载任务的临时目录（v1.9.0 统一临时根）。
+
+    :param target_dir: 最终目标目录（旧路径回退用）
+    :param task_id: 任务 ID
+    :param temp_root: 虚拟磁盘根；传入时使用 `<根>/.jflove-tmp/offline/<task_id>`
+    """
+    if temp_root:
+        return os.path.join(temp_root, TEMP_DIR_NAME, TEMP_OFFLINE_SUBDIR, str(task_id))
+    return os.path.join(target_dir, OFFLINE_DIR_NAME, str(task_id))
+
+
+def cleanup_task_temp(target_dir: str, task_id: int, *, temp_root: str = "") -> None:
+    """
+    清理某任务临时目录（成功/取消/失败收尾用；新旧路径都尝试）。
+
+    :param target_dir: 最终目标目录
+    :param task_id: 任务 ID
+    :param temp_root: 虚拟磁盘根（新路径）
+    """
+    paths = []
+    if temp_root:
+        paths.append(_task_temp_root(target_dir, task_id, temp_root))
+    paths.append(_task_temp_root(target_dir, task_id, ""))
+    for path in paths:
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def sanitize_log_label(url: str) -> str:

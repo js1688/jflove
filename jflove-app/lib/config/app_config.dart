@@ -22,8 +22,12 @@ class AppConfig {
   /// 最大重试次数
   static const int maxRetries = 3;
 
-  /// 文件上传分片大小（1 MB）
-  static const int uploadChunkSize = 1024 * 1024;
+  /// 文件上传分片大小（512 KB，v1.9.0 弱服务端优先；服务端硬上限 1MB）
+  static const int uploadChunkSize = 512 * 1024;
+
+  /// 下载断点续传：本地 part 与元数据后缀（v1.9.0）
+  static const String downloadPartSuffix = '.jflove-part';
+  static const String downloadMetaSuffix = '.jflove-part.json';
 
   /// 明文白名单路径
   static const List<String> plainPaths = [

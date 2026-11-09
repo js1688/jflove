@@ -12,6 +12,15 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 > （默认 90/15/60 秒，允许 30~180 / 5~30 / 15~120，复用既有 `/api/v1/config` 加密接口，仅管理员可写）；
 > 服务器目录选择器的超限文案改用 `server-dirs` 响应新增的 `limit`（旧服务端缺省回落 2000）。
 
+> **v1.9.0（Web 端）**：大文件上传支持断点续传——`init` 带 `client_type:"web"`、默认 512KB 分片、
+> 按服务端 `received_chunks` 跳过已传片、单片失败指数退避重试 5 次、失败不删会话（仅用户取消才清理）、
+> `complete` 强制异步（`async_mode:true`）并每 2.5s 轮询 `upload/progress`；
+> 下载支持 Range 续传——本地分块 **OPFS 优先 / IndexedDB 回退**，刷新页面后续传，完成后拼 Blob
+> 导出并清理临时数据（本地 part 保留 7 天），两者都不可用时回退整文件下载并明确提示；
+> 管理员「系统设置 → 存储与临时文件」可配置续传保障期 / 自动清理 / 客户端类型 / 孤儿保留期 /
+> 会话上限 / 合并与上传并发，并提供弱服务端模式预设与「立即清理」
+> （复用 `/api/v1/config` 与新增 `POST /api/v1/config/cleanup` 加密接口）。
+
 ---
 
 ## 技术架构
@@ -174,7 +183,7 @@ jflove-web/
 │   │       ├── AdminUsersPage.tsx   # 用户管理
 │   │       ├── AdminDisksPage.tsx   # 磁盘管理
 │   │       ├── AdminPermissionsPage.tsx # 权限配置
-│   │       └── AdminSystemPage.tsx  # 系统设置（媒体修复 / 离线下载 / 超时）
+│   │       └── AdminSystemPage.tsx  # 系统设置（媒体修复 / 离线下载 / 存储与临时文件）
 │   ├── components/
 │   │   ├── PageHeader.tsx          # 页面标题栏（sticky 固定）
 │   │   ├── PathBreadcrumb.tsx      # 路径面包屑（含返回上级箭头）
@@ -217,6 +226,7 @@ jflove-web/
 │   │   ├── http-client.ts          # 加密 HTTP 客户端
 │   │   ├── session.ts              # 会话管理
 │   │   ├── stream-frame.ts         # 流式帧解析
+│   │   ├── download-store.ts       # 下载续传本地存储（OPFS 优先 / IndexedDB 回退，7 天清理）
 │   │   ├── media-source-player.ts  # MSE 边下边播主路径（v1.4.0+，HTTP/HTTPS 均可用）
 │   │   ├── file-visual.ts          # 图片/媒体可视化辅助
 │   │   ├── format.ts               # 格式化工具
@@ -229,8 +239,8 @@ jflove-web/
 │       └── api.ts                  # API 类型
 └── tests/
     ├── setup.ts
-    ├── utils/                      # crypto / http-client / stream-frame / offline-download 测试
-    ├── services/                   # server-history-service / offline-download-service 测试
+    ├── utils/                      # crypto / http-client / stream-frame / offline-download / download-store 测试
+    ├── services/                   # server-history / offline-download / 上传续传 / 下载续传 / 配置 测试
     ├── stores/                     # auth-store / transfer-store 测试
     ├── layouts/                    # 导航与路由结构回归
     └── components/                 # PageHeader 组件测试
@@ -266,5 +276,6 @@ jflove-web/
 - **同步管理**：浏览器端**不提供**（v1.7.0 起移除该页面）——同步能力只在桌面端（云盘挂载）与移动端（相册备份）提供；访问旧 `/sync` 深链会落到兜底路由
 - **视频/音频预览**：**MSE 主路径**（`src/utils/media-source-player.ts` 的 `playWithMSE`）边下边播 + 拖动 seek，**HTTP 与 HTTPS 均可用**（v1.4.0 起移除 Service Worker 流式代理，不再依赖安全上下文；单入口构建、无 `dist/sw.js`）；MSE 不可行时才回退「完整下载 → Blob」；超大文件（>500MB）提示下载，与桌面端/移动端一致
 - **PDF 预览**：暂不支持（与桌面端/移动端一致），提示下载后使用本地程序打开
+- **断点续传（v1.9.0）**：上传依赖服务端 `init.received_chunks` 与 `complete` 异步协议（`async_mode`），下载依赖服务端 Range 与 `X-Stream-Offset/X-Stream-Total/X-File-Version` 响应头；旧服务端缺字段时上传按同步完成降级、下载检测到偏移不符会从头下载（不拼坏文件）。浏览器不支持 OPFS/IndexedDB 时回退整文件下载并明确提示；本地 part 保留 7 天，中断/失败默认保留，可在传输任务页「放弃续传」清理
 - **离线下载**：接口前缀 `/api/v1/offline`（10 个，全部加密信封、无路径参数）。任务列表/详情按账号隔离；默认目录按账号存在服务端（不写 localStorage，三端一致）。轮询间隔取 `/offline/meta` 的 `poll_interval_ms`（默认 2.5s），**页面切到后台或任务全部终态即停止**（AC-232）。无可写磁盘时整页显示「你没有可写入的磁盘，无法使用离线下载」并禁用新建任务；总开关关闭 / 未配置目录 / 目录失效分别有对应中文提示。总开关关闭时**侧栏与底部菜单入口不做置灰**（导航层拿不到 `/offline/meta`，避免每个页面多发一次请求），置灰提示落在页面内（AC-200 的页面内部分）。解析 / 连接 / 读取超时由管理员在「系统设置」修改（默认 90/15/60 秒，范围 30~180 / 5~30 / 15~120，保存后立即生效）
 - **Markdown 预览**：已接入 `marked` + `DOMPurify`（XSS 清洗）+ `highlight.js`（代码高亮）+ `mermaid`（图表渲染），支持标题/加粗/斜体/列表/引用/代码块等

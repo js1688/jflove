@@ -355,10 +355,61 @@ async function plainRequest<T>(
 
 // ── 流式下载（GET + query 传信封，流式响应） ──
 
+/**
+ * 下载流响应头（v1.9.0 断点续传，AC-332/AC-335）。
+ *
+ * 服务端只在响应头放「偏移 / 总大小 / 版本标识」这类元数据，
+ * **不含**文件名、路径、用户标识（安全宪法 §9.4）。
+ * 旧服务端不返回这些头时为 null，客户端据此判定「服务端不支持 Range」。
+ */
+export interface DownloadStreamHeaders {
+  /** 实际起始字节偏移（X-Stream-Offset） */
+  streamOffset: number | null;
+  /** 文件总字节（X-Stream-Total） */
+  streamTotal: number | null;
+  /** 远端文件版本标识（X-File-Version，形如 `"size:mtime"`） */
+  fileVersion: string | null;
+  /** 加密流协议版本（X-Encrypted-Stream） */
+  encryptedStream: string | null;
+}
+
+/** 流式下载返回值：加密流 + 续传所需的响应头元数据 */
+export interface DownloadStreamResult {
+  stream: ReadableStream<Uint8Array>;
+  headers: DownloadStreamHeaders;
+}
+
+/** 解析下载续传响应头（缺头 / 非法值一律按 null 处理，交调用方降级） */
+function parseDownloadHeaders(headers: Headers): DownloadStreamHeaders {
+  const readInt = (name: string): number | null => {
+    const raw = headers.get(name);
+    if (raw === null || raw.trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  };
+  return {
+    streamOffset: readInt('X-Stream-Offset'),
+    streamTotal: readInt('X-Stream-Total'),
+    fileVersion: headers.get('X-File-Version') || null,
+    encryptedStream: headers.get('X-Encrypted-Stream') || null,
+  };
+}
+
+/**
+ * 流式下载（v1.9.0 支持 `range_start`：请求体新增字段，响应头带续传元数据）。
+ *
+ * 请求仍是「GET + URL query 加密信封」——浏览器禁止 GET 携带 body；
+ * `range_start` 属于业务参数，只进加密信封，**不进入 URL 明文**（安全宪法 §9.3/§9.4）。
+ *
+ * @param path 接口路径
+ * @param body 加密请求体（含 range_start / disk_id / path / filename）
+ * @param options.signal 用户取消信号（中止在途请求；临时数据由调用方决定保留）
+ */
 async function downloadStream(
   path: string,
   body: Record<string, unknown> = {},
-): Promise<ReadableStream<Uint8Array>> {
+  options: { signal?: AbortSignal } = {},
+): Promise<DownloadStreamResult> {
   // 已登录但加密会话未建立（如页面刷新后免登录恢复）：自动重新密钥交换
   if ((!getSessionKey() || !getSessionId()) && getToken()) {
     await resyncSession();
@@ -383,6 +434,15 @@ async function downloadStream(
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), STREAM_TIMEOUT_MS);
+  // 用户取消：外部 signal 中止同一条 fetch；取消后临时数据由调用方决定保留/清理
+  const onUserAbort = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) {
+      clearTimeout(timeoutId);
+      throw new DOMException('下载已取消', 'AbortError');
+    }
+    options.signal.addEventListener('abort', onUserAbort, { once: true });
+  }
 
   try {
     const response = await fetch(`${url}?${query}`, {
@@ -395,28 +455,44 @@ async function downloadStream(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
+      // 401 会话过期：静默续约后重发（续传偏移仍在加密 body 内，不受影响）
       if (response.status === 401) {
         const errDetail = sessionKey
           ? (await tryDecryptError(response, sessionKey))?.detail || ''
           : await extractErrorDetail(response);
         if (ECDH_401_PATTERNS.some(p => errDetail.includes(p))) {
           await resyncSession();
-          return downloadStream(path, body);
+          return downloadStream(path, body, options);
         }
       }
-      throw new ApiError(response.status, `流式请求失败：HTTP ${response.status}`);
+      // 4xx（含 416 偏移越界）的 detail 也在加密信封里，解出来给用户看
+      const errDetail = sessionKey
+        ? (await tryDecryptError(response, sessionKey))?.detail || ''
+        : await extractErrorDetail(response);
+      throw new ApiError(
+        response.status,
+        errDetail || `流式请求失败：HTTP ${response.status}`,
+      );
     }
 
     if (!response.body) {
       throw new ApiError(0, '响应体为空');
     }
 
-    // 返回流式响应体，由调用方（stream-frame）逐帧解密
-    return response.body;
+    // 返回加密流 + 续传响应头，由调用方（stream-frame）逐帧解密并决定从何处续写
+    return { stream: response.body, headers: parseDownloadHeaders(response.headers) };
   } catch (e) {
     clearTimeout(timeoutId);
     if (e instanceof ApiError) throw e;
+    if (options.signal?.aborted) {
+      throw new DOMException('下载已取消', 'AbortError');
+    }
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new ApiError(0, '流式请求超时');
+    }
     throw new ApiError(0, `流式网络错误：${e instanceof Error ? e.message : String(e)}`);
+  } finally {
+    options.signal?.removeEventListener('abort', onUserAbort);
   }
 }
 
@@ -444,9 +520,12 @@ export const httpClient = {
   delete: <T>(path: string, body?: Record<string, unknown>) =>
     encryptedRequest<T>('DELETE', path, body),
 
-  /** 流式下载（ReadableStream，调用方负责逐帧解密） */
-  downloadStream: (path: string, body?: Record<string, unknown>) =>
-    downloadStream(path, body),
+  /** 流式下载（加密流 + 续传响应头；调用方负责逐帧解密） */
+  downloadStream: (
+    path: string,
+    body?: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ) => downloadStream(path, body, options),
 
   // ── 明文请求（白名单接口） ──
 

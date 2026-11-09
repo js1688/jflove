@@ -248,7 +248,7 @@ def test_取消上传会清理进度(temp_root, tmp_path):
 def test_进度记录会被定期清理(temp_root):
     file_service._merge_progress.clear()
     file_service._merge_progress_set("p-old", state="done")
-    file_service._merge_progress["p-old"]["updated_at"] = time.time() - 7200
+    file_service._merge_progress["p-old"]["updated_at"] = time.time() - 25 * 3600
 
     pruned = file_service.prune_merge_progress()
 

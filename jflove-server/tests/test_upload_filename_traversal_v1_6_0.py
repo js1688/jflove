@@ -76,6 +76,7 @@ def _init(client, session, env, filename, content: bytes = PAYLOAD):
             "file_size": len(content),
             "total_chunks": 1,
             "file_hash": hashlib.sha256(content).hexdigest(),
+            "client_type": "desktop",
         },
     )
 

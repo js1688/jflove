@@ -341,3 +341,20 @@ jflove-server/
 ├── requirements.txt    # 依赖清单
 └── README.md           # 本文件
 ```
+
+## v1.9.0 大文件断点续传 / 合并异步化 / 临时文件治理
+
+- 上传会话元数据持久化在 `build/tmp/upload/<upload_id>/session.json`，服务启动时恢复；
+  已收分片以磁盘 `.chunk` 实际存在性为准；`init` 按内容指纹（含 `total_chunks`）幂等复用。
+- `complete` 强制新客户端传 `async_mode=true`：立即受理，合并体在独立线程执行，
+  客户端轮询 `/upload/progress`；全局合并并发默认 1（可配 0~4），分片并发默认 2（1~8），单分片 ≤1MB。
+- `GET /files/download` 支持 `range_start`（断点续传），响应头 `X-Stream-Offset` /
+  `X-Stream-Total` / `X-File-Version`；服务端不保存下载临时文件。
+- 临时目录统一：进程级 `build/tmp`，磁盘级 `<磁盘根>/.jflove-tmp/`（`offline/`、`repair/`）；
+  旧 `.jflove-download` / `.jflove-repair` 启动迁移；合并临时文件仍在目标目录（原子替换例外）。
+- 文件列表/对账不返回 `.` 开头条目；程序保留隐藏目录禁止通过文件管理接口访问。
+- 清理可配：`upload_resume_ttl_hours`（默认 24，同时决定续传有效期与清理保护期）、
+  `upload_cleanup_enabled`、`upload_cleanup_interval_minutes`、`upload_cleanup_client_types`、
+  `upload_orphan_ttl_hours`、`upload_max_sessions_per_user`、`upload_merge_concurrency`、
+  `upload_chunk_concurrency`；管理员可 `POST /api/v1/config/cleanup` 立即清理。
+- 无数据库 DDL；发布时 `scripts/check_db_schema.py` 仍须退出码 0。

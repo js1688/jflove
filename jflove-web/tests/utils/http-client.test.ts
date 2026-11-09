@@ -212,7 +212,7 @@ describe('http-client 加密请求', () => {
     expect(parsed.disk_id).toBe(1);
   });
 
-  it('downloadStream 走真 GET + URL query 信封并返回流式 body', async () => {
+  it('downloadStream 走真 GET + URL query 信封并返回加密流 + 续传响应头', async () => {
     // 构造带 body 的流式响应（stream-frame 帧内容此处不展开，仅验证请求形态）
     const streamBody = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -222,18 +222,31 @@ describe('http-client 加密请求', () => {
     });
     const mockResponse = new Response(streamBody, {
       status: 200,
-      headers: { 'Content-Type': 'application/octet-stream' },
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Encrypted-Stream': 'v1',
+        'X-Stream-Offset': '524288',
+        'X-Stream-Total': '1048576',
+        'X-File-Version': '1048576:1760000000',
+      },
     });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(mockResponse);
 
-    const stream = await httpClient.downloadStream('/api/v1/files/download', {
+    const result = await httpClient.downloadStream('/api/v1/files/download', {
       disk_id: 1,
       path: 'a.txt',
       filename: 'a.txt',
+      range_start: 524288,
     });
 
-    // 返回流式响应体
-    expect(stream).toBeInstanceOf(ReadableStream);
+    // 返回加密流 + 续传元数据（v1.9.0）
+    expect(result.stream).toBeInstanceOf(ReadableStream);
+    expect(result.headers).toEqual({
+      encryptedStream: 'v1',
+      streamOffset: 524288,
+      streamTotal: 1048576,
+      fileVersion: '1048576:1760000000',
+    });
     const [url, options] = fetchMock.mock.calls[0];
     expect(options.method).toBe('GET');
     expect(options.headers['X-Session-ID']).toBe('test-session-id');
@@ -243,14 +256,17 @@ describe('http-client 加密请求', () => {
     const params = new URLSearchParams(queryStr);
     expect(params.get('nonce')).toBeTruthy();
     expect(params.get('ciphertext')).toBeTruthy();
+    // range_start 属于业务参数：必须在加密信封内，URL 明文里不能出现
+    expect(String(url)).not.toContain('524288');
 
-    // 解密后参数完整（token + 下载参数）
+    // 解密后参数完整（token + 下载参数 + 续传偏移）
     const decrypted = decryptEnvelope(
       sessionKey, params.get('nonce')!, params.get('ciphertext')!,
     );
     const parsed = JSON.parse(new TextDecoder().decode(decrypted));
     expect(parsed.token).toBe('test-jwt-token');
     expect(parsed.path).toBe('a.txt');
+    expect(parsed.range_start).toBe(524288);
   });
 
   // ── BL-3：响应解密失败不得被误报为「网络错误」 ──

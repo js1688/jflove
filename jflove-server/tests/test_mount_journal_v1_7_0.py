@@ -37,6 +37,7 @@ def _upload(client, session, env, subdir: str, filename: str, content: bytes) ->
             "file_size": len(content),
             "total_chunks": 1,
             "file_hash": file_hash,
+            "client_type": "desktop",
         },
     )
     assert resp.status_code == 200, resp.text

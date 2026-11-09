@@ -118,17 +118,25 @@ def test_会话失效时重新初始化并完成(monkeypatch, local_file):
 
 
 def test_强杀后重启复用已发送分片(monkeypatch, local_file):
-    """续传记录存在时，跳过已发送的分片"""
+    """
+    v1.9.0 语义：续传点以服务端 `init.received_chunks` 为准。
+
+    应用被强杀后本地记录仍在；重启后的 init 由服务端返回已收分片，客户端跳过
+    这些分片、只补缺失片，且 init 必须携带 `client_type="desktop"`。
+    """
     size = os.path.getsize(local_file)
     mtime = os.path.getmtime(local_file)
     key = file_service._resume_key(1, "", os.path.basename(local_file), size, mtime)
     file_service._resume_update(key, "u-resume", {0})
 
     sent_indexes: list[int] = []
+    init_payloads: list[dict] = []
 
     def fake_post(endpoint, data=None, timeout=30):
         if endpoint.endswith("/upload/init"):
-            raise AssertionError("不应重新初始化")
+            init_payloads.append(data or {})
+            # 服务端状态：第 0 片已收，第 1 片缺失
+            return {"upload_id": "u-resume", "received_chunks": [0], "resumed": True}
         if endpoint.endswith("/upload/chunk"):
             sent_indexes.append(data["chunk_index"])
             return {}
@@ -138,7 +146,8 @@ def test_强杀后重启复用已发送分片(monkeypatch, local_file):
     monkeypatch.setattr(file_service.http_client, "delete", lambda *a, **k: {})
 
     assert file_service.upload_file(1, "", local_file) == "/remote/big.bin"
-    assert 0 not in sent_indexes, "已发送的分片不应重发"
+    assert init_payloads and init_payloads[0]["client_type"] == "desktop"
+    assert 0 not in sent_indexes, "服务端已收的分片不应重发"
     assert sent_indexes == [1]
     assert file_service._resume_get(key) is None, "完成后必须清理续传记录"
 

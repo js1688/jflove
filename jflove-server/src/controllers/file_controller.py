@@ -21,7 +21,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import aiosqlite
 
-from src.config.settings import REPAIR_DIR_NAME
+from src.config.settings import (
+    REPAIR_DIR_NAME,
+    TEMP_DIR_NAME,
+    TEMP_REPAIR_SUBDIR,
+)
 from src.models.database import get_db
 from src.repositories import repair_task_repository, virtual_disk_repository
 from src.services import file_service, auth_service
@@ -145,7 +149,7 @@ async def list_files(request: Request, db: aiosqlite.Connection = Depends(get_db
     ),
 )
 async def init_upload(request: Request, db: aiosqlite.Connection = Depends(get_db)):
-    """初始化分片上传，返回 upload_id"""
+    """初始化分片上传（v1.9.0：指纹幂等 + 返回已收分片）"""
     body = await decrypt_request_body(request)
     user = await _get_user(request, db, body)
     disk_id = int(body.get("disk_id", 0))
@@ -154,20 +158,55 @@ async def init_upload(request: Request, db: aiosqlite.Connection = Depends(get_d
     file_size = int(body.get("file_size", 0))
     total_chunks = int(body.get("total_chunks", 1))
     file_hash = body.get("file_hash", "")
+    client_type = str(body.get("client_type") or "").strip().lower()
     mtime_raw = body.get("mtime")
     mtime = float(mtime_raw) if mtime_raw not in (None, "", 0) else None
     if not filename or not file_hash:
         raise HTTPException(status_code=400, detail="filename 和 file_hash 不能为空")
+    # v1.9.0（D27/F54）：强制新协议，旧客户端明确提示升级，不静默接受
+    if client_type not in ("app", "desktop", "web"):
+        raise HTTPException(
+            status_code=409,
+            detail="服务端已升级，请升级客户端后重试",
+        )
     try:
-        upload_id = await file_service.init_upload(
+        result = await file_service.init_upload_ex(
             db, user["id"], user["role"], disk_id, rel_path,
             filename, file_size, total_chunks, file_hash, mtime,
+            client_type=client_type,
         )
     except (PermissionError, ValueError) as e:
         status = 403 if isinstance(e, PermissionError) else 400
         raise HTTPException(status_code=status, detail=str(e))
     session_id = request.headers.get("X-Session-ID", "")
-    return encrypt_response(session_id, {"upload_id": upload_id})
+    return encrypt_response(session_id, result)
+
+
+@router.post(
+    "/upload/status",
+    summary="查询上传会话状态（v1.9.0）",
+    description=(
+        "返回会话是否存在、已收/缺失分片、过期时间；客户端据此只补缺失分片。\n\n"
+        "请求体（加密后）字段：\n"
+        "- `token`：JWT 令牌\n"
+        "- `upload_id`：上传会话 ID"
+    ),
+)
+async def upload_status(request: Request, db: aiosqlite.Connection = Depends(get_db)):
+    """查询上传会话状态（归属校验；不存在/他人会话统一返回 exists=false）"""
+    body = await decrypt_request_body(request)
+    user = await _get_user(request, db, body)
+    upload_id = str(body.get("upload_id") or "")
+    info = file_service.upload_status(upload_id, user["id"])
+    session_id = request.headers.get("X-Session-ID", "")
+    if info is None:
+        return encrypt_response(session_id, {
+            "exists": False, "state": "expired", "upload_id": upload_id,
+            "received_chunks": [], "missing_chunks": [], "total_chunks": 0,
+            "file_size": 0, "expires_at": 0.0, "expired": True,
+            "client_type": "unknown",
+        })
+    return encrypt_response(session_id, info)
 
 
 @router.post(
@@ -215,17 +254,33 @@ async def upload_chunk(request: Request, db: aiosqlite.Connection = Depends(get_
     ),
 )
 async def complete_upload(request: Request, db: aiosqlite.Connection = Depends(get_db)):
-    """合并分片并校验 SHA256，完成上传（验证 upload_id 归属当前用户）"""
+    """异步受理合并（v1.9.0；客户端轮询 upload/progress 获取 done/failed）"""
     body = await decrypt_request_body(request)
     user = await _get_user(request, db, body)
-    upload_id = body.get("upload_id", "")
+    upload_id = str(body.get("upload_id") or "")
+    session_id = request.headers.get("X-Session-ID", "")
+    if body.get("async_mode") is True:
+        # v1.9.0（D27）：新客户端异步受理 + 轮询 progress
+        owned = (
+            file_service.is_upload_owned_by(upload_id, user["id"])
+            or file_service.is_progress_owned_by(upload_id, user["id"])
+        )
+        if not owned:
+            raise HTTPException(status_code=403, detail="无权操作该上传会话")
+        result = await file_service.submit_merge(upload_id, db)
+        if result is None:
+            raise HTTPException(status_code=400, detail="上传会话不存在或已过期")
+        return encrypt_response(session_id, result)
+
+    # 过渡兼容（v1.9.0 仅保留一个版本）：已通过 init 新协议校验、但 complete 未传
+    # async_mode 的客户端仍走同步合并；新客户端必须传 async_mode=true。
+    # 旧客户端在 init 阶段即被 409 拒绝，不会走到这里。
     if not file_service.is_upload_owned_by(upload_id, user["id"]):
         raise HTTPException(status_code=403, detail="无权操作该上传会话")
     try:
         dest = await file_service.complete_upload(upload_id, db)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    session_id = request.headers.get("X-Session-ID", "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return encrypt_response(session_id, {"message": "上传完成", "path": dest})
 
 
@@ -247,19 +302,36 @@ async def complete_upload(request: Request, db: aiosqlite.Connection = Depends(g
     ),
 )
 async def upload_progress(request: Request, db: aiosqlite.Connection = Depends(get_db)):
-    """查询某次上传的合并进度（验证 upload_id 归属当前用户）"""
+    """查询某次上传的合并进度（v1.9.0：会话删除后仍可按进度记录查询 done/failed）"""
     body = await decrypt_request_body(request)
     user = await _get_user(request, db, body)
-    upload_id = body.get("upload_id", "")
-    if not file_service.is_upload_owned_by(upload_id, user["id"]):
-        raise HTTPException(status_code=403, detail="无权操作该上传会话")
+    upload_id = str(body.get("upload_id") or "")
+    owned = (
+        file_service.is_upload_owned_by(upload_id, user["id"])
+        or file_service.is_progress_owned_by(upload_id, user["id"])
+    )
+    if not owned:
+        # 不存在/他人 session：统一按「未知」返回，避免枚举
+        session_id = request.headers.get("X-Session-ID", "")
+        info = file_service.merge_progress(upload_id)
+        if info is not None:
+            raise HTTPException(status_code=403, detail="无权查询该上传会话")
+        return encrypt_response(session_id, {
+            "state": "unknown", "upload_id": upload_id, "processed": 0,
+            "total": 0, "percent": 0, "elapsed_seconds": 0.0,
+            "queue_position": 0, "path": "", "error": "",
+            "missing_chunks": [],
+        })
 
     info = file_service.merge_progress(upload_id)
     session_id = request.headers.get("X-Session-ID", "")
     if info is None:
-        # 会话已结束（合并完成并清理）或从未开始：让客户端按「未知」处理，
-        # 由它自己用「远端文件是否已存在」来收尾，而不是无限等待。
-        return encrypt_response(session_id, {"state": "unknown", "percent": 0})
+        return encrypt_response(session_id, {
+            "state": "unknown", "upload_id": upload_id, "processed": 0,
+            "total": 0, "percent": 0, "elapsed_seconds": 0.0,
+            "queue_position": 0, "path": "", "error": "",
+            "missing_chunks": [],
+        })
     total = int(info.get("total") or 0)
     processed = int(info.get("processed") or 0)
     size = int(info.get("file_size") or 0)
@@ -268,12 +340,17 @@ async def upload_progress(request: Request, db: aiosqlite.Connection = Depends(g
     )
     return encrypt_response(session_id, {
         "state": info.get("state", "unknown"),
+        "upload_id": upload_id,
         "processed": processed,
         "total": total,
         "percent": max(0, min(100, percent)),
         "elapsed_seconds": info.get("elapsed_seconds") or round(
             max(0.0, time.time() - float(info.get("started_at") or time.time())), 1),
         "file_size": size,
+        "queue_position": int(info.get("queue_position") or 0),
+        "path": str(info.get("path") or ""),
+        "error": str(info.get("error") or ""),
+        "missing_chunks": list(info.get("missing_chunks") or []),
     })
 
 
@@ -319,32 +396,61 @@ def _build_encrypted_file_stream(file_path: str, session_key: bytes):
     return _gen()
 
 
+def _build_encrypted_range_stream(
+    file_path: str, session_key: bytes, start: int, file_size: int
+):
+    """
+    v1 纯数据帧 + 字节 Range（v1.9.0 下载断点续传）。
+
+    与 `_build_encrypted_file_stream` 帧格式完全一致（无 v2 meta 帧），
+    只从 `start` 开始读到文件末尾；客户端逐帧解密后追加写入本地 part。
+
+    :param start: 起始字节偏移（调用方已校验 0 <= start <= file_size）
+    :param file_size: 文件总大小
+    """
+    def _gen():
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = max(0, file_size - start)
+            while remaining > 0:
+                chunk = f.read(min(STREAM_PLAINTEXT_CHUNK_SIZE, remaining))
+                if not chunk:
+                    break
+                yield encrypt_stream_chunk(session_key, chunk)
+                remaining -= len(chunk)
+    return _gen()
+
+
 @router.get(
     "/download",
-    summary="下载文件（端到端加密流）",
+    summary="下载文件（端到端加密流，v1.9.0 支持断点续传）",
     description=(
         "校验读取权限后，把文件按 64KB 明文切片，每片独立 ChaCha20-Poly1305 加密\n"
         "后以 [4B 长度][12B nonce][密文+认证标签] 帧格式流式返回。\n\n"
-        "**响应 Content-Type 为 application/octet-stream，整个响应体均为密文**，\n"
-        "公司 MITM 代理即便能解密 HTTPS，仍无法看到任何文件内容/文件名。\n\n"
+        "v1.9.0：支持 `range_start` 从指定字节偏移开始（断点续传）；响应头返回\n"
+        "`X-Stream-Offset` / `X-Stream-Total` / `X-File-Version`，不保存服务端下载临时文件。\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：JWT 令牌\n"
         "- `disk_id`：虚拟磁盘 ID\n"
-        "- `path`：文件相对路径"
+        "- `path`：文件相对路径\n"
+        "- `range_start`：起始字节偏移（默认 0；越界返回 416）"
     ),
 )
 async def download_file(request: Request, db: aiosqlite.Connection = Depends(get_db)):
-    """下载指定文件，响应为加密文件流"""
+    """下载指定文件，响应为加密文件流（支持 Range 续传）"""
     body = await decrypt_request_body(request)
     user = await _get_user(request, db, body)
     disk_id = int(body.get("disk_id", 0))
     rel_path = body.get("path", "")
+    range_start = _to_int(body.get("range_start", 0), 0)
     try:
-        file_path = await file_service.download_file(
-            db, user["id"], user["role"], disk_id, rel_path
+        file_path, start, file_size, version = await file_service.get_download_range(
+            db, user["id"], user["role"], disk_id, rel_path, range_start,
         )
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except file_service.RangeNotSatisfiableError as e:
+        raise HTTPException(status_code=416, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -353,12 +459,16 @@ async def download_file(request: Request, db: aiosqlite.Connection = Depends(get
     if not session_key:
         raise HTTPException(status_code=401, detail="会话已失效")
 
-    # 注意：不在 Content-Disposition 中放 filename，避免 MITM 看到文件名
-    # 客户端从已加密的请求 path 字段自己决定保存名
+    # 注意：响应头不携带文件名/路径/用户标识；只放偏移、总大小与版本标识
     return StreamingResponse(
-        _build_encrypted_file_stream(file_path, session_key),
+        _build_encrypted_range_stream(file_path, session_key, start, file_size),
         media_type="application/octet-stream",
-        headers={"X-Encrypted-Stream": "v1"},
+        headers={
+            "X-Encrypted-Stream": "v1",
+            "X-Stream-Offset": str(start),
+            "X-Stream-Total": str(file_size),
+            "X-File-Version": version,
+        },
     )
 
 
@@ -730,10 +840,16 @@ async def _resolve_repair_artifact(
         raise HTTPException(status_code=404, detail="虚拟磁盘不存在")
     from src.services.file_service import _safe_join
 
-    repair_dir = os.path.join(
-        _safe_join(disk["real_path"], task["rel_path"]), REPAIR_DIR_NAME
+    # v1.9.0：产物优先读统一临时根，旧 `.jflove-repair` 路径作为迁移兼容回退
+    unified = os.path.join(
+        disk["real_path"], TEMP_DIR_NAME, TEMP_REPAIR_SUBDIR,
+        str(task_id), task["output_name"],
     )
-    artifact = os.path.join(repair_dir, task["output_name"])
+    legacy = os.path.join(
+        _safe_join(disk["real_path"], task["rel_path"]), REPAIR_DIR_NAME,
+        task["output_name"],
+    )
+    artifact = unified if os.path.isfile(unified) else legacy
     if not os.path.isfile(artifact):
         raise HTTPException(status_code=404, detail="修复产物不存在")
     return artifact

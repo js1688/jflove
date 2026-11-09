@@ -59,6 +59,8 @@ from src.config.settings import (
     OFFLINE_MAX_IMAGE_PAGES,
     OFFLINE_PROGRESS_THROTTLE,
     OFFLINE_QUEUE_MAX,
+    TEMP_DIR_NAME,
+    TEMP_OFFLINE_SUBDIR,
 )
 from src.repositories import (
     offline_download_repository as repo,
@@ -595,7 +597,7 @@ async def cancel_task(db: aiosqlite.Connection, user: dict, task_id: int) -> dic
     await repo.set_status(db, task_id, "canceled")
     base = await _task_base(db, row)
     if base:
-        cleanup_task_temp(os.path.join(base, row["target_rel_path"]), task_id)
+        cleanup_task_temp(os.path.join(base, row["target_rel_path"]), task_id, temp_root=base)
     return {"task_id": task_id, "status": "canceled"}
 
 
@@ -639,7 +641,7 @@ async def delete_record(db: aiosqlite.Connection, user: dict, task_id: int) -> d
     await repo.soft_delete(db, task_id, user["id"])
     base = await _task_base(db, row)
     if base:
-        cleanup_task_temp(os.path.join(base, row["target_rel_path"]), task_id)
+        cleanup_task_temp(os.path.join(base, row["target_rel_path"]), task_id, temp_root=base)
     return {"task_id": task_id, "deleted": True}
 
 
@@ -1016,6 +1018,7 @@ async def _fetch_selected_items(
     fetcher: MediaFetcherService,
     task_id: int,
     row: aiosqlite.Row,
+    base: str,
     target_dir: str,
     state: dict,
     event: asyncio.Event,
@@ -1040,6 +1043,7 @@ async def _fetch_selected_items(
             state,
             event,
             base_done=base_done,
+            temp_root=base,
         )
     if images:
         image_base = int(state["done"])
@@ -1052,6 +1056,7 @@ async def _fetch_selected_items(
             pack_zip=bool(row["pack_zip"]),
             progress=lambda done, total: _merge_progress(state, image_base + done, total),
             cancel_event=event,
+            temp_root=base,
         )
         image_bytes = 0
         failures = []
@@ -1110,7 +1115,7 @@ async def _run_download(db: aiosqlite.Connection, task_id: int) -> None:
     )
     try:
         # 用**校验后**的绝对路径，不要拿 DB 里的相对路径自己 join（防 DB 被篡改）
-        _base, target_dir = await validate_target(
+        validated_base, target_dir = await validate_target(
             db,
             owner,
             int(row["target_disk_id"]),
@@ -1137,7 +1142,8 @@ async def _run_download(db: aiosqlite.Connection, task_id: int) -> None:
             while True:
                 try:
                     await _fetch_selected_items(
-                        db, fetcher, task_id, row, target_dir, state, event
+                        db, fetcher, task_id, row, validated_base,
+                        target_dir, state, event,
                     )
                     break
                 except FetchError as exc:
@@ -1166,7 +1172,7 @@ async def _run_download(db: aiosqlite.Connection, task_id: int) -> None:
             item_done=state["item_done"],
         )
         await repo.set_status(db, task_id, "success")
-        cleanup_task_temp(target_dir, task_id)
+        cleanup_task_temp(target_dir, task_id, temp_root=validated_base)
         logger.info("离线下载完成: task_id=%s", task_id)
     except FetchError as exc:
         if event.is_set() and exc.code == "canceled":
@@ -1179,12 +1185,12 @@ async def _run_download(db: aiosqlite.Connection, task_id: int) -> None:
                 error_code=exc.code,
                 error_message=_ERROR_MESSAGES.get(exc.code, "下载失败"),
             )
-        cleanup_task_temp(target_dir, task_id)
+        cleanup_task_temp(target_dir, task_id, temp_root=validated_base)
     except _TaskError as exc:
         await repo.set_status(
             db, task_id, "failed", error_code=exc.code, error_message=exc.message
         )
-        cleanup_task_temp(target_dir, task_id)
+        cleanup_task_temp(target_dir, task_id, temp_root=validated_base)
     finally:
         reporter.cancel()
         try:
@@ -1206,12 +1212,14 @@ async def self_fetch_item(
     event: asyncio.Event,
     *,
     base_done: int = 0,
+    temp_root: str = "",
 ) -> None:
     """
     下载单条非图片项并回填结果（含一次网络重试）。
 
     :param base_done: 本项开始前已完成的字节数（多任务项累计用；进度回调是**单项内**
         的相对字节，必须加上它才是总进度，否则会重复计数/超过 100%）
+    :param temp_root: 虚拟磁盘根（v1.9.0 统一临时根）
     """
     await repo.update_item(db, int(item["id"]), status="downloading")
     try:
@@ -1223,6 +1231,7 @@ async def self_fetch_item(
             referer=task_row["source_url"],
             progress=lambda done, total: _merge_progress(state, base_done + done, total),
             cancel_event=event,
+            temp_root=temp_root,
         )
     except FetchError as exc:
         if exc.code in ("net_timeout", "network_error"):
@@ -1235,6 +1244,7 @@ async def self_fetch_item(
                     referer=task_row["source_url"],
                     progress=lambda done, total: _merge_progress(state, base_done + done, total),
                     cancel_event=event,
+                    temp_root=temp_root,
                 )
             except FetchError as retry_exc:
                 await repo.update_item(
@@ -1332,24 +1342,29 @@ async def _task_base(db: aiosqlite.Connection, row: aiosqlite.Row) -> str:
 
 
 async def _cleanup_orphan_temps(db: aiosqlite.Connection) -> None:
-    """启动时清理不属于活跃任务的临时目录（按 24h 判定）。"""
+    """启动时清理不属于活跃任务的临时目录（按 24h 判定；新旧路径都扫）。"""
     disks = await virtual_disk_repository.list_all(db)
     now = time.time()
     for disk in disks:
-        root = os.path.join(str(disk["real_path"]), OFFLINE_DIR_NAME)
-        if not os.path.isdir(root):
-            continue
-        try:
-            entries = os.listdir(root)
-        except OSError:
-            continue
-        for entry in entries:
-            path = os.path.join(root, entry)
+        base = str(disk["real_path"])
+        roots = [
+            os.path.join(base, OFFLINE_DIR_NAME),
+            os.path.join(base, TEMP_DIR_NAME, TEMP_OFFLINE_SUBDIR),
+        ]
+        for root in roots:
+            if not os.path.isdir(root):
+                continue
             try:
-                if os.path.isdir(path) and now - os.path.getmtime(path) > 24 * 3600:
-                    shutil.rmtree(path, ignore_errors=True)
+                entries = os.listdir(root)
             except OSError:
                 continue
+            for entry in entries:
+                path = os.path.join(root, entry)
+                try:
+                    if os.path.isdir(path) and now - os.path.getmtime(path) > 24 * 3600:
+                        shutil.rmtree(path, ignore_errors=True)
+                except OSError:
+                    continue
 
 
 def _analyzed_to_dict(item) -> dict:

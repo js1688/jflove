@@ -4,6 +4,12 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 
 > **当前版本：v1.8.2**（版本号**单一来源 = 仓库根 `version.json`**；`python scripts/sync_version.py` 同步全部位置 —— 桌面端有**三处**（**以 `scripts/sync_version.py::POSITIONS` 的 desktop scope 为准**）：`src/config/settings.py` 的 `APP_VERSION`、**`ui/src/config/constants.ts`** 的 `APP_VERSION`（界面上「登录页页脚 / 设置-关于」显示的值）与 **`ui/package.json`** 的 `version`。**不要手改任何一处版本号字段。**）
 
+> **v1.9.0**：大文件上传改为「以服务端已收分片为准」的断点续传（`init` 带 `client_type`，
+> 本地记录仅兜底）；分片默认 **512KB**；`complete` 强制异步（立即返回 `merging`，客户端每 2.5s
+> 轮询 `upload/progress`，缺片自动补传一次）；下载支持字节 Range 续传（目标文件旁
+> `.part` + `.jflove-part.json`，保留 7 天）；管理员「系统设置 → 存储与临时文件」新增清理策略、
+> 弱服务端模式一键预设与「立即清理」。
+>
 > **v1.8.2**：媒体播放浮层改为 `QWebEngineView` 的 native 子控件（随主窗移动/缩放/全屏/托盘恢复，
 > Wayland 与 X11 均不再被主窗遮挡；`JFLOVE_MEDIA_OVERLAY=window` 可回退旧实现）；
 > 管理员「系统设置 → 离线下载」新增解析 / 连接 / 读取三项超时；目录选择器截断文案改用服务端 `limit`。
@@ -305,9 +311,12 @@ pip install -r requirements.txt
 > 以及「正在同步 N 项」面板逐条列出**文件名 + 上传/下载方向 + 百分比**。
 > 每 15 分钟还会自动做一次全量核对，清理远端已被绕过 API 删除的残留条目。
 >
-> **大文件上传**：断点续传（`storage/upload_resume.json` 记录已发送分片，应用重启后继续），
-> 分片级重试（1MB 分片失败只重发该片），服务端合并最长可等 1 小时；合并超时会核验远端文件
-> 是否其实已落盘，**不会整文件重传**。单文件失败后 30 秒自动重试。
+> **大文件上传**：断点续传以**服务端 `init.received_chunks` 为准**（`storage/upload_resume.json`
+> 仅在旧服务端未返回该字段时兜底），应用重启 / 断网后只补缺失分片；分片级重试（**512KB**
+> 分片失败只重发该片，指数退避 5 次）。`complete` 强制异步：立即返回「合并已受理」，
+> 客户端每 2.5 秒轮询 `POST /api/v1/files/upload/progress`，按 `queued / merging / done / failed`
+> 收尾；合并期间界面显示服务端真实百分比。网络 / 合并失败**不删除**服务端会话（只有用户取消才清理），
+> 合并超时仍会核验远端文件是否其实已落盘，**不会整文件重传**。单文件失败后 30 秒自动重试。
 >
 > **上传期间远端目录为什么看不到文件**：分片先写到服务端的 `build/upload_tmp/<upload_id>/`，
 > 传完后服务端合并、校验，最后原子替换进磁盘目录。界面上的「校验中 / 上传中 / 服务端合并校验中」

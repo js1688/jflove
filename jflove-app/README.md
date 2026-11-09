@@ -200,3 +200,14 @@ Markdown 中的 ` ```mermaid ` 代码块会渲染成**真正的图形**（而不
 **已知约束**：mermaid 的主题色是渲染时**烘焙进 SVG** 的（不是 SVG 内 CSS 变量），
 所以切换亮/暗主题必须重新渲染 —— `MermaidBlock` 通过 `didChangeDependencies`
 侦测 `brightness` 变化并重渲。
+
+## v1.9.0 大文件断点续传 / 合并进度 / 下载续传
+
+- 上传：`init` 带 `client_type=app`，按服务端 `received_chunks` 跳过已传片；512KB 分片；
+  单片失败指数退避重试；网络/合并失败不删除服务端会话，仅用户取消清理。
+- 合并：`complete` 传 `async_mode=true`，每 2.5s 轮询 `/upload/progress`；失败显示服务端中文原因。
+- 下载：本地 `.jflove-part` + `.jflove-part.json` 记录远端版本/大小；请求带 `range_start`，
+  中断重试自动续传；版本变化/416 自动从头。
+- 管理员系统设置新增「存储与临时文件」卡片（TTL、清理间隔、客户端类型白名单、
+  孤儿保留期、会话上限、合并/分片并发、弱服务端预设、立即清理）。
+- 发布要求：App/桌面/Web 与服务端同为 v1.9.0（服务端强制异步合并协议）。

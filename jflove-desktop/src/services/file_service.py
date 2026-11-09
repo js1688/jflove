@@ -18,10 +18,21 @@ import threading
 import time
 from typing import Callable, Generator
 
-from src.utils.http_client import ApiError, http_client, is_transient_error
+from src.utils.http_client import (
+    ApiError,
+    clear_part_files,
+    http_client,
+    is_transient_error,
+    load_part_meta,
+    part_paths,
+)
 from src.utils.crypto import parse_stream_frame
 from src.utils.session import session_manager
-from src.config.settings import CHUNK_SIZE, LOCAL_STORAGE_DIR
+from src.config.settings import (
+    CHUNK_SIZE,
+    DOWNLOAD_PART_TTL_SECONDS,
+    LOCAL_STORAGE_DIR,
+)
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -37,15 +48,26 @@ ProgressCallback = Callable[[int, int, str], None]
 
 #: 分片上传的最大尝试次数（网络抖动可安全重发同一分片）
 _CHUNK_ATTEMPTS = 5
-#: 合并请求的读取超时（秒）：服务端要重写全部分片并校验 SHA256
+#: 客户端类型标识（v1.9.0：服务端据此识别新客户端，缺失即 409 提示升级）
+_CLIENT_TYPE = "desktop"
+#: 合并请求的读取超时（秒）：异步受理本身毫秒级返回，超大超时仅作为慢网兜底
 _FINALIZE_READ_TIMEOUT = 3600.0
 #: 合并超时后，等待服务端完成并核验的最长时间（秒）
 _FINALIZE_VERIFY_TIMEOUT = 900.0
+#: 服务端合并进度轮询间隔（秒，设计 §3.1）与服务端建议值的合法区间
+_MERGE_POLL_INTERVAL = 2.5
+_MERGE_POLL_TIMEOUT = 3600.0
 #: 断点续传记录文件：应用重启后复用上次的 upload_id 与已发送分片
 _RESUME_FILE = os.path.join(LOCAL_STORAGE_DIR, "upload_resume.json")
 _RESUME_LOCK = threading.Lock()
 #: 每传多少个分片落一次盘（避免每 1MB 都写 JSON）
 _RESUME_FLUSH_EVERY = 32
+#: 合并失败原因 → 可展示的中文（服务端返回的 error 是枚举值）
+_MERGE_ERROR_TEXT = {
+    "missing_chunks": "服务端合并失败：分片不完整",
+    "hash_mismatch": "服务端校验失败（文件哈希不一致），请重新上传",
+    "io_error": "服务端写入失败（磁盘空间或权限问题），请稍后重试",
+}
 
 #: SHA256 缓存（key = 路径 + 大小 + mtime）：重试时不必重新读一遍几十 GB
 _HASH_CACHE: dict[tuple[str, int, int], str] = {}
@@ -232,6 +254,36 @@ def _remote_path(rel_dir: str, filename: str) -> str:
     return f"{rel_dir.rstrip('/')}/{filename}" if rel_dir else filename
 
 
+class _MergeFailed(Exception):
+    """
+    服务端合并失败（v1.9.0）。
+
+    携带 `missing_chunks` 时上层可补传这些分片后再次 complete；无缺失片
+    （如 hash_mismatch / io_error）则由用户重试（下次 init 会拿到 restart_required）。
+    """
+
+    def __init__(self, detail: str, missing_chunks: list[int] | None = None):
+        super().__init__(detail)
+        self.detail = detail
+        self.missing_chunks = missing_chunks or []
+
+
+def _received_chunks(resp: dict, total_chunks: int) -> set[int]:
+    """从 init 响应解析已收分片集合（过滤非法索引）"""
+    raw = resp.get("received_chunks")
+    if not isinstance(raw, list):
+        return set()
+    out: set[int] = set()
+    for item in raw:
+        try:
+            index = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < total_chunks:
+            out.add(index)
+    return out
+
+
 def upload_file(
     disk_id: int,
     rel_path: str,
@@ -241,22 +293,28 @@ def upload_file(
     preserve_mtime: bool = True,
 ) -> str:
     """
-    分片上传本地文件到虚拟磁盘。
+    分片上传本地文件到虚拟磁盘（v1.9.0 断点续传 + 异步合并）。
 
     流程：
       1. 边读边算 SHA256（"hashing" 阶段，按字节回调进度）
-      2. init_upload 创建上传会话
-      3. 重新打开文件按分片读取上传（"uploading" 阶段，按字节回调进度）
-      4. complete_upload 触发服务端合并
+      2. `init`（携带 `client_type="desktop"`）——服务端按内容指纹幂等复用会话，
+         响应里的 `received_chunks` 是**已收分片的唯一权威来源**；本地
+         `storage/upload_resume.json` 只在旧服务端未返回该字段时作为兜底
+      3. 只补传缺失分片（"uploading"），单片失败按指数退避重试
+      4. `complete` 携带 `async_mode=true` 立即受理，随后每 2.5s 轮询
+         `upload/progress`，按 `done` / `failed` / `queued` 收尾
 
-    支持取消（通过 cancelled_flag 回调判断）。失败或取消时会向后端发出
-    delete_upload 请求清理临时分片。
+    失败语义（F46.5 / F47.4）：
+      - 网络失败 / 合并失败：**不主动 DELETE 服务端会话**，保留已传分片供续传
+      - 只有用户取消（`cancelled_flag=True`）才清理服务端会话与本地续传记录
+      - 合并缺片时先补传缺失分片再合并一次；校验失败/IO 失败保留会话供用户重试
 
     :param disk_id: 目标虚拟磁盘 ID
     :param rel_path: 目标目录相对路径
     :param local_path: 本地文件绝对路径
     :param progress_callback: 进度回调 fn(已传输字节, 总字节, 阶段)
     :param cancelled_flag: 取消判断回调，返回 True 时中止
+    :param preserve_mtime: 是否把源文件 mtime 传给服务端并在合并时还原
     :returns: 服务端最终文件绝对路径
     :raises ValueError: 取消上传
     :raises ApiError: 上传失败
@@ -271,9 +329,12 @@ def upload_file(
         local_path, file_size, file_mtime, progress_callback, cancelled_flag,
     )
 
-    logger.info("开始上传文件: %s，大小=%d，分片数=%d", filename, file_size, total_chunks)
+    logger.info(
+        "开始上传文件: %s，大小=%d，分片=%d（%d KB/片）",
+        filename, file_size, total_chunks, CHUNK_SIZE // 1024,
+    )
 
-    # ── 阶段 2：初始化上传会话 ──
+    # ── 阶段 2：初始化上传会话（client_type 为 v1.9.0 必传字段）──
     init_payload = {
         "disk_id": disk_id,
         "path": rel_path,
@@ -281,6 +342,7 @@ def upload_file(
         "file_size": file_size,
         "total_chunks": total_chunks,
         "file_hash": file_hash,
+        "client_type": _CLIENT_TYPE,
     }
     if file_mtime is not None:
         # 传递源文件 mtime，让服务端在 complete 时还原；
@@ -289,14 +351,12 @@ def upload_file(
 
     resume_key = _resume_key(disk_id, rel_path, filename, file_size, file_mtime)
     resume = _resume_get(resume_key)
-    resumed_sent: set[int] = set()
-    upload_id = ""
+    local_sent: set[int] = set()
     if resume:
-        upload_id = str(resume.get("upload_id") or "")
-        resumed_sent = {int(i) for i in (resume.get("sent") or [])}
+        local_sent = {int(i) for i in (resume.get("sent") or [])}
         logger.info(
-            "发现未完成的上传，尝试续传：%s（已传 %d/%d 片）",
-            filename, len(resumed_sent), total_chunks,
+            "发现未完成的上传记录，将由服务端状态决定续传点：%s（本地记录 %d/%d 片）",
+            filename, len(local_sent), total_chunks,
         )
 
     # 上次中断时服务端可能**已经合并完成**（只是响应没送达 / 客户端被杀）：
@@ -310,19 +370,57 @@ def upload_file(
             progress_callback(file_size, file_size, "uploading")
         return _remote_path(rel_path, filename)
 
-    last_error: BaseException | None = None
-    # 会话可能因服务端重启 / 24h 清理而失效：允许整轮重来一次（分片很小，代价可控）
-    for attempt in range(2):
+    upload_id = ""
+    received: set[int] = set()
+    reinit_used = False
+    missing_repaired = False
+    skip_send_once = False
+
+    while True:
         try:
             if not upload_id:
                 resp = http_client.post("/api/v1/files/upload/init", init_payload)
-                upload_id = resp["upload_id"]
-                resumed_sent = set()
-            _send_chunks(
-                upload_id, local_path, file_size, total_chunks,
-                progress_callback, cancelled_flag,
-                skip=resumed_sent, resume_key=resume_key,
-            )
+                if resp.get("already_exists"):
+                    # 服务端判定目标文件已完整存在：不创建会话、不重传
+                    path = str(resp.get("already_path") or _remote_path(rel_path, filename))
+                    _resume_clear(resume_key)
+                    if progress_callback:
+                        progress_callback(file_size, file_size, "uploading")
+                    logger.info("服务端判定目标文件已存在，跳过上传：%s", filename)
+                    return path
+                upload_id = str(resp.get("upload_id") or "")
+                if not upload_id:
+                    raise ApiError(502, "上传初始化失败：服务端未返回 upload_id")
+
+                if resp.get("restart_required"):
+                    # 上一次会话已失败：服务端新建了会话，必须从第 0 片开始
+                    received = set()
+                    logger.info("服务端要求重新开始，从第 0 片上传：%s", filename)
+                elif isinstance(resp.get("received_chunks"), list):
+                    received = _received_chunks(resp, total_chunks)
+                elif local_sent:
+                    # 兜底：旧服务端没有 received_chunks 字段时用本地记录
+                    received = set(local_sent)
+
+                expires_at = resp.get("expires_at")
+                if received:
+                    logger.info(
+                        "续传：%s 已收 %d/%d 片，跳过已传分片（可续传至 %s）",
+                        filename, len(received), total_chunks, expires_at or "服务端未返回",
+                    )
+                else:
+                    logger.info("从第 0 片开始上传：%s", filename)
+
+            skip = set() if missing_repaired else received
+            if skip_send_once:
+                # 缺片补传已在本轮完成，直接重新触发合并
+                skip_send_once = False
+            else:
+                _send_chunks(
+                    upload_id, local_path, file_size, total_chunks,
+                    progress_callback, cancelled_flag,
+                    skip=skip, resume_key=resume_key,
+                )
             result = _finalize(
                 upload_id, disk_id, rel_path, filename, file_size,
                 progress_callback, cancelled_flag,
@@ -330,26 +428,54 @@ def upload_file(
             _resume_clear(resume_key)
             return result
         except ValueError:
+            # 只有用户明确取消才清理服务端会话与本地续传记录
             _cancel_session(upload_id)
             _resume_clear(resume_key)
             raise
-        except Exception as e:  # noqa: BLE001 - 分类后决定重试或上抛
-            last_error = e
-            if attempt == 0 and (_is_session_lost(e) or resumed_sent):
-                # 续传失败（会话已不在服务端）⇒ 清记录、重新初始化、完整重传一次
+        except _MergeFailed as e:
+            if e.missing_chunks and not missing_repaired:
+                # 缺片：补传缺失分片后再合并一次（F47.4）
+                missing_repaired = True
                 logger.warning(
-                    "续传不可用（%s），重新初始化上传：%s", type(e).__name__, filename,
+                    "服务端合并缺片 %s，补传后重试合并：%s",
+                    e.missing_chunks[:10], filename,
                 )
-                _cancel_session(upload_id)
+                try:
+                    _send_chunks(
+                        upload_id, local_path, file_size, total_chunks,
+                        progress_callback, cancelled_flag,
+                        skip=received, resume_key=resume_key,
+                        only=set(e.missing_chunks),
+                    )
+                except ValueError:
+                    _cancel_session(upload_id)
+                    _resume_clear(resume_key)
+                    raise
+                except Exception as send_error:  # noqa: BLE001
+                    # 补片失败：保留会话（下次重试仍可续传）
+                    logger.warning("补齐缺失分片失败：%s", type(send_error).__name__)
+                    raise ApiError(409, e.detail) from send_error
+                skip_send_once = True
+                continue
+            # 校验失败 / IO 失败：会话与分片保留，由用户下次重试（init 会给出 restart_required）
+            raise ApiError(409, e.detail) from e
+        except Exception as e:  # noqa: BLE001 - 分类后决定重试或上抛
+            if _is_session_lost(e) and not reinit_used and not missing_repaired:
+                # 服务端重启 / 会话过期：无法续传，重新 init 并从第 0 片传一次
+                logger.warning(
+                    "上传会话已失效（%s），重新初始化：%s", type(e).__name__, filename,
+                )
                 _resume_clear(resume_key)
                 upload_id = ""
-                resumed_sent = set()
+                received = set()
+                reinit_used = True
                 continue
-            _cancel_session(upload_id)
-            _resume_clear(resume_key)
+            # 网络失败 / 合并失败：不 DELETE 服务端会话，保留续传记录
+            logger.warning(
+                "上传中断（%s），保留服务端会话与续传记录：%s",
+                type(e).__name__, filename,
+            )
             raise
-
-    raise last_error if last_error else RuntimeError("上传失败")
 
 
 def _is_session_lost(exc: BaseException) -> bool:
@@ -377,98 +503,254 @@ def _send_chunks(
     cancelled_flag: Callable[[], bool] | None,
     skip: set[int] | None = None,
     resume_key: str = "",
+    only: set[int] | None = None,
 ) -> None:
     """
-    逐个分片上传，**单个分片失败自动重试**。
+    逐个分片上传，**单个分片失败自动重试**（指数退避，最多 `_CHUNK_ATTEMPTS` 次）。
 
     为什么按分片重试：整文件重传的代价是「重算哈希 + 重传几十 GB」，
-    而分片重发只是 1MB —— 这是「传了一晚上没成功」的根因修复点之一。
+    而分片重发只是 512KB —— 这是「传了一晚上没成功」的根因修复点之一。
+
+    :param skip: 服务端已有 / 本地记录已发送的分片索引（不发送）
+    :param only: 只补传这些分片（合并缺片修复用）；None 表示按 skip 规则全量扫描
     """
     retried = 0
     skip = skip or set()
     sent: set[int] = set(skip)
-    with open(local_path, "rb") as f:
-        for i in range(total_chunks):
-            if cancelled_flag and cancelled_flag():
-                raise ValueError("上传已取消")
+    try:
+        with open(local_path, "rb") as f:
+            for i in range(total_chunks):
+                if cancelled_flag and cancelled_flag():
+                    raise ValueError("上传已取消")
 
-            chunk = f.read(CHUNK_SIZE)
-            if not chunk:
-                break
-            if i in skip:
-                # 续传：该分片服务端已有，跳过发送（仍要读文件以保持偏移）
-                if progress_callback:
-                    progress_callback(min((i + 1) * CHUNK_SIZE, file_size),
-                                      file_size, "uploading")
-                continue
-            chunk_b64 = base64.b64encode(chunk).decode()
-
-            for attempt in range(_CHUNK_ATTEMPTS):
-                try:
-                    http_client.post("/api/v1/files/upload/chunk", {
-                        "upload_id": upload_id,
-                        "chunk_index": i,
-                        "chunk_data": chunk_b64,
-                    })
+                chunk = f.read(CHUNK_SIZE)
+                if not chunk:
                     break
-                except Exception as e:  # noqa: BLE001
-                    if not is_transient_error(e) or attempt == _CHUNK_ATTEMPTS - 1:
-                        raise
-                    retried += 1
-                    delay = min(2 ** attempt, 15)
-                    logger.warning(
-                        "分片 %d 上传失败（%s），%.0fs 后重试（第 %d 次）",
-                        i, type(e).__name__, delay, attempt + 1,
-                    )
+                if only is not None and i not in only:
+                    # 读一帧以保持文件偏移，但本次不发送（只补缺失分片）
+                    continue
+                if i in skip:
+                    # 续传：该分片服务端已有，跳过发送（仍要读文件以保持偏移）
                     if progress_callback:
-                        done = min(i * CHUNK_SIZE, file_size)
-                        progress_callback(done, file_size, "retrying")
-                    if cancelled_flag and cancelled_flag():
-                        raise ValueError("上传已取消") from e
-                    time.sleep(delay)
+                        progress_callback(min((i + 1) * CHUNK_SIZE, file_size),
+                                          file_size, "uploading")
+                    continue
+                chunk_b64 = base64.b64encode(chunk).decode()
 
-            sent.add(i)
-            if resume_key and len(sent) % _RESUME_FLUSH_EVERY == 0:
-                _resume_update(resume_key, upload_id, sent)
+                for attempt in range(_CHUNK_ATTEMPTS):
+                    try:
+                        http_client.post("/api/v1/files/upload/chunk", {
+                            "upload_id": upload_id,
+                            "chunk_index": i,
+                            "chunk_data": chunk_b64,
+                        })
+                        break
+                    except Exception as e:  # noqa: BLE001
+                        if not is_transient_error(e) or attempt == _CHUNK_ATTEMPTS - 1:
+                            raise
+                        retried += 1
+                        delay = min(2 ** attempt, 15)
+                        logger.warning(
+                            "分片 %d 上传失败（%s），%.0fs 后重试（第 %d 次）",
+                            i, type(e).__name__, delay, attempt + 1,
+                        )
+                        if progress_callback:
+                            done = min(i * CHUNK_SIZE, file_size)
+                            progress_callback(done, file_size, "retrying")
+                        if cancelled_flag and cancelled_flag():
+                            raise ValueError("上传已取消") from e
+                        time.sleep(delay)
 
-            if progress_callback:
-                done_bytes = min((i + 1) * CHUNK_SIZE, file_size)
-                progress_callback(done_bytes, file_size, "uploading")
+                sent.add(i)
+                if resume_key and len(sent) % _RESUME_FLUSH_EVERY == 0:
+                    _resume_update(resume_key, upload_id, sent)
 
-    if resume_key:
-        _resume_update(resume_key, upload_id, sent)
+                if progress_callback:
+                    done_bytes = min((i + 1) * CHUNK_SIZE, file_size)
+                    progress_callback(done_bytes, file_size, "uploading")
+    finally:
+        # 无论成功 / 中断都落一次盘：下次启动可据此兜底（服务端 received_chunks 优先）
+        if resume_key and upload_id:
+            _resume_update(resume_key, upload_id, sent)
 
     if retried:
         logger.info("本次上传共发生 %d 次分片重试", retried)
 
 
-def _report_merge_progress(
-    upload_id: str,
-    file_size: int,
-    progress_callback: ProgressCallback | None,
-) -> None:
+def _query_merge_progress(upload_id: str) -> dict:
     """
-    轮询服务端合并进度并回报给上层（界面据此显示百分比）。
+    查询服务端合并进度。
 
-    兼容旧服务端：接口不存在 / 网络异常时**静默跳过**，不影响上传本身。
+    网络异常 / 旧服务端无该接口时返回空表（只影响进度展示与收尾判断，
+    不把一次查询失败当成上传失败）。
     """
-    if progress_callback is None:
-        return
     try:
         info = http_client.post(
             "/api/v1/files/upload/progress",
             {"upload_id": upload_id},
-            timeout=10,
+            timeout=15,
         )
-    except Exception:  # noqa: BLE001 - 旧服务端无此接口 / 断网：只影响进度显示
+    except Exception as e:  # noqa: BLE001 - 进度查询失败不应推倒上传
+        logger.warning("查询合并进度失败：%s", type(e).__name__)
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def _merge_missing_chunks(info: dict) -> list[int]:
+    """解析进度/失败响应里的缺失分片索引"""
+    raw = info.get("missing_chunks")
+    if not isinstance(raw, list):
+        return []
+    out: list[int] = []
+    for item in raw:
+        try:
+            out.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _merge_error_detail(error: str, missing: list[int]) -> str:
+    """把服务端合并失败枚举翻译成可展示的中文（不回显路径/文件名）"""
+    detail = _MERGE_ERROR_TEXT.get(error.strip(), error.strip() or "服务端合并失败")
+    if missing:
+        preview = "、".join(str(i) for i in missing[:10])
+        detail += f"（缺失分片：{preview}）"
+    return detail
+
+
+def _raise_merge_failed(info: dict) -> None:
+    """把一次 failed 状态转换成带缺失片信息的内部异常"""
+    missing = _merge_missing_chunks(info)
+    raise _MergeFailed(
+        _merge_error_detail(str(info.get("error") or ""), missing),
+        missing,
+    )
+
+
+def _report_merge_state(
+    info: dict,
+    file_size: int,
+    progress_callback: ProgressCallback | None,
+) -> None:
+    """把 queued / merging 状态映射为界面的 finalizing 进度"""
+    if progress_callback is None:
         return
-    if info.get("state") not in ("merging", "done"):
+    state = str(info.get("state") or "")
+    if state == "queued":
+        # 排队中：没有可用的字节进度，但要让界面知道「服务端已受理、在排队」
+        progress_callback(0, file_size, "finalizing")
         return
+    if state != "merging":
+        return
+    total = int(info.get("file_size") or 0) or file_size
     processed = int(info.get("processed") or 0)
-    total = int(info.get("file_size") or file_size or 0)
-    if total <= 0:
-        return
-    progress_callback(min(processed, total), total, "finalizing")
+    if total > 0:
+        progress_callback(min(processed, total), total, "finalizing")
+
+
+def _verify_remote_completion(
+    disk_id: int,
+    rel_path: str,
+    filename: str,
+    file_size: int,
+) -> str | None:
+    """
+    核验「服务端其实已经合并完成」（合并超时 / 响应丢失时的兜底）。
+
+    :returns: 已完整落盘则返回远端路径，否则 None
+    """
+    size = _remote_size(disk_id, rel_path, filename)
+    if size is None or size != file_size:
+        return None
+    logger.info("合并已完成（远端大小核验通过）：%s", filename)
+    return _remote_path(rel_path, filename)
+
+
+def _wait_remote_completion(
+    disk_id: int,
+    rel_path: str,
+    filename: str,
+    file_size: int,
+    cancelled_flag: Callable[[], bool] | None,
+) -> str | None:
+    """在 `_FINALIZE_VERIFY_TIMEOUT` 内等待远端文件出现且大小一致"""
+    deadline = time.monotonic() + _FINALIZE_VERIFY_TIMEOUT
+    while time.monotonic() < deadline:
+        if cancelled_flag and cancelled_flag():
+            raise ValueError("上传已取消")
+        path = _verify_remote_completion(disk_id, rel_path, filename, file_size)
+        if path is not None:
+            return path
+        time.sleep(5)
+    return None
+
+
+def _poll_interval(result: dict) -> float:
+    """服务端建议的轮询间隔（默认 2.5s，限制在 0.05~30s 防止被异常值拖死）"""
+    try:
+        interval = float(result.get("poll_interval_s"))
+    except (TypeError, ValueError):
+        return _MERGE_POLL_INTERVAL
+    if 0.05 <= interval <= 30.0:
+        return interval
+    return _MERGE_POLL_INTERVAL
+
+
+def _poll_until_merged(
+    upload_id: str,
+    disk_id: int,
+    rel_path: str,
+    filename: str,
+    file_size: int,
+    result: dict,
+    progress_callback: ProgressCallback | None,
+    cancelled_flag: Callable[[], bool] | None,
+) -> str:
+    """
+    轮询 `/files/upload/progress` 直到 done / failed / 超时（设计 §3.3）。
+
+    服务端合并是后台线程，complete 立即返回 `merging` / `queued`；
+    客户端每 2.5 秒（或服务端建议值）轮询一次，done 收尾、failed 带原因上报。
+    """
+    interval = _poll_interval(result)
+    deadline = time.monotonic() + _MERGE_POLL_TIMEOUT
+    query_failures = 0
+    while time.monotonic() < deadline:
+        if cancelled_flag and cancelled_flag():
+            raise ValueError("上传已取消")
+        info = _query_merge_progress(upload_id)
+        if not info:
+            query_failures += 1
+            if query_failures >= 3:
+                # 连续查不到进度：先核验远端，避免「其实已完成却被判失败」
+                path = _wait_remote_completion(
+                    disk_id, rel_path, filename, file_size, cancelled_flag,
+                )
+                if path is not None:
+                    return path
+                raise ApiError(502, "无法查询服务端合并进度，请稍后重试")
+            time.sleep(interval)
+            continue
+        query_failures = 0
+        state = str(info.get("state") or "unknown")
+        if state == "done":
+            logger.info("服务端合并完成：%s", filename)
+            return str(info.get("path") or "") or _remote_path(rel_path, filename)
+        if state == "failed":
+            _raise_merge_failed(info)
+        if state == "unknown":
+            path = _verify_remote_completion(disk_id, rel_path, filename, file_size)
+            if path is not None:
+                return path
+            raise _MergeFailed("服务端上传会话已丢失，请重新上传")
+        _report_merge_state(info, file_size, progress_callback)
+        time.sleep(interval)
+
+    path = _verify_remote_completion(disk_id, rel_path, filename, file_size)
+    if path is not None:
+        return path
+    raise ApiError(504, "服务端合并超时，请稍后重试")
 
 
 def _finalize(
@@ -481,26 +763,25 @@ def _finalize(
     cancelled_flag: Callable[[], bool] | None,
 ) -> str:
     """
-    触发服务端合并分片并等待结果。
+    触发服务端**异步**合并并等待结果（v1.9.0）。
 
-    两个关键点：
-      1. **读取超时放到 1 小时**：合并要把全部分片重写一遍并算 SHA256，
-         慢盘 / 并发上传时远超默认 30 秒；旧实现会在这里超时，进而整文件重传。
-      2. **超时后不盲目重发**（服务端同一会话并发合并会破坏临时文件），
-         而是轮询远端目录核验：文件出现且大小一致即视为成功。
+    关键点：
+      1. `complete` 带 `async_mode=true`：服务端立即受理并返回 merging/queued，
+         请求不再因「读 3GB 分片 + SHA256 + 原子替换」而超时（F47 / D27）；
+      2. 等待受理响应期间仍轮询进度，界面不会停在「处理中」；
+      3. 响应丢失 / 超时：**不盲目重发**（同一会话并发合并会破坏临时文件），
+         改为轮询 progress 并核验远端大小，保住「其实已合并完成」的场景。
     """
     if progress_callback:
         progress_callback(0, file_size, "finalizing")
 
-    # complete 是**长请求**（服务端合并 + 校验），期间必须能拿到进度：
-    # 真正发送放到子线程，本线程按秒轮询服务端进度并回报，界面才不会「停在处理中」。
     outcome: dict[str, object] = {}
 
     def _do_complete() -> None:
         try:
             outcome["result"] = http_client.post(
                 "/api/v1/files/upload/complete",
-                {"upload_id": upload_id},
+                {"upload_id": upload_id, "async_mode": True},
                 timeout=(30.0, _FINALIZE_READ_TIMEOUT),
             )
         except BaseException as e:  # noqa: BLE001 - 异常原样带回主线程分类
@@ -514,31 +795,77 @@ def _finalize(
             break
         if cancelled_flag and cancelled_flag():
             raise ValueError("上传已取消")
-        _report_merge_progress(upload_id, file_size, progress_callback)
+        info = _query_merge_progress(upload_id)
+        if str(info.get("state") or "") == "failed":
+            _raise_merge_failed(info)
+        _report_merge_state(info, file_size, progress_callback)
 
     error = outcome.get("error")
-    if error is None:
-        result = outcome.get("result") or {}
+    if error is not None:
+        if not is_transient_error(error):
+            raise error
+        logger.warning(
+            "合并请求中断（%s），查询进度并核验远端：%s",
+            type(error).__name__, filename,
+        )
+        # 受理请求可能已送达服务端：先查一次进度，再进入远端核验兜底
+        info = _query_merge_progress(upload_id)
+        state = str(info.get("state") or "")
+        if state == "done":
+            return str(info.get("path") or "") or _remote_path(rel_path, filename)
+        if state == "failed":
+            _raise_merge_failed(info)
+        _report_merge_state(info, file_size, progress_callback)
+        path = _wait_remote_completion(
+            disk_id, rel_path, filename, file_size, cancelled_flag,
+        )
+        if path is not None:
+            return path
+        raise ApiError(504, "服务端合并超时，请稍后重试")
+
+    result = outcome.get("result") or {}
+    if not isinstance(result, dict):
+        result = {}
+    state = str(result.get("state") or "")
+    if state == "failed":
+        _raise_merge_failed(result)
+    if result.get("path") and state in ("", "done"):
+        # 兼容旧服务端 / 已完成响应：直接拿到最终路径
         logger.info("文件上传完成: %s", filename)
-        return result.get("path", "")
-    if not is_transient_error(error):
-        raise error
-    logger.warning(
-        "合并请求中断（%s），等待服务端完成并核验：%s",
-        type(error).__name__, filename,
+        return str(result["path"])
+    return _poll_until_merged(
+        upload_id, disk_id, rel_path, filename, file_size, result,
+        progress_callback, cancelled_flag,
     )
 
-    deadline = time.monotonic() + _FINALIZE_VERIFY_TIMEOUT
-    while time.monotonic() < deadline:
-        if cancelled_flag and cancelled_flag():
-            raise ValueError("上传已取消")
-        size = _remote_size(disk_id, rel_path, filename)
-        if size is not None and size == file_size:
-            logger.info("合并已完成（核验通过）：%s", filename)
-            return f"{rel_path.rstrip('/')}/{filename}" if rel_path else filename
-        time.sleep(5)
 
-    raise ApiError(504, "服务端合并超时，请稍后重试")
+def _apply_restore_mtime(path: str, restore_mtime: float | None) -> None:
+    """下载完成后还原 mtime（目录同步用；失败只告警，不影响下载结果）"""
+    if not restore_mtime:
+        return
+    try:
+        os.utime(path, (restore_mtime, restore_mtime))
+    except OSError as e:
+        logger.warning("无法还原本地文件 mtime（不影响下载结果）：%s", e)
+
+
+def _part_is_stale(meta: dict, part_path: str) -> bool:
+    """
+    本地 part 是否超过保留期（F48.5 / D33：7 天）。
+
+    优先用 meta 里的 `updated_at`；若缺失则退回 part 文件的 mtime。
+    """
+    updated_at = 0.0
+    try:
+        updated_at = float(meta.get("updated_at") or 0)
+    except (TypeError, ValueError):
+        updated_at = 0.0
+    if updated_at <= 0:
+        try:
+            updated_at = os.path.getmtime(part_path)
+        except OSError:
+            return True
+    return (time.time() - updated_at) > DOWNLOAD_PART_TTL_SECONDS
 
 
 def download_file(
@@ -550,24 +877,86 @@ def download_file(
     restore_mtime: float | None = None,
 ) -> int:
     """
-    从虚拟磁盘下载文件并以流式方式写入本地。
+    从虚拟磁盘下载文件并以流式方式写入本地（v1.9.0 支持断点续传）。
+
+    续传流程（F48.2 / 设计 §3.1）：
+      1. 读目标文件旁的 `<name>.part` 与 `<name>.jflove-part.json`
+         （远端 size / version / 已写偏移）；
+      2. 远端未变且 part 未超 7 天 → 以 part 大小为 `range_start` 续传；
+      3. 远端版本变化 / part 超期 / 缺少 meta → 删除 part 从头下载；
+      4. 完成且大小一致后 `os.replace` 原子改名；失败保留 part，用户取消删除。
 
     :param disk_id: 虚拟磁盘 ID
     :param rel_path: 文件相对路径
     :param local_save_path: 本地保存路径（含文件名）
-    :param progress_callback: 进度回调 fn(已下载字节, 总字节, "downloading")
+    :param progress_callback: 进度回调 fn(已下载字节含续传起点, 总字节, "downloading")
     :param cancelled_flag: 取消判断回调
     :param restore_mtime: 若提供，下载完成后调用 os.utime 把本地文件 mtime 还原到该值
                           （Unix 时间戳，浮点秒）。用于目录同步：保证两端 mtime 一致，
                           下次扫描就能正确识别"未变更"，避免重复下载/上传。
-    :returns: 下载的字节数
+    :returns: 下载完成后的文件总字节数（含续传已写部分）
     :raises ApiError: 无权限或文件不存在
     :raises ValueError: 用户取消下载
     """
     def _bridge_cb(done: int, total: int) -> None:
-        # 加密流下 total=0（http_client 明文字节流不传总数），保留任务原有 file_size
+        # total 来自响应头 X-Stream-Total；续传时 done 含 part 已有的起点字节
         if progress_callback:
             progress_callback(done, total, "downloading")
+
+    part_path, meta_path = part_paths(local_save_path)
+    meta = load_part_meta(meta_path)
+    meta_size = 0
+    if meta:
+        try:
+            meta_size = int(meta.get("size") or 0)
+        except (TypeError, ValueError):
+            meta_size = 0
+
+    # 上次其实已下载完成、但进程在 os.replace 后、清 meta 前被杀：直接收尾
+    if meta and meta_size > 0 and os.path.exists(local_save_path):
+        try:
+            target_size = os.path.getsize(local_save_path)
+        except OSError:
+            target_size = -1
+        if target_size == meta_size:
+            clear_part_files(part_path, meta_path)
+            _apply_restore_mtime(local_save_path, restore_mtime)
+            if progress_callback:
+                progress_callback(meta_size, meta_size, "downloading")
+            logger.info("本地目标文件已完整存在，跳过重复下载（%d 字节）", meta_size)
+            return meta_size
+
+    range_start = 0
+    expected_meta: dict | None = None
+    try:
+        part_size = os.path.getsize(part_path) if os.path.exists(part_path) else 0
+    except OSError:
+        part_size = 0
+
+    if meta and _part_is_stale(meta, part_path):
+        # 超过 7 天：part 失效，删除从头下载（F48.5）
+        logger.info("本地下载 part 已超过保留期，删除并重新下载")
+        clear_part_files(part_path, meta_path)
+        meta = None
+        part_size = 0
+
+    if not meta or meta_size <= 0:
+        # 没有可信 meta 时无法校验远端版本：一律删除 part 从头下载，避免拼接坏文件
+        if os.path.exists(part_path):
+            clear_part_files(part_path, meta_path)
+        part_size = 0
+    elif part_size > meta_size:
+        logger.warning("本地下载 part 大于远端文件，删除并重新下载")
+        clear_part_files(part_path, meta_path)
+        part_size = 0
+
+    # part 已完整（上次在改名之前中断）时不直接改名：仍带 range_start=part_size
+    # 请求一次以拿到 X-File-Version，确保远端文件没有在中断期间被同大小替换
+    # （AC-336）；服务端会返回 0 字节流，客户端校验后 os.replace。
+    if part_size > 0:
+        range_start = part_size
+        expected_meta = meta
+        logger.info("检测到未完成的下载，从第 %d 字节继续", range_start)
 
     written = http_client.download_to_file(
         "/api/v1/files/download",
@@ -575,13 +964,11 @@ def download_file(
         save_path=local_save_path,
         progress_callback=_bridge_cb,
         cancelled_flag=cancelled_flag,
+        range_start=range_start,
+        expected_meta=expected_meta,
+        meta_path=meta_path,
     )
-    if restore_mtime:
-        try:
-            os.utime(local_save_path, (restore_mtime, restore_mtime))
-        except OSError as e:
-            logger.warning("无法还原本地文件 mtime（不影响下载结果）: %s -> %s",
-                           local_save_path, e)
+    _apply_restore_mtime(local_save_path, restore_mtime)
     logger.info("文件下载完成: %s → %s（%d 字节）", rel_path, local_save_path, written)
     return written
 

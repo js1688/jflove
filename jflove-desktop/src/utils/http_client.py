@@ -21,8 +21,11 @@ v1.5.1 修复（缺陷 M-4）：响应体形状是加密信封但**解密失败*
            不是信封 → 明文直返；是信封但解不开 → 抛 `ApiError(502, "响应解密失败")`。
 """
 
+import json
 import os
 import threading
+import time
+
 import requests
 
 from src.utils.crypto import (
@@ -33,6 +36,16 @@ from src.utils.session import session_manager
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# ── 下载断点续传（v1.9.0，设计 §3.1 / F48.2） ──────────────
+#: 本地未完成下载的临时文件后缀（与目标文件同目录，完成后 os.replace 覆盖）
+DOWNLOAD_PART_SUFFIX = ".part"
+#: part 元数据后缀：记录远端 size / version / 已写偏移，用于校验续传是否安全
+DOWNLOAD_PART_META_SUFFIX = ".jflove-part.json"
+#: part 元数据落盘间隔（字节）：进程被杀时最多丢这么多续传进度
+_PART_META_FLUSH_BYTES = 4 * 1024 * 1024
+#: 用户取消下载时的判定文案（调用方按 ValueError 处理取消）
+_DOWNLOAD_CANCEL_MESSAGE = "下载已取消"
 
 # ── ECDH 类 401 detail 识别串（来自 jflove-server/src/utils/middleware.py） ──
 # 命中其一即认定为"加密会话失效"，触发静默续约；任何其他 detail 都视为 JWT 类。
@@ -80,6 +93,88 @@ class ApiError(Exception):
         self.status_code = status_code
         self.detail = detail
         super().__init__(f"[{status_code}] {detail}")
+
+
+class DownloadCancelled(ValueError):
+    """下载被用户取消（ValueError 子类，兼容既有 `except ValueError` 调用方）"""
+
+
+# ── 下载 part / meta 的纯函数工具（v1.9.0） ──────────────
+
+def part_paths(save_path: str) -> tuple[str, str]:
+    """
+    计算下载断点续传的本地文件路径。
+
+    :param save_path: 目标文件绝对路径
+    :returns: `(part 路径, meta 路径)`，均在目标文件旁
+    """
+    return save_path + DOWNLOAD_PART_SUFFIX, save_path + DOWNLOAD_PART_META_SUFFIX
+
+
+def load_part_meta(meta_path: str) -> dict | None:
+    """
+    读取 part 元数据（损坏 / 不存在返回 None，调用方按「无续传」处理）。
+
+    :param meta_path: meta JSON 路径
+    """
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def clear_part_files(part_path: str, meta_path: str) -> None:
+    """删除 part 与 meta（尽力而为，不影响调用方主流程）"""
+    for path in (part_path, meta_path):
+        if not path:
+            continue
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _save_part_meta(meta_path: str, size: int, version: str, offset: int) -> None:
+    """原子写入 part 元数据（失败只告警：下次续传会退化为从头下载）"""
+    if not meta_path:
+        return
+    payload = {
+        "size": int(size) if size is not None and int(size) >= 0 else 0,
+        "version": version or "",
+        "offset": int(offset),
+        "updated_at": int(time.time()),
+    }
+    tmp_path = meta_path + ".tmp"
+    try:
+        parent = os.path.dirname(os.path.abspath(meta_path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(tmp_path, meta_path)
+    except OSError as e:
+        logger.warning("保存下载续传元数据失败：%s", type(e).__name__)
+
+
+def _header_int(resp: "requests.Response", name: str, default: int = -1) -> int:
+    """从响应头读取整数（缺失 / 非法返回 default）"""
+    raw = resp.headers.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_size(path: str, fallback: int) -> int:
+    """文件实际大小（不存在 / 无权限时返回 fallback）"""
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return fallback
 
 
 class HttpClient:
@@ -523,71 +618,167 @@ class HttpClient:
         save_path: str = "",
         progress_callback=None,
         cancelled_flag=None,
+        range_start: int = 0,
+        expected_meta: dict | None = None,
+        meta_path: str = "",
+        discard_on_cancel: bool = True,
     ) -> int:
         """
-        下载加密文件流并边收边解密直接写入磁盘，避免大文件全部入内存。
+        下载加密文件流并边收边解密直接写入磁盘，支持断点续传（v1.9.0）。
 
         实现：服务端按 64KB 明文切片→每片独立 ChaCha20-Poly1305 加密为帧。
-        客户端逐帧读取（4B 长度→12B nonce→密文+认证标签），解密后写入临时文件
-        `xxx.part`；下载完成后原子重命名为目标文件。任意一帧认证失败立即抛错并
-        清理临时文件，**保证写入磁盘的内容均为已通过完整性校验的明文**。
+        客户端逐帧读取并解密，写入目标文件旁的 `<save_path>.part`；成功后
+        `os.replace` 原子覆盖目标文件。**写入磁盘的内容均为已通过完整性校验的明文**。
+
+        断点续传（F48.2 / 设计 §3.1）：
+          - 请求携带 `range_start`（明文在加密 body）；响应头 `X-Stream-Offset` /
+            `X-Stream-Total` / `X-File-Version` 用于校验续传是否安全；
+          - 本地 part + `<save_path>.jflove-part.json` 记录远端 size/version/offset；
+          - 版本不一致 / 服务端未按偏移返回 / 偏移越界（416）→ 删除 part 从头下载一次；
+          - 失败默认**保留** part 供下次续传；用户取消时删除 part（`discard_on_cancel`）；
+          - 进度按**已写字节累计**（含续传起点），total 来自 `X-Stream-Total`。
 
         :param endpoint: API 路径
         :param data: 请求参数字典
         :param save_path: 本地保存的绝对路径（含文件名），目录会自动创建
-        :param progress_callback: 进度回调 fn(已写入明文字节, 0)
-        :param cancelled_flag: 取消判断回调，返回 True 时中止并清理临时文件
-        :returns: 实际写入的明文字节数
+        :param progress_callback: 进度回调 fn(已写入明文字节含续传起点, 远端总字节或 0)
+        :param cancelled_flag: 取消判断回调，返回 True 时中止
+        :param range_start: 起始偏移（字节，0 = 从头）；调用方通常传 part 现有大小
+        :param expected_meta: 上次下载留下的 meta（用于比对 `X-File-Version`）
+        :param meta_path: meta 文件路径（缺省 `<save_path>.jflove-part.json`）
+        :param discard_on_cancel: 用户取消时是否删除 part（默认 True）
+        :returns: 下载完成后的文件总字节数（含续传已写部分）
         :raises ApiError: 请求失败
         :raises ValueError: 用户取消，或加密流被破坏（认证失败/截断/格式非法）
         """
+        if not save_path:
+            raise ValueError("save_path 不能为空")
         url = self._base_url() + endpoint
+        part_path, default_meta_path = part_paths(save_path)
+        meta_file = meta_path or default_meta_path
+        os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
 
-        def _send() -> requests.Response:
-            payload = self._build_payload(data)
-            return requests.get(
-                url,
-                json=payload,
-                headers=self._auth_headers(),
-                stream=True,
-                timeout=120,
-            )
+        offset = max(0, int(range_start or 0))
+        if offset > 0 and not os.path.exists(part_path):
+            offset = 0
+        meta: dict = dict(expected_meta or {})
+        # 只允许一次「续传失效 → 从头下载」回退，避免服务端持续返回异常时死循环
+        restart_left = 1
 
-        resp = self._send_with_auto_resync(_send)
-        if resp.status_code >= 400:
-            self._handle_stream_error(resp)
+        while True:
+            def _send() -> requests.Response:
+                payload_data = dict(data or {})
+                payload_data["range_start"] = int(offset)
+                payload = self._build_payload(payload_data)
+                return requests.get(
+                    url,
+                    json=payload,
+                    headers=self._auth_headers(),
+                    stream=True,
+                    timeout=120,
+                )
 
-        if save_path:
-            os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-
-        # 写入临时文件，下载成功后再 rename 到目标路径，避免半成品被误用
-        tmp_path = save_path + ".part"
-        downloaded = 0
-        raw = resp.raw
-        try:
-            with open(tmp_path, "wb") as f:
-                while True:
-                    if cancelled_flag and cancelled_flag():
-                        raise ValueError("下载已取消")
-                    plaintext = parse_stream_frame(
-                        raw, session_manager.session_key
-                    )
-                    if plaintext is None:
-                        break  # 流正常结束
-                    f.write(plaintext)
-                    downloaded += len(plaintext)
-                    if progress_callback:
-                        progress_callback(downloaded, 0)
-            os.replace(tmp_path, save_path)
-        except Exception:
-            # 出错或取消时，清理临时文件
+            resp = self._send_with_auto_resync(_send)
             try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except Exception:
-                pass
-            raise
-        return downloaded
+                if resp.status_code == 416 and offset > 0 and restart_left > 0:
+                    # 偏移越界（服务端文件变短 / part 比远端还大）：回退从头下载
+                    logger.warning("下载续传偏移越界（416），删除 part 从头下载")
+                    restart_left -= 1
+                    clear_part_files(part_path, meta_file)
+                    offset = 0
+                    meta = {}
+                    continue
+                if resp.status_code >= 400:
+                    self._handle_stream_error(resp)
+
+                server_offset = _header_int(resp, "X-Stream-Offset", 0)
+                remote_total = _header_int(resp, "X-Stream-Total", -1)
+                remote_version = str(resp.headers.get("X-File-Version") or "")
+
+                append = offset > 0
+                reason = ""
+                if append:
+                    try:
+                        disk_size = os.path.getsize(part_path)
+                    except OSError:
+                        disk_size = 0
+                    old_version = str(meta.get("version") or "")
+                    if disk_size != offset:
+                        reason = "本地 part 大小与续传偏移不一致"
+                    elif server_offset != offset:
+                        reason = "服务端未按请求偏移返回（旧服务端或文件已变化）"
+                    elif not old_version:
+                        reason = "缺少上次下载的远端版本标识，无法校验续传"
+                    elif not remote_version:
+                        reason = "服务端未返回远端版本标识，无法校验续传"
+                    elif old_version != remote_version:
+                        reason = "远端文件版本已变化"
+                if reason:
+                    logger.warning("下载续传不可用（%s），删除 part 从头下载", reason)
+                    clear_part_files(part_path, meta_file)
+                    offset = 0
+                    meta = {}
+                    if restart_left > 0:
+                        restart_left -= 1
+                        continue
+                    append = False
+
+                mode = "ab" if append else "wb"
+                _save_part_meta(meta_file, remote_total, remote_version, offset)
+                last_flush = offset
+                downloaded = 0
+                try:
+                    with open(part_path, mode) as f:
+                        raw = resp.raw
+                        while True:
+                            if cancelled_flag and cancelled_flag():
+                                raise DownloadCancelled(_DOWNLOAD_CANCEL_MESSAGE)
+                            plaintext = parse_stream_frame(
+                                raw, session_manager.session_key
+                            )
+                            if plaintext is None:
+                                break  # 流正常结束
+                            f.write(plaintext)
+                            downloaded += len(plaintext)
+                            current = offset + downloaded
+                            if current - last_flush >= _PART_META_FLUSH_BYTES:
+                                _save_part_meta(
+                                    meta_file, remote_total, remote_version, current,
+                                )
+                                last_flush = current
+                            if progress_callback:
+                                progress_callback(
+                                    current,
+                                    remote_total if remote_total >= 0 else 0,
+                                )
+                    current = offset + downloaded
+                    if remote_total >= 0 and current != remote_total:
+                        raise ApiError(
+                            502,
+                            f"下载数据不完整（{current}/{remote_total} 字节）",
+                        )
+                    os.replace(part_path, save_path)
+                    # 成功后清掉 meta（保留 part 已 rename 成目标文件）
+                    clear_part_files("", meta_file)
+                    return current
+                except DownloadCancelled:
+                    if discard_on_cancel:
+                        clear_part_files(part_path, meta_file)
+                    else:
+                        _save_part_meta(
+                            meta_file, remote_total, remote_version,
+                            _safe_size(part_path, offset),
+                        )
+                    raise
+                except Exception:
+                    # 失败（网络中断 / 认证失败 / 取消之外的异常）：保留 part 供续传
+                    _save_part_meta(
+                        meta_file, remote_total, remote_version,
+                        _safe_size(part_path, offset),
+                    )
+                    raise
+            finally:
+                resp.close()
 
 
 # 全局单例

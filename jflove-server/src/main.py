@@ -25,6 +25,8 @@ from src.services import (
     offline_download_service,
     repair_task_service,
     file_service,
+    upload_cleanup_service,
+    temp_root_service,
 )
 from src.utils.crypto import encrypt
 from src.utils.logger import get_logger
@@ -41,49 +43,51 @@ logger = get_logger(__name__)
 
 async def _upload_cleanup_loop() -> None:
     """
-    后台定时清理上传残留（v1.7.0）。
+    后台定时清理上传/临时文件（v1.7.0，v1.9.0 改为 config 驱动）。
 
-    启动时立即跑一次，之后每小时一次；清理失败只记 warning，不影响服务。清理内容：
-      1. **空闲超时**的内存上传会话（客户端崩溃后没人续传，否则临时目录永不释放）；
-      2. `UPLOAD_TEMP_DIR` 下的孤儿分片目录；
-      3. 磁盘目录里遗留的 `.<文件名>.jflove-upload-*.part`（合并时进程被杀留下的）。
+    启动后立即执行一次（与续传保障期同一 TTL，不再「启动 1 小时就清」）；
+    之后按 `upload_cleanup_interval_minutes` 周期执行；清理失败只记 warning。
+    清理内容：
+      1. 过期内存会话（按客户端类型白名单）；
+      2. 上传临时根孤儿目录（UUID 目录 + 固定命名文件）；
+      3. 旧 `.jflove-download` / 统一根 offline 孤儿任务目录；
+      4. 合并临时文件 `.jflove-upload-<uuid>.part`（严格命名）。
     """
-    # 首次运行更激进：进程刚启动时内存会话必然为空，任何残留目录都是上次运行遗留的
-    # （客户端崩溃 / 强杀 / 放弃上传），1 小时前的直接清掉，不等 24 小时。
-    first_run = True
     while True:
-        try:
-            await file_service.cleanup_stale_uploads(
-                max_age_seconds=3600 if first_run else file_service.UPLOAD_SESSION_TTL_SECONDS
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            logger.warning("上传临时目录清理失败: %s", type(e).__name__)
-        first_run = False
-        try:
-            file_service.prune_merge_progress()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("清理合并进度记录失败: %s", type(e).__name__)
+        interval = 3600
         try:
             async with _repair_db_factory() as db:
-                await file_service.cleanup_orphan_partials(db)
+                options = await upload_cleanup_service.get_options(db)
+                interval = max(300, options.cleanup_interval_seconds)
+                file_service.refresh_upload_limits(
+                    options.merge_concurrency, options.chunk_concurrency,
+                )
+                await upload_cleanup_service.run_cleanup(db)
+                file_service.prune_merge_progress()
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
-            logger.warning("残留合并文件清理失败: %s", type(e).__name__)
-        await asyncio.sleep(3600)
+            logger.warning("临时文件清理失败: %s", type(e).__name__)
+        await asyncio.sleep(interval)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     logger.info("数据库初始化完成")
+    # v1.9.0：先迁移旧临时目录，再恢复未完成上传会话，最后按配置初始化限流
+    async with _repair_db_factory() as db:
+        await temp_root_service.migrate_legacy_temp_dirs(db)
+        await file_service.restore_upload_sessions(db)
+        options = await upload_cleanup_service.get_options(db)
+        file_service.refresh_upload_limits(
+            options.merge_concurrency, options.chunk_concurrency,
+        )
     # v1.4.2：启动离线修复队列 worker（重启恢复：中断任务标记失败 + 清理半成品）
     await repair_task_service.start_workers(_repair_db_factory)
     # v1.8.0：启动离线下载分析/下载队列（独立 worker，与媒体修复互不抢额度）
     await offline_download_service.start_workers(_repair_db_factory)
-    # v1.7.0：过期上传临时目录清理（启动即跑一次，之后每小时）
+    # v1.9.0：启动即执行一次清理（同一 TTL），之后按配置周期执行
     cleanup_task = asyncio.create_task(_upload_cleanup_loop())
     try:
         yield
@@ -118,7 +122,7 @@ async def _repair_db_factory():
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.8.4",
+    version="1.9.0",
     lifespan=lifespan,
 )
 

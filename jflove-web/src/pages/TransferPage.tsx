@@ -1,4 +1,5 @@
 import { useTransferStore } from '../stores/transfer-store';
+import { useFiles } from '../hooks/use-files';
 import { PageHeader } from '../components/PageHeader';
 import { Badge, Button, EmptyState, Icon, Progress, toast, type BadgeTone } from '../components/ui';
 import { formatSize } from '../utils/format';
@@ -29,6 +30,7 @@ const STATUS_TONE: Record<string, BadgeTone> = {
  */
 export function TransferTasksView() {
   const { tasks, stats, cancelTask, clearFinished } = useTransferStore();
+  const { abandonDownload } = useFiles();
 
   const finishedCount = stats.completed + stats.failed + stats.cancelled;
 
@@ -89,6 +91,16 @@ export function TransferTasksView() {
                 {(task.status === 'running' || task.status === 'pending') && (
                   <Button size="sm" variant="ghost" icon="close" onClick={() => cancelTask(task.id)}>
                     取消
+                  </Button>
+                )}
+                {task.kind === 'download'
+                  && (task.status === 'failed' || task.status === 'cancelled') && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void abandonDownload(task.diskId, task.remotePath, task.filename)}
+                  >
+                    放弃续传
                   </Button>
                 )}
               </div>

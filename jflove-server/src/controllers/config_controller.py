@@ -9,7 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 import aiosqlite
 
 from src.models.database import get_db
-from src.services import config_service, auth_service, offline_download_service
+from src.services import (
+    config_service,
+    auth_service,
+    offline_download_service,
+    upload_cleanup_service,
+)
 from src.utils.middleware import decrypt_request_body, encrypt_response
 
 router = APIRouter(prefix="/api/v1/config", tags=["系统配置"])
@@ -54,6 +59,9 @@ async def get_config(request: Request, db: aiosqlite.Connection = Depends(get_db
     # v1.8.0：离线下载全局策略未落库时展示默认值（管理员改后写库并立即生效）
     for key, default in offline_download_service.OFFLINE_CONFIG_DEFAULTS.items():
         config.setdefault(key, default)
+    # v1.9.0：断点续传/临时清理配置未落库时展示默认值
+    for key, default in upload_cleanup_service.UPLOAD_CONFIG_DEFAULTS.items():
+        config.setdefault(key, default)
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {"config": config})
 
@@ -84,6 +92,35 @@ async def update_config(request: Request, db: aiosqlite.Connection = Depends(get
         value = offline_download_service.validate_config_value(key, value)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        value = upload_cleanup_service.validate_config_value(key, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await config_service.update(db, key, value)
+    # v1.9.0：上传/清理配置立即生效（重建合并/分片信号量）
+    await upload_cleanup_service.refresh_limits(db)
     session_id = request.headers.get("X-Session-ID", "")
     return encrypt_response(session_id, {"message": "配置已更新"})
+
+
+@router.post(
+    "/cleanup",
+    summary="立即清理临时文件（v1.9.0）",
+    description=(
+        "管理员触发一次与定时任务同规则的安全清理；只清理程序自产、固定命名的临时文件。\n\n"
+        "请求体（加密后）字段：\n"
+        "- `token`：管理员 JWT 令牌\n\n"
+        "响应体（加密后）字段：\n"
+        "- `removed_sessions` / `removed_dirs` / `removed_parts` / `skipped`：清理统计\n"
+        "- `enabled`：自动清理是否开启"
+    ),
+)
+async def run_cleanup(request: Request, db: aiosqlite.Connection = Depends(get_db)):
+    """立即执行一次临时文件清理（管理员权限）"""
+    import time as _time
+
+    await _require_admin(request, db)
+    result = await upload_cleanup_service.run_cleanup(db)
+    result["executed_at"] = _time.time()
+    session_id = request.headers.get("X-Session-ID", "")
+    return encrypt_response(session_id, result)

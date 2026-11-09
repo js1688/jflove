@@ -7,6 +7,13 @@ import {
   configService,
   MEDIA_REPAIR_KEYS,
   OFFLINE_DOWNLOAD_KEYS,
+  UPLOAD_CLEANUP_KEYS,
+  UPLOAD_CLEANUP_RANGES,
+  UPLOAD_CLEANUP_DEFAULTS,
+  CLEANUP_CLIENT_TYPES,
+  WEAK_SERVER_PRESET,
+  parseCleanupClientTypes,
+  type CleanupRunResult,
 } from '../../services/config-service';
 
 /**
@@ -15,10 +22,59 @@ import {
  * 提供服务端共享配置（存服务端 config 表，三端共享）：
  *  - 离线媒体修复并发数（1~8，留空 = 按服务器 CPU 核数自动推导）
  *  - 离线下载全局策略（总开关 / 深度分析 / 并发 / 体积 / 项数 / 图片数 / 超时）
+ *  - **v1.9.0 存储与临时文件**（上传续传 TTL / 自动清理 / 客户端类型 / 孤儿保留期 /
+ *    每用户会话上限 / 合并并发 / 上传分片并发 / 弱服务端模式 / 立即清理）
  *
  * 配置写入后立即生效、无需重启任何端。仅管理员可见（路由层 RequireAdmin 守卫）。
- * v1.8.0 UAT 裁决：离线下载默认开启，管理员可在此应急关闭。
  */
+
+/** 「存储与临时文件」数字项（范围与服务端 upload_cleanup_service 校验一致） */
+const STORAGE_NUMBER_FIELDS = [
+  {
+    key: UPLOAD_CLEANUP_KEYS.resumeTtlHours,
+    label: '断点续传保障时长（小时）',
+    hint: `${UPLOAD_CLEANUP_RANGES.resumeTtlHours.min}~${UPLOAD_CLEANUP_RANGES.resumeTtlHours.max}`,
+    ...UPLOAD_CLEANUP_RANGES.resumeTtlHours,
+  },
+  {
+    key: UPLOAD_CLEANUP_KEYS.cleanupIntervalMinutes,
+    label: '自动清理间隔（分钟）',
+    hint: `${UPLOAD_CLEANUP_RANGES.cleanupIntervalMinutes.min}~${UPLOAD_CLEANUP_RANGES.cleanupIntervalMinutes.max}`,
+    ...UPLOAD_CLEANUP_RANGES.cleanupIntervalMinutes,
+  },
+  {
+    key: UPLOAD_CLEANUP_KEYS.orphanTtlHours,
+    label: '孤儿临时文件保留期（小时）',
+    hint: `${UPLOAD_CLEANUP_RANGES.orphanTtlHours.min}~${UPLOAD_CLEANUP_RANGES.orphanTtlHours.max}`,
+    ...UPLOAD_CLEANUP_RANGES.orphanTtlHours,
+  },
+  {
+    key: UPLOAD_CLEANUP_KEYS.maxSessionsPerUser,
+    label: '每用户未完成会话上限',
+    hint: `${UPLOAD_CLEANUP_RANGES.maxSessionsPerUser.min}~${UPLOAD_CLEANUP_RANGES.maxSessionsPerUser.max}`,
+    ...UPLOAD_CLEANUP_RANGES.maxSessionsPerUser,
+  },
+  {
+    key: UPLOAD_CLEANUP_KEYS.mergeConcurrency,
+    label: '合并并发',
+    hint: `${UPLOAD_CLEANUP_RANGES.mergeConcurrency.min}~${UPLOAD_CLEANUP_RANGES.mergeConcurrency.max}（0 = 仅排队）`,
+    ...UPLOAD_CLEANUP_RANGES.mergeConcurrency,
+  },
+  {
+    key: UPLOAD_CLEANUP_KEYS.chunkConcurrency,
+    label: '上传分片并发',
+    hint: `${UPLOAD_CLEANUP_RANGES.chunkConcurrency.min}~${UPLOAD_CLEANUP_RANGES.chunkConcurrency.max}`,
+    ...UPLOAD_CLEANUP_RANGES.chunkConcurrency,
+  },
+] as const;
+
+/** 客户端类型中文名（清理名单多选展示） */
+const CLIENT_TYPE_LABELS: Record<string, string> = {
+  app: 'App',
+  desktop: '桌面端',
+  web: 'Web 端',
+  unknown: '未知',
+};
 
 /** 离线下载数字项：前端只做前置提示，最终以后端 400 中文错误为准 */
 const OFFLINE_NUMBER_FIELDS = [
@@ -90,6 +146,15 @@ export function AdminSystemPage() {
   const [deepAnalyze, setDeepAnalyze] = useState(true);
   const [offlineNumbers, setOfflineNumbers] = useState<Record<string, string>>({});
 
+  // v1.9.0 存储与临时文件（上传续传 / 自动清理 / 资源隔离）
+  const [cleanupEnabled, setCleanupEnabled] = useState(true);
+  const [storageNumbers, setStorageNumbers] = useState<Record<string, string>>({});
+  const [cleanupClientTypes, setCleanupClientTypes] = useState<string[]>([
+    ...CLEANUP_CLIENT_TYPES,
+  ]);
+  const [cleanupRunning, setCleanupRunning] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<CleanupRunResult | null>(null);
+
   const load = async () => {
     setLoading(true);
     setLoadError(null);
@@ -116,6 +181,20 @@ export function AdminSystemPage() {
         [OFFLINE_DOWNLOAD_KEYS.readTimeout]:
           c[OFFLINE_DOWNLOAD_KEYS.readTimeout] ?? '60',
       });
+
+      // v1.9.0 存储与临时文件：缺省项按服务端默认值展示
+      setCleanupEnabled((c[UPLOAD_CLEANUP_KEYS.enabled] ?? '1') === '1');
+      const storageDefaults: Record<string, string> = {};
+      for (const field of STORAGE_NUMBER_FIELDS) {
+        storageDefaults[field.key] =
+          c[field.key] ?? UPLOAD_CLEANUP_DEFAULTS[field.key];
+      }
+      setStorageNumbers(storageDefaults);
+      const savedTypes = parseCleanupClientTypes(c[UPLOAD_CLEANUP_KEYS.clientTypes]);
+      // 空 = 全部（后端语义）；UI 上展示为四项全选，保存时显式写全名单
+      setCleanupClientTypes(
+        savedTypes.length > 0 ? savedTypes : [...CLEANUP_CLIENT_TYPES],
+      );
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : '加载系统配置失败');
     }
@@ -193,6 +272,87 @@ export function AdminSystemPage() {
       setNotice(e instanceof Error ? e.message : '保存失败');
     }
     setSaving(false);
+  };
+
+  /** 勾选 / 取消「允许自动清理的客户端类型」 */
+  const toggleClientType = (type: string, checked: boolean) => {
+    setCleanupClientTypes((prev) => (
+      checked
+        ? [...new Set([...prev, type])]
+        : prev.filter(item => item !== type)
+    ));
+  };
+
+  /**
+   * 保存「存储与临时文件」配置（数字项 + 客户端类型名单）。
+   * 保存成功后立即重新 GET 一次，确保展示的是服务端真实值（三端同源、立即生效）。
+   */
+  const saveStorageConfig = async () => {
+    const payload: Array<[string, string]> = [];
+    for (const field of STORAGE_NUMBER_FIELDS) {
+      const raw = (storageNumbers[field.key] ?? '').trim();
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < field.min || n > field.max) {
+        setNotice(`${field.label}需为 ${field.min}~${field.max} 的整数`);
+        return;
+      }
+      payload.push([field.key, String(n)]);
+    }
+    if (cleanupClientTypes.length === 0) {
+      setNotice('请至少勾选一种允许自动清理的客户端类型（或关闭自动清理总开关）');
+      return;
+    }
+    payload.push([UPLOAD_CLEANUP_KEYS.clientTypes, cleanupClientTypes.join(',')]);
+
+    setSaving(true);
+    setNotice(null);
+    try {
+      for (const [key, value] of payload) {
+        await configService.updateConfig(key, value);
+      }
+      await load();
+      setNotice('存储与临时文件配置已保存，立即生效');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** 弱服务端模式一键预设（F56.5：合并并发 1 / 上传并发 2 / 每用户会话上限 4） */
+  const applyWeakServerPreset = async () => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      for (const [key, value] of Object.entries(WEAK_SERVER_PRESET)) {
+        await configService.updateConfig(key, value);
+      }
+      await load();
+      setNotice(
+        '已启用「弱服务端模式」：合并并发 1、上传并发 2、每用户未完成会话上限 4；'
+        + '客户端分片固定 512KB。该模式降低峰值资源占用，但上传 / 合并总耗时会变长。',
+      );
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : '启用弱服务端模式失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** 立即清理（仅管理员；规则与定时任务一致，显示清理数量与跳过数量） */
+  const handleRunCleanup = async () => {
+    setCleanupRunning(true);
+    setNotice(null);
+    setCleanupResult(null);
+    try {
+      const result = await configService.runCleanup();
+      setCleanupResult(result);
+      setNotice('清理完成');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : '清理失败');
+    } finally {
+      setCleanupRunning(false);
+    }
   };
 
   if (loading) {
@@ -353,6 +513,150 @@ export function AdminSystemPage() {
                   保存数值配置
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* ── v1.9.0：存储与临时文件（上传断点续传 / 自动清理 / 弱服务端资源隔离） ── */}
+          <div className="mt-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-1 text-base font-semibold text-gray-800">存储与临时文件</h2>
+            <p className="mb-4 text-xs text-gray-500">
+              断点续传有效期、临时分片自动清理与合并资源上限。配置保存在服务端、三端共享，
+              修改后立即生效。清理任务只会删除程序自产、固定命名的分片 / 合并残留，
+              绝不删除用户正常文件。
+            </p>
+
+            <div className="divide-y divide-gray-100">
+              {/* 自动清理总开关 */}
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">自动清理总开关</p>
+                  <p className="text-xs text-gray-400">
+                    关闭后不自动删除任何临时文件（立即清理按钮同样遵守此开关）
+                  </p>
+                </div>
+                <Switch
+                  checked={cleanupEnabled}
+                  disabled={saving}
+                  label="自动清理总开关"
+                  onChange={(next) =>
+                    void saveToggle(
+                      UPLOAD_CLEANUP_KEYS.enabled,
+                      next,
+                      setCleanupEnabled,
+                      '自动清理',
+                    )
+                  }
+                />
+              </div>
+
+              {/* 数字项 */}
+              {STORAGE_NUMBER_FIELDS.map((field) => (
+                <div
+                  key={field.key}
+                  className="flex items-center justify-between gap-4 py-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">{field.label}</p>
+                    <p className="text-xs text-gray-400">
+                      允许范围 {field.hint}
+                      {field.key === UPLOAD_CLEANUP_KEYS.resumeTtlHours
+                        && '；该值同时决定断点续传有效期和临时文件清理保护期'}
+                    </p>
+                  </div>
+                  <input
+                    type="number"
+                    min={field.min}
+                    max={field.max}
+                    aria-label={field.label}
+                    value={storageNumbers[field.key] ?? ''}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setStorageNumbers((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    className="w-28 rounded-md border border-gray-300 px-2 py-1 text-sm"
+                  />
+                </div>
+              ))}
+
+              {/* 允许自动清理的客户端类型（多选） */}
+              <div className="flex items-start justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">
+                    允许自动清理的客户端类型
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    只清理勾选类型的过期临时文件；名单外的类型永不自动清理
+                  </p>
+                </div>
+                <div className="flex flex-wrap justify-end gap-x-3 gap-y-1">
+                  {CLEANUP_CLIENT_TYPES.map((type) => (
+                    <label
+                      key={type}
+                      className="flex items-center gap-1 text-xs text-gray-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={cleanupClientTypes.includes(type)}
+                        disabled={saving}
+                        onChange={(e) => toggleClientType(type, e.target.checked)}
+                      />
+                      {CLIENT_TYPE_LABELS[type] ?? type}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">弱服务端模式</p>
+                  <p className="text-xs text-gray-400">
+                    一键预设：合并并发 1、上传分片并发 2、每用户未完成会话上限 4
+                    （分片 512KB 由客户端固定）。降低峰值资源占用，但上传 / 合并总耗时会变长；
+                    适用于 8GB 内存 / N2840 级别的服务器。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void applyWeakServerPreset()}
+                  className="shrink-0 rounded-md border border-gray-300 px-3 py-1 text-sm
+                    text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  启用弱服务端模式
+                </button>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2 py-3">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void saveStorageConfig()}
+                  className="rounded-md bg-indigo-500 px-3 py-1 text-sm text-white
+                    hover:bg-indigo-600 disabled:opacity-50"
+                >
+                  保存存储配置
+                </button>
+                <button
+                  type="button"
+                  disabled={cleanupRunning}
+                  onClick={() => void handleRunCleanup()}
+                  className="rounded-md border border-red-300 px-3 py-1 text-sm text-red-600
+                    hover:bg-red-50 disabled:opacity-50"
+                >
+                  {cleanupRunning ? '清理中…' : '立即清理'}
+                </button>
+              </div>
+
+              {cleanupResult && (
+                <div className="py-3 text-xs text-gray-600">
+                  最近清理（{new Date(cleanupResult.executed_at * 1000).toLocaleString('zh-CN')}）：
+                  删除会话 {cleanupResult.removed_sessions} 个、目录 {cleanupResult.removed_dirs} 个、
+                  合并残留 {cleanupResult.removed_parts} 个、跳过 {cleanupResult.skipped} 个（命名不符，安全跳过）
+                </div>
+              )}
             </div>
           </div>
         </>

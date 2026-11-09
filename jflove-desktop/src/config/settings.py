@@ -16,7 +16,7 @@ from pathlib import Path
 
 # ── 应用基本信息 ──────────────────────────────────────
 APP_NAME = "JFLove"
-APP_VERSION = "1.8.4"
+APP_VERSION = "1.9.0"
 APP_ORG = "JFLove"
 
 # ── 登录有效期下拉选项 (秒, 中文显示) ──
@@ -79,9 +79,16 @@ ICON_ICO_PATH = str(BASE_DIR / "images" / "icon.ico")
 # ── 服务端默认地址 ────────────────────────────────────
 DEFAULT_SERVER_URL = "http://localhost:8989"
 
-# ── 上传策略 ──────────────────────────────────────────
-# 分片大小：1 MB
-CHUNK_SIZE = 1024 * 1024
+# ── 上传策略（v1.9.0） ────────────────────────────────
+# 分片大小：512 KB（设计 §3.1 / F56.4 / D35）。
+# 弱服务端（8GB / N2840 级别）下，512KB 分片把单请求解密 / base64 副本减半；
+# 服务端硬上限仍是 1MB（`UPLOAD_MAX_CHUNK_SIZE`），调回 1MB 也兼容。
+CHUNK_SIZE = 512 * 1024
+
+# ── 下载断点续传（v1.9.0，F48.5 / D33） ───────────────
+# 客户端本地 `<目标>.part` + `<目标>.jflove-part.json` 的保留期：7 天。
+# 超期在下次下载同一文件时删除并从头开始（不做全目录扫描，避免误删用户文件）。
+DOWNLOAD_PART_TTL_SECONDS = 7 * 24 * 3600
 
 # ── JWT 令牌刷新阈值（剩余有效期小于此值时自动刷新，单位：秒） ──
 TOKEN_REFRESH_THRESHOLD = 300

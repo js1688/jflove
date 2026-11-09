@@ -35,6 +35,8 @@ class AdminSystemPage extends StatelessWidget {
           const MediaRepairConfigCard(),
           const SizedBox(height: 12),
           OfflineDownloadConfigCard(configService: configService),
+          const SizedBox(height: 12),
+          UploadCleanupConfigCard(configService: configService),
         ],
       ),
     );
@@ -607,3 +609,325 @@ class OfflineDownloadConfigCardState
 // ============ 笔记目录配置卡片 ============
 
 /// 笔记目录配置卡片（独立 ConsumerStatefulWidget，内部管理异步加载与对话框）
+
+// ============ 存储与临时文件（v1.9.0）配置卡片 ============
+
+const String _uploadTtlKey = 'upload_resume_ttl_hours';
+const String _uploadCleanupEnabledKey = 'upload_cleanup_enabled';
+const String _uploadCleanupIntervalKey = 'upload_cleanup_interval_minutes';
+const String _uploadCleanupTypesKey = 'upload_cleanup_client_types';
+const String _uploadOrphanTtlKey = 'upload_orphan_ttl_hours';
+const String _uploadMaxSessionsKey = 'upload_max_sessions_per_user';
+const String _uploadMergeKey = 'upload_merge_concurrency';
+const String _uploadChunkKey = 'upload_chunk_concurrency';
+
+class UploadCleanupConfigCard extends ConsumerStatefulWidget {
+  const UploadCleanupConfigCard({super.key, this.configService});
+
+  final ConfigService? configService;
+
+  @override
+  ConsumerState<UploadCleanupConfigCard> createState() =>
+      _UploadCleanupConfigCardState();
+}
+
+class _UploadCleanupConfigCardState
+    extends ConsumerState<UploadCleanupConfigCard> {
+  bool _loading = true;
+  bool _saving = false;
+  bool _enabled = true;
+  final Set<String> _clientTypes = {'app', 'desktop', 'web'};
+  String? _errorMsg;
+
+  final _ttlCtrl = TextEditingController();
+  final _intervalCtrl = TextEditingController();
+  final _orphanCtrl = TextEditingController();
+  final _maxSessionsCtrl = TextEditingController();
+  final _mergeCtrl = TextEditingController();
+  final _chunkCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    for (final c in [
+      _ttlCtrl,
+      _intervalCtrl,
+      _orphanCtrl,
+      _maxSessionsCtrl,
+      _mergeCtrl,
+      _chunkCtrl,
+    ]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  ConfigService _configService() {
+    if (widget.configService != null) return widget.configService!;
+    final session = ref.read(sessionManagerProvider);
+    return ConfigService(HttpService(session));
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _errorMsg = null;
+    });
+    try {
+      final resp = await _configService().getConfig();
+      final cfg = (resp['config'] as Map<String, dynamic>?) ?? {};
+      if (!mounted) return;
+      setState(() {
+        _enabled = (cfg[_uploadCleanupEnabledKey] as String? ?? '1') == '1';
+        _ttlCtrl.text = (cfg[_uploadTtlKey] as String? ?? '24');
+        _intervalCtrl.text =
+            (cfg[_uploadCleanupIntervalKey] as String? ?? '60');
+        _orphanCtrl.text = (cfg[_uploadOrphanTtlKey] as String? ?? '24');
+        _maxSessionsCtrl.text =
+            (cfg[_uploadMaxSessionsKey] as String? ?? '8');
+        _mergeCtrl.text = (cfg[_uploadMergeKey] as String? ?? '1');
+        _chunkCtrl.text = (cfg[_uploadChunkKey] as String? ?? '2');
+        final rawTypes = (cfg[_uploadCleanupTypesKey] as String? ?? '');
+        _clientTypes.clear();
+        if (rawTypes.isEmpty) {
+          _clientTypes.addAll(['app', 'desktop', 'web']);
+        } else {
+          _clientTypes.addAll(rawTypes.split(','));
+        }
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _errorMsg = '$e';
+      });
+    }
+  }
+
+  Future<void> _saveAll() async {
+    final ttl = int.tryParse(_ttlCtrl.text.trim());
+    final interval = int.tryParse(_intervalCtrl.text.trim());
+    final orphan = int.tryParse(_orphanCtrl.text.trim());
+    final maxSessions = int.tryParse(_maxSessionsCtrl.text.trim());
+    final merge = int.tryParse(_mergeCtrl.text.trim());
+    final chunk = int.tryParse(_chunkCtrl.text.trim());
+    if (ttl == null ||
+        interval == null ||
+        orphan == null ||
+        maxSessions == null ||
+        merge == null ||
+        chunk == null) {
+      _toast('请填写合法整数');
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final values = <String, String>{
+        _uploadCleanupEnabledKey: _enabled ? '1' : '0',
+        _uploadTtlKey: '$ttl',
+        _uploadCleanupIntervalKey: '$interval',
+        _uploadOrphanTtlKey: '$orphan',
+        _uploadMaxSessionsKey: '$maxSessions',
+        _uploadMergeKey: '$merge',
+        _uploadChunkKey: '$chunk',
+        _uploadCleanupTypesKey: (_clientTypes.toList()..sort()).join(','),
+      };
+      for (final entry in values.entries) {
+        await _configService().updateConfig(entry.key, entry.value);
+      }
+      _toast('配置已保存，立即生效');
+    } catch (e) {
+      _toast('保存失败: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _applyWeakServerMode() async {
+    setState(() => _saving = true);
+    try {
+      for (final entry in <String, String>{
+        _uploadMergeKey: '1',
+        _uploadChunkKey: '2',
+        _uploadTtlKey: '24',
+        _uploadMaxSessionsKey: '4',
+      }.entries) {
+        await _configService().updateConfig(entry.key, entry.value);
+      }
+      await _load();
+      _toast('已启用弱服务端模式（合并 1 / 分片并发 2 / 会话上限 4）');
+    } catch (e) {
+      _toast('启用失败: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _runCleanup() async {
+    setState(() => _saving = true);
+    try {
+      final result = await _configService().runCleanup();
+      _toast(
+        '清理完成：会话 ${result['removed_sessions'] ?? 0}，目录 '
+        '${result['removed_dirs'] ?? 0}，碎片 ${result['removed_parts'] ?? 0}，'
+        '跳过 ${result['skipped'] ?? 0}',
+      );
+    } catch (e) {
+      _toast('清理失败: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Widget _numberRow(
+    String label,
+    String hint,
+    TextEditingController controller,
+  ) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.bodySmall),
+                Text(
+                  '允许范围 $hint',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.tokens.fgMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: 100,
+            child: TextField(
+              controller: controller,
+              enabled: !_saving,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const _SysSectionCard(
+        title: '存储与临时文件',
+        icon: Icons.cleaning_services_outlined,
+        child: Padding(
+          padding: EdgeInsets.all(12),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+    return _SysSectionCard(
+      title: '存储与临时文件',
+      icon: Icons.cleaning_services_outlined,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_errorMsg != null) ...[
+            Text(
+              '加载失败: $_errorMsg',
+              style: const TextStyle(color: AppTokens.danger500, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Text(
+            '断点续传保障时长同时决定临时文件清理保护期；到期的分片会被'
+            '安全清理，客户端下次从头上传。清理只删除程序自产、固定命名的'
+            '临时文件，不会删除您的正常文件。',
+            style: TextStyle(
+              fontSize: 12.5,
+              height: 1.6,
+              color: context.tokens.fgMuted,
+            ),
+          ),
+          Material(
+            type: MaterialType.transparency,
+            child: SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('自动清理临时文件'),
+              subtitle: const Text('关闭后不自动删除任何临时文件（仍可手动清理）'),
+              value: _enabled,
+              onChanged: _saving
+                  ? null
+                  : (next) => setState(() => _enabled = next),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text('允许自动清理的客户端类型', style: Theme.of(context).textTheme.bodySmall),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final type in ['app', 'desktop', 'web'])
+                FilterChip(
+                  label: Text(type),
+                  selected: _clientTypes.contains(type),
+                  onSelected: _saving
+                      ? null
+                      : (on) => setState(() {
+                          if (on) {
+                            _clientTypes.add(type);
+                          } else {
+                            _clientTypes.remove(type);
+                          }
+                        }),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _numberRow('断点续传保障时长（小时）', '1~168', _ttlCtrl),
+          _numberRow('自动清理间隔（分钟）', '5~1440', _intervalCtrl),
+          _numberRow('孤儿临时文件保留期（小时）', '1~168', _orphanCtrl),
+          _numberRow('每用户未完成会话上限', '1~64', _maxSessionsCtrl),
+          _numberRow('服务端合并并发', '0~4（0=暂停合并）', _mergeCtrl),
+          _numberRow('上传分片并发', '1~8', _chunkCtrl),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              FilledButton.tonal(
+                onPressed: _saving ? null : _saveAll,
+                child: const Text('保存配置'),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: _saving ? null : _applyWeakServerMode,
+                child: const Text('弱服务端模式'),
+              ),
+              const Spacer(),
+              OutlinedButton(
+                onPressed: _saving ? null : _runCleanup,
+                child: const Text('立即清理'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}

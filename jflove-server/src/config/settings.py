@@ -6,7 +6,18 @@ PROJECT_DIR = BASE_DIR.parent
 
 DB_PATH = str(PROJECT_DIR / "jflove-db" / "jflove-dev.db")
 LOG_DIR = str(BASE_DIR / "logs")
-UPLOAD_TEMP_DIR = str(BASE_DIR / "build" / "upload_tmp")
+# v1.9.0：临时文件统一收敛。
+#   - 进程级统一临时根 TEMP_ROOT（build/tmp）；
+#   - 上传分片在 TEMP_ROOT/upload（旧 build/upload_tmp 仅用于迁移/兼容）；
+#   - 磁盘级统一隐藏根 TEMP_DIR_NAME（每虚拟磁盘根一个，下分 offline/repair）。
+LEGACY_UPLOAD_TEMP_DIR = str(BASE_DIR / "build" / "upload_tmp")
+TEMP_ROOT = str(BASE_DIR / "build" / "tmp")
+UPLOAD_TEMP_DIR = str(BASE_DIR / "build" / "tmp" / "upload")
+#: 磁盘根下的统一隐藏临时目录名（文件列表不展示、接口路径段拒绝）
+TEMP_DIR_NAME = ".jflove-tmp"
+#: 统一临时根内的分类子目录
+TEMP_OFFLINE_SUBDIR = "offline"
+TEMP_REPAIR_SUBDIR = "repair"
 
 JWT_ALGORITHM = "ES256"
 # v1.1.4：JWT 有效期上限由 8 小时放宽到 30 天（支持 1天 / 7天 / 30天 选项）。
@@ -127,5 +138,55 @@ OFFLINE_HARD_MAX_ITEMS = 200
 OFFLINE_DEFAULT_MAX_IMAGES = 200
 OFFLINE_HARD_MAX_IMAGES = 1000
 
+# ── 大文件断点续传 / 临时文件清理（v1.9.0）─────────────────────
+# config 表键（仅管理员可改；TTL 是**唯一来源**：会话过期、清理保护、客户端过期提示共用）
+UPLOAD_RESUME_TTL_KEY = "upload_resume_ttl_hours"            # 断点续传保障时长（小时，1~168）
+UPLOAD_CLEANUP_ENABLED_KEY = "upload_cleanup_enabled"        # 自动清理总开关："1" 开 / "0" 关
+UPLOAD_CLEANUP_INTERVAL_KEY = "upload_cleanup_interval_minutes"  # 清理周期（分钟，5~1440）
+UPLOAD_CLEANUP_CLIENT_TYPES_KEY = "upload_cleanup_client_types"   # 允许清理的客户端类型（逗号集，空=全部）
+UPLOAD_ORPHAN_TTL_KEY = "upload_orphan_ttl_hours"            # 孤儿临时文件保留期（小时，1~168）
+UPLOAD_MAX_SESSIONS_PER_USER_KEY = "upload_max_sessions_per_user"  # 每用户未完成会话上限（1~64）
+UPLOAD_MERGE_CONCURRENCY_KEY = "upload_merge_concurrency"    # 合并并发（0~4；0=暂停排队）
+UPLOAD_CHUNK_CONCURRENCY_KEY = "upload_chunk_concurrency"    # 分片上传并发（1~8）
+
+# 默认值与硬边界（服务端校验，不信任客户端）
+UPLOAD_DEFAULT_RESUME_TTL_HOURS = 24
+UPLOAD_MIN_RESUME_TTL_HOURS = 1
+UPLOAD_MAX_RESUME_TTL_HOURS = 168
+UPLOAD_DEFAULT_CLEANUP_INTERVAL_MINUTES = 60
+UPLOAD_MIN_CLEANUP_INTERVAL_MINUTES = 5
+UPLOAD_MAX_CLEANUP_INTERVAL_MINUTES = 1440
+UPLOAD_DEFAULT_ORPHAN_TTL_HOURS = 24
+UPLOAD_MIN_ORPHAN_TTL_HOURS = 1
+UPLOAD_MAX_ORPHAN_TTL_HOURS = 168
+UPLOAD_DEFAULT_MAX_SESSIONS_PER_USER = 8
+UPLOAD_MIN_MAX_SESSIONS_PER_USER = 1
+UPLOAD_MAX_MAX_SESSIONS_PER_USER = 64
+UPLOAD_DEFAULT_MERGE_CONCURRENCY = 1
+UPLOAD_MAX_MERGE_CONCURRENCY = 4
+UPLOAD_DEFAULT_CHUNK_CONCURRENCY = 2
+UPLOAD_MAX_CHUNK_CONCURRENCY = 8
+#: 合法客户端类型
+UPLOAD_CLIENT_TYPES = ("app", "desktop", "web", "unknown")
+#: 单分片硬上限（字节）：防弱服务端被超大分片放大内存
+UPLOAD_MAX_CHUNK_SIZE = 1024 * 1024
+#: 客户端默认分片大小（文档口径；实际由客户端常量决定）
+UPLOAD_DEFAULT_CHUNK_SIZE_KB = 512
+#: 进度记录保留时长（秒）：与会话 TTL 同源，供客户端迟到查询 done/failed
+UPLOAD_PROGRESS_TTL_SECONDS = UPLOAD_DEFAULT_RESUME_TTL_HOURS * 3600
+
+#: 各配置键默认值（config GET 缺省注入、清理读取）
+UPLOAD_CONFIG_DEFAULTS = {
+    UPLOAD_RESUME_TTL_KEY: str(UPLOAD_DEFAULT_RESUME_TTL_HOURS),
+    UPLOAD_CLEANUP_ENABLED_KEY: "1",
+    UPLOAD_CLEANUP_INTERVAL_KEY: str(UPLOAD_DEFAULT_CLEANUP_INTERVAL_MINUTES),
+    UPLOAD_CLEANUP_CLIENT_TYPES_KEY: "",
+    UPLOAD_ORPHAN_TTL_KEY: str(UPLOAD_DEFAULT_ORPHAN_TTL_HOURS),
+    UPLOAD_MAX_SESSIONS_PER_USER_KEY: str(UPLOAD_DEFAULT_MAX_SESSIONS_PER_USER),
+    UPLOAD_MERGE_CONCURRENCY_KEY: str(UPLOAD_DEFAULT_MERGE_CONCURRENCY),
+    UPLOAD_CHUNK_CONCURRENCY_KEY: str(UPLOAD_DEFAULT_CHUNK_CONCURRENCY),
+}
+
 Path(LOG_DIR).mkdir(parents=True, exist_ok=True)
+Path(TEMP_ROOT).mkdir(parents=True, exist_ok=True)
 Path(UPLOAD_TEMP_DIR).mkdir(parents=True, exist_ok=True)

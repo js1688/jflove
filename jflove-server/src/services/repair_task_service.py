@@ -36,6 +36,8 @@ from src.config.settings import (
     REPAIR_OUTPUT_EXT,
     REPAIR_PROGRESS_THROTTLE,
     REPAIR_TEMP_SUFFIX,
+    TEMP_DIR_NAME,
+    TEMP_REPAIR_SUBDIR,
 )
 from src.repositories import repair_task_repository, virtual_disk_repository
 from src.services.permission_service import check_disk_permission
@@ -57,12 +59,27 @@ _cancel_events: dict[int, asyncio.Event] = {}
 
 def _repair_dir_for(base: str, rel_path: str) -> str:
     """
-    计算原文件所在目录的修复隐藏目录绝对路径（不创建目录）。
+    计算旧版修复隐藏目录绝对路径（兼容读取；新任务写入统一根）。
 
     :param base: 虚拟磁盘根目录绝对路径
     :param rel_path: 原文件所在目录（磁盘内相对路径）
     """
     return os.path.join(_safe_join(base, rel_path), REPAIR_DIR_NAME)
+
+
+def _unified_repair_dir(base: str, task_id: int) -> str:
+    """统一临时根内的修复产物目录（v1.9.0）：`<磁盘根>/.jflove-tmp/repair/<task_id>`。"""
+    return os.path.join(base, TEMP_DIR_NAME, TEMP_REPAIR_SUBDIR, str(task_id))
+
+
+def _artifact_candidates(
+    base: str, rel_path: str, task_id: int, output_name: str
+) -> list[str]:
+    """产物候选路径：统一根优先，旧路径回退（迁移前/迁移失败兼容）。"""
+    return [
+        os.path.join(_unified_repair_dir(base, task_id), output_name),
+        os.path.join(_repair_dir_for(base, rel_path), output_name),
+    ]
 
 
 def _artifact_stem(filename: str) -> str:
@@ -212,19 +229,24 @@ async def override_origin(
         raise PermissionError("修复需要磁盘写权限与删除权限")
 
     base = await _disk_base(db, task["disk_id"])
-    repair_dir = _repair_dir_for(base, task["rel_path"])
-    artifact = os.path.join(repair_dir, task["output_name"])
+    candidates = _artifact_candidates(
+        base, task["rel_path"], task_id, task["output_name"],
+    )
+    artifact = next((path for path in candidates if os.path.isfile(path)), "")
     origin = _safe_join(
         base, os.path.join(task["rel_path"].lstrip("/"), task["filename"])
     )
-    if not os.path.isfile(artifact):
+    if not artifact:
         raise ValueError("修复产物不存在（可能已被删除）")
     if not os.path.isfile(origin):
         raise ValueError("原文件不存在（可能已被移动或删除）")
 
     os.replace(artifact, origin)
     await repair_task_repository.update_status(db, task_id, "overridden")
-    _remove_dir_if_empty(repair_dir)
+    for path in (
+        _unified_repair_dir(base, task_id), _repair_dir_for(base, task["rel_path"]),
+    ):
+        _remove_dir_if_empty(path)
     logger.info("修复产物已覆盖原文件: task_id=%s disk_id=%s", task_id, task["disk_id"])
 
 
@@ -246,12 +268,17 @@ async def delete_artifact(
         raise PermissionError("修复需要磁盘写权限与删除权限")
 
     base = await _disk_base(db, task["disk_id"])
-    repair_dir = _repair_dir_for(base, task["rel_path"])
-    artifact = os.path.join(repair_dir, task["output_name"])
+    candidates = _artifact_candidates(
+        base, task["rel_path"], task_id, task["output_name"],
+    )
     # 产物存在才删；不存在（可能被人工挪走）也视为删除成功，不报错
-    if os.path.isfile(artifact):
-        os.remove(artifact)
-    _remove_dir_if_empty(repair_dir)
+    for artifact in candidates:
+        if os.path.isfile(artifact):
+            os.remove(artifact)
+    for path in (
+        _unified_repair_dir(base, task_id), _repair_dir_for(base, task["rel_path"]),
+    ):
+        _remove_dir_if_empty(path)
     logger.info("修复产物已删除: task_id=%s", task_id)
 
 
@@ -350,7 +377,7 @@ async def _run_task(db: aiosqlite.Connection, task_id: int) -> None:
                 db, task_id, "failed", "原文件不存在"
             )
             return
-        repair_dir = _repair_dir_for(base, task["rel_path"])
+        repair_dir = _unified_repair_dir(base, task_id)
         os.makedirs(repair_dir, exist_ok=True)
         output_name = _next_output_name(repair_dir, task["filename"])
         temp_path = os.path.join(
@@ -545,17 +572,26 @@ async def _cleanup_file_artifacts(
         return
     try:
         base = await _disk_base(db, disk_id)
-        repair_dir = _repair_dir_for(base, rel_path)
+        legacy_dir = _repair_dir_for(base, rel_path)
     except (ValueError, PermissionError):
         return
     for row in rows:
         if row["output_name"]:
-            _remove_file(os.path.join(repair_dir, row["output_name"]))
-    for temp in glob.glob(
-        os.path.join(repair_dir, f"{glob.escape(_artifact_stem(filename))}*{REPAIR_TEMP_SUFFIX}")
-    ):
-        _remove_file(temp)
-    _remove_dir_if_empty(repair_dir)
+            for candidate in _artifact_candidates(
+                base, rel_path, int(row["id"]), row["output_name"],
+            ):
+                _remove_file(candidate)
+            _remove_dir_if_empty(_unified_repair_dir(base, int(row["id"])))
+    # 半成品按旧路径与统一根各自的任务目录清理
+    temp_globs = [
+        os.path.join(legacy_dir, f"{glob.escape(_artifact_stem(filename))}*{REPAIR_TEMP_SUFFIX}")
+    ]
+    for task_dir in glob.glob(os.path.join(base, TEMP_DIR_NAME, TEMP_REPAIR_SUBDIR, "*")):
+        temp_globs.append(os.path.join(task_dir, f"*{REPAIR_TEMP_SUFFIX}"))
+    for pattern in temp_globs:
+        for temp in glob.glob(pattern):
+            _remove_file(temp)
+    _remove_dir_if_empty(legacy_dir)
 
 
 async def _cleanup_temp_artifacts(db: aiosqlite.Connection) -> None:
@@ -581,3 +617,15 @@ async def _cleanup_temp_artifacts(db: aiosqlite.Connection) -> None:
         for temp in glob.glob(os.path.join(glob.escape(repair_dir), f"*{REPAIR_TEMP_SUFFIX}")):
             _remove_file(temp)
         _remove_dir_if_empty(repair_dir)
+    # v1.9.0：统一根 repair/<task_id> 下的半成品
+    for base in roots.values():
+        try:
+            for task_dir in os.listdir(os.path.join(base, TEMP_DIR_NAME, TEMP_REPAIR_SUBDIR)):
+                full = os.path.join(base, TEMP_DIR_NAME, TEMP_REPAIR_SUBDIR, task_dir)
+                if not os.path.isdir(full):
+                    continue
+                for temp in glob.glob(os.path.join(glob.escape(full), f"*{REPAIR_TEMP_SUFFIX}")):
+                    _remove_file(temp)
+                _remove_dir_if_empty(full)
+        except OSError:
+            continue

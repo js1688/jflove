@@ -222,8 +222,21 @@ class HttpService {
     Map<String, dynamic>? data,
   ) => _encryptedRequest('DELETE', path, data);
 
-  /// 流式下载（边收边解密，经 StreamFrameParser 逐帧解析）
+  /// 流式下载（兼容旧调用：只返回解密流）
   Future<Stream<Uint8List>> encryptedDownloadStream(
+    String path,
+    Map<String, dynamic> data,
+  ) async {
+    final response =
+        await encryptedDownloadStreamWithHeaders(path, data);
+    return response.stream;
+  }
+
+  /// 流式下载（v1.9.0：返回响应头，供断点续传校验偏移/版本）
+  ///
+  /// :param data: 加密请求体（可含 `range_start`）
+  /// :returns: 解密流 + 响应头（`X-Stream-Offset` / `X-Stream-Total` / `X-File-Version`）
+  Future<EncryptedDownloadResponse> encryptedDownloadStreamWithHeaders(
     String path,
     Map<String, dynamic> data,
   ) async {
@@ -261,27 +274,53 @@ class HttpService {
 
         // ECDH 重同步
         if (_isEcdhSessionError(detail) && await _tryResyncEcdh()) {
-          return encryptedDownloadStream(path, data);
+          return encryptedDownloadStreamWithHeaders(path, data);
         }
 
         throw AppException(code: resp.statusCode!, message: detail);
       }
 
+      final headers = <String, String>{};
+      resp.headers.map.forEach((key, values) {
+        if (values.isNotEmpty) {
+          headers[key.toLowerCase()] = values.first;
+        }
+      });
       final rawStream = resp.data.stream as Stream<List<int>>;
       // 通过 StreamFrameParser 逐帧解密输出
-      return StreamFrameParser(
-        sessionKey: _session.sessionKey!,
-        rawStream: rawStream,
-      ).parse();
+      return EncryptedDownloadResponse(
+        stream: StreamFrameParser(
+          sessionKey: _session.sessionKey!,
+          rawStream: rawStream,
+        ).parse(),
+        headers: headers,
+        statusCode: resp.statusCode ?? 200,
+      );
     } on AppException {
       rethrow;
     } on DioException catch (e) {
       // Dio 网络层错误（连接超时、DNS 解析失败等）
       final detail = _extractErrorDetail(e);
       if (_isEcdhSessionError(detail) && await _tryResyncEcdh()) {
-        return encryptedDownloadStream(path, data);
+        return encryptedDownloadStreamWithHeaders(path, data);
       }
       throw AppException(code: e.response?.statusCode ?? -1, message: detail);
     }
   }
+}
+
+/// 加密下载响应：解密流 + 响应头（v1.9.0 断点续传）
+class EncryptedDownloadResponse {
+  final Stream<Uint8List> stream;
+  final Map<String, String> headers;
+  final int statusCode;
+
+  const EncryptedDownloadResponse({
+    required this.stream,
+    required this.headers,
+    required this.statusCode,
+  });
+
+  /// 读取响应头（大小写不敏感）
+  String header(String name) => headers[name.toLowerCase()] ?? '';
 }

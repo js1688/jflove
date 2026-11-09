@@ -24,7 +24,6 @@ import hashlib
 import os
 from pathlib import Path
 
-import aiofiles
 import pytest
 
 from src.services import file_service
@@ -64,6 +63,7 @@ def _init_upload(
                 else hashlib.sha256(content).hexdigest()
             ),
             "mtime": mtime,
+            "client_type": "desktop",
         },
     )
     assert resp.status_code == 200, resp.text
@@ -136,14 +136,14 @@ class Test覆盖写原子化:
         # 注入点：读取第 2 个分片时抛 OSError（等价于合并中途 IO 异常 / 连接中断）
         tmp_dir = file_service._upload_sessions[upload_id]["tmp_dir"]
         poison_chunk = os.path.join(tmp_dir, "000001.chunk")
-        real_open = aiofiles.open
+        real_open = open
 
         def boom_open(file, mode="r", *args, **kwargs):
             if mode == "rb" and str(file) == poison_chunk:
                 raise OSError("模拟分片读取失败（IO 异常 / 连接中断）")
             return real_open(file, mode, *args, **kwargs)
 
-        monkeypatch.setattr(file_service.aiofiles, "open", boom_open)
+        monkeypatch.setattr("builtins.open", boom_open)
         try:
             with pytest.raises(OSError):
                 asyncio.run(file_service.complete_upload(upload_id))
@@ -174,7 +174,7 @@ class Test覆盖写原子化:
         os.remove(os.path.join(tmp_dir, "000001.chunk"))
 
         try:
-            with pytest.raises(OSError):
+            with pytest.raises(ValueError):
                 asyncio.run(file_service.complete_upload(upload_id))
         finally:
             _drop_session(upload_id)

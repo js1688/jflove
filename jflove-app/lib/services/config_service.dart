@@ -18,4 +18,9 @@ class ConfigService {
   Future<Map<String, dynamic>> updateConfig(String key, String value) async {
     return _http.encryptedPut('/api/v1/config', {'key': key, 'value': value});
   }
+
+  /// 立即清理临时文件（管理员；v1.9.0）
+  Future<Map<String, dynamic>> runCleanup() async {
+    return _http.encryptedPost('/api/v1/config/cleanup', {});
+  }
 }

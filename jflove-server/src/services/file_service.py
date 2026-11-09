@@ -14,16 +14,27 @@
 """
 
 import asyncio
+import json
 import mimetypes
 import os
+import re
 import shutil
+import threading
 import time
 import uuid
 import hashlib
 import aiofiles
 import aiosqlite
 
-from src.config.settings import REPAIR_DIR_NAME, UPLOAD_TEMP_DIR
+from src.config.settings import (
+    OFFLINE_DIR_NAME,
+    REPAIR_DIR_NAME,
+    TEMP_DIR_NAME,
+    TEMP_OFFLINE_SUBDIR,
+    UPLOAD_MAX_CHUNK_SIZE,
+    UPLOAD_PROGRESS_TTL_SECONDS,
+    UPLOAD_TEMP_DIR,
+)
 from src.repositories import virtual_disk_repository, permission_repository
 from src.services import file_journal_service
 from src.services.permission_service import check_disk_permission
@@ -33,12 +44,28 @@ from src.utils.path_safety import validate_filename
 
 logger = get_logger(__name__)
 
-# 内存上传会话存储：upload_id -> 会话元数据字典
-_upload_sessions: dict[str, dict] = {}
+# 上传会话固定命名规则（v1.9.0）：
+#   - 会话目录名必须是 UUID（磁盘上只允许程序自产目录）
+#   - 分片文件名 000000.chunk
+#   - 合并临时文件 .<name>.jflove-upload-<uuid>.part
+_SESSION_UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+_CHUNK_FILE_RE = re.compile(r"^[0-9]{6}\.chunk$")
+_UPLOAD_PART_RE = re.compile(r"^\.(.+?)\.jflove-upload-([0-9a-fA-F-]{36})\.part$")
 
-#: 上传会话空闲多久视为废弃（秒）。超过后释放内存会话与临时分片目录。
-#: 与 `cleanup_stale_uploads` 的默认 24h 保持一致：客户端崩溃 / 强杀后
-#: 没人再来续传，服务端必须自己收尾，否则临时目录会永久占用磁盘。
+# 内存上传会话存储：upload_id -> 会话元数据字典（启动时由磁盘 session.json 恢复）
+_upload_sessions: dict[str, dict] = {}
+#: 内容指纹索引：fingerprint -> upload_id（init 幂等复用）
+_session_fingerprints: dict[str, str] = {}
+#: 会话表锁（事件循环内串行化 init/恢复/删除）
+_session_lock = asyncio.Lock()
+#: 进度表锁（合并线程内更新进度，事件循环读取）
+_merge_progress_lock = threading.Lock()
+
+#: 会话元数据落盘间隔：每 N 片或每 30s 回写 updated_at（避免每片一次小 IO）
+_SESSION_FLUSH_EVERY = 8
+_SESSION_FLUSH_INTERVAL = 30.0
+
+# 兼容旧引用（v1.7.0 测试/调用）：默认 24h；实际 TTL 由 config 单一来源驱动。
 UPLOAD_SESSION_TTL_SECONDS = 24 * 3600
 
 #: 合并（complete）期间的串行锁：同一 upload_id 只允许一个合并任务，
@@ -47,11 +74,40 @@ _complete_locks: dict[str, asyncio.Lock] = {}
 _complete_locks_guard = asyncio.Lock()
 
 #: 合并进度（upload_id → 状态快照），供客户端轮询显示「服务端在做什么」。
-#: 大文件合并可能持续数分钟，只靠日志用户会以为卡死。
 _merge_progress: dict[str, dict] = {}
+#: 后台合并任务（upload_id → asyncio.Task），同一会话不重复启动
+_merge_tasks: dict[str, asyncio.Task] = {}
 
 #: 合并进度更新的分片间隔：太频繁会拖慢合并，只在每 N 片更新一次
 _MERGE_PROGRESS_STEP = 16
+
+#: 全局并发限流（v1.9.0，弱服务端资源隔离）
+_merge_limit = 1
+_merge_semaphore = asyncio.Semaphore(1)
+_chunk_limit = 2
+_chunk_semaphore = asyncio.Semaphore(2)
+
+
+def refresh_upload_limits(merge_concurrency: int, chunk_concurrency: int) -> None:
+    """
+    重建上传合并 / 分片上传的全局信号量（配置写入后调用）。
+
+    :param merge_concurrency: 合并并发（0 = 暂停：新任务保持 queued）
+    :param chunk_concurrency: 分片上传并发（至少 1）
+    """
+    global _merge_limit, _merge_semaphore, _chunk_limit, _chunk_semaphore
+    _merge_limit = max(0, int(merge_concurrency))
+    _chunk_limit = max(1, int(chunk_concurrency))
+    _merge_semaphore = asyncio.Semaphore(max(1, _merge_limit))
+    _chunk_semaphore = asyncio.Semaphore(_chunk_limit)
+    logger.info(
+        "上传限流已刷新: merge=%d chunk=%d", _merge_limit, _chunk_limit,
+    )
+
+
+def get_upload_limits() -> tuple[int, int]:
+    """返回当前合并/分片并发上限（供控制器/设置页展示）。"""
+    return _merge_limit, _chunk_limit
 
 
 def merge_progress(upload_id: str) -> dict | None:
@@ -61,34 +117,49 @@ def merge_progress(upload_id: str) -> dict | None:
     :param upload_id: 上传会话 ID
     :returns: 进度快照，或 None（该会话从未开始合并 / 记录已清理）
     """
-    item = _merge_progress.get(upload_id)
-    return dict(item) if item else None
+    with _merge_progress_lock:
+        item = _merge_progress.get(upload_id)
+        return dict(item) if item else None
 
 
-def _merge_progress_set(upload_id: str, **fields) -> None:
-    """更新进度快照（合并阶段字段少，直接覆盖）"""
-    item = _merge_progress.get(upload_id)
-    if item is None:
-        item = {"upload_id": upload_id, "state": "queued", "processed": 0,
+def _merge_progress_set(upload_id: str, owner_user_id: int | None = None, **fields) -> None:
+    """更新进度快照（合并线程与事件循环共用；用线程锁保护）。"""
+    with _merge_progress_lock:
+        item = _merge_progress.get(upload_id)
+        if item is None:
+            item = {
+                "upload_id": upload_id, "state": "queued", "processed": 0,
                 "total": 0, "file_size": 0, "started_at": time.time(),
-                "updated_at": time.time()}
-        _merge_progress[upload_id] = item
-    item.update(fields)
-    item["updated_at"] = time.time()
+                "updated_at": time.time(), "queue_position": 0,
+                "path": "", "error": "", "missing_chunks": [],
+            }
+            _merge_progress[upload_id] = item
+        if owner_user_id is not None:
+            item["owner_user_id"] = owner_user_id
+        item.update(fields)
+        item["updated_at"] = time.time()
 
 
 def _merge_progress_drop(upload_id: str) -> None:
     """删除进度记录（完成 / 取消 / 回收时）"""
-    _merge_progress.pop(upload_id, None)
+    with _merge_progress_lock:
+        _merge_progress.pop(upload_id, None)
 
 
-def prune_merge_progress(max_age_seconds: int = 3600) -> int:
-    """清理超过 1 小时未更新的进度记录，避免字典无限增长"""
+def is_progress_owned_by(upload_id: str, user_id: int) -> bool:
+    """判断某次合并进度记录是否归属当前用户（会话删除后的迟到查询用）。"""
+    info = merge_progress(upload_id)
+    return bool(info and info.get("owner_user_id") == user_id)
+
+
+def prune_merge_progress(max_age_seconds: int = UPLOAD_PROGRESS_TTL_SECONDS) -> int:
+    """清理超过 TTL 未更新的进度记录，避免字典无限增长"""
     now = time.time()
-    stale = [uid for uid, item in _merge_progress.items()
-             if now - float(item.get("updated_at") or 0) > max_age_seconds]
-    for uid in stale:
-        _merge_progress.pop(uid, None)
+    with _merge_progress_lock:
+        stale = [uid for uid, item in _merge_progress.items()
+                 if now - float(item.get("updated_at") or 0) > max_age_seconds]
+        for uid in stale:
+            _merge_progress.pop(uid, None)
     return len(stale)
 
 
@@ -112,14 +183,18 @@ def _rel_of(base: str, full: str) -> str:
     return os.path.relpath(full, base).replace(os.sep, "/")
 
 
-def _collect_tree(full: str, base: str) -> list[tuple[str, bool, int, float]]:
+def _collect_tree(
+    full: str, base: str, *, skip_hidden: bool = True
+) -> list[tuple[str, bool, int, float]]:
     """
     收集 `full`（文件或目录）及其全部子孙的元数据。
 
-    用于 rename / move / delete 时一次性写入多条变更日志。
+    用于 rename / move / delete 时一次性写入多条变更日志；v1.9.0 起
+    对账扫描也复用本函数，默认跳过名称以 `.` 开头的隐藏项。
 
     :param full: 目标绝对路径
     :param base: 磁盘根绝对路径
+    :param skip_hidden: 是否跳过 `.` 开头的子项（v1.9.0 隐藏项治理）
     :returns: 列表，每项 `(相对路径, 是否目录, 大小, mtime)`
     """
     result: list[tuple[str, bool, int, float]] = []
@@ -132,6 +207,8 @@ def _collect_tree(full: str, base: str) -> list[tuple[str, bool, int, float]]:
     if not is_dir:
         return result
     for dirpath, dirnames, filenames in os.walk(full):
+        if skip_hidden:
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         for name in dirnames:
             p = os.path.join(dirpath, name)
             try:
@@ -140,6 +217,8 @@ def _collect_tree(full: str, base: str) -> list[tuple[str, bool, int, float]]:
                 continue
             result.append((_rel_of(base, p), True, 0, s.st_mtime))
         for name in filenames:
+            if skip_hidden and name.startswith("."):
+                continue
             p = os.path.join(dirpath, name)
             try:
                 s = os.stat(p)
@@ -210,9 +289,15 @@ def _safe_join(base: str, rel: str) -> str:
     :param base: 根目录绝对路径
     :param rel: 相对路径（可含前置 /）
     :returns: 限定后的绝对路径字符串
-    :raises PermissionError: 路径越界 / 含隐藏目录段
+    :raises PermissionError: 路径越界 / 含程序保留隐藏目录段
     """
-    return _safe_join_impl(base, rel, forbidden_parts=(REPAIR_DIR_NAME,))
+    # v1.9.0：所有程序保留隐藏目录一律拒绝通过文件管理接口访问；
+    # 用户自己的 `.` 文件仍允许精确路径访问（列表不展示，但已知路径可操作）。
+    return _safe_join_impl(
+        base,
+        rel,
+        forbidden_parts=(REPAIR_DIR_NAME, OFFLINE_DIR_NAME, TEMP_DIR_NAME),
+    )
 
 
 def _validate_filename(filename: str) -> str:
@@ -318,8 +403,9 @@ async def list_files(
 
     result = []
     for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name)):
-        # v1.4.2：隐藏修复产物目录，不出现在文件列表
-        if entry.name == REPAIR_DIR_NAME:
+        # v1.9.0：所有名称以 `.` 开头的条目一律不出现在文件列表（服务端统一过滤）。
+        # 覆盖修复产物、离线下载临时目录、统一临时根与用户隐藏文件。
+        if entry.name.startswith("."):
             continue
         result.append({
             "name": entry.name,
@@ -328,6 +414,337 @@ async def list_files(
             "modified_at": entry.stat().st_mtime,
         })
     return result
+
+
+def _normalize_rel_path(rel_path: str) -> str:
+    """规范化目标目录相对路径（去前后 `/`，空串表示磁盘根）。"""
+    return (rel_path or "").strip().strip("/")
+
+
+def _fingerprint(
+    user_id: int, disk_id: int, rel_path: str, filename: str,
+    file_size: int, file_hash: str, total_chunks: int,
+) -> str:
+    """内容指纹：同一用户/磁盘/路径/文件名/大小/哈希/分片数 → 同一上传会话。
+
+    v1.9.0：`total_chunks` 必须参与指纹 —— 不同客户端版本分片大小不同
+    （1MB vs 512KB），复用旧会话会导致 chunk_index 越界。
+    """
+    joined = "|".join([
+        str(user_id), str(disk_id), _normalize_rel_path(rel_path),
+        filename, str(file_size), file_hash, str(total_chunks),
+    ])
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def _scan_received_chunks(tmp_dir: str, total_chunks: int) -> set[int]:
+    """
+    以磁盘上实际存在的分片文件重建「已收分片」集合（v1.9.0 唯一口径）。
+
+    :param tmp_dir: 会话临时目录
+    :param total_chunks: 总分片数
+    :returns: 实际存在且大小非零的分片索引集合
+    """
+    received: set[int] = set()
+    if not os.path.isdir(tmp_dir):
+        return received
+    try:
+        names = os.listdir(tmp_dir)
+    except OSError:
+        return received
+    for name in names:
+        if not _CHUNK_FILE_RE.match(name):
+            continue
+        index = int(name[:6])
+        if index >= total_chunks:
+            continue
+        try:
+            if os.path.getsize(os.path.join(tmp_dir, name)) > 0:
+                received.add(index)
+        except OSError:
+            continue
+    return received
+
+
+def _session_expires_at(session: dict) -> float:
+    """会话可续传截止时间（updated_at + TTL）。"""
+    return float(session.get("updated_at") or 0) + int(
+        session.get("ttl_seconds") or UPLOAD_SESSION_TTL_SECONDS
+    )
+
+
+def _persist_session(session: dict) -> None:
+    """
+    把会话元数据写入 `<tmp_dir>/session.json`（同步；调用方放线程池）。
+
+    只持久化元数据，不写 received：已收分片以磁盘文件为准。
+    """
+    session["updated_at"] = time.time()
+    data = {
+        "upload_id": session.get("upload_id"),
+        "owner_user_id": session.get("owner_user_id"),
+        "client_type": session.get("client_type", "unknown"),
+        "disk_id": session.get("disk_id"),
+        "rel_path": session.get("rel_path", ""),
+        "filename": session.get("filename"),
+        "file_size": session.get("file_size"),
+        "total_chunks": session.get("total_chunks"),
+        "file_hash": session.get("file_hash"),
+        "mtime": session.get("mtime"),
+        "created_at": session.get("created_at"),
+        "updated_at": session["updated_at"],
+        "ttl_seconds": session.get("ttl_seconds", UPLOAD_SESSION_TTL_SECONDS),
+        "state": session.get("state", "active"),
+    }
+    path = os.path.join(session["tmp_dir"], "session.json")
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False)
+    os.replace(tmp_path, path)
+
+
+def _load_session_from_disk(upload_id: str) -> dict | None:
+    """
+    读取磁盘上的 session.json 并重建内存会话（启动恢复用）。
+
+    :param upload_id: 会话 UUID（目录名）
+    :returns: 会话字典；文件缺失/损坏/字段非法返回 None
+    """
+    tmp_dir = os.path.join(UPLOAD_TEMP_DIR, upload_id)
+    path = os.path.join(tmp_dir, "session.json")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        filename = _validate_filename(str(data.get("filename") or ""))
+        disk_id = int(data.get("disk_id") or 0)
+        owner_user_id = int(data.get("owner_user_id") or 0)
+        file_size = int(data.get("file_size") or 0)
+        total_chunks = int(data.get("total_chunks") or 0)
+        if disk_id <= 0 or owner_user_id <= 0 or total_chunks <= 0:
+            return None
+        file_hash = str(data.get("file_hash") or "")
+        if not file_hash:
+            return None
+        client_type = str(data.get("client_type") or "unknown")
+        if client_type not in ("app", "desktop", "web", "unknown"):
+            client_type = "unknown"
+        rel_path = _normalize_rel_path(str(data.get("rel_path") or ""))
+        mtime = data.get("mtime")
+        return {
+            "upload_id": upload_id,
+            "owner_user_id": owner_user_id,
+            "client_type": client_type,
+            "disk_id": disk_id,
+            "rel_path": rel_path,
+            "filename": filename,
+            "file_size": file_size,
+            "total_chunks": total_chunks,
+            "file_hash": file_hash,
+            "mtime": float(mtime) if mtime else None,
+            "received": _scan_received_chunks(tmp_dir, total_chunks),
+            "tmp_dir": tmp_dir,
+            "base": "",
+            "created_at": float(data.get("created_at") or time.time()),
+            "updated_at": float(data.get("updated_at") or time.time()),
+            "ttl_seconds": int(data.get("ttl_seconds") or UPLOAD_SESSION_TTL_SECONDS),
+            "state": str(data.get("state") or "active"),
+            "fingerprint": _fingerprint(
+                owner_user_id, disk_id, rel_path, filename, file_size,
+                file_hash, total_chunks,
+            ),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _register_session(session: dict) -> None:
+    """登记会话到内存表与指纹索引。"""
+    _upload_sessions[session["upload_id"]] = session
+    _session_fingerprints[session["fingerprint"]] = session["upload_id"]
+
+
+def _unregister_session(upload_id: str) -> dict | None:
+    """从内存表与指纹索引移除会话（不删除磁盘目录）。"""
+    session = _upload_sessions.pop(upload_id, None)
+    if session:
+        fingerprint = session.get("fingerprint")
+        if fingerprint and _session_fingerprints.get(fingerprint) == upload_id:
+            _session_fingerprints.pop(fingerprint, None)
+    return session
+
+
+async def restore_upload_sessions(db: aiosqlite.Connection) -> int:
+    """
+    启动时从磁盘恢复未过期上传会话（v1.9.0）。
+
+    :param db: 数据库连接（用于按 disk_id 补回虚拟磁盘根路径）
+    :returns: 恢复的会话数量
+    """
+    from src.services import upload_cleanup_service  # 局部导入，避免循环依赖
+
+    if not os.path.isdir(UPLOAD_TEMP_DIR):
+        return 0
+    options = await upload_cleanup_service.get_options(db)
+    now = time.time()
+    restored = 0
+    async with _session_lock:
+        for name in os.listdir(UPLOAD_TEMP_DIR):
+            if not _SESSION_UUID_RE.match(name):
+                continue
+            if not os.path.isdir(os.path.join(UPLOAD_TEMP_DIR, name)):
+                continue
+            session = _load_session_from_disk(name)
+            if not session:
+                continue
+            if now - float(session.get("updated_at") or 0) >= options.resume_ttl_seconds:
+                continue
+            disk = await virtual_disk_repository.find_by_id(db, session["disk_id"])
+            if not disk:
+                continue
+            session["base"] = disk["real_path"]
+            session["ttl_seconds"] = options.resume_ttl_seconds
+            _register_session(session)
+            restored += 1
+    if restored:
+        logger.info("已恢复 %d 个未完成上传会话", restored)
+    return restored
+
+
+async def init_upload_ex(
+    db: aiosqlite.Connection,
+    user_id: int,
+    role: str,
+    disk_id: int,
+    rel_path: str,
+    filename: str,
+    file_size: int,
+    total_chunks: int,
+    file_hash: str,
+    mtime: float | None = None,
+    client_type: str = "unknown",
+) -> dict:
+    """
+    初始化/复用分片上传会话（v1.9.0 指纹幂等）。
+
+    :returns: 包含 upload_id / received_chunks / resumed / expires_at /
+              already_exists / max_chunk_size / recommended_concurrency /
+              restart_required 的字典
+    :raises PermissionError: 无写入权限
+    :raises ValueError: 路径/文件名非法、分片参数非法、未完成会话超限
+    """
+    from src.services import upload_cleanup_service  # 局部导入，避免循环依赖
+
+    if role != "admin":
+        if not await check_disk_permission(db, user_id, disk_id, "write"):
+            raise PermissionError("无写入权限")
+    base = await _get_disk_path(db, disk_id)
+    filename = _validate_filename(filename)
+    rel_path = _normalize_rel_path(rel_path)
+    _safe_join(base, rel_path)  # 仅做路径合法性验证
+    if file_size < 0 or total_chunks <= 0:
+        raise ValueError("file_size/total_chunks 非法")
+    if client_type not in ("app", "desktop", "web", "unknown"):
+        client_type = "unknown"
+
+    options = await upload_cleanup_service.get_options(db)
+    fingerprint = _fingerprint(
+        user_id, disk_id, rel_path, filename, file_size, file_hash, total_chunks,
+    )
+    now = time.time()
+
+    async with _session_lock:
+        # 1) 指纹命中：复用未过期且状态 active 的会话
+        existing_id = _session_fingerprints.get(fingerprint)
+        restart_required = False
+        if existing_id:
+            existing = _upload_sessions.get(existing_id)
+            if existing and existing.get("state", "active") == "active":
+                if now - float(existing.get("updated_at") or 0) < options.resume_ttl_seconds:
+                    existing["received"] = _scan_received_chunks(
+                        existing["tmp_dir"], existing["total_chunks"],
+                    )
+                    existing["ttl_seconds"] = options.resume_ttl_seconds
+                    existing["updated_at"] = now
+                    await asyncio.to_thread(_persist_session, existing)
+                    return {
+                        "upload_id": existing_id,
+                        "received_chunks": sorted(existing["received"]),
+                        "resumed": bool(existing["received"]),
+                        "expires_at": _session_expires_at(existing),
+                        "already_exists": False,
+                        "already_path": "",
+                        "max_chunk_size": UPLOAD_MAX_CHUNK_SIZE,
+                        "recommended_concurrency": options.chunk_concurrency,
+                        "restart_required": False,
+                    }
+                # 已过期：清掉旧会话目录，下面新建
+                _unregister_session(existing_id)
+                shutil.rmtree(existing.get("tmp_dir", ""), ignore_errors=True)
+                restart_required = True
+            else:
+                # 状态为 failed / 无法复用：删掉旧目录，重新开始
+                if existing:
+                    _unregister_session(existing_id)
+                    shutil.rmtree(existing.get("tmp_dir", ""), ignore_errors=True)
+                else:
+                    # 指纹索引残留（会话已被外部清理/删除）：移除脏索引
+                    _session_fingerprints.pop(fingerprint, None)
+                restart_required = True
+
+        # 2) 每用户未完成会话上限（防单账号堆满临时分片）
+        # 注：不在服务端自动判定「目标文件已存在」（同大小不代表同内容）；
+        # 客户端在提交前用自己的远端索引/列表核验，避免误跳过。
+        active_count = sum(
+            1 for item in _upload_sessions.values()
+            if item.get("owner_user_id") == user_id
+            and item.get("state", "active") == "active"
+        )
+        if active_count >= options.max_sessions_per_user:
+            raise ValueError("未完成的上传过多，请先完成或取消部分上传后重试")
+
+        # 3) 新建会话
+        upload_id = str(uuid.uuid4())
+        tmp_dir = os.path.join(UPLOAD_TEMP_DIR, upload_id)
+        os.makedirs(tmp_dir, exist_ok=True)
+        session = {
+            "upload_id": upload_id,
+            "owner_user_id": user_id,
+            "client_type": client_type,
+            "disk_id": disk_id,
+            "rel_path": rel_path,
+            "filename": filename,
+            "file_size": file_size,
+            "total_chunks": total_chunks,
+            "file_hash": file_hash,
+            "mtime": mtime,
+            "received": set(),
+            "tmp_dir": tmp_dir,
+            "base": base,
+            "created_at": now,
+            "updated_at": now,
+            "ttl_seconds": options.resume_ttl_seconds,
+            "state": "active",
+            "fingerprint": fingerprint,
+            "_persisted_at": now,
+        }
+        _register_session(session)
+        await asyncio.to_thread(_persist_session, session)
+        return {
+            "upload_id": upload_id,
+            "received_chunks": [],
+            "resumed": False,
+            "expires_at": _session_expires_at(session),
+            "already_exists": False,
+            "already_path": "",
+            "max_chunk_size": UPLOAD_MAX_CHUNK_SIZE,
+            "recommended_concurrency": options.chunk_concurrency,
+            "restart_required": restart_required,
+        }
 
 
 async def init_upload(
@@ -343,54 +760,15 @@ async def init_upload(
     mtime: float | None = None,
 ) -> str:
     """
-    初始化分片上传会话，返回 upload_id 供后续分片上传使用。
+    兼容旧调用：初始化分片上传会话并只返回 upload_id。
 
-    :param db: 数据库连接
-    :param user_id: 当前用户 ID
-    :param role: 用户角色
-    :param disk_id: 目标虚拟磁盘 ID
-    :param rel_path: 目标目录相对路径
-    :param filename: 文件名
-    :param file_size: 文件总大小（字节）
-    :param total_chunks: 总分片数
-    :param file_hash: 文件 SHA256 哈希，用于完整性校验
-    :param mtime: 源文件的修改时间（Unix 时间戳，浮点秒）。若提供，
-                  complete_upload 将通过 os.utime 还原文件 mtime，
-                  避免目录同步时出现"上传后服务端时间被刷新→下次同步重新下载覆盖"的循环。
-    :returns: upload_id（UUID 字符串）
-    :raises PermissionError: 无写入权限
-    :raises ValueError: 路径非法 / 文件名非法（含路径分隔符或上级目录段，v1.6.0 BL-10）
+    新控制器请用 `init_upload_ex`（需要 received_chunks/expires_at 等字段）。
     """
-    if role != "admin":
-        if not await check_disk_permission(db, user_id, disk_id, "write"):
-            raise PermissionError("无写入权限")
-    base = await _get_disk_path(db, disk_id)
-    # v1.6.0（BL-10）：`filename` 必须在这里就被限定为**纯文件名**。
-    # 会话里的 filename 会在 complete_upload 被拼进目标路径，一旦含分隔符即可穿越；
-    # 校验放在权限判定之后，与下方 `_safe_join(base, rel_path)` 的位置保持一致
-    # （无写权限者仍先得到 403，不因参数合法性改变越权可见性）。
-    filename = _validate_filename(filename)
-    _safe_join(base, rel_path)  # 仅做路径合法性验证
-
-    upload_id = str(uuid.uuid4())
-    tmp_dir = os.path.join(UPLOAD_TEMP_DIR, upload_id)
-    os.makedirs(tmp_dir, exist_ok=True)
-    _upload_sessions[upload_id] = {
-        "owner_user_id": user_id,  # 用于权限绑定，防止换 upload_id 操作他人会话
-        "disk_id": disk_id,
-        "rel_path": rel_path,
-        "filename": filename,
-        "file_size": file_size,
-        "total_chunks": total_chunks,
-        "file_hash": file_hash,
-        "mtime": mtime,
-        "received": set(),    # 已接收的分片索引集合
-        "tmp_dir": tmp_dir,
-        "base": base,
-        # 最近一次活动时刻（init / 每片上传都会刷新）：空闲超时即视为废弃
-        "updated_at": time.time(),
-    }
-    return upload_id
+    result = await init_upload_ex(
+        db, user_id, role, disk_id, rel_path, filename, file_size,
+        total_chunks, file_hash, mtime, client_type="unknown",
+    )
+    return str(result.get("upload_id") or "")
 
 
 def is_upload_owned_by(upload_id: str, user_id: int) -> bool:
@@ -410,6 +788,37 @@ def is_upload_owned_by(upload_id: str, user_id: int) -> bool:
     return session.get("owner_user_id") == user_id
 
 
+def upload_status(upload_id: str, user_id: int | None = None) -> dict | None:
+    """
+    查询上传会话状态（v1.9.0）。
+
+    :param upload_id: 上传会话 ID
+    :param user_id: 当前用户 ID；传入时校验归属（不匹配返回 None）
+    :returns: 状态字典；会话不存在返回 None
+    """
+    session = _upload_sessions.get(upload_id)
+    if session is None:
+        return None
+    if user_id is not None and session.get("owner_user_id") != user_id:
+        return None
+    total = int(session.get("total_chunks") or 0)
+    session["received"] = _scan_received_chunks(session["tmp_dir"], total)
+    received = sorted(session["received"])
+    missing = sorted(set(range(total)) - session["received"])
+    return {
+        "exists": True,
+        "state": session.get("state", "active"),
+        "upload_id": upload_id,
+        "received_chunks": received,
+        "missing_chunks": missing,
+        "total_chunks": total,
+        "file_size": int(session.get("file_size") or 0),
+        "expires_at": _session_expires_at(session),
+        "expired": time.time() >= _session_expires_at(session),
+        "client_type": session.get("client_type", "unknown"),
+    }
+
+
 async def upload_chunk(upload_id: str, chunk_index: int, chunk_data: bytes) -> None:
     """
     上传单个文件分片，分片以索引命名存入临时目录。
@@ -417,19 +826,176 @@ async def upload_chunk(upload_id: str, chunk_index: int, chunk_data: bytes) -> N
     :param upload_id: 上传会话 ID
     :param chunk_index: 分片索引（从 0 开始）
     :param chunk_data: 分片字节数据
-    :raises ValueError: 会话不存在或分片索引越界
+    :raises ValueError: 会话不存在、分片索引越界、分片大小非法
     """
     session = _upload_sessions.get(upload_id)
     if not session:
         raise ValueError("上传会话不存在或已过期")
-    if chunk_index >= session["total_chunks"]:
+    total = int(session["total_chunks"])
+    if chunk_index < 0 or chunk_index >= total:
         raise ValueError("chunk_index 超出范围")
+    if not chunk_data or len(chunk_data) > UPLOAD_MAX_CHUNK_SIZE:
+        raise ValueError("分片大小非法")
 
     chunk_path = os.path.join(session["tmp_dir"], f"{chunk_index:06d}.chunk")
     async with aiofiles.open(chunk_path, "wb") as f:
         await f.write(chunk_data)
     session["received"].add(chunk_index)
-    session["updated_at"] = time.time()
+    now = time.time()
+    session["updated_at"] = now
+    # 每 N 片或隔 30s 回写一次 session.json（不每片写，避免弱服务端小 IO 放大）
+    if (
+        chunk_index % _SESSION_FLUSH_EVERY == 0
+        or now - float(session.get("_persisted_at") or 0) >= _SESSION_FLUSH_INTERVAL
+    ):
+        await asyncio.to_thread(_persist_session, session)
+        session["_persisted_at"] = now
+
+
+class _MergeError(ValueError):
+    """合并失败的可分类异常（供 progress 返回稳定 error 码）。"""
+
+    def __init__(self, error: str, missing: list[int] | None = None, message: str = "") -> None:
+        self.error = error
+        self.missing = list(missing or [])
+        super().__init__(message or error)
+
+
+def _merge_chunks_worker(upload_id: str, session: dict, tmp_file: str) -> str:
+    """
+    合并工作线程：逐片读 → 写临时文件 → 写时计算 SHA256（v1.9.0 线程化）。
+
+    不在事件循环线程执行，避免弱 CPU 上哈希/同步 IO 阻塞播放/下载等流式接口。
+
+    :returns: 合并后文件的 SHA256 hex
+    """
+    sha256 = hashlib.sha256()
+    processed = 0
+    total = int(session["total_chunks"])
+    with open(tmp_file, "wb") as out:
+        for i in range(total):
+            chunk_path = os.path.join(session["tmp_dir"], f"{i:06d}.chunk")
+            with open(chunk_path, "rb") as handle:
+                data = handle.read()
+            sha256.update(data)
+            out.write(data)
+            processed += len(data)
+            if i % _MERGE_PROGRESS_STEP == 0 or i == total - 1:
+                _merge_progress_set(upload_id, state="merging", processed=processed)
+    return sha256.hexdigest()
+
+
+async def _get_complete_lock(upload_id: str) -> asyncio.Lock:
+    """获取（或创建）同一 upload_id 的合并互斥锁。"""
+    async with _complete_locks_guard:
+        lock = _complete_locks.get(upload_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _complete_locks[upload_id] = lock
+    return lock
+
+
+def _merge_queue_position() -> int:
+    """当前排队等待合并的任务数（不含已完成）。"""
+    return sum(1 for task in _merge_tasks.values() if not task.done())
+
+
+def _merge_response(upload_id: str, info: dict | None) -> dict:
+    """把进度快照转成 complete 的即时响应。"""
+    item = info or {}
+    return {
+        "state": item.get("state", "queued"),
+        "upload_id": upload_id,
+        "poll_interval_s": 2.5,
+        "queue_position": int(item.get("queue_position") or 0),
+        "expires_at": item.get("expires_at") or 0.0,
+        "path": item.get("path") or "",
+        "error": item.get("error") or "",
+        "missing_chunks": list(item.get("missing_chunks") or []),
+    }
+
+
+async def submit_merge(
+    upload_id: str,
+    db: aiosqlite.Connection | None = None,
+) -> dict | None:
+    """
+    提交异步合并任务（v1.9.0）。
+
+    :param upload_id: 上传会话 ID
+    :param db: 数据库连接（写变更日志用）
+    :returns: 即时状态字典；会话与进度记录都不存在返回 None
+    """
+    session = _upload_sessions.get(upload_id)
+    async with _complete_locks_guard:
+        task = _merge_tasks.get(upload_id)
+        if session is not None:
+            if task is not None and not task.done():
+                return _merge_response(upload_id, merge_progress(upload_id))
+            _merge_progress_set(
+                upload_id,
+                owner_user_id=session.get("owner_user_id"),
+                state="queued",
+                processed=0,
+                total=int(session.get("total_chunks") or 0),
+                file_size=int(session.get("file_size") or 0),
+                started_at=time.time(),
+                queue_position=_merge_queue_position(),
+                path="",
+                error="",
+                missing_chunks=[],
+            )
+            _merge_tasks[upload_id] = asyncio.create_task(_merge_task(upload_id, db))
+            return _merge_response(upload_id, merge_progress(upload_id))
+
+    info = merge_progress(upload_id)
+    if info is None:
+        return None
+    if session is None and info.get("state") == "done":
+        info["expires_at"] = float(info.get("updated_at") or 0) + UPLOAD_PROGRESS_TTL_SECONDS
+    return _merge_response(upload_id, info)
+
+
+async def _merge_task(upload_id: str, db: aiosqlite.Connection | None = None) -> None:
+    """后台合并任务：排队 → 合并 → 进度收尾（异常统一落 failed）。"""
+    started = time.monotonic()
+    try:
+        # 合并并发配置为 0 时保持排队（管理员暂停），恢复后自动继续
+        while _merge_limit <= 0:
+            await asyncio.sleep(2)
+        async with _merge_semaphore:
+            _merge_progress_set(
+                upload_id, state="merging", started_at=time.time(), queue_position=0,
+            )
+            lock = await _get_complete_lock(upload_id)
+            try:
+                async with lock:
+                    await _complete_upload_locked(upload_id, db)
+            finally:
+                async with _complete_locks_guard:
+                    if not lock.locked():
+                        _complete_locks.pop(upload_id, None)
+    except _MergeError as exc:
+        _merge_progress_set(
+            upload_id, state="failed", error=exc.error,
+            missing_chunks=exc.missing,
+            elapsed_seconds=round(time.monotonic() - started, 1),
+        )
+    except asyncio.CancelledError:
+        _merge_progress_set(
+            upload_id, state="failed", error="cancelled",
+            elapsed_seconds=round(time.monotonic() - started, 1),
+        )
+        raise
+    except Exception as exc:  # noqa: BLE001 - 后台任务必须收尾，不能静默悬挂
+        logger.warning("合并任务失败: %s", type(exc).__name__)
+        _merge_progress_set(
+            upload_id, state="failed", error="io_error",
+            elapsed_seconds=round(time.monotonic() - started, 1),
+        )
+    finally:
+        async with _complete_locks_guard:
+            _merge_tasks.pop(upload_id, None)
 
 
 async def complete_upload(
@@ -439,24 +1005,14 @@ async def complete_upload(
     """
     合并所有分片，校验 SHA256，**原子**写入目标路径，清理临时文件。
 
-    v1.7.0：新增可选 `db` 参数 —— 传入时在写入成功后追加一条 `upsert` 变更日志，
-    供挂载云盘做增量同步；不传时行为与旧版完全一致（兼容既有调用与测试）。
-
-    v1.6.0（BL-8）覆盖写原子化：合并与校验全部先落到**目标目录内**的临时文件
-    （`.<filename>.jflove-upload-<upload_id>.part`），mtime 还原也作用在临时文件上，
-    最后用 `os.replace` 一次性原子替换目标文件。因此任何失败路径（缺分片 / IO 异常 /
-    hash 不匹配 / 进程中断）都**不会破坏已存在的原文件**——原文件要么保持旧内容，
-    要么变成完整的新内容，不存在"半截内容"的中间态。
+    保留为同步执行入口（供既有内部调用与单测）；HTTP 控制器使用
+    `submit_merge` 异步受理 + 进度轮询，避免长请求超时。
 
     :param upload_id: 上传会话 ID
     :returns: 服务端最终文件绝对路径
-    :raises ValueError: 会话不存在、分片缺失、文件名非法（v1.6.0 BL-10 兜底）或 SHA256 校验失败
+    :raises ValueError: 会话不存在、分片缺失、SHA256 校验失败
     """
-    async with _complete_locks_guard:
-        lock = _complete_locks.get(upload_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            _complete_locks[upload_id] = lock
+    lock = await _get_complete_lock(upload_id)
     try:
         async with lock:
             return await _complete_upload_locked(upload_id, db)
@@ -473,109 +1029,94 @@ async def _complete_upload_locked(
     """
     `complete_upload` 的实际实现（已持同一 upload_id 的互斥锁）。
 
-    并发重发同一个 `upload_id` 时，第二个请求会**等第一个合并完**，
-    然后因会话已删除而拿到「上传会话不存在」—— 不会并发重写同一批分片。
+    v1.9.0：合并体在独立线程执行；进度通过 `progress` 接口可查；
+    失败不再删除已存在目标文件（v1.6.0 原子写保护不变）。
     """
     session = _upload_sessions.get(upload_id)
     if not session:
         raise ValueError("上传会话不存在或已过期")
 
-    total = session["total_chunks"]
-    missing = set(range(total)) - session["received"]
+    total = int(session["total_chunks"])
+    # 以磁盘实际分片为准（v1.9.0）：内存 received 可能因重启/清理与磁盘不一致
+    session["received"] = _scan_received_chunks(session["tmp_dir"], total)
+    missing = sorted(set(range(total)) - session["received"])
     if missing:
-        raise ValueError(f"缺少分片: {sorted(missing)[:5]}")
+        _merge_progress_set(
+            upload_id, owner_user_id=session.get("owner_user_id"),
+            state="failed", error="missing_chunks",
+            missing_chunks=missing[:200], total=total,
+            file_size=session["file_size"],
+        )
+        raise _MergeError(
+            "missing_chunks", missing=missing[:200],
+            message=f"缺少分片: {missing[:5]}",
+        )
 
     dest_dir = _safe_join(session["base"], session["rel_path"])
     os.makedirs(dest_dir, exist_ok=True)
-    # v1.6.0（BL-10）第二层兜底：`filename` 已在 init_upload 校验为纯文件名，
-    # 这里再用 _safe_join 复核目标路径仍落在 dest_dir 内 —— 若会话被篡改或校验被绕过，
-    # 越界会抛 PermissionError；统一转成 ValueError，保持 complete 接口
-    # 「非法输入 ⇒ 400」的既有契约（控制器只捕获 ValueError）。
     try:
         dest_file = _safe_join(dest_dir, session["filename"])
     except PermissionError:
         raise ValueError("filename 非法：不能包含路径分隔符")
 
-    # v1.6.0（BL-8）：临时文件**必须与目标文件同目录**。
-    # os.replace 只在**同一文件系统**内才是原子操作；若把临时文件放在上传临时目录
-    # （UPLOAD_TEMP_DIR，可能位于 /tmp 或另一个盘符），跨设备时 os.replace 会抛
-    # OSError(EXDEV) 或退化为"复制 + 删除"的非原子实现，原子性即失效。
-    # v1.6.0（BL-10）：名字取 `basename(dest_file)`，与 dest_file 共用同一份校验结果。
+    # 合并临时文件必须与目标文件同目录（同文件系统 os.replace 才是原子的）
     tmp_file = os.path.join(
         dest_dir,
         f".{os.path.basename(dest_file)}.jflove-upload-{upload_id}.part",
     )
     merge_started = time.monotonic()
     _merge_progress_set(
-        upload_id, state="merging", processed=0, total=total,
+        upload_id, owner_user_id=session.get("owner_user_id"),
+        state="merging", processed=0, total=total,
         file_size=session["file_size"], started_at=time.time(),
     )
     try:
-        # 合并分片并计算 SHA256：只写临时文件，此阶段**完全不触碰** dest_file
-        sha256 = hashlib.sha256()
-        processed = 0
-        async with aiofiles.open(tmp_file, "wb") as out:
-            for i in range(total):
-                chunk_path = os.path.join(session["tmp_dir"], f"{i:06d}.chunk")
-                async with aiofiles.open(chunk_path, "rb") as f:
-                    data = await f.read()
-                sha256.update(data)
-                await out.write(data)
-                processed += len(data)
-                # 每 N 片更新一次：足够让客户端看到「百分比在动」，又不拖慢合并
-                if i % _MERGE_PROGRESS_STEP == 0 or i == total - 1:
-                    _merge_progress_set(
-                        upload_id, state="merging", processed=processed,
-                    )
-                    # 让出事件循环：进度接口 / 其它请求才能在合并期间得到响应
-                    await asyncio.sleep(0)
+        digest = await asyncio.to_thread(
+            _merge_chunks_worker, upload_id, session, tmp_file,
+        )
+        if digest != session["file_hash"]:
+            raise _MergeError("hash_mismatch", message="文件校验失败，hash 不匹配")
 
-        # 校验文件完整性：失败**只删临时文件**（由 finally 完成），绝不删除/截断 dest_file
-        # （旧实现在此处 `os.remove(dest_file)`，hash 不匹配即丢失原文件）
-        if sha256.hexdigest() != session["file_hash"]:
-            raise ValueError("文件校验失败，hash 不匹配")
-
-        # 还原源文件 mtime（若客户端提供）：保证两端 mtime 一致，
-        # 避免目录同步时陷入"上传后远端时间变新→下次同步反向覆盖本地"的循环。
-        # v1.6.0：mtime 先作用在**临时文件**上，再整体替换 ⇒ 目标文件对外一次成型
-        # （内容与 mtime 同时可见，没有"内容已新、时间还是旧"的中间态）。
         src_mtime = session.get("mtime")
         if src_mtime:
             try:
                 os.utime(tmp_file, (src_mtime, src_mtime))
             except OSError as e:
-                # 日志只记异常类型，不回显完整路径（AGENTS.md §9.4.14）
                 logger.warning("无法还原文件 mtime（不影响上传结果）: %s", type(e).__name__)
 
-        # 原子替换：放到线程池执行（内部含 sleep 重试，不能阻塞事件循环）
         await asyncio.to_thread(_replace_with_retry, tmp_file, dest_file)
-    except BaseException:
-        # 让客户端能区分「还在合并」与「已经失败」，而不是一直显示处理中
+    except _MergeError as exc:
         _merge_progress_set(
-            upload_id, state="failed",
+            upload_id, state="failed", error=exc.error,
+            missing_chunks=exc.missing,
+            elapsed_seconds=round(time.monotonic() - merge_started, 1),
+        )
+        raise
+    except BaseException:
+        _merge_progress_set(
+            upload_id, state="failed", error="io_error",
             elapsed_seconds=round(time.monotonic() - merge_started, 1),
         )
         raise
     finally:
-        # 失败 / 异常路径：清理临时文件，不留半截 `.part` 残留；
-        # 成功路径下 tmp_file 已被 os.replace 移走（该删除幂等）。
         _remove_quietly(tmp_file)
 
-    # 合并耗时是排查「上传卡在 100%」的关键读数：服务端慢盘时这一步可能几分钟
     elapsed = time.monotonic() - merge_started
     _merge_progress_set(
         upload_id, state="done", processed=session["file_size"],
+        path=dest_file, error="", missing_chunks=[],
         elapsed_seconds=round(elapsed, 1),
+        expires_at=time.time() + UPLOAD_PROGRESS_TTL_SECONDS,
     )
     size_gb = max(session["file_size"], 0) / 1024 ** 3
     logger.info(
-        "合并完成: %s 共 %.1f GB，耗时 %.1f 秒（%.1f 秒/GB，%d 片）",
-        session["filename"], size_gb, elapsed,
+        "合并完成: 共 %.1f GB，耗时 %.1f 秒（%.1f 秒/GB，%d 片）",
+        size_gb, elapsed,
         (elapsed / size_gb) if size_gb else 0.0, session["total_chunks"],
     )
 
     shutil.rmtree(session["tmp_dir"], ignore_errors=True)
-    del _upload_sessions[upload_id]
+    _unregister_session(upload_id)
     # v1.7.0：写入变更日志（失败不影响上传结果——文件已经落盘）
     if db is not None:
         try:
@@ -591,7 +1132,7 @@ async def _complete_upload_locked(
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("写变更日志失败（不影响上传结果）: %s", type(e).__name__)
-    logger.info("文件上传完成: %s", dest_file)
+    logger.info("文件上传完成: task=%s disk=%s", upload_id, session["disk_id"])
     return dest_file
 
 
@@ -601,10 +1142,11 @@ async def cancel_upload(upload_id: str) -> None:
 
     :param upload_id: 上传会话 ID
     """
-    session = _upload_sessions.pop(upload_id, None)
+    session = _unregister_session(upload_id)
     _merge_progress_drop(upload_id)
+    _merge_tasks.pop(upload_id, None)
     if session:
-        shutil.rmtree(session["tmp_dir"], ignore_errors=True)
+        shutil.rmtree(session.get("tmp_dir", ""), ignore_errors=True)
 
 
 async def download_file(
@@ -634,6 +1176,45 @@ async def download_file(
     if not os.path.isfile(target):
         raise ValueError("文件不存在")
     return target
+
+
+class RangeNotSatisfiableError(ValueError):
+    """下载起始偏移越界（控制器映射为 416）。"""
+
+
+async def get_download_range(
+    db: aiosqlite.Connection,
+    user_id: int,
+    role: str,
+    disk_id: int,
+    rel_path: str,
+    range_start: int = 0,
+) -> tuple[str, int, int, str]:
+    """
+    校验权限并返回下载 Range 信息（v1.9.0 断点续传）。
+
+    :param range_start: 起始字节偏移（0 = 从头）
+    :returns: (文件绝对路径, 实际起始偏移, 文件大小, 版本标识 "size:int(mtime)")
+    :raises PermissionError: 无读取权限
+    :raises ValueError: 文件不存在
+    :raises RangeNotSatisfiableError: 偏移越界
+    """
+    if role != "admin":
+        if not await check_disk_permission(db, user_id, disk_id, "read"):
+            raise PermissionError("无读取权限")
+    base = await _get_disk_path(db, disk_id)
+    target = _safe_join(base, rel_path)
+    if not os.path.isfile(target):
+        raise ValueError("文件不存在")
+    file_size = os.path.getsize(target)
+    try:
+        start = int(range_start)
+    except (TypeError, ValueError) as exc:
+        raise RangeNotSatisfiableError("起始偏移非法") from exc
+    if start < 0 or start > file_size:
+        raise RangeNotSatisfiableError("起始偏移越界")
+    mtime = int(os.path.getmtime(target))
+    return target, start, file_size, f"{file_size}:{mtime}"
 
 
 async def delete_file(
@@ -1172,3 +1753,203 @@ async def cleanup_orphan_partials(
     if removed:
         logger.info("已清理 %s 个遗留的合并临时文件", removed)
     return removed
+
+
+def _is_within_root(root: str, path: str) -> bool:
+    """判断 path 的真实路径是否位于 root 内（防符号链接逃逸）。"""
+    try:
+        root_real = os.path.realpath(root)
+        path_real = os.path.realpath(path)
+        return os.path.commonpath([root_real, path_real]) == root_real
+    except (OSError, ValueError):
+        return False
+
+
+def _read_session_meta(tmp_dir: str) -> dict | None:
+    """读取会话目录内 session.json（损坏返回 None）。"""
+    path = os.path.join(tmp_dir, "session.json")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _clean_task_subdirs(root: str, orphan_ttl: int, stats: dict, key: str) -> None:
+    """
+    清理 `<root>` 下按 task_id（纯数字）命名的临时子目录。
+
+    只处理数字目录；不跟随符号链接；删除前校验真实路径仍在 root 内。
+    用于离线下载旧 `.jflove-download` 与统一根 `offline/`。
+    """
+    if not os.path.isdir(root):
+        return
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return
+    now = time.time()
+    for name in names:
+        if not name.isdigit():
+            continue
+        path = os.path.join(root, name)
+        if not os.path.isdir(path) or not _is_within_root(root, path):
+            stats["skipped"] += 1
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        if now - mtime < orphan_ttl:
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        stats["removed_dirs"] += 1
+        stats[key] = stats.get(key, 0) + 1
+
+
+def _clean_upload_part_files(base: str, orphan_ttl: int, stats: dict) -> None:
+    """
+    清理磁盘内遗留的合并临时文件（严格命名 `.x.jflove-upload-<uuid>.part`）。
+
+    不递归进入程序隐藏目录；只删 mtime 超过孤儿保留期的匹配文件。
+    """
+    now = time.time()
+    base_real = os.path.realpath(base)
+    for dirpath, dirnames, filenames in os.walk(base):
+        # 不进入统一临时根/旧隐藏目录（它们由各自逻辑处理）
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for name in filenames:
+            if not _UPLOAD_PART_RE.match(name):
+                continue
+            path = os.path.join(dirpath, name)
+            if not _is_within_root(base_real, path):
+                stats["skipped"] += 1
+                continue
+            try:
+                if now - os.path.getmtime(path) < orphan_ttl:
+                    continue
+                os.remove(path)
+                stats["removed_parts"] += 1
+            except OSError:
+                continue
+
+
+async def cleanup_temp_files(
+    db: aiosqlite.Connection,
+    options,
+) -> dict:
+    """
+    统一临时文件清理（v1.9.0；管理员「立即清理」与定时任务共用）。
+
+    :param db: 数据库连接
+    :param options: `UploadCleanupOptions`（含 TTL / 客户端类型白名单 / 孤儿保留期）
+    :returns: 统计字典（不含文件名/路径）
+    """
+    stats = {
+        "removed_sessions": 0,
+        "removed_dirs": 0,
+        "removed_parts": 0,
+        "skipped": 0,
+    }
+    now = time.time()
+    ttl = int(getattr(options, "resume_ttl_seconds", UPLOAD_SESSION_TTL_SECONDS))
+    orphan_ttl = int(getattr(options, "orphan_ttl_seconds", UPLOAD_SESSION_TTL_SECONDS))
+    client_types = set(getattr(options, "cleanup_client_types", ()) or ())
+
+    def _allowed(client_type: str) -> bool:
+        return not client_types or client_type in client_types
+
+    # 1) 内存会话过期回收（按客户端类型白名单）
+    for upload_id, session in list(_upload_sessions.items()):
+        client_type = str(session.get("client_type") or "unknown")
+        if not _allowed(client_type):
+            continue
+        if now - float(session.get("updated_at") or 0) < ttl:
+            continue
+        _unregister_session(upload_id)
+        shutil.rmtree(str(session.get("tmp_dir") or ""), ignore_errors=True)
+        stats["removed_sessions"] += 1
+
+    # 2) 上传临时根内的孤儿目录（服务重启后内存会话丢失 / 失败会话）
+    if os.path.isdir(UPLOAD_TEMP_DIR):
+        try:
+            names = os.listdir(UPLOAD_TEMP_DIR)
+        except OSError:
+            names = []
+        for name in names:
+            if not _SESSION_UUID_RE.match(name):
+                continue
+            path = os.path.join(UPLOAD_TEMP_DIR, name)
+            if name in _upload_sessions:
+                continue
+            if not os.path.isdir(path) or not _is_within_root(UPLOAD_TEMP_DIR, path):
+                stats["skipped"] += 1
+                continue
+            meta = _read_session_meta(path)
+            client_type = str((meta or {}).get("client_type") or "unknown")
+            if not _allowed(client_type):
+                continue
+            updated_at = float((meta or {}).get("updated_at") or 0)
+            if not updated_at:
+                try:
+                    updated_at = os.path.getmtime(path)
+                except OSError:
+                    continue
+            if now - updated_at < ttl:
+                continue
+            # 只删「完全是程序自产」的目录：分片 / session.json / 其临时写文件
+            try:
+                entries = os.listdir(path)
+            except OSError:
+                continue
+            unexpected = [
+                entry for entry in entries
+                if not (
+                    _CHUNK_FILE_RE.match(entry)
+                    or entry in ("session.json", "session.json.tmp")
+                )
+            ]
+            if unexpected:
+                stats["skipped"] += 1
+                logger.warning("跳过含非预期文件的临时目录（不删除）")
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+            stats["removed_dirs"] += 1
+
+    # 3) 磁盘级：旧 .jflove-download / 统一根 offline / .part 残留
+    try:
+        disks = await virtual_disk_repository.list_all(db)
+    except Exception as exc:  # noqa: BLE001 - 清理失败不影响其它任务
+        logger.warning("枚举虚拟磁盘失败，跳过磁盘临时清理: %s", type(exc).__name__)
+        disks = []
+
+    for disk in disks:
+        try:
+            base = os.path.realpath(str(disk["real_path"]))
+        except (TypeError, OSError):
+            continue
+        if not os.path.isdir(base):
+            continue
+        # 3.1 旧离线下载目录（按任务子目录数字名 + 孤儿保留期）
+        legacy_offline = os.path.join(base, OFFLINE_DIR_NAME)
+        _clean_task_subdirs(legacy_offline, orphan_ttl, stats, "removed_legacy_offline")
+        if os.path.isdir(legacy_offline) and not os.listdir(legacy_offline):
+            try:
+                os.rmdir(legacy_offline)
+            except OSError:
+                pass
+        # 3.2 统一根离线下载子目录
+        unified_offline = os.path.join(base, TEMP_DIR_NAME, TEMP_OFFLINE_SUBDIR)
+        _clean_task_subdirs(unified_offline, orphan_ttl, stats, "removed_offline")
+        # 3.3 合并临时文件（严格命名）
+        _clean_upload_part_files(base, orphan_ttl, stats)
+
+    prune_merge_progress(max_age_seconds=ttl)
+    if any(stats.values()):
+        logger.info(
+            "临时文件清理完成: sessions=%d dirs=%d parts=%d skipped=%d",
+            stats["removed_sessions"], stats["removed_dirs"],
+            stats["removed_parts"], stats["skipped"],
+        )
+    return stats

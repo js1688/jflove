@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import '../config/app_config.dart';
 import '../models/transfer_task.dart';
 import '../utils/exception.dart';
 import '../utils/file_hash.dart';
 import '../utils/http_service.dart';
+import 'transfer_resume_store.dart';
 
 /// 传输任务管理器
 ///
@@ -18,6 +20,7 @@ import '../utils/http_service.dart';
 class TransferService {
   final HttpService _http;
   final HashingJobFactory _hashFactory;
+  final TransferResumeStore _resumeStore;
   FileHashCache? _hashCache;
   final bool _enableHashCache;
   Future<FileHashCache?>? _hashCacheFuture;
@@ -44,7 +47,7 @@ class TransferService {
   bool _disposed = false;
 
   /// 上传/下载并发数
-  static const int maxConcurrent = 3;
+  static const int maxConcurrent = 2;
 
   /// 校验并发数：大文件逐个校验，避免多个大视频同时把手机 CPU 抢满
   static const int maxConcurrentHashes = 1;
@@ -63,9 +66,11 @@ class TransferService {
     HashingJobFactory? hashFactory,
     FileHashCache? cache,
     bool allowHashCache = true,
+    TransferResumeStore? resumeStore,
   }) : _hashFactory = hashFactory ?? _defaultHashFactory,
        _hashCache = cache,
-       _enableHashCache = allowHashCache;
+       _enableHashCache = allowHashCache,
+       _resumeStore = resumeStore ?? TransferResumeStore();
 
   static HashingJob _defaultHashFactory(
     String path,
@@ -223,19 +228,24 @@ class TransferService {
     final remoteDir = queued.remoteDir;
     String? uploadId;
     final fileHash = _hashes.remove(taskId) ?? '';
+    String? resumeKey;
     try {
       final file = File(task.localPath);
       final totalBytes = task.fileSize > 0 ? task.fileSize : await file.length();
-      final totalChunks = totalBytes > 0
-          ? ((totalBytes + uploadChunkSize - 1) ~/ uploadChunkSize)
-          : 1;
-
-      _updateTask(
-        taskId,
-        status: TaskStatus.running,
-        percent: 0,
-        transferred: 0,
+      final chunkSize = AppConfig.uploadChunkSize;
+      final totalChunks =
+          totalBytes > 0 ? ((totalBytes + chunkSize - 1) ~/ chunkSize) : 1;
+      resumeKey = TransferResumeStore.uploadKey(
+        diskId: diskId,
+        remoteDir: remoteDir,
+        filename: task.filename,
+        size: totalBytes,
+        fileHash: fileHash,
       );
+      final local = await _resumeStore.loadUpload(resumeKey);
+
+      _updateTask(taskId, status: TaskStatus.running, percent: 0, transferred: 0);
+      // v1.9.0：init 带 client_type；服务端按内容指纹返回同一会话与已收分片
       final initResp = await _http.encryptedPost('/api/v1/files/upload/init', {
         'disk_id': diskId,
         'path': remoteDir,
@@ -243,6 +253,7 @@ class TransferService {
         'file_size': totalBytes,
         'total_chunks': totalChunks,
         'file_hash': fileHash,
+        'client_type': 'app',
       });
       uploadId = initResp['upload_id'] as String?;
       if (uploadId == null || uploadId.isEmpty) {
@@ -254,34 +265,81 @@ class TransferService {
         return;
       }
 
+      final received = <int>{};
+      final rawReceived = initResp['received_chunks'];
+      if (rawReceived is List) {
+        for (final value in rawReceived) {
+          if (value is int) received.add(value);
+        }
+      } else if (local != null && local['upload_id'] == uploadId) {
+        // 服务端未返回已收分片时，本地记录仅作兜底
+        final sent = local['sent_chunks'];
+        if (sent is List) {
+          received.addAll(sent.whereType<int>());
+        }
+      }
+      final expiresAt = (initResp['expires_at'] as num?)?.toDouble() ?? 0.0;
+      await _resumeStore.saveUpload(
+        resumeKey,
+        uploadId: uploadId,
+        sentChunks: received,
+        fileSize: totalBytes,
+        expiresAt: expiresAt,
+      );
+
       final reader = await file.open(mode: FileMode.read);
       try {
         int sent = 0;
         for (int i = 0; i < totalChunks; i++) {
           if (_cancelledTasks.contains(taskId)) {
-            // 取消时清理服务端临时分片
-            try {
-              await _http.encryptedDelete('/api/v1/files/upload/$uploadId', {});
-            } catch (_) {}
+            await _cleanupServerSession(uploadId);
+            await _resumeStore.clearUpload(resumeKey);
             _updateTask(taskId, status: TaskStatus.cancelled);
             return;
           }
 
           final remaining = totalBytes - sent;
-          final readLen = remaining < uploadChunkSize
-              ? remaining
-              : uploadChunkSize;
+          final readLen = remaining < chunkSize ? remaining : chunkSize;
           final chunk = await reader.read(readLen);
           if (chunk.isEmpty) break;
 
-          final chunkB64 = base64Encode(chunk);
-          await _http.encryptedPost('/api/v1/files/upload/chunk', {
-            'upload_id': uploadId,
-            'chunk_index': i,
-            'chunk_data': chunkB64,
-          });
+          if (received.contains(i)) {
+            sent += chunk.length;
+            final pct =
+                totalBytes > 0 ? ((sent / totalBytes) * 100).round() : 0;
+            _updateTask(taskId, transferred: sent, percent: pct);
+            continue;
+          }
 
+          final chunkB64 = base64Encode(chunk);
+          // 分片级重试（指数退避，最多 5 次）：单片抖动不推倒整个文件
+          for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+              await _http.encryptedPost('/api/v1/files/upload/chunk', {
+                'upload_id': uploadId,
+                'chunk_index': i,
+                'chunk_data': chunkB64,
+              });
+              break;
+            } catch (e) {
+              if (attempt == 4) rethrow;
+              await Future<void>.delayed(
+                Duration(milliseconds: 300 * (1 << attempt)),
+              );
+            }
+          }
+
+          received.add(i);
           sent += chunk.length;
+          if (i % 16 == 0) {
+            await _resumeStore.saveUpload(
+              resumeKey,
+              uploadId: uploadId,
+              sentChunks: received,
+              fileSize: totalBytes,
+              expiresAt: expiresAt,
+            );
+          }
           final pct = totalBytes > 0 ? ((sent / totalBytes) * 100).round() : 0;
           _updateTask(taskId, transferred: sent, percent: pct);
         }
@@ -289,11 +347,75 @@ class TransferService {
         await reader.close();
       }
 
-      // ── 合并分片完成上传 ──
-      await _http.encryptedPost('/api/v1/files/upload/complete', {
-        'upload_id': uploadId,
-      });
+      // ── 异步合并：立即受理 + 轮询 progress ──
+      final completeResp = await _http.encryptedPost(
+        '/api/v1/files/upload/complete',
+        {'upload_id': uploadId, 'async_mode': true},
+      );
+      // 兼容过渡期服务端/测试桩：complete 无 state 字段即视为旧同步模式已完成
+      if (completeResp['state'] == null) {
+        await _resumeStore.clearUpload(resumeKey);
+        _updateTask(
+          taskId,
+          status: TaskStatus.completed,
+          percent: 100,
+          transferred: totalBytes,
+        );
+        return;
+      }
+      var state = 'merging';
+      final deadline = DateTime.now().add(const Duration(minutes: 30));
+      while (state != 'done' &&
+          state != 'failed' &&
+          DateTime.now().isBefore(deadline)) {
+        if (_cancelledTasks.contains(taskId)) {
+          await _cleanupServerSession(uploadId);
+          await _resumeStore.clearUpload(resumeKey);
+          _updateTask(taskId, status: TaskStatus.cancelled);
+          return;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 2500));
+        final progress = await _http.encryptedPost(
+          '/api/v1/files/upload/progress',
+          {'upload_id': uploadId},
+        );
+        state = (progress['state'] as String?) ?? 'unknown';
+        final processed = (progress['processed'] as num?)?.toInt() ?? 0;
+        final size = (progress['file_size'] as num?)?.toInt() ?? totalBytes;
+        if (state == 'merging' && size > 0) {
+          _updateTask(
+            taskId,
+            transferred: processed,
+            percent: ((processed / size) * 100).round().clamp(0, 100),
+          );
+        }
+        if (state == 'failed') {
+          throw AppException(
+            code: 500,
+            message: (progress['error'] as String?) ?? '服务端合并失败',
+          );
+        }
+        if (state == 'unknown') {
+          // 进度记录已清理：用远端大小核验（合并成功但响应丢失场景）
+          if (await _remoteHasSize(diskId, remoteDir, task.filename, totalBytes)) {
+            state = 'done';
+            break;
+          }
+          throw const AppException(
+            code: 500,
+            message: '上传状态丢失，请重试',
+          );
+        }
+      }
+      if (state != 'done') {
+        final done =
+            await _remoteHasSize(diskId, remoteDir, task.filename, totalBytes);
+        if (!done) {
+          throw const AppException(code: 504, message: '服务端合并超时，请稍后重试');
+        }
+      }
 
+      await _resumeStore.clearUpload(resumeKey);
       _updateTask(
         taskId,
         status: TaskStatus.completed,
@@ -303,14 +425,11 @@ class TransferService {
     } catch (e) {
       if (_cancelledTasks.contains(taskId)) {
         _cancelledTasks.remove(taskId);
+        await _cleanupServerSession(uploadId);
+        if (resumeKey != null) await _resumeStore.clearUpload(resumeKey);
         _updateTask(taskId, status: TaskStatus.cancelled);
       } else {
-        // 失败时尝试清理服务端临时分片
-        if (uploadId != null) {
-          try {
-            await _http.encryptedDelete('/api/v1/files/upload/$uploadId', {});
-          } catch (_) {}
-        }
+        // v1.9.0：网络/合并失败**不删除**服务端会话与已传分片，保留续传
         _updateTask(
           taskId,
           status: TaskStatus.failed,
@@ -318,6 +437,40 @@ class TransferService {
         );
       }
     }
+  }
+
+  /// 取消时清理服务端会话（仅用户主动取消调用）
+  Future<void> _cleanupServerSession(String? uploadId) async {
+    if (uploadId == null || uploadId.isEmpty) return;
+    try {
+      await _http.encryptedDelete('/api/v1/files/upload/$uploadId', {});
+    } catch (_) {}
+  }
+
+  /// 远端目录内是否存在同大小文件（合并完成后的兜底核验）
+  Future<bool> _remoteHasSize(
+    int diskId,
+    String remoteDir,
+    String filename,
+    int size,
+  ) async {
+    try {
+      final resp = await _http.encryptedGet('/api/v1/files/list', {
+        'disk_id': diskId,
+        'path': remoteDir,
+      });
+      final files = resp['files'];
+      if (files is List) {
+        for (final item in files) {
+          if (item is Map &&
+              item['name'] == filename &&
+              (item['size'] as num?)?.toInt() == size) {
+            return true;
+          }
+        }
+      }
+    } catch (_) {}
+    return false;
   }
 
   // ── 提交下载任务 ──
@@ -353,38 +506,98 @@ class TransferService {
     final taskId = queued.taskId;
     final diskId = queued.diskId;
     final remotePath = queued.remoteDir;
+    final target = File(task.localPath);
+    final part = File('${task.localPath}${AppConfig.downloadPartSuffix}');
+    final metaFile = File('${task.localPath}${AppConfig.downloadMetaSuffix}');
     try {
       _updateTask(taskId, status: TaskStatus.running);
+      await target.parent.create(recursive: true);
 
-      // 通过加密流下载
-      final stream = await _http.encryptedDownloadStream(
-        '/api/v1/files/download',
-        {'disk_id': diskId, 'path': remotePath},
+      // 本地 part + meta 续传（v1.9.0）
+      int start = 0;
+      String savedVersion = '';
+      if (await part.exists()) {
+        start = await part.length();
+        if (await metaFile.exists()) {
+          try {
+            final meta = jsonDecode(await metaFile.readAsString());
+            if (meta is Map && meta['version'] is String) {
+              savedVersion = meta['version'] as String;
+            }
+          } catch (_) {}
+        }
+        if (savedVersion.isEmpty) {
+          // 旧版本遗留 part 无版本标识：保守从头下载
+          start = 0;
+          await _deleteFileQuietly(part);
+        }
+      }
+
+      EncryptedDownloadResponse? resp;
+      for (int attempt = 0; attempt < 2; attempt++) {
+        try {
+          resp = await _http.encryptedDownloadStreamWithHeaders(
+            '/api/v1/files/download',
+            {
+              'disk_id': diskId,
+              'path': remotePath,
+              'range_start': start,
+            },
+          );
+        } on AppException catch (e) {
+          if (e.code == 416 && start > 0) {
+            // 偏移越界（本地 part 大于远端/文件变化）：删除后从头
+            await _deleteFileQuietly(part);
+            await _deleteFileQuietly(metaFile);
+            start = 0;
+            savedVersion = '';
+            continue;
+          }
+          rethrow;
+        }
+
+        final version = resp.header('X-File-Version');
+        if (start > 0 &&
+            savedVersion.isNotEmpty &&
+            version.isNotEmpty &&
+            version != savedVersion) {
+          // 远端文件已变化：拼接会坏，删除 part 从头
+          await _deleteFileQuietly(part);
+          await _deleteFileQuietly(metaFile);
+          start = 0;
+          savedVersion = '';
+          continue;
+        }
+        final total = int.tryParse(resp.header('X-Stream-Total')) ?? task.fileSize;
+        await metaFile.writeAsString(
+          jsonEncode({'version': version, 'size': total, 'offset': start}),
+        );
+        break;
+      }
+      if (resp == null) {
+        throw const AppException(code: 500, message: '下载失败，请重试');
+      }
+
+      final expectedTotal =
+          int.tryParse(resp.header('X-Stream-Total')) ?? task.fileSize;
+      final sink = part.openWrite(
+        mode: start > 0 ? FileMode.append : FileMode.write,
       );
-
-      // 写入本地文件
-      final file = File(task.localPath);
-      // 确保父目录存在
-      await file.parent.create(recursive: true);
-      final sink = file.openWrite();
-      int received = 0;
-
+      int received = start;
       try {
-        await for (final chunk in stream) {
-          // 检查取消
+        await for (final chunk in resp.stream) {
           if (_cancelledTasks.contains(taskId)) {
             _cancelledTasks.remove(taskId);
             await sink.close();
-            // 删除不完整文件
-            if (await file.exists()) await file.delete();
+            await _deleteFileQuietly(part);
+            await _deleteFileQuietly(metaFile);
             _updateTask(taskId, status: TaskStatus.cancelled);
             return;
           }
-
           sink.add(chunk);
           received += chunk.length;
           final pct = task.fileSize > 0
-              ? ((received / task.fileSize) * 100).round()
+              ? ((received / task.fileSize) * 100).round().clamp(0, 100)
               : 0;
           _updateTask(taskId, transferred: received, percent: pct);
         }
@@ -393,6 +606,16 @@ class TransferService {
         await sink.close();
       }
 
+      if (expectedTotal > 0 && received != expectedTotal) {
+        throw const AppException(code: 500, message: '下载数据不完整，请重试');
+      }
+      // 完成后原子改名到目标文件（同目录内 rename）
+      if (await target.exists()) {
+        await target.delete();
+      }
+      await part.rename(task.localPath);
+      await _deleteFileQuietly(metaFile);
+
       _updateTask(
         taskId,
         status: TaskStatus.completed,
@@ -400,17 +623,27 @@ class TransferService {
         transferred: received,
       );
     } catch (e) {
-      if (!_cancelledTasks.contains(taskId)) {
+      if (_cancelledTasks.contains(taskId)) {
+        _cancelledTasks.remove(taskId);
+        await _deleteFileQuietly(part);
+        await _deleteFileQuietly(metaFile);
+        _updateTask(taskId, status: TaskStatus.cancelled);
+      } else {
+        // 失败保留 part/meta，供下次自动续传
         _updateTask(
           taskId,
           status: TaskStatus.failed,
           error: userFacingError(e, fallback: '下载失败，请稍后重试'),
         );
-      } else {
-        _cancelledTasks.remove(taskId);
-        _updateTask(taskId, status: TaskStatus.cancelled);
       }
     }
+  }
+
+  /// 删除本地临时文件（不存在/失败静默）
+  Future<void> _deleteFileQuietly(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
   }
 
   // ── 任务调度 ──

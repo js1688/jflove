@@ -274,6 +274,7 @@ class Test文件流端到端:
                 "file_size": len(content),
                 "total_chunks": total_chunks,
                 "file_hash": sha,
+                "client_type": "desktop",
             },
         )
         assert resp.status_code == 200, resp.text
@@ -436,6 +437,7 @@ class Test响应头零敏感字段:
                 "disk_id": env["disk_id"], "path": "alice_notes",
                 "filename": marker_file, "file_size": len(content),
                 "total_chunks": 1, "file_hash": sha,
+                "client_type": "desktop",
             },
         )
         upload_id = decrypt_response(env["alice"], resp)["upload_id"]
@@ -483,6 +485,7 @@ class Test路径参数权限绕过:
                 "disk_id": env["disk_id"], "path": "alice_notes",
                 "filename": "alice_file.bin", "file_size": len(content),
                 "total_chunks": 1, "file_hash": sha,
+                "client_type": "desktop",
             },
         )
         assert resp.status_code == 200

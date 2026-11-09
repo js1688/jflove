@@ -2,7 +2,7 @@
  * 传输任务状态管理测试
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useTransferStore } from '../../src/stores/transfer-store';
 import type { TransferTask } from '../../src/types/models';
 
@@ -77,6 +77,27 @@ describe('transfer-store 传输任务状态管理', () => {
     const s = useTransferStore.getState();
     expect(s.tasks).toHaveLength(1);
     expect(s.tasks[0].id).toBe('t2');
+  });
+
+  it('取消任务会触发注册的取消回调（v1.9.0 中止在途请求），注销后不再触发', () => {
+    const store = useTransferStore.getState();
+    store.addTask(makeTask());
+    const handler = vi.fn();
+    const unregister = store.registerCancelHandler('t1', handler);
+
+    store.cancelTask('t1');
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(useTransferStore.getState().tasks[0].status).toBe('cancelled');
+
+    // 注销后旧回调不再被调用；新注册的回调照常生效
+    unregister();
+    store.cancelTask('t1');
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    const nextHandler = vi.fn();
+    store.registerCancelHandler('t1', nextHandler);
+    store.cancelTask('t1');
+    expect(nextHandler).toHaveBeenCalledTimes(1);
   });
 
   it('生成唯一任务 ID', () => {

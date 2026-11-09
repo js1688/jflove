@@ -35,7 +35,7 @@ void main() {
     }
   }
 
-  test('上传链路：校验 → init → 分片 → complete，分片数按 1MB 切分', () async {
+  test('上传链路：校验 → init → 分片 → complete，分片数按 512KB 切分', () async {
     final http = _FakeHttp();
     final jobs = <_ManualHashJob>[];
     final service = TransferService(
@@ -49,7 +49,7 @@ void main() {
     );
     addTearDown(service.dispose);
 
-    final file = writeFile('a.bin', 2500 * 1024); // 2.5MB → 3 片
+    final file = writeFile('a.bin', 2500 * 1024); // 2.5MB → 5 片（512KB/片）
     await service.submitUpload(1, 'Photos/2026/10', file.path, 'a.bin', 2500 * 1024);
 
     await waitUntil(() => jobs.length == 1, reason: '应进入校验阶段');
@@ -62,7 +62,7 @@ void main() {
     );
     expect(service.tasks.single.percent, 100);
     expect(http.initCalls, 1);
-    expect(http.chunkIndices, [0, 1, 2]);
+    expect(http.chunkIndices, [0, 1, 2, 3, 4]);
     expect(http.completeCalls, 1);
     expect(http.initFileHash, 'hash-a');
   });
