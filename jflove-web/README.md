@@ -17,9 +17,9 @@ JFLove 浏览器端 Web 应用，基于 React + TypeScript + Vite + Tailwind CSS
 > `complete` 强制异步（`async_mode:true`）并每 2.5s 轮询 `upload/progress`；
 > 下载支持 Range 续传——本地分块 **OPFS 优先 / IndexedDB 回退**，刷新页面后续传，完成后拼 Blob
 > 导出并清理临时数据（本地 part 保留 7 天），两者都不可用时回退整文件下载并明确提示；
-> 管理员「系统设置 → 存储与临时文件」可配置续传保障期 / 自动清理 / 客户端类型 / 孤儿保留期 /
-> 会话上限 / 合并与上传并发，并提供弱服务端模式预设与「立即清理」
-> （复用 `/api/v1/config` 与新增 `POST /api/v1/config/cleanup` 加密接口）。
+> 管理员「系统设置 → 存储与临时文件」v1.9.1 精简为 3 项（自动清理开关 / 临时文件期限 /
+> 清理检查间隔）+「立即清理」，关闭自动清理后仍可手动清理
+> （复用 `/api/v1/config` 与 `POST /api/v1/config/cleanup` 加密接口）。
 
 ---
 

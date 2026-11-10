@@ -48,7 +48,7 @@ async def _upload_cleanup_loop() -> None:
     启动后立即执行一次（与续传保障期同一 TTL，不再「启动 1 小时就清」）；
     之后按 `upload_cleanup_interval_minutes` 周期执行；清理失败只记 warning。
     清理内容：
-      1. 过期内存会话（按客户端类型白名单）；
+      1. 过期内存会话（v1.9.1 起不再按客户端类型过滤，全部清理）；
       2. 上传临时根孤儿目录（UUID 目录 + 固定命名文件）；
       3. 旧 `.jflove-download` / 统一根 offline 孤儿任务目录；
       4. 合并临时文件 `.jflove-upload-<uuid>.part`（严格命名）。
@@ -62,7 +62,7 @@ async def _upload_cleanup_loop() -> None:
                 file_service.refresh_upload_limits(
                     options.merge_concurrency, options.chunk_concurrency,
                 )
-                await upload_cleanup_service.run_cleanup(db)
+                await upload_cleanup_service.run_auto_cleanup(db)
                 file_service.prune_merge_progress()
         except asyncio.CancelledError:
             raise
@@ -122,7 +122,7 @@ async def _repair_db_factory():
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.9.0",
+    version="1.9.1",
     lifespan=lifespan,
 )
 

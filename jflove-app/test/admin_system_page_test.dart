@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +49,22 @@ SwitchListTile _switchTile(WidgetTester tester, String title) {
   return tester.widget<SwitchListTile>(
     find.widgetWithText(SwitchListTile, title),
   );
+}
+
+/// 存储与临时文件卡片（v1.9.1 精简为 3 项）
+Future<void> _pumpStorageCard(WidgetTester tester, ConfigService service) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      child: MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: UploadCleanupConfigCard(configService: service),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -120,5 +138,66 @@ void main() {
       ],
     );
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  // ── v1.9.1：存储与临时文件卡片精简为 3 项 ──────────────────
+
+  testWidgets('存储卡片只保留：开关 + 期限 + 间隔 + 立即清理', (tester) async {
+    final service = _FakeConfigService(
+      config: const {
+        'upload_resume_ttl_hours': '36',
+        'upload_cleanup_interval_minutes': '120',
+      },
+    );
+    await _pumpStorageCard(tester, service);
+
+    expect(find.byType(TextField), findsNWidgets(2));
+    expect(find.text('临时文件期限（小时）'), findsOneWidget);
+    expect(find.text('清理检查间隔（分钟）'), findsOneWidget);
+    expect(find.text('保存配置'), findsOneWidget);
+    expect(find.text('立即清理'), findsOneWidget);
+    // 已删除的参数不得回归
+    expect(find.text('允许自动清理的客户端类型'), findsNothing);
+    expect(find.textContaining('弱服务端'), findsNothing);
+    expect(find.textContaining('孤儿'), findsNothing);
+    expect(find.textContaining('并发'), findsNothing);
+    expect(find.textContaining('会话上限'), findsNothing);
+  });
+
+  testWidgets('保存配置只写 3 个键', (tester) async {
+    final service = _FakeConfigService(
+      config: const {
+        'upload_resume_ttl_hours': '36',
+        'upload_cleanup_interval_minutes': '120',
+      },
+    );
+    await _pumpStorageCard(tester, service);
+
+    await tester.tap(find.text('保存配置'));
+    await tester.pumpAndSettle();
+
+    expect(
+      service.updates.map((e) => '${e.key}=${e.value}').toList(),
+      [
+        'upload_cleanup_enabled=1',
+        'upload_resume_ttl_hours=36',
+        'upload_cleanup_interval_minutes=120',
+      ],
+    );
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  test('系统设置源码锁死：文案无版本号、无已删除参数', () {
+    final source =
+        File('lib/pages/admin/admin_system_page.dart').readAsStringSync();
+    // 用户可见文案不得出现「v1.4.2 起」这类版本号（口径对齐桌面端/Web 端）
+    expect(
+      RegExp(r'v\d+\.\d+(\.\d+)?\s*起').hasMatch(source),
+      isFalse,
+      reason: 'UI 文案不得写版本号字面量',
+    );
+    expect(source.contains('弱服务端'), isFalse);
+    expect(source.contains('upload_cleanup_client_types'), isFalse);
+    expect(source.contains('upload_orphan_ttl_hours'), isFalse);
   });
 }

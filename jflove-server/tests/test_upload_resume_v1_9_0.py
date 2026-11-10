@@ -17,7 +17,7 @@ import aiosqlite
 import pytest
 
 from src.config.settings import DB_PATH
-from src.services import file_service, upload_cleanup_service
+from src.services import config_service, file_service, upload_cleanup_service
 from tests.conftest import decrypt_response, encrypted_request
 
 
@@ -327,3 +327,66 @@ def test_清理配置校验():
     assert upload_cleanup_service.validate_config_value(
         "upload_cleanup_client_types", "web,app,web",
     ) == "app,web"
+
+
+# ── v1.9.1：清理配置精简（只保留 3 个键，其余行为固定） ─────────────
+
+def test_v1_9_1_遗留配置键不再影响行为(env):
+    """写旧键不影响行为：孤儿期=期限、客户端类型=全部、并发/会话上限固定默认。"""
+    async def _run():
+        db = await aiosqlite.connect(DB_PATH)
+        db.row_factory = aiosqlite.Row
+        try:
+            for key, value in {
+                "upload_resume_ttl_hours": "48",
+                "upload_orphan_ttl_hours": "1",
+                "upload_cleanup_client_types": "web",
+                "upload_max_sessions_per_user": "3",
+                "upload_merge_concurrency": "0",
+                "upload_chunk_concurrency": "8",
+            }.items():
+                await config_service.update(db, key, value)
+            options = await upload_cleanup_service.get_options(db)
+            # 还原会影响到其它用例的键
+            await config_service.update(db, "upload_resume_ttl_hours", "24")
+            await config_service.update(db, "upload_cleanup_enabled", "1")
+            return options
+        finally:
+            await db.close()
+
+    options = asyncio.run(_run())
+    assert options.resume_ttl_hours == 48
+    assert options.orphan_ttl_hours == 48          # 与期限统一
+    assert options.cleanup_client_types == frozenset()  # 空 = 全部
+    assert options.max_sessions_per_user == 8
+    assert options.merge_concurrency == 1
+    assert options.chunk_concurrency == 2
+
+
+def test_v1_9_1_关闭自动清理时手动清理仍执行(env):
+    """总开关只管自动清理：run_auto_cleanup 跳过，run_cleanup（手动）照常执行。"""
+    async def _run():
+        db = await aiosqlite.connect(DB_PATH)
+        db.row_factory = aiosqlite.Row
+        try:
+            await config_service.update(db, "upload_cleanup_enabled", "0")
+            auto = await upload_cleanup_service.run_auto_cleanup(db)
+            manual = await upload_cleanup_service.run_cleanup(db)
+            await config_service.update(db, "upload_cleanup_enabled", "1")
+            return auto, manual
+        finally:
+            await db.close()
+
+    auto, manual = asyncio.run(_run())
+    assert auto["enabled"] is False
+    assert auto["removed_sessions"] == 0
+    assert manual["enabled"] is True
+    assert "removed_sessions" in manual
+
+
+def test_v1_9_1_手动清理仍要求管理员(client, env):
+    """安全：手动清理入口仍要求管理员（普通用户 403）。"""
+    resp = encrypted_request(
+        client, env["alice"], "POST", "/api/v1/config/cleanup", {},
+    )
+    assert resp.status_code == 403

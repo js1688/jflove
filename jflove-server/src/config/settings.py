@@ -138,16 +138,28 @@ OFFLINE_HARD_MAX_ITEMS = 200
 OFFLINE_DEFAULT_MAX_IMAGES = 200
 OFFLINE_HARD_MAX_IMAGES = 1000
 
-# ── 大文件断点续传 / 临时文件清理（v1.9.0）─────────────────────
+# ── 大文件断点续传 / 临时文件清理（v1.9.0；v1.9.1 精简为 3 个可配置键）──
 # config 表键（仅管理员可改；TTL 是**唯一来源**：会话过期、清理保护、客户端过期提示共用）
-UPLOAD_RESUME_TTL_KEY = "upload_resume_ttl_hours"            # 断点续传保障时长（小时，1~168）
-UPLOAD_CLEANUP_ENABLED_KEY = "upload_cleanup_enabled"        # 自动清理总开关："1" 开 / "0" 关
-UPLOAD_CLEANUP_INTERVAL_KEY = "upload_cleanup_interval_minutes"  # 清理周期（分钟，5~1440）
-UPLOAD_CLEANUP_CLIENT_TYPES_KEY = "upload_cleanup_client_types"   # 允许清理的客户端类型（逗号集，空=全部）
-UPLOAD_ORPHAN_TTL_KEY = "upload_orphan_ttl_hours"            # 孤儿临时文件保留期（小时，1~168）
-UPLOAD_MAX_SESSIONS_PER_USER_KEY = "upload_max_sessions_per_user"  # 每用户未完成会话上限（1~64）
-UPLOAD_MERGE_CONCURRENCY_KEY = "upload_merge_concurrency"    # 合并并发（0~4；0=暂停排队）
-UPLOAD_CHUNK_CONCURRENCY_KEY = "upload_chunk_concurrency"    # 分片上传并发（1~8）
+UPLOAD_RESUME_TTL_KEY = "upload_resume_ttl_hours"            # 临时文件期限（小时，1~168）：续传有效期 + 清理保护期
+UPLOAD_CLEANUP_ENABLED_KEY = "upload_cleanup_enabled"        # 自动清理总开关："1"/"0"（只管自动；手动清理不受限）
+UPLOAD_CLEANUP_INTERVAL_KEY = "upload_cleanup_interval_minutes"  # 自动清理周期（分钟，5~1440）
+
+# v1.9.0 遗留键（v1.9.1 起不再读取、也不再下发默认值；仅保留常量与校验，
+# 让仍在运行旧版客户端的请求不报错）。行为固定为：清理全部客户端类型、
+# 每用户会话上限 8、合并并发 1、分片并发 2；孤儿保留期并入 UPLOAD_RESUME_TTL_KEY。
+UPLOAD_CLEANUP_CLIENT_TYPES_KEY = "upload_cleanup_client_types"
+UPLOAD_ORPHAN_TTL_KEY = "upload_orphan_ttl_hours"
+UPLOAD_MAX_SESSIONS_PER_USER_KEY = "upload_max_sessions_per_user"
+UPLOAD_MERGE_CONCURRENCY_KEY = "upload_merge_concurrency"
+UPLOAD_CHUNK_CONCURRENCY_KEY = "upload_chunk_concurrency"
+#: 遗留键集合：只做格式校验，不参与运行时行为
+UPLOAD_LEGACY_KEYS = (
+    UPLOAD_CLEANUP_CLIENT_TYPES_KEY,
+    UPLOAD_ORPHAN_TTL_KEY,
+    UPLOAD_MAX_SESSIONS_PER_USER_KEY,
+    UPLOAD_MERGE_CONCURRENCY_KEY,
+    UPLOAD_CHUNK_CONCURRENCY_KEY,
+)
 
 # 默认值与硬边界（服务端校验，不信任客户端）
 UPLOAD_DEFAULT_RESUME_TTL_HOURS = 24
@@ -176,15 +188,11 @@ UPLOAD_DEFAULT_CHUNK_SIZE_KB = 512
 UPLOAD_PROGRESS_TTL_SECONDS = UPLOAD_DEFAULT_RESUME_TTL_HOURS * 3600
 
 #: 各配置键默认值（config GET 缺省注入、清理读取）
+#: v1.9.1：只保留 3 个真正可配的键；遗留键不再下发，避免管理端出现"隐形配置"
 UPLOAD_CONFIG_DEFAULTS = {
     UPLOAD_RESUME_TTL_KEY: str(UPLOAD_DEFAULT_RESUME_TTL_HOURS),
     UPLOAD_CLEANUP_ENABLED_KEY: "1",
     UPLOAD_CLEANUP_INTERVAL_KEY: str(UPLOAD_DEFAULT_CLEANUP_INTERVAL_MINUTES),
-    UPLOAD_CLEANUP_CLIENT_TYPES_KEY: "",
-    UPLOAD_ORPHAN_TTL_KEY: str(UPLOAD_DEFAULT_ORPHAN_TTL_HOURS),
-    UPLOAD_MAX_SESSIONS_PER_USER_KEY: str(UPLOAD_DEFAULT_MAX_SESSIONS_PER_USER),
-    UPLOAD_MERGE_CONCURRENCY_KEY: str(UPLOAD_DEFAULT_MERGE_CONCURRENCY),
-    UPLOAD_CHUNK_CONCURRENCY_KEY: str(UPLOAD_DEFAULT_CHUNK_CONCURRENCY),
 }
 
 Path(LOG_DIR).mkdir(parents=True, exist_ok=True)

@@ -8,12 +8,7 @@ import {
   OFFLINE_DOWNLOAD_KEYS,
   STORAGE_CLEANUP_DEFAULTS,
   STORAGE_CLEANUP_KEYS,
-  STORAGE_CLIENT_TYPES,
-  STORAGE_CLIENT_TYPE_LABELS,
-  joinClientTypes,
-  parseClientTypes,
   type CleanupResult,
-  type StorageClientType,
 } from '../../services/config-service';
 
 /**
@@ -22,8 +17,9 @@ import {
  * 提供服务端共享配置（存服务端 config 表，三端共享）：
  *  - 修复并发数（1~8，留空 = 按服务器 CPU 核数自动推导）
  *  - 离线下载总开关 / 深度分析 / 并发 / 体积 / 项数 / 图片数
- *  - v1.9.0「存储与临时文件」：断点续传保障时长、自动清理间隔、客户端类型白名单、
- *    孤儿保留期、每用户会话上限、合并/分片并发、弱服务端模式预设、立即清理
+ *  - v1.9.0「存储与临时文件」：v1.9.1 精简为「自动清理总开关 / 临时文件期限 /
+ *    清理检查间隔 / 立即清理」四项；客户端类型白名单、孤儿保留期、会话上限、
+ *    合并/分片并发与「弱服务端模式」已删除（行为固定为服务端默认值）。
  *
  * 配置写入后立即生效、无需重启任何端。仅管理员可见（路由层 RequireAdmin 守卫）。
  *
@@ -35,8 +31,9 @@ import {
  * v1.8.0 UAT：新增「离线下载」卡片 —— 默认开启，管理员可在此应急熔断。
  * v1.8.2（F37.6）：新增 3 个超时项（解析总超时 / 连接超时 / 读取超时），
  * 范围与默认值和服务端 `validate_config_value` 同源（30–180 / 5–30 / 15–120）。
- * v1.9.0（F51/F52/F56）：新增「存储与临时文件」卡片（TTL 单一来源、客户端类型多选、
- * 弱服务端模式一键预设、立即清理统计）；全部走 config-service 的加密 HTTP 封装。
+ * v1.9.0（F51/F52/F56）：新增「存储与临时文件」卡片（TTL 单一来源、立即清理统计）。
+ * v1.9.1：卡片精简为 3 个可配置项；删除客户端类型多选、孤儿保留期、会话上限、
+ * 合并/分片并发与「弱服务端模式」预设。
  */
 
 /** 离线下载数字项：前端只做前置提示，最终以后端 400 中文错误为准 */
@@ -93,49 +90,21 @@ const OFFLINE_NUMBER_FIELDS = [
   },
 ] as const;
 
-/** v1.9.0 存储与临时文件数字项：前端只做前置提示，最终以后端 400 中文错误为准 */
+/** v1.9.0 存储与临时文件数字项（v1.9.1 精简为 2 项；后端 400 中文错误为最终判据） */
 const STORAGE_NUMBER_FIELDS = [
   {
     key: STORAGE_CLEANUP_KEYS.resumeTtlHours,
-    label: '断点续传保障时长（小时）',
+    label: '临时文件期限（小时）',
     hint: '1~168',
     min: 1,
     max: 168,
   },
   {
     key: STORAGE_CLEANUP_KEYS.cleanupIntervalMinutes,
-    label: '自动清理间隔（分钟）',
+    label: '清理检查间隔（分钟）',
     hint: '5~1440',
     min: 5,
     max: 1440,
-  },
-  {
-    key: STORAGE_CLEANUP_KEYS.orphanTtlHours,
-    label: '孤儿临时文件保留期（小时）',
-    hint: '1~168',
-    min: 1,
-    max: 168,
-  },
-  {
-    key: STORAGE_CLEANUP_KEYS.maxSessionsPerUser,
-    label: '每用户未完成上传会话上限',
-    hint: '1~64',
-    min: 1,
-    max: 64,
-  },
-  {
-    key: STORAGE_CLEANUP_KEYS.mergeConcurrency,
-    label: '合并并发数',
-    hint: '0~4',
-    min: 0,
-    max: 4,
-  },
-  {
-    key: STORAGE_CLEANUP_KEYS.chunkConcurrency,
-    label: '上传分片并发数',
-    hint: '1~8',
-    min: 1,
-    max: 8,
   },
 ] as const;
 
@@ -153,10 +122,9 @@ export function AdminSystemPage() {
   const [deepAnalyze, setDeepAnalyze] = useState(true);
   const [offlineNumbers, setOfflineNumbers] = useState<Record<string, string>>({});
 
-  // v1.9.0「存储与临时文件」状态
+  // v1.9.0「存储与临时文件」状态（v1.9.1 精简）
   const [cleanupEnabled, setCleanupEnabled] = useState(true);
   const [storageNumbers, setStorageNumbers] = useState<Record<string, string>>({});
-  const [cleanupClientTypes, setCleanupClientTypes] = useState<StorageClientType[]>([]);
   const [cleaning, setCleaning] = useState(false);
   const [cleanupResult, setCleanupResult] = useState<CleanupResult | null>(null);
 
@@ -186,7 +154,7 @@ export function AdminSystemPage() {
         [OFFLINE_DOWNLOAD_KEYS.readTimeout]:
           c[OFFLINE_DOWNLOAD_KEYS.readTimeout] ?? '60',
       });
-      // v1.9.0：存储与临时文件（总开关 / 数字项 / 客户端类型多选）
+      // v1.9.0：存储与临时文件（总开关 / 数字项；v1.9.1 精简）
       setCleanupEnabled(
         (c[STORAGE_CLEANUP_KEYS.enabled] ??
           STORAGE_CLEANUP_DEFAULTS[STORAGE_CLEANUP_KEYS.enabled]) === '1',
@@ -197,12 +165,6 @@ export function AdminSystemPage() {
           c[field.key] ?? STORAGE_CLEANUP_DEFAULTS[field.key];
       }
       setStorageNumbers(storageDefaults);
-      setCleanupClientTypes(
-        parseClientTypes(
-          c[STORAGE_CLEANUP_KEYS.cleanupClientTypes] ??
-            STORAGE_CLEANUP_DEFAULTS[STORAGE_CLEANUP_KEYS.cleanupClientTypes],
-        ),
-      );
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : '加载系统配置失败');
     }
@@ -299,11 +261,6 @@ export function AdminSystemPage() {
       }
       payload.push([field.key, String(n)]);
     }
-    // 空数组 = 全部类型（后端约定：空集合不按客户端类型过滤）
-    payload.push([
-      STORAGE_CLEANUP_KEYS.cleanupClientTypes,
-      joinClientTypes(cleanupClientTypes),
-    ]);
     setSaving(true);
     try {
       for (const [key, value] of payload) {
@@ -317,27 +274,7 @@ export function AdminSystemPage() {
     setSaving(false);
   };
 
-  /** 弱服务端模式一键预设（F56.5）：合并并发 1 / 上传并发 2 / 每用户会话上限 4 */
-  const applyWeakServerPreset = async () => {
-    setSaving(true);
-    try {
-      await configService.updateConfig(STORAGE_CLEANUP_KEYS.mergeConcurrency, '1');
-      await configService.updateConfig(STORAGE_CLEANUP_KEYS.chunkConcurrency, '2');
-      await configService.updateConfig(
-        STORAGE_CLEANUP_KEYS.maxSessionsPerUser, '4',
-      );
-      await load();
-      toast.success(
-        '已启用弱服务端模式',
-        '合并并发 1 / 上传并发 2 / 每用户会话上限 4；桌面端分片固定 512KB',
-      );
-    } catch (e) {
-      toast.error('启用弱服务端模式失败', e instanceof Error ? e.message : undefined);
-    }
-    setSaving(false);
-  };
-
-  /** 立即清理（F51.6）：与定时任务同规则的安全清理，结果展示数量 */
+  /** 立即清理（F51.6）：与定时任务同规则的安全清理；v1.9.1 起不受总开关限制 */
   const runCleanupNow = async () => {
     setCleaning(true);
     try {
@@ -522,29 +459,26 @@ export function AdminSystemPage() {
               <Icon name="database" className="text-brand-500" />
               <h2 className="text-[15px] font-semibold">存储与临时文件</h2>
             </div>
-            <p className="mb-2 text-[12.5px] leading-relaxed text-muted">
-              服务端上传分片 / 合并临时文件的自动清理策略（配置存服务端、三端共享，
-              修改后立即生效、无需重启）。清理只删程序自产、固定命名的分片与残留，
-              不会删除用户正常文件。
-            </p>
-            <p className="mb-4 text-[11.5px] leading-relaxed text-fg-brand">
-              「断点续传保障时长」同时决定断点续传有效期和临时文件清理保护期；
-              清理阈值不可单独配置，避免双方不一致。
+            <p className="mb-4 text-[12.5px] leading-relaxed text-muted">
+              自动清理程序自产的临时文件（上传分片与会话残留、离线下载残缺目录、
+              合并残留）。临时文件期限同时决定断点续传有效期与清理保护期；到期后
+              安全删除，客户端下次从头上传。关闭自动清理后，「立即清理」仍可手动执行一次。
+              只删除程序自产、固定命名的文件，不会动你的正常文件。
             </p>
 
             <div className="flex flex-col divide-y divide-line-subtle">
               {/* 自动清理总开关 */}
               <div className="flex items-center justify-between gap-4 py-3.5">
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium">自动清理总开关</p>
+                  <p className="text-[13px] font-medium">自动清理临时文件</p>
                   <p className="mt-0.5 text-[11.5px] text-subtle">
-                    关闭后不自动删除任何临时文件（立即清理仍按同一规则执行）
+                    只管自动清理；关闭后「立即清理」仍可手动执行
                   </p>
                 </div>
                 <Switch
                   checked={cleanupEnabled}
                   disabled={saving || cleaning}
-                  label="自动清理总开关"
+                  label="自动清理临时文件"
                   onChange={(next) =>
                     void saveToggle(
                       STORAGE_CLEANUP_KEYS.enabled,
@@ -586,67 +520,13 @@ export function AdminSystemPage() {
                 </div>
               ))}
 
-              {/* 允许清理的客户端类型（空 = 全部） */}
-              <div className="py-3.5">
-                <p className="text-[13px] font-medium">允许自动清理的客户端类型</p>
-                <p className="mb-2 mt-0.5 text-[11.5px] text-subtle">
-                  只清理名单内客户端创建的上传会话；全部不勾选 = 所有类型
-                </p>
-                <div className="flex flex-wrap gap-x-4 gap-y-2">
-                  {STORAGE_CLIENT_TYPES.map((type) => (
-                    <label
-                      key={type}
-                      className="flex items-center gap-1.5 text-[12.5px] text-muted"
-                    >
-                      <input
-                        type="checkbox"
-                        aria-label={`允许清理客户端：${STORAGE_CLIENT_TYPE_LABELS[type]}`}
-                        checked={cleanupClientTypes.includes(type)}
-                        disabled={saving || cleaning}
-                        onChange={(e) =>
-                          setCleanupClientTypes((prev) =>
-                            e.target.checked
-                              ? prev.includes(type)
-                                ? prev
-                                : [...prev, type]
-                              : prev.filter((item) => item !== type),
-                          )
-                        }
-                      />
-                      {STORAGE_CLIENT_TYPE_LABELS[type]}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* 弱服务端模式一键预设 */}
-              <div className="flex flex-wrap items-center justify-between gap-3 py-3.5">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium">弱服务端模式</p>
-                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-subtle">
-                    一键设为合并并发 1 / 上传并发 2 / 每用户会话上限 4；
-                    降低峰值资源占用，但上传 / 合并总耗时会变长
-                    （针对 8GB / N2840 级别服务器）。桌面端分片固定 512KB。
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  icon="zap"
-                  loading={saving}
-                  disabled={cleaning}
-                  onClick={() => void applyWeakServerPreset()}
-                >
-                  启用弱服务端模式
-                </Button>
-              </div>
-
               {/* 立即清理 */}
               <div className="flex flex-wrap items-center justify-between gap-3 py-3.5">
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium">立即清理</p>
                   <p className="mt-0.5 text-[11.5px] leading-relaxed text-subtle">
-                    触发一次与定时任务同规则的安全清理（跳过无法确认归属的条目），
-                    并显示删除与跳过数量。
+                    立即清理一次（v1.9.1 起不受自动清理总开关限制）；跳过无法确认
+                    归属的条目，并显示删除与跳过数量。
                   </p>
                   {cleanupResult && (
                     <p className="mt-1.5 text-[11.5px] text-fg-brand">

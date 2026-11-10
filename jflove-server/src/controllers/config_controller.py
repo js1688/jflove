@@ -105,14 +105,15 @@ async def update_config(request: Request, db: aiosqlite.Connection = Depends(get
 
 @router.post(
     "/cleanup",
-    summary="立即清理临时文件（v1.9.0）",
+    summary="立即清理临时文件（v1.9.0；v1.9.1 手动清理不受总开关限制）",
     description=(
-        "管理员触发一次与定时任务同规则的安全清理；只清理程序自产、固定命名的临时文件。\n\n"
+        "管理员触发一次与定时任务同规则的安全清理；只清理程序自产、固定命名的临时文件。\n"
+        "v1.9.1 起：自动清理总开关只约束定时任务，手动「立即清理」始终执行。\n\n"
         "请求体（加密后）字段：\n"
         "- `token`：管理员 JWT 令牌\n\n"
         "响应体（加密后）字段：\n"
         "- `removed_sessions` / `removed_dirs` / `removed_parts` / `skipped`：清理统计\n"
-        "- `enabled`：自动清理是否开启"
+        "- `enabled`：本次清理是否执行（手动入口恒为 true）"
     ),
 )
 async def run_cleanup(request: Request, db: aiosqlite.Connection = Depends(get_db)):

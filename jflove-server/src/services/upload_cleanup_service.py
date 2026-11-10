@@ -28,8 +28,8 @@ from src.config.settings import (
     UPLOAD_DEFAULT_CLEANUP_INTERVAL_MINUTES,
     UPLOAD_DEFAULT_MAX_SESSIONS_PER_USER,
     UPLOAD_DEFAULT_MERGE_CONCURRENCY,
-    UPLOAD_DEFAULT_ORPHAN_TTL_HOURS,
     UPLOAD_DEFAULT_RESUME_TTL_HOURS,
+    UPLOAD_LEGACY_KEYS,
     UPLOAD_MAX_CHUNK_CONCURRENCY,
     UPLOAD_MAX_CLEANUP_INTERVAL_MINUTES,
     UPLOAD_MAX_MAX_SESSIONS_PER_USER,
@@ -101,17 +101,14 @@ def _safe_int(value: str | None, default: int, low: int, high: int) -> int:
     return max(low, min(high, parsed))
 
 
-def _parse_client_types(value: str | None) -> frozenset[str]:
-    """解析客户端类型白名单（空 = 全部；非法项忽略）。"""
-    if value is None:
-        return frozenset()
-    items = {item.strip().lower() for item in str(value).split(",") if item.strip()}
-    return frozenset(item for item in items if item in UPLOAD_CLIENT_TYPES)
-
-
 async def get_options(db: aiosqlite.Connection) -> UploadCleanupOptions:
     """
     读取清理配置（带默认值与边界夹紧）。
+
+    v1.9.1 起只读取 3 个键（期限 / 总开关 / 间隔），其余行为固定：
+      - 清理全部客户端类型（不做白名单过滤）；
+      - 孤儿临时文件保留期 = 临时文件期限（同一个数）；
+      - 会话上限 / 合并并发 / 分片并发 = 服务端默认值（管理端不再暴露）。
 
     :param db: 数据库连接
     :returns: 配置快照（不可变）
@@ -129,31 +126,15 @@ async def get_options(db: aiosqlite.Connection) -> UploadCleanupOptions:
         values.get(UPLOAD_CLEANUP_INTERVAL_KEY), UPLOAD_DEFAULT_CLEANUP_INTERVAL_MINUTES,
         UPLOAD_MIN_CLEANUP_INTERVAL_MINUTES, UPLOAD_MAX_CLEANUP_INTERVAL_MINUTES,
     )
-    orphan_ttl = _safe_int(
-        values.get(UPLOAD_ORPHAN_TTL_KEY), UPLOAD_DEFAULT_ORPHAN_TTL_HOURS,
-        UPLOAD_MIN_ORPHAN_TTL_HOURS, UPLOAD_MAX_ORPHAN_TTL_HOURS,
-    )
-    max_sessions = _safe_int(
-        values.get(UPLOAD_MAX_SESSIONS_PER_USER_KEY), UPLOAD_DEFAULT_MAX_SESSIONS_PER_USER,
-        UPLOAD_MIN_MAX_SESSIONS_PER_USER, UPLOAD_MAX_MAX_SESSIONS_PER_USER,
-    )
-    merge_concurrency = _safe_int(
-        values.get(UPLOAD_MERGE_CONCURRENCY_KEY), UPLOAD_DEFAULT_MERGE_CONCURRENCY,
-        0, UPLOAD_MAX_MERGE_CONCURRENCY,
-    )
-    chunk_concurrency = _safe_int(
-        values.get(UPLOAD_CHUNK_CONCURRENCY_KEY), UPLOAD_DEFAULT_CHUNK_CONCURRENCY,
-        1, UPLOAD_MAX_CHUNK_CONCURRENCY,
-    )
     return UploadCleanupOptions(
         resume_ttl_hours=resume_ttl,
         cleanup_enabled=enabled,
         cleanup_interval_minutes=interval,
-        cleanup_client_types=_parse_client_types(values.get(UPLOAD_CLEANUP_CLIENT_TYPES_KEY)),
-        orphan_ttl_hours=orphan_ttl,
-        max_sessions_per_user=max_sessions,
-        merge_concurrency=merge_concurrency,
-        chunk_concurrency=chunk_concurrency,
+        cleanup_client_types=frozenset(),          # 空集合 = 全部类型
+        orphan_ttl_hours=resume_ttl,               # 统一期限
+        max_sessions_per_user=UPLOAD_DEFAULT_MAX_SESSIONS_PER_USER,
+        merge_concurrency=UPLOAD_DEFAULT_MERGE_CONCURRENCY,
+        chunk_concurrency=UPLOAD_DEFAULT_CHUNK_CONCURRENCY,
     )
 
 
@@ -177,7 +158,7 @@ def validate_config_value(key: str, value: str) -> str:
     :returns: 规范化后的值；非上传清理键原样返回
     :raises ValueError: 取值非法
     """
-    if key not in UPLOAD_CONFIG_DEFAULTS:
+    if key not in UPLOAD_CONFIG_DEFAULTS and key not in UPLOAD_LEGACY_KEYS:
         return value
     raw = "" if value is None else str(value).strip()
     if key == UPLOAD_RESUME_TTL_KEY:
@@ -227,10 +208,28 @@ async def refresh_limits(db: aiosqlite.Connection | None = None) -> None:
 
 async def run_cleanup(db: aiosqlite.Connection) -> dict:
     """
-    执行一次安全清理（管理员「立即清理」与定时任务共用）。
+    执行一次安全清理（管理员「立即清理」入口）。
+
+    v1.9.1 语义：**不受自动清理总开关限制** —— 总开关只决定定时任务是否执行，
+    管理员点「立即清理」应当立刻清一次。定时任务请用 `run_auto_cleanup`。
 
     :param db: 数据库连接
     :returns: 清理统计字典（不含文件名/路径）
+    """
+    options = await get_options(db)
+    from src.services import file_service  # 局部导入，避免循环依赖
+
+    result = await file_service.cleanup_temp_files(db, options)
+    result["enabled"] = True
+    return result
+
+
+async def run_auto_cleanup(db: aiosqlite.Connection) -> dict:
+    """
+    定时任务入口：自动清理总开关为关时直接跳过（不做任何删除）。
+
+    :param db: 数据库连接
+    :returns: 清理统计字典；开关关闭时 `enabled=False` 且统计全 0
     """
     options = await get_options(db)
     if not options.cleanup_enabled:
@@ -238,8 +237,4 @@ async def run_cleanup(db: aiosqlite.Connection) -> dict:
             "enabled": False, "removed_sessions": 0, "removed_dirs": 0,
             "removed_parts": 0, "skipped": 0,
         }
-    from src.services import file_service  # 局部导入，避免循环依赖
-
-    result = await file_service.cleanup_temp_files(db, options)
-    result["enabled"] = True
-    return result
+    return await run_cleanup(db)

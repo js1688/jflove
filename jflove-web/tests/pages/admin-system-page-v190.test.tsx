@@ -1,12 +1,12 @@
 /**
- * 管理员「系统设置 · 存储与临时文件」页测试（v1.9.0，AC-351 / AC-352 / AC-353 / AC-364）
+ * 管理员「系统设置 · 存储与临时文件」页测试（v1.9.0 引入，v1.9.1 精简）
  *
  * 锁死：
- *   1. 卡片存在，字段按服务端默认值展示（24h / 60min / 24h / 8 / 1 / 2），客户端类型默认全选；
- *   2. 越界值前端前置拦截，不发任何 PUT；
- *   3. 保存时逐项写入 6 个数字键 + 客户端类型逗号集，并重新 GET 刷新；
- *   4. 「弱服务端模式」一键预设写 merge=1 / chunk=2 / sessions=4；
- *   5. 「立即清理」调 runCleanup 并显示删除 / 跳过数量；失败时显示原因（不静默）。
+ *   1. 卡片只剩 3 项：自动清理临时文件 / 临时文件期限 / 清理检查间隔，外加「立即清理」；
+ *   2. 已删除项不得回归：客户端类型多选、孤儿保留期、会话上限、合并/分片并发、弱服务端模式；
+ *   3. 越界值前端前置拦截，不发任何 PUT；保存只写 2 个数字项并重新 GET 刷新；
+ *   4. 「立即清理」调 runCleanup 并显示删除 / 跳过数量；失败时显示原因（不静默）；
+ *   5. 关闭自动清理临时文件写入 enabled=0（但手动清理仍然可用）。
  *
  * configService 整体 mock：本页不发真实请求（加密信封由 http-client 测试覆盖）。
  */
@@ -32,7 +32,6 @@ import { AdminSystemPage } from '../../src/pages/admin/AdminSystemPage';
 import {
   configService,
   UPLOAD_CLEANUP_KEYS,
-  WEAK_SERVER_PRESET,
 } from '../../src/services/config-service';
 
 const getConfigMock = vi.mocked(configService.getConfig);
@@ -61,100 +60,81 @@ beforeEach(() => {
   updateConfigMock.mockResolvedValue({ message: '配置已更新' });
 });
 
-describe('系统设置 · 存储与临时文件', () => {
-  it('默认值缺失时按服务端默认展示，客户端类型默认四项全选', async () => {
+describe('系统设置 · 存储与临时文件（v1.9.1 精简）', () => {
+  it('默认值按服务端默认展示，且只有 3 项', async () => {
     renderPage();
     await waitForStorageCard();
 
     expect(
-      screen.getByRole('switch', { name: '自动清理总开关' }),
+      screen.getByRole('switch', { name: '自动清理临时文件' }),
     ).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByLabelText('断点续传保障时长（小时）')).toHaveValue(24);
-    expect(screen.getByLabelText('自动清理间隔（分钟）')).toHaveValue(60);
-    expect(screen.getByLabelText('孤儿临时文件保留期（小时）')).toHaveValue(24);
-    expect(screen.getByLabelText('每用户未完成会话上限')).toHaveValue(8);
-    expect(screen.getByLabelText('合并并发')).toHaveValue(1);
-    expect(screen.getByLabelText('上传分片并发')).toHaveValue(2);
-    for (const label of ['App', '桌面端', 'Web 端', '未知']) {
-      expect(screen.getByLabelText(label)).toBeChecked();
-    }
-    // 单一来源说明（F52.3）
+    expect(screen.getByLabelText('临时文件期限（小时）')).toHaveValue(24);
+    expect(screen.getByLabelText('清理检查间隔（分钟）')).toHaveValue(60);
+
+    // 单一期限来源说明
     expect(
-      screen.getByText(/该值同时决定断点续传有效期和临时文件清理保护期/),
+      screen.getByText(/临时文件期限同时决定断点续传有效期与清理保护期/),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/关闭自动清理后，「立即清理」仍可手动执行一次/),
+    ).toBeInTheDocument();
+
+    // 已删除的参数不得回归
+    expect(screen.queryByText(/允许自动清理的客户端类型/)).toBeNull();
+    expect(screen.queryByText(/孤儿临时文件保留期/)).toBeNull();
+    expect(screen.queryByText(/每用户未完成会话上限/)).toBeNull();
+    expect(screen.queryByText(/^合并并发$/)).toBeNull();
+    expect(screen.queryByText(/上传分片并发/)).toBeNull();
+    expect(screen.queryByText(/弱服务端模式/)).toBeNull();
+    expect(screen.queryByText(/未知/)).toBeNull();
   });
 
-  it('后端已落库的值按实际值展示', async () => {
+  it('后端已落库的值按实际值展示（遗留键不渲染）', async () => {
     getConfigMock.mockResolvedValue({
       config: {
         upload_cleanup_enabled: '0',
         upload_resume_ttl_hours: '72',
         upload_cleanup_interval_minutes: '30',
         upload_cleanup_client_types: 'web',
+        upload_orphan_ttl_hours: '12',
+        upload_max_sessions_per_user: '6',
       },
     });
     renderPage();
     await waitForStorageCard();
 
     expect(
-      screen.getByRole('switch', { name: '自动清理总开关' }),
+      screen.getByRole('switch', { name: '自动清理临时文件' }),
     ).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByLabelText('断点续传保障时长（小时）')).toHaveValue(72);
-    expect(screen.getByLabelText('自动清理间隔（分钟）')).toHaveValue(30);
-    expect(screen.getByLabelText('App')).not.toBeChecked();
-    expect(screen.getByLabelText('Web 端')).toBeChecked();
+    expect(screen.getByLabelText('临时文件期限（小时）')).toHaveValue(72);
+    expect(screen.getByLabelText('清理检查间隔（分钟）')).toHaveValue(30);
+    expect(screen.queryByText(/允许自动清理的客户端类型/)).toBeNull();
   });
 
   it('越界值前端前置拦截，不发任何 PUT', async () => {
     renderPage();
     await waitForStorageCard();
 
-    fireEvent.change(screen.getByLabelText('断点续传保障时长（小时）'), {
+    fireEvent.change(screen.getByLabelText('临时文件期限（小时）'), {
       target: { value: '0' },
     });
     fireEvent.click(screen.getByRole('button', { name: '保存存储配置' }));
 
     expect(updateConfigMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/断点续传保障时长（小时）需为 1~168 的整数/))
+    expect(screen.getByText(/临时文件期限（小时）需为 1~168 的整数/))
       .toBeInTheDocument();
   });
 
-  it('取消全部客户端类型时拦截保存并提示', async () => {
-    renderPage();
-    await waitForStorageCard();
-    for (const label of ['App', '桌面端', 'Web 端', '未知']) {
-      fireEvent.click(screen.getByLabelText(label));
-    }
-    fireEvent.click(screen.getByRole('button', { name: '保存存储配置' }));
-    expect(updateConfigMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/请至少勾选一种允许自动清理的客户端类型/))
-      .toBeInTheDocument();
-  });
-
-  it('保存时逐项写入数字配置 + 客户端类型，并立即重新 GET 刷新', async () => {
+  it('保存只写 2 个数字项，并立即重新 GET 刷新', async () => {
     renderPage();
     await waitForStorageCard();
 
-    fireEvent.change(screen.getByLabelText('断点续传保障时长（小时）'), {
+    fireEvent.change(screen.getByLabelText('临时文件期限（小时）'), {
       target: { value: '72' },
     });
-    fireEvent.change(screen.getByLabelText('自动清理间隔（分钟）'), {
+    fireEvent.change(screen.getByLabelText('清理检查间隔（分钟）'), {
       target: { value: '30' },
     });
-    fireEvent.change(screen.getByLabelText('孤儿临时文件保留期（小时）'), {
-      target: { value: '48' },
-    });
-    fireEvent.change(screen.getByLabelText('每用户未完成会话上限'), {
-      target: { value: '6' },
-    });
-    fireEvent.change(screen.getByLabelText('合并并发'), {
-      target: { value: '2' },
-    });
-    fireEvent.change(screen.getByLabelText('上传分片并发'), {
-      target: { value: '4' },
-    });
-    fireEvent.click(screen.getByLabelText('未知'));
-
     fireEvent.click(screen.getByRole('button', { name: '保存存储配置' }));
 
     await waitFor(() => {
@@ -166,55 +146,20 @@ describe('系统设置 · 存储与临时文件', () => {
         UPLOAD_CLEANUP_KEYS.cleanupIntervalMinutes,
         '30',
       );
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.orphanTtlHours,
-        '48',
-      );
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.maxSessionsPerUser,
-        '6',
-      );
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.mergeConcurrency,
-        '2',
-      );
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.chunkConcurrency,
-        '4',
-      );
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.clientTypes,
-        'app,desktop,web',
-      );
     });
+    expect(updateConfigMock).toHaveBeenCalledTimes(2);
+    for (const call of updateConfigMock.mock.calls) {
+      expect(call[0]).not.toBe('upload_cleanup_client_types');
+      expect(call[0]).not.toBe('upload_orphan_ttl_hours');
+      expect(call[0]).not.toBe('upload_max_sessions_per_user');
+      expect(call[0]).not.toBe('upload_merge_concurrency');
+      expect(call[0]).not.toBe('upload_chunk_concurrency');
+    }
 
     // 保存后立即刷新：getConfig 被再次调用
     await waitFor(() => expect(getConfigMock).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('存储与临时文件配置已保存，立即生效'))
       .toBeInTheDocument();
-  });
-
-  it('弱服务端模式一键预设：合并 1 / 上传并发 2 / 会话上限 4，并刷新', async () => {
-    renderPage();
-    await waitForStorageCard();
-
-    fireEvent.click(screen.getByRole('button', { name: '启用弱服务端模式' }));
-    await waitFor(() => {
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.mergeConcurrency,
-        WEAK_SERVER_PRESET[UPLOAD_CLEANUP_KEYS.mergeConcurrency],
-      );
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.chunkConcurrency,
-        WEAK_SERVER_PRESET[UPLOAD_CLEANUP_KEYS.chunkConcurrency],
-      );
-      expect(updateConfigMock).toHaveBeenCalledWith(
-        UPLOAD_CLEANUP_KEYS.maxSessionsPerUser,
-        WEAK_SERVER_PRESET[UPLOAD_CLEANUP_KEYS.maxSessionsPerUser],
-      );
-    });
-    await waitFor(() => expect(getConfigMock).toHaveBeenCalledTimes(2));
-    expect(screen.getByText(/已启用「弱服务端模式」/)).toBeInTheDocument();
   });
 
   it('立即清理：调用 runCleanup 并显示删除会话 / 目录 / 残留 / 跳过数量', async () => {
@@ -248,10 +193,10 @@ describe('系统设置 · 存储与临时文件', () => {
     expect(await screen.findByText('服务器内部错误')).toBeInTheDocument();
   });
 
-  it('关闭自动清理总开关写入 upload_cleanup_enabled=0', async () => {
+  it('关闭自动清理临时文件写入 upload_cleanup_enabled=0', async () => {
     renderPage();
     await waitForStorageCard();
-    fireEvent.click(screen.getByRole('switch', { name: '自动清理总开关' }));
+    fireEvent.click(screen.getByRole('switch', { name: '自动清理临时文件' }));
     await waitFor(() => {
       expect(updateConfigMock).toHaveBeenCalledWith(
         UPLOAD_CLEANUP_KEYS.enabled,
