@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import pty
 import shutil
 import sqlite3
 import struct
@@ -393,6 +392,10 @@ class LocalSession:
         return env
 
     def _open_posix(self) -> None:
+        # `pty` 只在 POSIX 存在（Windows 无 termios）；延迟到此处导入，
+        # 避免打包后的 Windows 版在启动阶段就 ModuleNotFoundError。
+        import pty
+
         shell_path = str(self.profile.get("shell_path") or os.environ.get("SHELL") or "/bin/sh")
         args = str(self.profile.get("args") or "").split()
         cwd = str(self.profile.get("cwd") or "") or None
