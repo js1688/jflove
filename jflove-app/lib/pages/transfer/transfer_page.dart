@@ -7,6 +7,7 @@ import '../../providers/transfer_provider.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_state.dart';
+import '../offline/offline_download_page.dart';
 import '../repair/repair_center_page.dart';
 
 /// 传输页（v1.5.0：底部导航 6 → 5，合并「修复中心」为第二个页签）
@@ -17,7 +18,7 @@ import '../repair/repair_center_page.dart';
 class TransferPage extends ConsumerStatefulWidget {
   const TransferPage({super.key, this.initialTab = 0});
 
-  /// 初始页签（`/repair` 旧入口会带 1 进来）
+  /// 初始页签（`/repair` 旧入口会带 2 进来；v1.10.0 把离线下载并入此页）
   final int initialTab;
 
   @override
@@ -32,9 +33,9 @@ class _TransferPageState extends ConsumerState<TransferPage>
   void initState() {
     super.initState();
     _tabs = TabController(
-      length: 2,
+      length: 3,
       vsync: this,
-      initialIndex: widget.initialTab.clamp(0, 1),
+      initialIndex: widget.initialTab.clamp(0, 2),
     );
     _tabs.addListener(() => setState(() {}));
   }
@@ -79,13 +80,18 @@ class _TransferPageState extends ConsumerState<TransferPage>
           unselectedLabelStyle: const TextStyle(fontSize: 14),
           tabs: const [
             Tab(text: '传输任务'),
+            Tab(text: '离线下载'),
             Tab(text: '修复中心'),
           ],
         ),
       ),
       body: TabBarView(
         controller: _tabs,
-        children: const [_TransferTaskList(), RepairCenterContent()],
+        children: const [
+          _TransferTaskList(),
+          OfflineDownloadPage(embedded: true),
+          RepairCenterContent(),
+        ],
       ),
     );
   }

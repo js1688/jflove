@@ -4,3 +4,7 @@ cryptography==47.0.0
 pyinstaller==6.20.0
 # Linux 系统级挂载（FUSE）；Windows 用系统自带 Cloud Filter API
 fusepy==3.0.1; sys_platform != "win32"
+# v1.10.0：远程 SSH/SFTP 会话
+paramiko==5.1.0
+# v1.10.0：Windows 本机终端 ConPTY（其他平台不安装）
+pywinpty==3.0.0; sys_platform == "win32"

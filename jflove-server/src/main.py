@@ -9,6 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.models.database import init_db
 from src.controllers import (
+    ssh_controller,
     auth_controller,
     user_controller,
     virtual_disk_controller,
@@ -122,7 +123,7 @@ async def _repair_db_factory():
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.9.1",
+    version="1.10.0",
     lifespan=lifespan,
 )
 
@@ -147,6 +148,7 @@ app.include_router(config_controller.router)
 app.include_router(sync_controller.router)
 app.include_router(repair_controller.router)
 app.include_router(offline_download_controller.router)
+app.include_router(ssh_controller.router)
 
 
 @app.get("/health")

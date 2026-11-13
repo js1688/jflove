@@ -156,6 +156,17 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 
 ---
 
+## v1.10.0：远程连接（SSH / SFTP + 本机终端）
+
+- **入口**：侧栏「远程连接」（`/remote`）；会话工作区 `/remote/session`；本机终端配置 `/remote/local`。
+- **配置存服务端**：主机/端口/账号/密码/私钥/跳板/分组/连接后执行命令；客户端每次使用时拉取，不落本地缓存。
+- **SSH 会话**：`paramiko` 直连目标（不经过服务端）；跳板用 `direct-tcpip` 串链，任意级；主机指纹 TOFU。
+- **终端通道**：Python 侧 `QWebSocketServer` 只绑 `127.0.0.1`，渲染层 xterm.js 连线；下行二进制、上行 JSON。
+- **SFTP**：与终端共用一条连接；列出/上传/下载/删除/新建目录；传输队列可取消。
+- **本机终端**：POSIX `pty` / Windows `pywinpty`；配置与分组只存本地 `jflove-local.db`。
+- **凭据不进渲染层**：桥只回 `has_password` / `has_private_key` 与指纹；打开会话时 Python 直接用原文。
+- **依赖**：`paramiko==5.1.0`；Windows 额外 `pywinpty`；前端 `@xterm/xterm`。
+
 ## 技术架构
 
 ### 框架与组件

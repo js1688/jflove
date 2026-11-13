@@ -17,6 +17,8 @@ void main() {
     'lib/config/mermaid_theme.dart': 'mermaid themeVariables 必须是字面量，不能是 var()',
     'lib/utils/markdown/markdown_builder.dart':
         'Markdown 语法高亮配色需与三端统一，直接给出字面量',
+    'lib/pages/remote/remote_terminal_page.dart':
+        '终端键位条是固定深色皮肤（与 xterm 画布同色系），不随亮暗主题切换',
   };
 
   /// 明确允许的「非主题色」用法（与主题切换无关，不影响暗色模式）

@@ -34,6 +34,7 @@ from src.bridge import editor as editor_bridge
 from src.bridge import files as files_bridge
 from src.bridge import media as media_bridge
 from src.bridge import mount as mount_bridge
+from src.bridge import remote as remote_bridge
 from src.bridge import sync as sync_bridge
 from src.bridge import transfer as transfer_bridge
 from src.services import auth_service, server_history_service
@@ -291,6 +292,8 @@ WHITELIST: dict[str, dict[str, Callable[[dict], Any]]] = {
     **transfer_bridge.HANDLERS,
     # 文本编辑器 / 退出握手 / 文件关联（v1.6.0 §7.1 #1~#16）：零远端，不碰 /api/v1
     **editor_bridge.HANDLERS,
+    # 远程连接 / 本机终端（v1.10.0）：配置 CRUD + Python 侧 SSH/PTY 会话
+    **remote_bridge.HANDLERS,
 }
 
 

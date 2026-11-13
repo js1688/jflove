@@ -27,9 +27,10 @@ void main() {
       appSource = File('lib/app.dart').readAsStringSync();
     });
 
-    test('传输页恰好两个页签：传输任务 / 修复中心', () {
-      expect(RegExp(r'TabController\(\s*length:\s*2').hasMatch(transferPage), isTrue);
+    test('传输页三个页签：传输任务 / 离线下载 / 修复中心（v1.10.0）', () {
+      expect(RegExp(r'TabController\(\s*length:\s*3').hasMatch(transferPage), isTrue);
       expect(transferPage.contains("Tab(text: '传输任务')"), isTrue);
+      expect(transferPage.contains("Tab(text: '离线下载')"), isTrue);
       expect(transferPage.contains("Tab(text: '修复中心')"), isTrue);
     });
 
@@ -45,8 +46,8 @@ void main() {
 
     test('/repair 旧路径仍然可用并直接落到修复页签', () {
       expect(appSource.contains("path: '/repair'"), isTrue);
-      expect(appSource.contains('TransferPage(initialTab: 1)'), isTrue);
-      expect(transferPage.contains('initialIndex: widget.initialTab.clamp(0, 1)'), isTrue);
+      expect(appSource.contains('TransferPage(initialTab: 2)'), isTrue);
+      expect(transferPage.contains('initialIndex: widget.initialTab.clamp(0, 2)'), isTrue);
     });
 
     test('修复中心的全部操作入口仍在（查看/取消/验证播放/覆盖/删除产物/删除记录）', () {

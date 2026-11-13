@@ -18,7 +18,7 @@ void main() {
     appSource = File('lib/app.dart').readAsStringSync();
   });
 
-  test('底部导航恰好 6 项，顺序为 文件/笔记/传输任务/离线下载/相册同步/设置（v1.8.3）', () {
+  test('底部导航恰好 6 项，顺序为 文件/笔记/传输任务/远程/相册同步/设置（v1.10.0）', () {
     final labels = RegExp(r"label: '([^']+)'")
         .allMatches(appSource)
         .map((m) => m.group(1)!)
@@ -27,8 +27,8 @@ void main() {
     // app.dart 里只有底部导航会写 label:，若将来新增需同步调整本断言
     expect(
       labels,
-      ['文件', '笔记', '传输任务', '离线下载', '相册同步', '设置'],
-      reason: '底部导航项与顺序必须与需求 v1.8.3 / AC-301 一致',
+      ['文件', '笔记', '传输任务', '远程', '相册同步', '设置'],
+      reason: 'v1.10.0：远程连接进入底部导航，离线下载并入传输页页签',
     );
     expect(labels.length, 6);
     expect(labels, isNot(contains('修复中心')), reason: '修复中心已并入传输页页签');
@@ -57,7 +57,7 @@ void main() {
         .allMatches(navBlock)
         .map((m) => m.group(1)!)
         .toList();
-    expect(navRoutes, ['/files', '/notes', '/transfer', '/offline', '/album', '/settings']);
+    expect(navRoutes, ['/files', '/notes', '/transfer', '/remote', '/album', '/settings']);
     expect(navRoutes, isNot(contains('/repair')));
     expect(navRoutes, isNot(contains('/sync')));
     expect(routes, isNot(contains('/sync')), reason: '/sync 路由已在 v1.7.0 移除');
@@ -66,20 +66,20 @@ void main() {
     expect(routes, contains('/repair'), reason: '/repair 旧路径必须保留，避免旧跳转白屏');
   });
 
-  test('/repair 仍注册为路由，并落到传输页第二个页签', () {
+  test('/repair 仍注册为路由，并落到传输页修复页签（v1.10.0 第三页签）', () {
     expect(
       RegExp(r"path: '/repair'").hasMatch(appSource),
       isTrue,
       reason: '/repair 路由被删除了，旧书签 / 通知跳转会 404',
     );
-    // /repair 指向 TransferPage(initialTab: 1)，即修复中心页签
+    // v1.10.0：离线下载并入后，修复中心是第三个页签（index=2）
     final repairBlock = RegExp(
       r"path: '/repair',\s*builder: \(_, _\) => ([^,]+),",
       dotAll: true,
     ).firstMatch(appSource);
     expect(repairBlock, isNotNull, reason: '无法解析 /repair 的 builder');
     expect(repairBlock!.group(1), contains('TransferPage'));
-    expect(repairBlock.group(1), contains('initialTab: 1'));
+    expect(repairBlock.group(1), contains('initialTab: 2'));
   });
 
   test('/repair 在底部导航里必须归一化到 /transfer（高亮不回落）', () {
@@ -101,9 +101,9 @@ void main() {
   });
 
   test('公开路由的页签索引与 /repair 的 initialTab 都在合法范围', () {
-    // TransferPage 只有 2 个页签（传输任务 / 修复中心）
+    // v1.10.0：TransferPage 有三个页签（传输任务 / 离线下载 / 修复中心）
     final m = RegExp(r'initialTab: (\d+)').firstMatch(appSource);
     expect(m, isNotNull);
-    expect(int.parse(m!.group(1)!), inInclusiveRange(0, 1));
+    expect(int.parse(m!.group(1)!), inInclusiveRange(0, 2));
   });
 }

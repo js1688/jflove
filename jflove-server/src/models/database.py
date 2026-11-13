@@ -197,6 +197,46 @@ CREATE TABLE IF NOT EXISTS offline_download_settings (
 )
 """
 
+# ── v1.10.0：远程 SSH/SFTP 连接配置（服务端只存档，不建任何连接）──
+# 设计依据：`文档记录/设计文档/v1.10.0.md` §2.1。
+# 凭据（密码 / 私钥 / 口令）按用户裁决**明文列**存储（D37），信任模型=服务端不可攻破。
+_CREATE_SSH_GROUPS = """
+CREATE TABLE IF NOT EXISTS ssh_groups (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    name        TEXT    NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL,
+    deleted_at  TEXT
+)
+"""
+
+_CREATE_SSH_CONNECTIONS = """
+CREATE TABLE IF NOT EXISTS ssh_connections (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id              INTEGER NOT NULL,
+    ssh_group_id         INTEGER NOT NULL DEFAULT 0,
+    name                 TEXT    NOT NULL,
+    host                 TEXT    NOT NULL,
+    port                 INTEGER NOT NULL DEFAULT 22,
+    username             TEXT    NOT NULL DEFAULT '',
+    auth_type            TEXT    NOT NULL DEFAULT 'password',
+    password             TEXT    NOT NULL DEFAULT '',
+    private_key          TEXT    NOT NULL DEFAULT '',
+    passphrase           TEXT    NOT NULL DEFAULT '',
+    jump_connection_id   INTEGER NOT NULL DEFAULT 0,
+    terminal_type        TEXT    NOT NULL DEFAULT 'xterm-256color',
+    charset              TEXT    NOT NULL DEFAULT 'UTF-8',
+    init_command         TEXT    NOT NULL DEFAULT '',
+    host_key_fingerprint TEXT    NOT NULL DEFAULT '',
+    last_connected_at    TEXT,
+    created_at           TEXT    NOT NULL,
+    updated_at           TEXT    NOT NULL,
+    deleted_at           TEXT
+)
+"""
+
 
 _INDEXES = [
     # username 用**普通索引**（v1.5.0 反馈修复：原来是 `UNIQUE` 列约束）。
@@ -227,6 +267,13 @@ _INDEXES = [
     # 一个账号只允许一行**活跃**配置（D9）；软删除后可用同名重建
     "CREATE UNIQUE INDEX IF NOT EXISTS offline_download_settings_user_active_uidx"
     " ON offline_download_settings(user_id) WHERE deleted_at IS NULL",
+    # v1.10.0：远程连接（列表/分组/跳板解析都按账号过滤，user_id 索引必需）
+    "CREATE INDEX IF NOT EXISTS ssh_groups_user_id_idx ON ssh_groups(user_id)",
+    "CREATE INDEX IF NOT EXISTS ssh_connections_user_id_idx ON ssh_connections(user_id)",
+    "CREATE INDEX IF NOT EXISTS ssh_connections_group_id_idx"
+    " ON ssh_connections(ssh_group_id)",
+    "CREATE INDEX IF NOT EXISTS ssh_connections_jump_idx"
+    " ON ssh_connections(jump_connection_id)",
 ]
 
 
@@ -284,6 +331,8 @@ def expected_schema() -> dict[str, str]:
         "offline_download_tasks": _CREATE_OFFLINE_TASKS,
         "offline_download_items": _CREATE_OFFLINE_ITEMS,
         "offline_download_settings": _CREATE_OFFLINE_SETTINGS,
+        "ssh_groups": _CREATE_SSH_GROUPS,
+        "ssh_connections": _CREATE_SSH_CONNECTIONS,
     }
 
 
@@ -441,6 +490,9 @@ async def init_db() -> None:
         await db.execute(_CREATE_OFFLINE_TASKS)
         await db.execute(_CREATE_OFFLINE_ITEMS)
         await db.execute(_CREATE_OFFLINE_SETTINGS)
+        # v1.10.0：远程 SSH/SFTP 连接配置（服务端只存档，不建连接）
+        await db.execute(_CREATE_SSH_GROUPS)
+        await db.execute(_CREATE_SSH_CONNECTIONS)
 
         # ── 运行时迁移：为 users 表添加缺失字段（已存在则跳过）──
         async with db.execute("PRAGMA table_info(users)") as cur:

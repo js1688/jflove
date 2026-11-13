@@ -29,7 +29,10 @@ import 'offline_settings_sheet.dart';
 /// 约束：HTTP 一律经 `OfflineDownloadService` → `http_service.dart`（加密信封）；
 /// token / session_key 不进入日志。
 class OfflineDownloadPage extends ConsumerStatefulWidget {
-  const OfflineDownloadPage({super.key});
+  const OfflineDownloadPage({super.key, this.embedded = false});
+
+  /// 为 true 时不渲染 Scaffold/AppBar，供「传输」页的页签内嵌使用（v1.10.0）
+  final bool embedded;
 
   @override
   ConsumerState<OfflineDownloadPage> createState() =>
@@ -226,6 +229,22 @@ class _OfflineDownloadPageState extends ConsumerState<OfflineDownloadPage>
 
   @override
   Widget build(BuildContext context) {
+    if (widget.embedded) {
+      return Stack(
+        children: [
+          _buildBody(context),
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.extended(
+              onPressed: _openNewTask,
+              icon: const Icon(Icons.add),
+              label: const Text('新建任务'),
+            ),
+          ),
+        ],
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: const Text('离线下载中心'),

@@ -13,6 +13,11 @@ class AppRoutes {
   /// 入口：设置页 →「离线下载」→「离线下载中心」（需求 F30）。
   static const String offlineDownload = '/offline';
 
+  // ── v1.10.0：远程连接 ──
+  static const String remote = '/remote';
+  static const String remoteEdit = '/remote/edit';
+  static const String remoteTerminal = '/remote/terminal';
+
   /// 新建离线下载任务（v1.8.1 / F32.2）
   ///
   /// 页面：`lib/pages/offline/offline_new_task_page.dart`

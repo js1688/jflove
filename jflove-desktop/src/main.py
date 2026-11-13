@@ -286,6 +286,12 @@ def main() -> int:
 
     transfer_bridge.setup(bridge.publish_event)
 
+    # 远程连接 / 本机终端（v1.10.0）：终端 WebSocket 通道必须在 GUI 线程创建
+    from src.bridge import remote as remote_bridge
+
+    remote_bridge.init_host()
+    app.aboutToQuit.connect(remote_bridge.shutdown)
+
     # 关闭窗口 = 最小化到托盘（N17）：必须关掉"最后一个窗口关闭即退出"，
     # 否则隐藏唯一窗口会直接把应用结束掉。
     app.setQuitOnLastWindowClosed(False)

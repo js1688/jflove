@@ -205,7 +205,7 @@ class SettingsPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _InfoRow(label: '版本', value: 'v1.9.1'),
+                _InfoRow(label: '版本', value: 'v1.10.0'),
                 const SizedBox(height: 6),
                 Text(
                   '私有文档 & 笔记管理系统',

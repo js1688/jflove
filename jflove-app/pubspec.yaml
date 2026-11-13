@@ -1,7 +1,7 @@
 name: jflove_app
 description: "JFLove 移动端 App - 端到端加密的个人数字工作台（文件 / 笔记 / 媒体 / 相册备份）"
 publish_to: 'none'
-version: 1.9.1+1009001
+version: 1.10.0+1010000
 
 environment:
   sdk: ^3.12.2
@@ -33,6 +33,9 @@ dependencies:
   battery_plus: ^7.1.2
   device_info_plus: ^12.4.0
   path: ^1.9.1
+  # v1.10.0：远程 SSH/SFTP 客户端
+  dartssh2: ^2.15.0
+  xterm: ^4.0.0
 
 dev_dependencies:
   flutter_test:

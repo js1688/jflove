@@ -14,6 +14,9 @@ import { ScratchWorkspace } from '../components/scratch/ScratchWorkspace';
 import { SyncPage } from '../pages/SyncPage';
 import { TransferTabsPage } from '../pages/TransferTabsPage';
 import { OfflineDownloadPage } from '../pages/offline-download/OfflineDownloadPage';
+import { RemotePage } from '../pages/remote/RemotePage';
+import { SessionPage } from '../pages/remote/SessionPage';
+import { LocalTerminalPage } from '../pages/remote/LocalTerminalPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { AdminSystemPage } from '../pages/admin/AdminSystemPage';
 import { AdminUsersPage } from '../pages/admin/AdminUsersPage';
@@ -116,6 +119,9 @@ export const router = createHashRouter([
 
       // ── 已交付的真实页面 ──
       { path: 'files', element: <FileListPage /> },
+      { path: 'remote', element: <RemotePage /> },
+      { path: 'remote/session', element: <SessionPage /> },
+      { path: 'remote/local', element: <LocalTerminalPage /> },
       { path: 'files/:diskId', element: <DiskBrowserPage /> },
       { path: 'files/:diskId/preview', element: <FilePreviewPage /> },
       { path: 'notes', element: <NoteListPage /> },
