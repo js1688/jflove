@@ -25,6 +25,9 @@ MAX_JUMP_DEPTH = 16
 #: 允许的认证方式
 AUTH_TYPES = ("password", "publickey", "password_keyboard")
 
+#: 连接类型：ssh = 终端 + 可选 SFTP；sftp = 纯 SFTP（不依赖 shell）
+CONNECTION_MODES = ("ssh", "sftp")
+
 #: 私钥内容最大长度（PEM 通常几 KB，64KB 足够）
 MAX_PRIVATE_KEY = 64 * 1024
 
@@ -82,6 +85,10 @@ def normalize(body: dict[str, Any], is_create: bool) -> dict[str, Any]:
     if auth_type not in AUTH_TYPES:
         raise SshError("认证方式不合法")
 
+    mode = str(body.get("mode") or "ssh")
+    if mode not in CONNECTION_MODES:
+        raise SshError("连接类型不合法（ssh / sftp）")
+
     username = str(body.get("username", "") or "")
     init_command = str(body.get("init_command", "") or "")
     if "\n" in init_command or "\r" in init_command:
@@ -108,6 +115,7 @@ def normalize(body: dict[str, Any], is_create: bool) -> dict[str, Any]:
         "port": port,
         "username": username,
         "auth_type": auth_type,
+        "mode": mode,
         "password": password,
         "private_key": private_key,
         "passphrase": passphrase,
@@ -178,6 +186,7 @@ async def update_connection(
         "port": body.get("port", current["port"]),
         "username": body.get("username", current["username"]),
         "auth_type": body.get("auth_type", current["auth_type"]),
+        "mode": body.get("mode", current["mode"]),
         "password": body.get("password", ""),
         "private_key": body.get("private_key", ""),
         "passphrase": body.get("passphrase", ""),
@@ -202,6 +211,7 @@ async def update_connection(
         "port": data["port"],
         "username": data["username"],
         "auth_type": data["auth_type"],
+        "mode": data["mode"],
         "jump_connection_id": data["jump_connection_id"],
         "terminal_type": data["terminal_type"],
         "charset": data["charset"],
@@ -253,7 +263,7 @@ async def duplicate_connection(
     if row is None:
         raise SshError("连接不存在", status=404)
     data = {k: row[k] for k in (
-        "ssh_group_id", "host", "port", "username", "auth_type", "password",
+        "ssh_group_id", "host", "port", "username", "auth_type", "mode", "password",
         "private_key", "passphrase", "jump_connection_id", "terminal_type",
         "charset", "init_command", "host_key_fingerprint",
     )}

@@ -16,6 +16,8 @@ import type {
 
 interface FormProps {
   mode: 'create' | 'edit';
+  /** 新建时预选连接类型（ssh / sftp） */
+  connectionMode?: 'ssh' | 'sftp';
   detail?: RemoteConnectionDetail;
   groups: RemoteGroup[];
   connections: Array<{ id: number; name: string }>;
@@ -31,6 +33,7 @@ const AUTH_OPTIONS: Array<{ value: AuthType; label: string }> = [
 
 export function RemoteConnectionForm({
   mode,
+  connectionMode,
   detail,
   groups,
   connections,
@@ -42,6 +45,9 @@ export function RemoteConnectionForm({
   const [port, setPort] = useState(String(detail?.port ?? 22));
   const [username, setUsername] = useState(detail?.username ?? '');
   const [authType, setAuthType] = useState<AuthType>(detail?.auth_type ?? 'password');
+  const [connectionType, setConnectionType] = useState<'ssh' | 'sftp'>(
+    detail?.mode ?? connectionMode ?? 'ssh',
+  );
   const [password, setPassword] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
@@ -72,6 +78,7 @@ export function RemoteConnectionForm({
       port: Number(port) || 22,
       username,
       auth_type: authType,
+      mode: connectionType,
       ssh_group_id: Number(groupId) || 0,
       jump_connection_id: Number(jumpId) || 0,
       terminal_type: detail?.terminal_type || 'xterm-256color',
@@ -97,6 +104,37 @@ export function RemoteConnectionForm({
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-auto px-4 py-4">
+        <Field label="连接类型">
+          <div className="flex gap-1 rounded-md bg-sunken p-1">
+            <button
+              type="button"
+              onClick={() => setConnectionType('ssh')}
+              className={[
+                'flex-1 rounded px-2 py-1.5 text-xs',
+                connectionType === 'ssh'
+                  ? 'bg-surface font-semibold text-fg shadow-sm'
+                  : 'text-muted',
+              ].join(' ')}
+            >
+              远程终端（SSH）
+            </button>
+            <button
+              type="button"
+              onClick={() => setConnectionType('sftp')}
+              className={[
+                'flex-1 rounded px-2 py-1.5 text-xs',
+                connectionType === 'sftp'
+                  ? 'bg-surface font-semibold text-fg shadow-sm'
+                  : 'text-muted',
+              ].join(' ')}
+            >
+              仅 SFTP
+            </button>
+          </div>
+          <p className="mt-1 text-[11px] text-subtle">
+            仅 SFTP 不建立 shell，适合只开放 SFTP 的服务器
+          </p>
+        </Field>
         <Field label="名称">
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>

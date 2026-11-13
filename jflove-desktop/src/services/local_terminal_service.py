@@ -16,6 +16,7 @@ import sqlite3
 import struct
 import subprocess
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator
 
@@ -434,8 +435,14 @@ class LocalSession:
             try:
                 if self._pty is not None:
                     chunk = self._pty.read()
+                    # pywinpty 在暂无数据时会返回空串，**不等于 EOF**；
+                    # 旧实现直接 break 会让会话立刻"关闭"→ 前端反复重开，表现为闪屏。
                     if not chunk:
-                        break
+                        alive = getattr(self._pty, "isalive", lambda: True)()
+                        if not alive:
+                            break
+                        time.sleep(0.01)
+                        continue
                     data = chunk.encode("utf-8", "replace") if isinstance(chunk, str) else chunk
                 else:
                     if self._fd is None:
@@ -443,7 +450,8 @@ class LocalSession:
                     data = os.read(self._fd, READ_CHUNK)
             except OSError:
                 break
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("本机终端读循环异常：%s", exc)
                 break
             if not data:
                 break

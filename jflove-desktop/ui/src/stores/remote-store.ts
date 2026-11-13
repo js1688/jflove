@@ -15,9 +15,12 @@ import {
 
 export type SessionStatus = 'connecting' | 'ready' | 'failed' | 'closed';
 
+/** 会话类型：ssh 有终端+文件；sftp 只有文件；local 只有终端 */
+export type SessionKind = 'ssh' | 'sftp' | 'local';
+
 export interface SessionTab {
   id: string;
-  kind: 'ssh' | 'local';
+  kind: SessionKind;
   connectionId: number;
   title: string;
   subtitle: string;
@@ -33,6 +36,8 @@ interface EditorState {
   mode: 'create' | 'edit';
   id?: number;
   detail?: RemoteConnectionDetail;
+  /** 新建时预选的连接类型；编辑时由 detail.mode 决定 */
+  connectionMode?: 'ssh' | 'sftp';
 }
 
 interface RemoteState {
@@ -47,7 +52,7 @@ interface RemoteState {
 
   load: () => Promise<void>;
   setKeyword: (keyword: string) => void;
-  openEditor: (mode: 'create' | 'edit', id?: number) => Promise<void>;
+  openEditor: (mode: 'create' | 'edit', id?: number, connectionMode?: 'ssh' | 'sftp') => Promise<void>;
   closeEditor: () => void;
   saveConnection: (payload: RemoteConnectionInput) => Promise<number | null>;
   deleteConnection: (id: number) => Promise<void>;
@@ -90,13 +95,13 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
 
   setKeyword: (keyword) => set({ keyword }),
 
-  openEditor: async (mode, id) => {
+  openEditor: async (mode, id, connectionMode) => {
     if (mode === 'edit' && id !== undefined) {
       const { connection } = await remoteService.getConnection(id);
       set({ editor: { mode, id, detail: connection } });
       return;
     }
-    set({ editor: { mode } });
+    set({ editor: { mode, connectionMode } });
   },
 
   closeEditor: () => set({ editor: null }),
@@ -142,16 +147,17 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
 
   openRemoteSession: async (connection) => {
     const result = await remoteService.openSession(connection.id, 80, 24);
+    const kind: SessionKind = connection.mode === 'sftp' ? 'sftp' : 'ssh';
     const tab: SessionTab = {
       id: result.session_id,
-      kind: 'ssh',
+      kind,
       connectionId: connection.id,
       title: connection.name,
       subtitle: `${connection.username}@${connection.host}`,
       port: result.port,
       token: result.token,
       status: 'connecting',
-      view: 'terminal',
+      view: kind === 'sftp' ? 'files' : 'terminal',
       jumpChain: [],
       message: '',
     };

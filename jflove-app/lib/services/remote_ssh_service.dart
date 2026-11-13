@@ -39,6 +39,7 @@ class RemoteConnection {
     required this.port,
     required this.username,
     required this.authType,
+    this.mode = 'ssh',
     required this.jumpConnectionId,
     required this.hasPassword,
     required this.hasPrivateKey,
@@ -59,6 +60,8 @@ class RemoteConnection {
   final int port;
   final String username;
   final String authType;
+  /// ssh = 终端 + 可选 SFTP；sftp = 纯 SFTP（不建立 shell）
+  final String mode;
   final int jumpConnectionId;
   final bool hasPassword;
   final bool hasPrivateKey;
@@ -79,6 +82,7 @@ class RemoteConnection {
         port: (json['port'] as num?)?.toInt() ?? 22,
         username: json['username'] as String? ?? '',
         authType: json['auth_type'] as String? ?? 'password',
+        mode: json['mode'] as String? ?? 'ssh',
         jumpConnectionId: (json['jump_connection_id'] as num?)?.toInt() ?? 0,
         hasPassword: json['has_password'] as bool? ?? false,
         hasPrivateKey: json['has_private_key'] as bool? ?? false,
@@ -163,7 +167,7 @@ class RemoteSshClient {
   RemoteSshClient._(this._chain, this.shell, this.sftp);
 
   final List<SSHClient> _chain;
-  final SSHSession shell;
+  final SSHSession? shell;
   final SftpClient sftp;
 
   static Future<RemoteSshClient> connect(
@@ -223,12 +227,15 @@ class RemoteSshClient {
     }
 
     final target = clients.last;
-    final shell = await target.shell(
-      pty: SSHPtyConfig(type: connection.terminalType, width: cols, height: rows),
-    );
+    // 纯 SFTP 连接不建立 shell：部分服务器只开放 SFTP，没有 shell
+    final SSHSession? shell = connection.mode == 'sftp'
+        ? null
+        : await target.shell(
+            pty: SSHPtyConfig(type: connection.terminalType, width: cols, height: rows),
+          );
     final sftp = await target.sftp();
     final initCommand = connection.initCommand.trim();
-    if (initCommand.isNotEmpty) {
+    if (shell != null && initCommand.isNotEmpty) {
       shell.write(utf8.encode('$initCommand\n'));
     }
     return RemoteSshClient._(clients, shell, sftp);

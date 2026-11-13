@@ -31,6 +31,7 @@ class _RemoteTerminalPageState extends ConsumerState<RemoteTerminalPage> {
   String _status = 'connecting';
   String _error = '';
   int _tab = 0;
+  bool get _isSftpOnly => widget.connection.mode == 'sftp';
 
   final _sftpPath = ValueNotifier<String>('.');
   final _entries = ValueNotifier<List<SftpName>>([]);
@@ -85,25 +86,33 @@ class _RemoteTerminalPageState extends ConsumerState<RemoteTerminalPage> {
         api: api,
         onHostKey: _askHostKey,
       );
-      final terminal = Terminal(maxLines: 5000);
-      terminal.onOutput = (data) => session.shell.write(utf8.encode(data));
-      terminal.onResize =
-          (width, height, pixelWidth, pixelHeight) => session.shell.resizeTerminal(width, height);
-      session.shell.stdout.listen((data) {
-        terminal.write(utf8.decode(data, allowMalformed: true));
-      });
-      session.shell.stderr.listen((data) {
-        terminal.write(utf8.decode(data, allowMalformed: true));
-      });
-      session.shell.done.then((_) {
-        if (mounted) setState(() => _status = 'closed');
-      });
+      final shell = session.shell;
+      Terminal? terminal;
+      if (shell != null) {
+        terminal = Terminal(maxLines: 5000);
+        terminal.onOutput = (data) => shell.write(utf8.encode(data));
+        terminal.onResize =
+            (width, height, pixelWidth, pixelHeight) => shell.resizeTerminal(width, height);
+        shell.stdout.listen((data) {
+          terminal!.write(utf8.decode(data, allowMalformed: true));
+        });
+        shell.stderr.listen((data) {
+          terminal!.write(utf8.decode(data, allowMalformed: true));
+        });
+        shell.done.then((_) {
+          if (mounted) setState(() => _status = 'closed');
+        });
+      }
       await api.touch(widget.connection.id);
       if (!mounted) return;
       setState(() {
         _session = session;
         _terminal = terminal;
         _status = 'ready';
+        if (_isSftpOnly) {
+          _tab = 1;
+          _loadSftp('.');
+        }
       });
     } catch (error) {
       if (!mounted) return;
@@ -254,11 +263,12 @@ class _RemoteTerminalPageState extends ConsumerState<RemoteTerminalPage> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.terminal_rounded),
-            tooltip: '终端',
-            onPressed: () => setState(() => _tab = 0),
-          ),
+          if (!_isSftpOnly)
+            IconButton(
+              icon: const Icon(Icons.terminal_rounded),
+              tooltip: '终端',
+              onPressed: () => setState(() => _tab = 0),
+            ),
           IconButton(
             icon: const Icon(Icons.folder_outlined),
             tooltip: '文件',
@@ -290,7 +300,7 @@ class _RemoteTerminalPageState extends ConsumerState<RemoteTerminalPage> {
           : _tab == 0
               ? _buildTerminal()
               : _buildSftp(),
-      bottomNavigationBar: _tab == 0 && _status == 'ready' ? _buildKeys() : null,
+      bottomNavigationBar: !_isSftpOnly && _tab == 0 && _status == 'ready' ? _buildKeys() : null,
     );
   }
 
@@ -410,7 +420,7 @@ class _RemoteTerminalPageState extends ConsumerState<RemoteTerminalPage> {
   Widget _buildKeys() {
     final session = _session;
     if (session == null) return const SizedBox.shrink();
-    void send(String data) => session.shell.write(utf8.encode(data));
+    void send(String data) => session.shell?.write(utf8.encode(data));
     final keys = <String, String>{
       'Ctrl': '\x03',
       'Tab': '\t',

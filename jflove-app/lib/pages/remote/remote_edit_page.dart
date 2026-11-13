@@ -29,6 +29,7 @@ class _RemoteEditPageState extends ConsumerState<RemoteEditPage> {
   final _initCommand = TextEditingController();
 
   String _authType = 'password';
+  String _mode = 'ssh';
   int _groupId = 0;
   int _jumpId = 0;
   bool _loading = true;
@@ -58,6 +59,7 @@ class _RemoteEditPageState extends ConsumerState<RemoteEditPage> {
         _port.text = '${detail.port}';
         _username.text = detail.username;
         _authType = detail.authType;
+        _mode = detail.mode;
         _groupId = detail.groupId;
         _jumpId = detail.jumpConnectionId;
         _initCommand.text = detail.initCommand;
@@ -123,6 +125,7 @@ class _RemoteEditPageState extends ConsumerState<RemoteEditPage> {
       'port': int.tryParse(_port.text) ?? 22,
       'username': _username.text,
       'auth_type': _authType,
+      'mode': _mode,
       'ssh_group_id': _groupId,
       'jump_connection_id': _jumpId,
       'init_command': _initCommand.text,
@@ -195,6 +198,15 @@ class _RemoteEditPageState extends ConsumerState<RemoteEditPage> {
                 TextField(
                   controller: _username,
                   decoration: const InputDecoration(labelText: '用户名'),
+                ),
+                SizedBox(height: t.s3),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'ssh', label: Text('SSH 终端')),
+                    ButtonSegment(value: 'sftp', label: Text('仅 SFTP')),
+                  ],
+                  selected: {_mode},
+                  onSelectionChanged: (value) => setState(() => _mode = value.first),
                 ),
                 SizedBox(height: t.s3),
                 SegmentedButton<String>(

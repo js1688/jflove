@@ -106,6 +106,8 @@ class SshSession:
         otp_ask: Callable[[str], str] | None = None,
     ) -> None:
         self.connection = connection
+        #: 连接类型：`ssh` = 终端 + 可选 SFTP；`sftp` = 只开 SFTP（不依赖 shell）
+        self.mode = str(connection.get("mode") or "ssh")
         self.cols = max(1, int(cols))
         self.rows = max(1, int(rows))
         self.on_output = on_output
@@ -164,6 +166,10 @@ class SshSession:
                 )
 
         transport = self._transports[-1]
+        if self.mode == "sftp":
+            # 纯 SFTP：只建传输层，不开 shell（部分服务器没有 shell）
+            self._status("ready", last_index, "SFTP 已连接")
+            return
         chan = transport.open_session(timeout=CONNECT_TIMEOUT)
         chan.get_pty(
             term=self.connection.get("terminal_type") or "xterm-256color",
@@ -327,7 +333,8 @@ class SshSession:
                 data = chan.recv(READ_CHUNK)
             except socket.timeout:
                 continue
-            except Exception:  # noqa: BLE001 - 断线即退出
+            except Exception as exc:  # noqa: BLE001 - 断线即退出
+                logger.info("SSH 读循环结束：%s", exc)
                 break
             if not data:
                 break

@@ -233,7 +233,10 @@ CREATE TABLE IF NOT EXISTS ssh_connections (
     last_connected_at    TEXT,
     created_at           TEXT    NOT NULL,
     updated_at           TEXT    NOT NULL,
-    deleted_at           TEXT
+    deleted_at           TEXT,
+    -- v1.10.2：连接类型（ssh = 终端+可选 SFTP；sftp = 纯 SFTP，不依赖 shell）。
+    -- 放在末尾：老库用 ALTER 追加，列顺序与新库一致。
+    mode                 TEXT    NOT NULL DEFAULT 'ssh'
 )
 """
 
@@ -493,6 +496,14 @@ async def init_db() -> None:
         # v1.10.0：远程 SSH/SFTP 连接配置（服务端只存档，不建连接）
         await db.execute(_CREATE_SSH_GROUPS)
         await db.execute(_CREATE_SSH_CONNECTIONS)
+
+        # ── 运行时迁移：v1.10.2 为 ssh_connections 补 mode 列 ──
+        async with db.execute("PRAGMA table_info(ssh_connections)") as cur:
+            ssh_columns = [row[1] async for row in cur]
+        if ssh_columns and "mode" not in ssh_columns:
+            await db.execute(
+                "ALTER TABLE ssh_connections ADD COLUMN mode TEXT NOT NULL DEFAULT 'ssh'"
+            )
 
         # ── 运行时迁移：为 users 表添加缺失字段（已存在则跳过）──
         async with db.execute("PRAGMA table_info(users)") as cur:

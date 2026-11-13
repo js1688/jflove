@@ -286,6 +286,25 @@ def _h_otp_confirm(params: dict) -> dict:
 # ── SFTP ─────────────────────────────────────────────
 
 
+def _friendly_sftp_error(exc: Exception) -> str:
+    """把 paramiko 的英文异常映射成可读中文（用户看到的第一现场）"""
+    text = str(exc)
+    mapping = {
+        "garbage packet received": "远端连接被中断（网络或 SSH 服务异常）",
+        "authentication failed": "认证失败，请检查账号或密钥",
+        "no such file": "文件或目录不存在",
+        "permission denied": "权限不足",
+        "connection reset": "连接被远端重置",
+        "socket is closed": "连接已关闭，请重新打开会话",
+        "timed out": "操作超时",
+    }
+    lowered = text.lower()
+    for key, value in mapping.items():
+        if key in lowered:
+            return value
+    return f"远端操作失败：{text}"
+
+
 def _sftp(session_id: str):
     """取（或建立）该会话的 SFTP client；断开时由 `_h_session_close` 统一关闭"""
     client = _sftp_clients.get(session_id)
@@ -304,7 +323,11 @@ def _h_sftp_list(params: dict) -> dict:
     sftp = _sftp(str(params.get("session_id") or ""))
     path = str(params.get("path") or ".")
     entries: list[dict] = []
-    for attr in sftp.listdir_attr(path):
+    try:
+        attrs = sftp.listdir_attr(path)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(_friendly_sftp_error(exc)) from exc
+    for attr in attrs:
         entries.append(
             {
                 "name": attr.filename,
@@ -371,7 +394,7 @@ def _h_sftp_download(params: dict) -> dict:
         except Exception as exc:  # noqa: BLE001
             _publish(
                 "remote.sftp_failed",
-                {"transfer_id": transfer_id, "message": str(exc)},
+                {"transfer_id": transfer_id, "message": _friendly_sftp_error(exc)},
             )
 
     threading.Thread(target=run, name="sftp-download", daemon=True).start()
@@ -411,7 +434,7 @@ def _h_sftp_upload(params: dict) -> dict:
         except Exception as exc:  # noqa: BLE001
             _publish(
                 "remote.sftp_failed",
-                {"transfer_id": transfer_id, "message": str(exc)},
+                {"transfer_id": transfer_id, "message": _friendly_sftp_error(exc)},
             )
 
     threading.Thread(target=run, name="sftp-upload", daemon=True).start()

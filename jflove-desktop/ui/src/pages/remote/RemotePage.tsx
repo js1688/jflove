@@ -10,6 +10,7 @@ import { Button, EmptyState, Icon, Skeleton } from '../../components/ui';
 import { RemoteConnectionForm } from '../../components/remote/RemoteConnectionForm';
 import { useRemoteStore } from '../../stores/remote-store';
 import type { RemoteConnectionSummary } from '../../services/remote-service';
+import { PromptModal } from '../../components/remote/PromptModal';
 
 export function RemotePage() {
   const {
@@ -29,8 +30,11 @@ export function RemotePage() {
     createGroup,
     deleteGroup,
     openRemoteSession,
+    openLocalSession,
   } = useRemoteStore();
   const [selected, setSelected] = useState<'all' | 'none' | number>('all');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [groupPrompt, setGroupPrompt] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -56,10 +60,7 @@ export function RemotePage() {
           <button
             type="button"
             className="text-brand-600"
-            onClick={() => {
-              const name = window.prompt('新建分组名称');
-              if (name) void createGroup(name);
-            }}
+            onClick={() => setGroupPrompt(true)}
           >
             ＋
           </button>
@@ -109,10 +110,7 @@ export function RemotePage() {
             />
           </div>
           <div className="flex-1" />
-          <Button variant="ghost" icon="terminal" onClick={() => navigate('/remote/local')}>
-            本机终端
-          </Button>
-          <Button variant="primary" icon="plus" onClick={() => void openEditor('create')}>
+          <Button variant="primary" icon="plus" onClick={() => setCreateOpen(true)}>
             新建连接
           </Button>
         </div>
@@ -166,9 +164,63 @@ export function RemotePage() {
         </div>
       </div>
 
+      {groupPrompt && (
+        <PromptModal
+          title="新建分组"
+          placeholder="例如：生产环境"
+          onCancel={() => setGroupPrompt(false)}
+          onConfirm={(name) => {
+            setGroupPrompt(false);
+            if (name.trim()) void createGroup(name.trim());
+          }}
+        />
+      )}
+
+      {createOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+          onClick={() => setCreateOpen(false)}
+        >
+          <div
+            className="w-[440px] rounded-xl border border-line bg-surface p-5 shadow-e4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-1 text-base font-semibold">新建连接</div>
+            <p className="mb-4 text-xs text-muted">先选择要建立的连接类型</p>
+            <div className="space-y-2">
+              <TypeOption
+                title="远程终端（SSH）"
+                desc="打开终端，也可在同一条连接里浏览文件（SFTP）"
+                onClick={() => {
+                  setCreateOpen(false);
+                  void openEditor('create', undefined, 'ssh');
+                }}
+              />
+              <TypeOption
+                title="仅 SFTP"
+                desc="只浏览/上传/下载文件，不建立 shell（适合只开 SFTP 的服务器）"
+                onClick={() => {
+                  setCreateOpen(false);
+                  void openEditor('create', undefined, 'sftp');
+                }}
+              />
+              <TypeOption
+                title="本机终端"
+                desc="直接打开这台电脑的 shell（Windows: PowerShell / cmd）"
+                onClick={() => {
+                  setCreateOpen(false);
+                  void openLocalSession(0, '本机终端').then(() => navigate('/remote/session'));
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {editor && (
         <RemoteConnectionForm
           mode={editor.mode}
+          connectionMode={editor.connectionMode}
           detail={editor.detail}
           groups={groups}
           connections={connections}
@@ -287,5 +339,27 @@ function ConnectionCard({
         )}
       </div>
     </div>
+  );
+}
+
+
+function TypeOption({
+  title,
+  desc,
+  onClick,
+}: {
+  title: string;
+  desc: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-lg border border-line-subtle px-3 py-2.5 text-left transition hover:border-brand-300 hover:bg-hover"
+    >
+      <div className="text-[13px] font-semibold">{title}</div>
+      <div className="mt-0.5 text-[11.5px] text-muted">{desc}</div>
+    </button>
   );
 }

@@ -210,6 +210,7 @@ export function SessionPage() {
                 <div className="truncate text-[12.5px] font-semibold">{activeTab.title}</div>
                 <div className="truncate font-mono text-[11px] text-muted">{activeTab.subtitle}</div>
               </div>
+              {activeTab.kind === 'ssh' && (
               <div className="ml-auto flex items-center rounded-md bg-sunken p-0.5">
                 <button
                   type="button"
@@ -232,12 +233,13 @@ export function SessionPage() {
                   文件
                 </button>
               </div>
+              )}
               <Button size="sm" variant="ghost" icon="close" onClick={() => void closeTab(activeTab.id)}>
                 断开
               </Button>
             </div>
 
-            {activeTab.jumpChain.length > 0 && (
+            {activeTab.kind !== 'local' && activeTab.jumpChain.length > 0 && (
               <div className="flex h-8 shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line-subtle bg-sunken px-3 text-[11px] text-muted">
                 <span>链路</span>
                 <span className="rounded-full bg-success-50 px-2 py-0.5 text-success-700">本机</span>
@@ -260,7 +262,16 @@ export function SessionPage() {
             )}
 
             <div className="min-h-0 flex-1">
-              {activeTab.view === 'terminal' ? (
+              {activeTab.kind === 'sftp' ? (
+                <SftpView sessionId={activeTab.id} />
+              ) : activeTab.kind === 'local' ? (
+                <TerminalView
+                  sessionId={activeTab.id}
+                  port={activeTab.port}
+                  token={activeTab.token}
+                  onReady={() => patchTab(activeTab.id, { status: 'ready' })}
+                />
+              ) : activeTab.view === 'terminal' ? (
                 <TerminalView
                   sessionId={activeTab.id}
                   port={activeTab.port}

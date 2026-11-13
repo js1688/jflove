@@ -101,7 +101,8 @@ class TerminalHost(QObject):
     def _start_server(self) -> None:
         server = QWebSocketServer("jflove-term", QWebSocketServer.SslMode.NonSecureMode)
         server.newConnection.connect(self._on_new_connection)
-        if not server.listen(QHostAddress.SpecialAddress.LocalHost, 0):
+        # 显式 IPv4：Windows 上 LocalHost 可能绑定到 ::1，而前端连的是 127.0.0.1
+        if not server.listen(QHostAddress("127.0.0.1"), 0):
             logger.error("终端通道监听失败：%s", server.errorString())
             return
         self._server = server
@@ -128,13 +129,19 @@ class TerminalHost(QObject):
             sock.close()
             return
 
+        logger.info("终端通道已连接：sid=%s", session_id)
         self._sockets[session_id] = sock
         sock.textMessageReceived.connect(
             lambda text, sid=session_id: self._on_text(sid, text)
         )
         sock.disconnected.connect(
-            lambda sid=session_id: self._sockets.pop(sid, None)
+            lambda sid=session_id: self._on_disconnected(sid)
         )
+
+    def _on_disconnected(self, session_id: str) -> None:
+        """通道断开：只清 socket，不关闭会话（允许前端重连）"""
+        self._sockets.pop(session_id, None)
+        logger.info("终端通道已断开：sid=%s", session_id)
 
     def _on_text(self, session_id: str, text: str) -> None:
         session = self._sessions.get(session_id)

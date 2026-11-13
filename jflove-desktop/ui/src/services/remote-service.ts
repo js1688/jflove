@@ -18,6 +18,9 @@ export interface RemoteGroup {
 
 export type AuthType = 'password' | 'publickey' | 'password_keyboard';
 
+/** 连接类型：ssh = 终端 + 可选 SFTP；sftp = 纯 SFTP（不依赖 shell） */
+export type ConnectionMode = 'ssh' | 'sftp';
+
 export interface RemoteConnectionSummary {
   id: number;
   ssh_group_id: number;
@@ -26,6 +29,7 @@ export interface RemoteConnectionSummary {
   port: number;
   username: string;
   auth_type: AuthType;
+  mode: ConnectionMode;
   jump_connection_id: number;
   has_password: boolean;
   has_private_key: boolean;
@@ -41,6 +45,7 @@ export interface RemoteConnectionDetail {
   port: number;
   username: string;
   auth_type: AuthType;
+  mode: ConnectionMode;
   jump_connection_id: number;
   terminal_type: string;
   charset: string;
@@ -58,6 +63,7 @@ export interface RemoteConnectionInput {
   port: number;
   username: string;
   auth_type: AuthType;
+  mode?: ConnectionMode;
   ssh_group_id?: number;
   password?: string;
   private_key?: string;

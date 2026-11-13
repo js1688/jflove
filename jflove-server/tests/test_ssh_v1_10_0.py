@@ -246,3 +246,33 @@ def test_jump_depth_limit(client: TestClient, env: dict) -> None:
     )
     assert resp.status_code == 400, resp.text
     assert "16" in decrypt_response(alice, resp)["detail"]
+
+
+def test_connection_mode(client: TestClient, env: dict) -> None:
+    """连接类型：默认 ssh；sftp 合法；非法值 400"""
+    alice = env["alice"]
+    default_id = _create(client, alice, name="mode-default")
+    conn = _data(
+        alice, _post(client, alice, "/api/v1/ssh/connections/get", {"id": default_id})
+    )["connection"]
+    assert conn["mode"] == "ssh"
+
+    sftp_id = _create(client, alice, name="mode-sftp", mode="sftp")
+    conn = _data(
+        alice, _post(client, alice, "/api/v1/ssh/connections/get", {"id": sftp_id})
+    )["connection"]
+    assert conn["mode"] == "sftp"
+
+    resp = _post(
+        client,
+        alice,
+        "/api/v1/ssh/connections/create",
+        {
+            "name": "mode-bad",
+            "host": "192.168.1.21",
+            "auth_type": "password",
+            "password": "x",
+            "mode": "ftp",
+        },
+    )
+    assert resp.status_code == 400, resp.text

@@ -22,7 +22,7 @@ import aiosqlite
 
 #: 列表摘要字段（**不含凭据原文**）
 _SUMMARY_FIELDS = (
-    "id, ssh_group_id, name, host, port, username, auth_type, jump_connection_id, "
+    "id, ssh_group_id, name, host, port, username, auth_type, jump_connection_id, mode, "
     "last_connected_at, updated_at, "
     "CASE WHEN password <> '' THEN 1 ELSE 0 END AS has_password, "
     "CASE WHEN private_key <> '' THEN 1 ELSE 0 END AS has_private_key"
@@ -30,7 +30,7 @@ _SUMMARY_FIELDS = (
 
 #: 全量字段（含凭据，仅 `find_connection` 使用）
 _FULL_FIELDS = (
-    "id, user_id, ssh_group_id, name, host, port, username, auth_type, password, "
+    "id, user_id, ssh_group_id, name, host, port, username, auth_type, mode, password, "
     "private_key, passphrase, jump_connection_id, terminal_type, charset, init_command, "
     "host_key_fingerprint, last_connected_at, created_at, updated_at"
 )
@@ -44,6 +44,7 @@ UPDATABLE_FIELDS = frozenset(
         "port",
         "username",
         "auth_type",
+        "mode",
         "password",
         "private_key",
         "passphrase",
@@ -235,6 +236,7 @@ async def insert_connection(
         "port": 22,
         "username": "",
         "auth_type": "password",
+        "mode": "ssh",
         "password": "",
         "private_key": "",
         "passphrase": "",
