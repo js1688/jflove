@@ -49,6 +49,9 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
+          # 固定版本：CI 曾在 Flutter stable 漂移后要求更高 AGP/Gradle，导致一次性失败。
+          # 与本地验证版本保持一致，升级需同时验证 AGP/Gradle。
+          flutter-version: '3.44.6'
           channel: 'stable'
           cache: true
 
