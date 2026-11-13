@@ -212,6 +212,9 @@ CREATE TABLE IF NOT EXISTS ssh_groups (
 )
 """
 
+#: v1.10.2：`mode` 放在列末尾（ssh = 终端+可选 SFTP；sftp = 纯 SFTP）。
+#: 老库用 ALTER 追加，列顺序与新库一致；SQL 字符串内**不写注释**，
+#: 避免 `sqlite_master.sql` 携带注释干扰结构核对工具。
 _CREATE_SSH_CONNECTIONS = """
 CREATE TABLE IF NOT EXISTS ssh_connections (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -234,8 +237,6 @@ CREATE TABLE IF NOT EXISTS ssh_connections (
     created_at           TEXT    NOT NULL,
     updated_at           TEXT    NOT NULL,
     deleted_at           TEXT,
-    -- v1.10.2：连接类型（ssh = 终端+可选 SFTP；sftp = 纯 SFTP，不依赖 shell）。
-    -- 放在末尾：老库用 ALTER 追加，列顺序与新库一致。
     mode                 TEXT    NOT NULL DEFAULT 'ssh'
 )
 """
