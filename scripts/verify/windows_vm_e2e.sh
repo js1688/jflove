@@ -107,6 +107,8 @@ else
     fi
     GOT_VER="$(win exec --ps "(Get-Item '${SETUP}').VersionInfo.ProductVersion" 2>/dev/null | tr -d '\r' | tail -1)"
     [ "$GOT_VER" = "$VERSION" ] || bad "安装包版本 ${GOT_VER:-?} != 当前 ${VERSION}（拒绝旧包）"
+    # 覆盖安装前必须结束进程，否则 exe 被占用 → 静默安装按 Abort 回滚（《验证标准》§7）
+    win exec --ps "Get-Process JFLove -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; 'stopped'" >/dev/null || true
     win exec --timeout 600 "${SETUP} /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=C:\\jf\\install.log" \
         || bad "静默安装失败（看 C:\\jf\\install.log）"
     ok "安装完成"
