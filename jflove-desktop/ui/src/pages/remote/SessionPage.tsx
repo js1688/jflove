@@ -22,10 +22,6 @@ export function SessionPage() {
   const {
     tabs,
     activeTabId,
-    groups,
-    connections,
-    load,
-    openRemoteSession,
     setActiveTab,
     setTabView,
     closeTab,
@@ -40,10 +36,6 @@ export function SessionPage() {
   } | null>(null);
   const [otpAsk, setOtpAsk] = useState<{ sessionId: string; prompt: string } | null>(null);
   const [otpCode, setOtpCode] = useState('');
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   useEffect(() => {
     const offs = [
@@ -104,53 +96,7 @@ export function SessionPage() {
 
   return (
     <div className="flex h-full min-h-0 bg-canvas">
-      <aside className="flex w-[236px] shrink-0 flex-col border-r border-line-subtle bg-surface">
-        <div className="flex h-12 items-center justify-between border-b border-line-subtle px-3 text-xs font-semibold text-muted">
-          <span>会话</span>
-          <button type="button" className="text-brand-600" onClick={() => void load()}>
-            ↻
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-2">
-          {groups.map((group) => {
-            const items = connections.filter((item) => item.ssh_group_id === group.id);
-            if (items.length === 0) return null;
-            return (
-              <div key={group.id}>
-                <div className="px-2 pb-1 pt-2 text-[10.5px] font-semibold tracking-wide text-subtle">
-                  {group.name}
-                </div>
-                {items.map((item) => (
-                  <SessionTreeItem
-                    key={item.id}
-                    name={item.name}
-                    host={`${item.host}:${item.port}`}
-                    onClick={() => void openRemoteSession(item)}
-                  />
-                ))}
-              </div>
-            );
-          })}
-          {connections.filter((item) => item.ssh_group_id === 0).length > 0 && (
-            <div>
-              <div className="px-2 pb-1 pt-2 text-[10.5px] font-semibold tracking-wide text-subtle">
-                未分组
-              </div>
-              {connections
-                .filter((item) => item.ssh_group_id === 0)
-                .map((item) => (
-                  <SessionTreeItem
-                    key={item.id}
-                    name={item.name}
-                    host={`${item.host}:${item.port}`}
-                    onClick={() => void openRemoteSession(item)}
-                  />
-                ))}
-            </div>
-          )}
-          {connections.length === 0 && <div className="px-2 py-3 text-xs text-subtle">还没有连接</div>}
-        </div>
-      </aside>
+
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-[42px] shrink-0 items-stretch gap-px overflow-x-auto border-b border-line bg-sunken px-2 pt-1">
@@ -332,28 +278,5 @@ export function SessionPage() {
         </div>
       )}
     </div>
-  );
-}
-
-function SessionTreeItem({
-  name,
-  host,
-  onClick,
-}: {
-  name: string;
-  host: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-8 w-full items-center gap-2 rounded px-2 text-left text-[12.5px] hover:bg-hover"
-      title={`${name} · ${host}`}
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-subtle" />
-      <span className="min-w-0 truncate">{name}</span>
-      <span className="ml-auto truncate font-mono text-[10px] text-subtle">{host}</span>
-    </button>
   );
 }

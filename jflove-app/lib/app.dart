@@ -16,10 +16,6 @@ import 'pages/transfer/transfer_page.dart';
 import 'pages/offline/offline_download_page.dart';
 import 'pages/offline/offline_new_task_page.dart';
 import 'pages/settings/settings_page.dart';
-import 'services/remote_ssh_service.dart';
-import 'pages/remote/remote_list_page.dart';
-import 'pages/remote/remote_edit_page.dart';
-import 'pages/remote/remote_terminal_page.dart';
 import 'pages/album/album_backup_page.dart';
 import 'pages/admin/admin_users_page.dart';
 import 'pages/admin/admin_disks_page.dart';
@@ -65,8 +61,6 @@ class JFLoveApp extends ConsumerWidget {
             // v1.7.0：移除「同步管理」页 —— 移动端改为设置页的「相册自动同步」+
             // 传输页的备份进度，不再提供目录双向同步。
             GoRoute(path: '/transfer', builder: (_, _) => const TransferPage()),
-            // v1.10.0：远程连接（列表常驻底部导航；编辑与终端为独立全屏页）
-            GoRoute(path: '/remote', builder: (_, _) => const RemoteListPage()),
             // v1.8.3：离线下载与相册同步提升为一级入口（底部导航常驻）
             GoRoute(
               path: AppRoutes.offlineDownload,
@@ -77,7 +71,7 @@ class JFLoveApp extends ConsumerWidget {
             // 直接落到该页签，避免旧书签 / 通知跳转失效。
             GoRoute(
               path: '/repair',
-              builder: (_, _) => const TransferPage(initialTab: 2),
+              builder: (_, _) => const TransferPage(initialTab: 1),
             ),
             GoRoute(path: '/settings', builder: (_, _) => const SettingsPage()),
           ],
@@ -86,20 +80,6 @@ class JFLoveApp extends ConsumerWidget {
         // v1.8.1：离线下载中心（完整功能）—— 入口在设置页，路径集中定义于
         // `lib/config/routes.dart`（`AppRoutes.offlineDownload`）。
         // 注意：`/offline/new` 必须在 `/offline` 之前注册，避免被前缀规则吞掉。
-        // v1.10.0：远程连接编辑 / 终端（全屏，不显示底部导航）
-        GoRoute(
-          path: AppRoutes.remoteEdit,
-          builder: (_, state) {
-            final connection = state.extra is RemoteConnection ? state.extra as RemoteConnection : null;
-            return RemoteEditPage(connectionId: connection?.id);
-          },
-        ),
-        GoRoute(
-          path: AppRoutes.remoteTerminal,
-          builder: (_, state) => RemoteTerminalPage(
-            connection: state.extra as RemoteConnection,
-          ),
-        ),
         GoRoute(
           path: AppRoutes.offlineNew,
           builder: (_, _) => const OfflineNewTaskPage(),
@@ -172,7 +152,7 @@ class _AppScaffold extends StatelessWidget {
     '/files',
     '/notes',
     '/transfer',
-    '/remote',
+    AppRoutes.offlineDownload,
     '/album',
     '/settings',
   ];
@@ -207,9 +187,9 @@ class _AppScaffold extends StatelessWidget {
             label: '传输任务',
           ),
           NavigationDestination(
-            icon: Icon(Icons.terminal_outlined),
-            selectedIcon: Icon(Icons.terminal),
-            label: '远程',
+            icon: Icon(Icons.cloud_download_outlined),
+            selectedIcon: Icon(Icons.cloud_download),
+            label: '离线下载',
           ),
           NavigationDestination(
             icon: Icon(Icons.photo_library_outlined),

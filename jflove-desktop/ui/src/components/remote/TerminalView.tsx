@@ -19,10 +19,10 @@ interface TerminalViewProps {
 
 /** 终端深色主题（与代码块同色系，亮色界面下也不刺眼） */
 const THEME = {
-  background: '#080d18',
-  foreground: '#d6deeb',
+  background: '#0b1220',
+  foreground: '#e6edf7',
   cursor: '#e2e8f0',
-  selectionBackground: 'rgba(99, 102, 241, 0.35)',
+  selectionBackground: 'rgba(99, 102, 241, 0.45)',
   black: '#0f172a',
   red: '#f87171',
   green: '#22c55e',
@@ -66,6 +66,7 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    term.focus();
     // 首帧容器尺寸可能为 0，延迟一帧再 fit
     const fitTimer = window.setTimeout(() => {
       try {
@@ -79,12 +80,31 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => onReadyRef.current?.();
+    // 高频输出（vim / TUI）按帧批量写入，避免每条消息触发一次渲染
+    let pending: Uint8Array[] = [];
+    let raf = 0;
+    const flush = () => {
+      raf = 0;
+      if (pending.length === 0) return;
+      const merged = new Uint8Array(pending.reduce((n, item) => n + item.length, 0));
+      let offset = 0;
+      for (const item of pending) {
+        merged.set(item, offset);
+        offset += item.length;
+      }
+      pending = [];
+      term.write(merged);
+    };
+    const enqueue = (data: Uint8Array) => {
+      pending.push(data);
+      if (raf === 0) raf = window.requestAnimationFrame(flush);
+    };
     ws.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(event.data));
+        enqueue(new Uint8Array(event.data));
         return;
       }
-      if (typeof event.data === 'string') term.write(event.data);
+      if (typeof event.data === 'string') enqueue(new TextEncoder().encode(event.data));
     };
 
     const dataSub = term.onData((data) => {
@@ -100,7 +120,9 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
 
     // 复制 / 粘贴：xterm 默认不吃 Ctrl+Shift+C/V
     term.attachCustomKeyEventHandler((event) => {
-      if (event.type !== 'keydown' || !event.ctrlKey || !event.shiftKey) return true;
+      // 默认 Ctrl+C / Ctrl+V（用户要求）；Shift 组合仍然生效。
+      // 注意：Ctrl+C 不再发送 SIGINT，中断请用工具栏或右键菜单。
+      if (event.type !== 'keydown' || !event.ctrlKey) return true;
       if (event.code === 'KeyC') {
         const selection = term.getSelection();
         if (selection) void navigator.clipboard?.writeText(selection).catch(() => undefined);
@@ -118,17 +140,23 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
       return true;
     });
 
+    let resizeTimer = 0;
     const observer = new ResizeObserver(() => {
-      try {
-        fit.fit();
-      } catch {
-        // 容器尺寸为 0 时忽略
-      }
+      if (resizeTimer) window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        try {
+          fit.fit();
+        } catch {
+          // 容器尺寸为 0 时忽略
+        }
+      }, 120);
     });
     observer.observe(host);
 
     return () => {
       window.clearTimeout(fitTimer);
+      window.clearTimeout(resizeTimer);
+      if (raf) window.cancelAnimationFrame(raf);
       observer.disconnect();
       dataSub.dispose();
       resizeSub.dispose();

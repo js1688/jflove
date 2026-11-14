@@ -7,7 +7,6 @@ import '../../providers/transfer_provider.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_state.dart';
-import '../offline/offline_download_page.dart';
 import '../repair/repair_center_page.dart';
 
 /// 传输页（v1.5.0：底部导航 6 → 5，合并「修复中心」为第二个页签）
@@ -33,9 +32,9 @@ class _TransferPageState extends ConsumerState<TransferPage>
   void initState() {
     super.initState();
     _tabs = TabController(
-      length: 3,
+      length: 2,
       vsync: this,
-      initialIndex: widget.initialTab.clamp(0, 2),
+      initialIndex: widget.initialTab.clamp(0, 1),
     );
     _tabs.addListener(() => setState(() {}));
   }
@@ -80,7 +79,6 @@ class _TransferPageState extends ConsumerState<TransferPage>
           unselectedLabelStyle: const TextStyle(fontSize: 14),
           tabs: const [
             Tab(text: '传输任务'),
-            Tab(text: '离线下载'),
             Tab(text: '修复中心'),
           ],
         ),
@@ -89,7 +87,6 @@ class _TransferPageState extends ConsumerState<TransferPage>
         controller: _tabs,
         children: const [
           _TransferTaskList(),
-          OfflineDownloadPage(embedded: true),
           RepairCenterContent(),
         ],
       ),
