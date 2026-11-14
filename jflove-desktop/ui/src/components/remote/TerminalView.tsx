@@ -80,7 +80,18 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
     const ws = new WebSocket(`ws://127.0.0.1:${port}/term/${sessionId}?token=${token}`);
     ws.binaryType = 'arraybuffer';
 
-    ws.onopen = () => onReadyRef.current?.();
+    ws.onopen = () => {
+      onReadyRef.current?.();
+      // 首帧容器尺寸可能还没稳定，连接成功后再对齐一次行列数
+      window.setTimeout(() => {
+        try {
+          fit.fit();
+        } catch {
+          // 容器不可见时忽略
+        }
+        term.focus();
+      }, 50);
+    };
     // 高频输出（vim / TUI）按帧批量写入，避免每条消息触发一次渲染
     let pending: Uint8Array[] = [];
     let raf = 0;
@@ -171,11 +182,14 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
       }, 120);
     });
     observer.observe(host);
+    const focusOnClick = () => term.focus();
+    host.addEventListener('click', focusOnClick);
 
     return () => {
       window.clearTimeout(fitTimer);
       window.clearTimeout(resizeTimer);
       if (raf) window.cancelAnimationFrame(raf);
+      host.removeEventListener('click', focusOnClick);
       observer.disconnect();
       dataSub.dispose();
       resizeSub.dispose();

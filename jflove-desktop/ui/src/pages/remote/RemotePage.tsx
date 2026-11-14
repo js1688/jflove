@@ -11,7 +11,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, EmptyState, Icon, Skeleton } from '../../components/ui';
 import { RemoteConnectionForm } from '../../components/remote/RemoteConnectionForm';
-import { PromptModal } from '../../components/remote/PromptModal';
 import { ConfirmModal } from '../../components/remote/ConfirmModal';
 import { useRemoteStore } from '../../stores/remote-store';
 import { localTermService, type LocalProfile, type LocalShell } from '../../services/remote-service';
@@ -58,8 +57,6 @@ export function RemotePage() {
     saveConnection,
     deleteConnection,
     duplicateConnection,
-    createGroup,
-    deleteGroup,
     openRemoteSession,
     openLocalSession,
   } = useRemoteStore();
@@ -67,7 +64,6 @@ export function RemotePage() {
 
   const [selection, setSelection] = useState<Selection>({ side: 'remote', groupId: null });
   const [createOpen, setCreateOpen] = useState(false);
-  const [groupPrompt, setGroupPrompt] = useState<{ side: Side } | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const [localGroups, setLocalGroups] = useState<LocalGroup[]>([]);
   const [localProfiles, setLocalProfiles] = useState<LocalProfile[]>([]);
@@ -129,15 +125,6 @@ export function RemotePage() {
     setCreateOpen(true);
   };
 
-  const handleCreateGroup = (name: string) => {
-    if (!groupPrompt) return;
-    if (groupPrompt.side === 'local') {
-      void localTermService.createGroup(name.trim()).then(loadLocal);
-    } else {
-      void createGroup(name.trim());
-    }
-  };
-
   const saveLocal = async () => {
     if (!localForm || !localForm.name.trim()) return;
     const payload = {
@@ -171,14 +158,7 @@ export function RemotePage() {
       <aside className="flex w-[260px] shrink-0 flex-col border-r border-line-subtle bg-surface">
         <div className="flex h-12 items-center justify-between border-b border-line-subtle px-3 text-xs font-semibold text-muted">
           <span>连接</span>
-          <button
-            type="button"
-            className="text-brand-600"
-            onClick={() => setGroupPrompt({ side: selection.side })}
-            title={`在「${selection.side === 'local' ? '本地' : '远程'}」下新建分组`}
-          >
-            ＋ 分组
-          </button>
+
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-2">
@@ -189,24 +169,6 @@ export function RemotePage() {
             onClick={() => setSelection({ side: 'local', groupId: null })}
             count={localProfiles.length}
           >
-            {localGroups.map((group) => (
-              <TreeGroup
-                key={group.id}
-                label={group.name}
-                active={selection.side === 'local' && selection.groupId === group.id}
-                count={localProfiles.filter((p) => p.group_id === group.id).length}
-                onClick={() => setSelection({ side: 'local', groupId: group.id })}
-                onDelete={() =>
-                  setConfirm({
-                    title: '删除本地分组',
-                    message: `删除本地分组「${group.name}」？`,
-                    onConfirm: () => {
-                      void localTermService.deleteGroup(group.id).then(loadLocal);
-                    },
-                  })
-                }
-              />
-            ))}
             {localProfiles
               .filter((p) => p.group_id === 0)
               .map((profile) => (
@@ -230,24 +192,6 @@ export function RemotePage() {
             onClick={() => setSelection({ side: 'remote', groupId: null })}
             count={connections.length}
           >
-            {groups.map((group) => (
-              <TreeGroup
-                key={group.id}
-                label={group.name}
-                active={selection.side === 'remote' && selection.groupId === group.id}
-                count={group.connection_count}
-                onClick={() => setSelection({ side: 'remote', groupId: group.id })}
-                onDelete={() =>
-                  setConfirm({
-                    title: '删除分组',
-                    message: `删除分组「${group.name}」？连接会落到未分组`,
-                    onConfirm: () => {
-                      void deleteGroup(group.id);
-                    },
-                  })
-                }
-              />
-            ))}
             {connections
               .filter((c) => c.ssh_group_id === 0)
               .map((connection) => (
@@ -380,25 +324,6 @@ export function RemotePage() {
         />
       )}
 
-      {groupPrompt && (
-        <PromptModal
-          title={`在「${groupPrompt.side === 'local' ? '本地' : '远程'}」下新建分组`}
-          placeholder="例如：生产环境"
-          onCancel={() => setGroupPrompt(null)}
-          onConfirm={(name) => {
-            const target = groupPrompt;
-            setGroupPrompt(null);
-            if (name.trim()) {
-              if (target.side === 'local') {
-                void localTermService.createGroup(name.trim()).then(loadLocal);
-              } else {
-                void handleCreateGroup(name.trim());
-              }
-            }
-          }}
-        />
-      )}
-
       {createOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
@@ -490,41 +415,6 @@ function TreeRoot({
         <span className="rounded-full bg-sunken px-1.5 text-[10.5px] text-subtle">{count}</span>
       </button>
       <div className="ml-3 border-l border-line-subtle pl-1">{children}</div>
-    </div>
-  );
-}
-
-function TreeGroup({
-  label,
-  active,
-  count,
-  onClick,
-  onDelete,
-}: {
-  label: string;
-  active: boolean;
-  count: number;
-  onClick: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div
-      className={[
-        'group flex h-7 items-center gap-1 rounded px-2 text-[12px]',
-        active ? 'bg-active font-semibold text-brand-600' : 'hover:bg-hover',
-      ].join(' ')}
-    >
-      <button type="button" className="flex min-w-0 flex-1 items-center gap-1 text-left" onClick={onClick}>
-        <span className="truncate">{label}</span>
-        <span className="ml-auto text-[10.5px] text-subtle">{count}</span>
-      </button>
-      <button
-        type="button"
-        className="hidden text-[11px] text-subtle hover:text-danger-500 group-hover:block"
-        onClick={onDelete}
-      >
-        ×
-      </button>
     </div>
   );
 }
