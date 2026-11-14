@@ -131,7 +131,7 @@ python3 scripts/verify/xinput.py --display "$DISP" text 'http://127.0.0.1:8989'
 
 - 判据：日志「JFLove 桌面应用已启动（v…，Web UI）」+ 窗口 `WM_CLASS=JFLove` +
   点击/输入后服务端出现对应请求（200）。
-- **必须先 `source scripts/verify/env.sh`**；不要用默认 `PATH` 判 `wine`/`Xvnc`/`java` 缺失。
+- **必须先 `source scripts/verify/env.sh`**；不要用默认 `PATH` 判 `Xvnc`/`java` 缺失。
 - **必须使用当前版本构建产物**（`python build.py -m desktop` 或当前源码 `ui/dist`）；
   禁止用历史 Release 包/旧 onedir 代替。
 - 像素证据：`jflove-desktop/venv-linux/bin/python scripts/verify/desktop_shot.py`
@@ -140,24 +140,26 @@ python3 scripts/verify/xinput.py --display "$DISP" text 'http://127.0.0.1:8989'
   不要误判成应用坏了，必须用独立 Xvnc（L50）。
 - 默认地址是 `http://localhost.jflove.cn:8989`，本机不解析；验证时改成 `http://127.0.0.1:8989`。
 
-### Windows：**当前版本**产物 + wine（本机可操作）
+### Windows：**当前版本**产物 + KVM 真机 VM（本机可操作）
 
 ```bash
-# 先构建当前版本 Windows 便携包（或由 CI 产出当前 tag 的 artifact），再验证；
-# 禁止用上一版本 Release 包/缓存 zip。
-VERSION=v<当前版本> URL=<当前版本便携包 URL> \
-  scripts/verify/windows_wine.sh --skip-download
+# 一条命令跑完：起 VM → 装当前版本安装包 → 启动 → 密钥交换 → 登录 → 上传校验 → 关机
+VERSION=<当前版本> scripts/verify/windows_vm_e2e.sh
+# 已装好、只想复跑后半段：
+scripts/verify/windows_vm_e2e.sh --skip-install --keep
 ```
 
-> `windows_wine.sh` 默认 `VERSION=v1.7.0`；**必须显式传当前版本**。
-> 当前版本包无法在本机构建时，报告写「阻塞：当前版本包未构建」，不得用历史包写“通过”。
+- 靶机是 libvirt 域 `jflove-win10`（Windows 10 22H2 / 8G 内存 / 6 vCPU），
+  通道：`vm-win.sh`（启停/截屏/断网/快照）+ `windows_vm.py`（QGA 执行与传文件）+
+  `windows_vm_ui.mjs`（CDP 驱动 QtWebEngine 界面）。
+- 判据：安装项与快捷方式就位 → CDP 能 attach → 服务端 `key-exchange 200` + `login 200` →
+  上传文件宿主机落盘 SHA256 与客机一致。
+- 界面自动化落地方式：启动时 `QTWEBENGINE_REMOTE_DEBUGGING=9222`，客机 `netsh portproxy`
+  把 9223 转到 127.0.0.1:9222，宿主机经 `http://<客机IP>:9223` 走 CDP。
+- 原生弹窗（文件选择框等）CDP 摸不到：用 `windows_vm.py type/key` 走模拟键盘，
+  并用 `vm-win.sh shot` 截屏取证。
+- **不覆盖**真实 GPU 渲染/硬件解码、真机低配性能、第三方杀软；这些写「未覆盖（原因）」，不写「通过」。
 
-- 发布便携包**缺 `icuuc.dll`**（Qt 依赖 Windows 系统 ICU）；脚本会补 ICU。
-  首次使用新 `WINEPREFIX` 还要先 `winetricks -q vcrun2022`。
-- `/usr/bin/wine` 可能是断链；默认用 PortProton `WINE_LG_11-1`，
-  `WINEPREFIX` 必须在 `$HOME` 下（L52）。
-- wine 覆盖 UI 可操作验证（启动/截图/点击/输入/登录）；**GPU/媒体/Inno 安装包/CfAPI
-  不在覆盖内**，发布门禁仍以 CI/真机为准。
 
 ## 文档更新范围
 
@@ -171,3 +173,12 @@ VERSION=v<当前版本> URL=<当前版本便携包 URL> \
 ## 安全宪法
 
 详见 `AGENTS.md §9`。你的角色约束见 §9.6 表格 `cross-platform-desktop` 行。
+
+## 实机验证入口（强制）
+
+- **先跑 `scripts/verify/probe.sh`**，再判“能否跳过”。禁止用默认命令/默认 URI 直接下结论：
+  - Windows VM 必须用 `virsh -c qemu:///system`（默认 `qemu:///session` 看不到域）；
+  - Linux 先看 `linux_display` / `linux_wayland`，**不得只试 `:99`** 就断言“无显示”。
+- 桌面端实机证据：Windows 走 `scripts/verify/vm-win.sh up` + `windows_vm_e2e.sh`；
+  Linux 有 X 时走 `desktop_shot.py`，只有 Wayland 时先确认 `ydotool`/`grim` 是否可用，
+  缺输入注入工具要在报告里写「未覆盖（原因）」，不得写「通过」。
