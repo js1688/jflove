@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router';
 import { Button, EmptyState, Icon, Skeleton } from '../../components/ui';
 import { RemoteConnectionForm } from '../../components/remote/RemoteConnectionForm';
 import { PromptModal } from '../../components/remote/PromptModal';
+import { ConfirmModal } from '../../components/remote/ConfirmModal';
 import { useRemoteStore } from '../../stores/remote-store';
 import { localTermService, type LocalProfile, type LocalShell } from '../../services/remote-service';
 import type { RemoteConnectionSummary } from '../../services/remote-service';
@@ -67,6 +68,7 @@ export function RemotePage() {
   const [selection, setSelection] = useState<Selection>({ side: 'remote', groupId: null });
   const [createOpen, setCreateOpen] = useState(false);
   const [groupPrompt, setGroupPrompt] = useState<{ side: Side } | null>(null);
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
   const [localGroups, setLocalGroups] = useState<LocalGroup[]>([]);
   const [localProfiles, setLocalProfiles] = useState<LocalProfile[]>([]);
   const [shells, setShells] = useState<LocalShell[]>([]);
@@ -154,10 +156,14 @@ export function RemotePage() {
     await loadLocal();
   };
 
-  const deleteLocal = async (profile: LocalProfile) => {
-    if (!window.confirm(`删除本机配置「${profile.name}」？`)) return;
-    await localTermService.deleteProfile(profile.id);
-    await loadLocal();
+  const deleteLocal = (profile: LocalProfile) => {
+    setConfirm({
+      title: '删除本机配置',
+      message: `确定删除「${profile.name}」？`,
+      onConfirm: () => {
+        void localTermService.deleteProfile(profile.id).then(loadLocal);
+      },
+    });
   };
 
   return (
@@ -190,11 +196,15 @@ export function RemotePage() {
                 active={selection.side === 'local' && selection.groupId === group.id}
                 count={localProfiles.filter((p) => p.group_id === group.id).length}
                 onClick={() => setSelection({ side: 'local', groupId: group.id })}
-                onDelete={() => {
-                  if (window.confirm(`删除本地分组「${group.name}」？`)) {
-                    void localTermService.deleteGroup(group.id).then(loadLocal);
-                  }
-                }}
+                onDelete={() =>
+                  setConfirm({
+                    title: '删除本地分组',
+                    message: `删除本地分组「${group.name}」？`,
+                    onConfirm: () => {
+                      void localTermService.deleteGroup(group.id).then(loadLocal);
+                    },
+                  })
+                }
               />
             ))}
             {localProfiles
@@ -227,11 +237,15 @@ export function RemotePage() {
                 active={selection.side === 'remote' && selection.groupId === group.id}
                 count={group.connection_count}
                 onClick={() => setSelection({ side: 'remote', groupId: group.id })}
-                onDelete={() => {
-                  if (window.confirm(`删除分组「${group.name}」？连接会落到未分组`)) {
-                    void deleteGroup(group.id);
-                  }
-                }}
+                onDelete={() =>
+                  setConfirm({
+                    title: '删除分组',
+                    message: `删除分组「${group.name}」？连接会落到未分组`,
+                    onConfirm: () => {
+                      void deleteGroup(group.id);
+                    },
+                  })
+                }
               />
             ))}
             {connections
@@ -306,11 +320,15 @@ export function RemotePage() {
                   onOpen={() => void openRemote(connection)}
                   onEdit={() => void openEditor('edit', connection.id)}
                   onDuplicate={() => void duplicateConnection(connection.id)}
-                  onDelete={() => {
-                    if (window.confirm(`删除连接「${connection.name}」？`)) {
-                      void deleteConnection(connection.id);
-                    }
-                  }}
+                  onDelete={() =>
+                    setConfirm({
+                      title: '删除连接',
+                      message: `确定删除「${connection.name}」？`,
+                      onConfirm: () => {
+                        void deleteConnection(connection.id);
+                      },
+                    })
+                  }
                 />
               ))}
             </div>
@@ -340,13 +358,27 @@ export function RemotePage() {
                       groupId: profile.group_id,
                     })
                   }
-                  onDelete={() => void deleteLocal(profile)}
+                  onDelete={() => deleteLocal(profile)}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          danger
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            const action = confirm.onConfirm;
+            setConfirm(null);
+            action();
+          }}
+        />
+      )}
 
       {groupPrompt && (
         <PromptModal

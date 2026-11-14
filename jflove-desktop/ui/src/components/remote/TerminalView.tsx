@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { readTerminalShortcuts } from '../../utils/terminal-shortcuts';
 
 interface TerminalViewProps {
   sessionId: string;
@@ -118,23 +119,41 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
       }
     });
 
-    // 复制 / 粘贴：xterm 默认不吃 Ctrl+Shift+C/V
+    // 复制 / 粘贴：模式来自设置页（默认 Ctrl+C / Ctrl+V）
+    const shortcutMode = readTerminalShortcuts().copyPasteMode;
+    const copySelection = () => {
+      const selection = term.getSelection();
+      if (selection) void navigator.clipboard?.writeText(selection).catch(() => undefined);
+    };
+    const pasteClipboard = () => {
+      void navigator.clipboard
+        ?.readText()
+        .then((text) => {
+          if (text) term.paste(text);
+        })
+        .catch(() => undefined);
+    };
     term.attachCustomKeyEventHandler((event) => {
-      // 默认 Ctrl+C / Ctrl+V（用户要求）；Shift 组合仍然生效。
-      // 注意：Ctrl+C 不再发送 SIGINT，中断请用工具栏或右键菜单。
       if (event.type !== 'keydown' || !event.ctrlKey) return true;
+      const withShift = event.shiftKey;
       if (event.code === 'KeyC') {
-        const selection = term.getSelection();
-        if (selection) void navigator.clipboard?.writeText(selection).catch(() => undefined);
-        return false;
+        if (shortcutMode === 'ctrlShift' && withShift) {
+          copySelection();
+          return false;
+        }
+        if (shortcutMode === 'ctrl') {
+          copySelection();
+          return false;
+        }
+        if (shortcutMode === 'smart' && term.hasSelection()) {
+          copySelection();
+          return false;
+        }
+        return true; // smart 且无选区：交给 shell（SIGINT）
       }
       if (event.code === 'KeyV') {
-        void navigator.clipboard
-          ?.readText()
-          .then((text) => {
-            if (text) term.paste(text);
-          })
-          .catch(() => undefined);
+        if (shortcutMode === 'ctrlShift' && !withShift) return true;
+        pasteClipboard();
         return false;
       }
       return true;

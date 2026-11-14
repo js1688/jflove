@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuthStore } from '../stores/auth-store';
+import {
+  readTerminalShortcuts,
+  writeTerminalShortcuts,
+  type CopyPasteMode,
+} from '../utils/terminal-shortcuts';
 import { useSettingsStore } from '../stores/settings-store';
 import { useThemeStore, type ThemeMode } from '../stores/theme-store';
 import { useAuth } from '../hooks/use-auth';
@@ -54,6 +59,9 @@ export function SettingsPage() {
   const [selectedDiskId, setSelectedDiskId] = useState<number | null>(null);
   // 快捷键配置对话框（v1.6.0：设置页内入口，不占路由）
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [copyPasteMode, setCopyPasteMode] = useState<CopyPasteMode>(
+    () => readTerminalShortcuts().copyPasteMode,
+  );
   // 生效键位 / 覆盖项：用于「当前键位摘要」（数据源仍是 config/shortcuts.ts 的 SHORTCUT_DEFS）
   const shortcutBindings = useShortcutStore((s) => s.bindings);
   const shortcutOverrides = useShortcutStore((s) => s.overrides);
@@ -224,6 +232,30 @@ export function SettingsPage() {
         </Section>
 
         {/* 账号（含 token 过期时间，对标桌面端登录凭证信息） */}
+        <Section icon="terminal" title="终端">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-[13px] font-medium">复制 / 粘贴快捷键</div>
+              <div className="mt-0.5 text-[11.5px] text-muted">
+                终端里 Ctrl+C 默认是中断；选择「Ctrl+C/V」会改为复制粘贴
+              </div>
+            </div>
+            <select
+              className="input w-[240px]"
+              value={copyPasteMode}
+              onChange={(event) => {
+                const mode = event.target.value as CopyPasteMode;
+                setCopyPasteMode(mode);
+                writeTerminalShortcuts({ copyPasteMode: mode });
+              }}
+            >
+              <option value="ctrl">Ctrl+C / Ctrl+V（复制粘贴）</option>
+              <option value="smart">智能：有选区复制，否则中断</option>
+              <option value="ctrlShift">Ctrl+Shift+C / Ctrl+Shift+V</option>
+            </select>
+          </div>
+        </Section>
+
         <Section icon={isPC ? undefined : 'user'} title="账号">
           <div className="mb-1 text-[13px] text-fg">
             {username}{' '}

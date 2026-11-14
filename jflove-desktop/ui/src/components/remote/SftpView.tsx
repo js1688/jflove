@@ -11,6 +11,7 @@ import { Button, EmptyState, Icon } from '../../components/ui';
 import { callBridge, onBridgeEvent } from '../../utils/desktop-bridge';
 import { remoteService, type SftpEntry } from '../../services/remote-service';
 import { PromptModal } from './PromptModal';
+import { ConfirmModal } from './ConfirmModal';
 
 interface TransferItem {
   id: string;
@@ -72,6 +73,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<SftpEntry | null>(null);
   const [prompt, setPrompt] = useState<{
     title: string;
     initial: string;
@@ -252,11 +254,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
     });
   };
 
-  const handleDelete = async (entry: SftpEntry) => {
-    if (!window.confirm(`确定删除「${entry.name}」？`)) return;
-    await remoteService.sftpDelete(sessionId, joinPath(path, entry.name), entry.is_dir);
-    await load(path);
-  };
+  const handleDelete = (entry: SftpEntry) => setConfirmDelete(entry);
 
   const allFiles = entries.filter((entry) => !entry.is_dir);
   const allSelected = allFiles.length > 0 && allFiles.every((entry) => selected.has(entry.name));
@@ -376,7 +374,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
                 <button
                   type="button"
                   className="hidden rounded px-1.5 py-0.5 text-[11px] text-danger-500 hover:bg-danger-50 group-hover:block"
-                  onClick={() => void handleDelete(entry)}
+                  onClick={() => handleDelete(entry)}
                 >
                   删除
                 </button>
@@ -434,6 +432,22 @@ export function SftpView({ sessionId }: SftpViewProps) {
             })}
           </div>
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="删除远端文件"
+          message={`确定删除「${confirmDelete.name}」？`}
+          danger
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            const entry = confirmDelete;
+            setConfirmDelete(null);
+            void remoteService
+              .sftpDelete(sessionId, joinPath(path, entry.name), entry.is_dir)
+              .then(() => load(path));
+          }}
+        />
       )}
 
       {prompt && (

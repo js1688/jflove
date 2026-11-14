@@ -123,7 +123,7 @@ async def _repair_db_factory():
 
 app = FastAPI(
     title="JFLove Server",
-    version="1.10.4",
+    version="1.10.5",
     lifespan=lifespan,
 )
 
