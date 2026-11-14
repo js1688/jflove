@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 验证入口公共环境（source 使用，不直接执行）
 #
-# 目的：把「锁屏会话 / 无显示器 / SDK 路径 / wine 路径」这些机器差异集中到这里，
+# 目的：把「锁屏会话 / 无显示器 / SDK 路径 / Windows VM」这些机器差异集中到这里，
 # 其它 verify 脚本只依赖本文件导出的变量与函数。
 
 JF_ROOT="${JF_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -14,9 +14,7 @@ JF_WEB_PORT="${JF_WEB_PORT:-3000}"
 JF_XVNC_DISPLAY="${JF_XVNC_DISPLAY:-:99}"
 JF_XVNC_GEOMETRY="${JF_XVNC_GEOMETRY:-1440x900}"
 
-# Windows/wine：系统 /usr/bin/wine 可能是断链，默认用 PortProton 自带运行时
-JF_WINE_BIN="${JF_WINE_BIN:-$HOME/PortProton/data/dist/WINE_LG_11-1/bin/wine}"
-JF_WINEPREFIX="${JF_WINEPREFIX:-$HOME/tmp/jflove-wine}"
+# Windows：真机靶机由 libvirt 管理（域 jflove-win10），不再需要任何兼容层路径
 
 # Flutter / Android（AGENTS §3.1：SDK 物理路径必须是 ASCII）
 JF_FLUTTER_HOME="${FLUTTER_HOME:-$HOME/sdk/flutter}"
@@ -73,10 +71,12 @@ jf_start_wm() {
     if DISPLAY="$disp" xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id"; then
         return 0
     fi
-    jf_have kwin_x11 || jf_die "缺少 kwin_x11（KDE 环境自带）"
-    DISPLAY="$disp" dbus-run-session -- kwin_x11 --replace \
-        >"/tmp/jf-kwin-${n}.log" 2>&1 &
-    echo $! >"/tmp/jf-kwin-${n}.pid"
+    # 窗口管理器是可选依赖：Android 模拟器 / Qt offscreen 在无 WM 的 Xvnc 上也能跑
+    if jf_have kwin_x11; then
+        DISPLAY="$disp" dbus-run-session -- kwin_x11 --replace \
+            >"/tmp/jf-kwin-${n}.log" 2>&1 &
+        echo $! >"/tmp/jf-kwin-${n}.pid"
+    fi
     sleep 2
 }
 
