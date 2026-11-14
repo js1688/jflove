@@ -64,7 +64,15 @@ adb pull /sdcard/ui.xml /tmp/jf-android-ui.xml >/dev/null 2>&1 || true
 adb exec-out screencap -p >"$OUT"
 
 jf_pass "截图：$OUT（UI 树：/tmp/jf-android-ui.xml）"
-jf_pass "操作：adb shell input tap/text（xinput.py 仅用于 X11 桌面）"
+# 《验证标准》§5：必须有一次输入产生状态变化（不能只截图）
+BEFORE="$(sha256sum "$OUT" | cut -d' ' -f1)"
+adb shell input keyevent 4 >/dev/null 2>&1 || true
+sleep 1
+AFTER_SHOT="${OUT%.png}-after.png"
+adb exec-out screencap -p >"$AFTER_SHOT"
+AFTER="$(sha256sum "$AFTER_SHOT" | cut -d' ' -f1)"
+[ "$BEFORE" != "$AFTER" ] || jf_die "输入后界面无变化（交互未生效）"
+jf_pass "交互：keyevent 生效（截图变化，证据 $AFTER_SHOT）"
 
 if [ "$STOP" = "1" ]; then
     adb emu kill >/dev/null 2>&1 || true
