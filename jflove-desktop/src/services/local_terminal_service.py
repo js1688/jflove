@@ -302,6 +302,12 @@ class LocalSession:
 
     def open(self) -> None:
         """启动本地 shell 并开始读输出"""
+        logger.info(
+            "本机终端启动：shell=%s args=%r cwd=%r",
+            self.profile.get("shell_path") or "(default)",
+            self.profile.get("args") or "",
+            self.profile.get("cwd") or "",
+        )
         if os.name == "nt":
             self._open_windows()
         else:
@@ -427,8 +433,14 @@ class LocalSession:
         args = str(self.profile.get("args") or "")
         cmdline = f"{shell_path} {args}".strip()
         pty_obj = PTY(self.cols, self.rows)
-        pty_obj.spawn(cmdline, cwd=str(self.profile.get("cwd") or "") or None, env=self._env())
+        # pywinpty 不同版本对 cwd/env 的入参有差异：先按标准签名，失败再降级
+        try:
+            pty_obj.spawn(cmdline, cwd=str(self.profile.get("cwd") or "") or None, env=self._env())
+        except TypeError:
+            logger.warning("pywinpty spawn 不接受 cwd/env，降级为仅命令")
+            pty_obj.spawn(cmdline)
         self._pty = pty_obj
+        logger.info("本机终端已启动（pywinpty）：%s", cmdline)
 
     def _read_loop(self) -> None:
         while not self._closed:

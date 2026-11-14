@@ -63,6 +63,18 @@ export function SessionPage() {
           message: String(data.message || '连接失败'),
         });
       }),
+      onBridgeEvent('local_term.session_failed', (payload) => {
+        const data = asRecord(payload);
+        const sessionId = String(data.session_id || '');
+        patchTab(sessionId, {
+          status: 'failed',
+          message: String(data.message || '本机终端启动失败'),
+        });
+      }),
+      onBridgeEvent('local_term.session_ready', (payload) => {
+        const sessionId = String(asRecord(payload).session_id || '');
+        patchTab(sessionId, { status: 'ready', message: '已打开' });
+      }),
       onBridgeEvent('remote.hostkey_ask', (payload) => {
         const data = asRecord(payload);
         setHostkeyAsk({
