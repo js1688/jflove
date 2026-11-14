@@ -46,7 +46,15 @@ for _ in $(seq 1 120); do
 done
 [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ] || jf_die "模拟器未完成启动"
 
-jf_pass "安装 $APK"
+# 《验证标准》§4：只允许当前版本 APK
+AAPT_BIN="$(ls "${ANDROID_HOME:-$HOME/sdk/android-sdk}"/build-tools/*/aapt 2>/dev/null | head -1)"
+VER_JSON="$(python3 -c 'import json;print(json.load(open("version.json"))["version"])')"
+APK_VER="$("$AAPT_BIN" dump badging "$APK" 2>/dev/null | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)"
+if [ -n "$APK_VER" ] && [ "$APK_VER" != "$VER_JSON" ]; then
+    echo "[verify] APK 版本 $APK_VER != 当前版本 $VER_JSON，请先构建当前版本（拒绝旧包）" >&2
+    exit 1
+fi
+jf_pass "安装 $APK（versionName=$APK_VER，当前=$VER_JSON）"
 adb install -r "$APK" | tail -1
 adb shell am start -n com.jflove.jflove_app/.MainActivity >/dev/null
 sleep 8
