@@ -43,6 +43,12 @@ const THEME = {
 
 export function TerminalView({ sessionId, port, token, onReady }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // onReady 由父组件内联传入，每次渲染都会变；不能进 effect 依赖，
+  // 否则「连接成功 → patchTab → 重渲染 → effect 重跑 → 断开重连」会无限闪屏。
+  const onReadyRef = useRef(onReady);
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -72,7 +78,7 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
     const ws = new WebSocket(`ws://127.0.0.1:${port}/term/${sessionId}?token=${token}`);
     ws.binaryType = 'arraybuffer';
 
-    ws.onopen = () => onReady?.();
+    ws.onopen = () => onReadyRef.current?.();
     ws.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(event.data));
@@ -129,7 +135,7 @@ export function TerminalView({ sessionId, port, token, onReady }: TerminalViewPr
       ws.close();
       term.dispose();
     };
-  }, [sessionId, port, token, onReady]);
+  }, [sessionId, port, token]);
 
   return <div ref={hostRef} className="h-full w-full" />;
 }
