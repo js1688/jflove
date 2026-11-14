@@ -130,3 +130,9 @@ scripts/verify/server.sh stop
 ## 安全宪法
 
 详见 `AGENTS.md §9`。你的角色约束见 §9.6 表格 `backend` 行。新接口开发前对照 §9.7 清单逐条勾选。
+
+
+## 实机验证（强制）
+
+按 `文档记录/验证标准.md` 执行：先 `bash scripts/verify/probe.sh`，再跑本端 runner；
+「当前版本」校验、证据表与门禁见标准 §4 / §8。禁止用旧包或“只启动/只抓帧”冒充通过。

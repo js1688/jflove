@@ -40,7 +40,7 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 > 「进程活着」「页面能打开」都不算通过；只截图不点击/不输入也不算。
 
 1. **先 source `scripts/verify/env.sh`，再探测**（一次，缓存结论；不要每加一个用例就重探）：
-   - 默认 `PATH` 找不到 ≠ 环境没有：`adb` 在 `$ANDROID_HOME/platform-tools`、wine 在 `$JF_WINE_BIN`、
+   - 默认 `PATH` 找不到 ≠ 环境没有：`adb` 在 `$ANDROID_HOME/platform-tools`、
      JDK 可能在 `/home/<user>/文档/jdk/jdk-21.0.10`（`JAVA_HOME` 必须显式设，否则 Gradle 选到无 `javac` 的 JRE）；
    - 先读 `scripts/verify/README.md` 与 `lessons` L48–L57，按其中的真实路径探测；
    - Playwright 自带 Chromium 缺失时，先探测 `BROWSER_MANAGER.available()`（代码会回退系统 Edge/Chromium），
@@ -56,7 +56,7 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
    | 桌面端实机 | `jf_start_xvnc :99` + `xinput.py` | 窗口 `JFLove` + 点击/输入后接口 200 |
    | 移动端静态/单测 | `dart analyze lib/` / `flutter test` | 零错误 / 全通过 |
    | 移动端设备级 | `adb devices` | 有 `device` 行（`emulator-` = 模拟器） |
-   | Windows 实机 | `scripts/verify/windows_wine.sh` | wine 登录页 + 登录 200（发布门禁仍以 CI/真机为准） |
+   | Windows 实机 | `scripts/verify/windows_vm_e2e.sh` | KVM 真机 VM：安装→启动→密钥交换→登录→上传 SHA256 全绿 |
    | GUI 基础 | `command -v Xvnc kwin_x11 ffmpeg` | 锁屏/无显示时用独立 Xvnc |
    | iOS / 鸿蒙 | `uname -s` = Darwin / 有对应工具链 | 一律跳过 |
 
@@ -64,11 +64,12 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
    - 实机验证前必须构建**当前工作区**的产物：Android `JAVA_HOME=<jdk> flutter build apk --debug`；
      桌面 `python build.py -m desktop`；Web `npm run build`；服务端 `python build.py -m server`。
    - **禁止**用上一版本 Release 包/缓存 zip/历史 APK 代替当前版本；产物版本必须与 `version.json` 对得上。
-   - `windows_wine.sh` 默认 `VERSION=v1.7.0`，必须显式 `VERSION=v<当前版本>` 或 `URL=<当前版本产物>`；
-     当前版本包无法在本机构建时，报告写“阻塞：当前版本包未构建”，**不得写通过**。
+   - Windows 端跑 `scripts/verify/windows_vm_e2e.sh`，必须显式 `VERSION=<当前版本>` 或 `URL=<当前版本产物>`；
+     当前版本包无法取得时，报告写“阻塞：当前版本包未构建”，**不得写通过**。
 3. **操作级验证（硬约束）**：
    - Web：CDP/Playwright **点击或输入**，再截图；只截首屏不算。
-   - 桌面 / Windows：Xvnc + `kwin_x11` + `scripts/verify/xinput.py` 点击/输入。
+   - 桌面（Linux）：Xvnc + `kwin_x11` + `scripts/verify/xinput.py` 点击/输入。
+   - Windows（VM）：`scripts/verify/windows_vm_ui.mjs` 走 CDP 点击/输入（DOM 级），原生弹窗用 `windows_vm.py type/key`。
    - Android：`uiautomator dump` 取控件 `bounds` → `input tap/text`。
    - 每端至少一条证据链：「点击/输入 → 服务端日志出现对应请求（200）」。
 4. **独立显示**：用户会话锁屏时 KWin 把窗口标 `_NET_WM_STATE_HIDDEN`，截屏黑/白；
@@ -77,8 +78,9 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 6. **禁止的跳过理由**：静态分析/单元测试永远可做；无设备/无显示/非目标平台只能跳过设备级/平台专属；
    且必须先按 `env.sh` 路径探测、尝试 Xvnc/系统浏览器等兜底后才能判缺失。
 7. **设备级用例**：有设备就执行到底（安装/启动/截图/热重载/流式下载）。
-8. **Windows/wine 边界**：wine 能做 UI 可操作验证（补 `icuuc.dll` + Xvnc），
-   GPU/媒体/安装器/CfAPI 不在覆盖内，**发布门禁仍以 CI/真机为准**；**必须用当前版本包**。
+8. **Windows 真机边界**：KVM 虚拟机是真 Windows，覆盖安装器/卸载项/快捷方式/文件关联/端到端加解密；
+   **不覆盖**真实 GPU 渲染与硬件解码、真机低配性能、第三方杀软策略、多显示器与真实 DPI ——
+   这些不写“通过”，写“未覆盖（原因）”。
 9. **MCP 说明**：`.mcp.json` 是 VS Code 格式，DSH 未加载；默认走 `scripts/verify/` 的 CLI，
    MCP 仅 VS Code 可选（L55）。
 
@@ -95,35 +97,29 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 - `scripts/verify/run_all.sh` 生成的 `/tmp/jf-verify-summary.md` 可直接作为表格来源；
   截图/日志留 `/tmp`，报告引用路径即可，不往仓库塞大文件。
 
-## 人工体验（Phase 6.5 / UAT）支持（强制）
+## Windows 靶机维护硬判据（重建前必读）
 
-- **入口**：Phase 6 证据门禁通过后才进入；UAT 只用**当前分支的 CI 构建物**（按 commit SHA 追溯），
-  禁止拿历史版本/本地缓存包冒充。
-- **AI 必须主动触发构建（强制，不得只写步骤）**：进入 6.5 后由 AI **立即**对当前分支执行
-  `workflow_dispatch`，四个 workflow 一个不能少：
-  `build-desktop.yml` / `build-server.yml` / `build-web.yml` / `build-app.yml`。
-  - 首选：`gh workflow run <file> --ref <branch>`；
-  - 无 `gh` 时用 REST API（凭据从 `git credential fill` 取，**不要把 token 打印到输出/文档**）：
-    ```bash
-    TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')
-    curl -sS -o /dev/null -w "%{http_code}\n" -X POST \
-      -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/<owner>/<repo>/actions/workflows/<file>/dispatches" \
-      -d '{"ref":"<branch>"}'
-    ```
-  - 判据：每个 dispatch **HTTP 204**；随后 `GET /repos/<owner>/<repo>/actions/runs?per_page=20`
-    逐个核对 run 的 `head_sha` 与目标 commit 一致，并把 **run id / URL / head_sha / 状态**回填
-    `文档记录/人工体验记录/<版本号>.md`；
-  - 凭据缺失（未登录 / token 无 `workflow` scope）→ 报告「**阻塞：无 workflow 触发凭据**」+ 用户手动步骤，
-    **不得**写成“已触发/已通过”，也**不得**默认把点按钮的活交给用户；
-  - 反例（2026-10-22 v1.8.1 首轮）：只写了「在 GitHub Actions 点 Run workflow」而没有真正触发，
-    用户看不到构建物、UAT 无法开始 → 视为 **流程缺陷**，必须自查。
-- **反馈处理**：先复现、再分类（代码 BUG / 体验问题 / 需求-设计问题）；代码与体验问题修完，
-  重跑相关端实机 + 全量门禁，**版本号不变**；需求/设计问题退回 Phase 1/2。
-- **记录**：每轮更新 `文档记录/人工体验记录/<版本号>.md`，写清 commit / CI run / artifact / 哈希、
-  问题闭环（现象→根因→修复→复验证据）。
-- **出口判据**：用户在记录里明确写「人工体验通过（无阻断问题）」；已知未覆盖项要么关闭，要么被用户书面接受。
-- **禁止**：UAT 阶段打发布 tag / 发 Release / 改版本号 / 把「CI 没跑」「本机没验」写成通过。
+- 靶机的一切改动只走 `scripts/verify/vm/`（应答文件 / 初始化脚本 / 建域脚本）；**禁止**手改 VM 内系统盘：
+  应答文件写错就重装 —— `guestfish` 对脏 NTFS 只能只读挂载，热修这条路走不通。
+- 应答文件里的命令一律 `powershell -File A:\xxx.ps1`，**禁止**内嵌长 Base64：
+  `RunSynchronousCommand` 的 `Path` 受 8191 字符命令行上限约束，超了 specialize 直接报「应答文件无效」。
+- QGA 这类 MSI **必须延后到 OOBE 之后**装（specialize 阶段 VSS COM 未就绪 → Error 1722/1603），
+  首装失败就登记开机任务以 SYSTEM 重试。
+- 靶机必须「重启后自动回到可交互桌面」：`AutoAdminLogon=1` + `AutoLogonCount=999` + 禁锁屏；
+  否则 GUI 自动化没有窗口可点，看起来像“应用起不来”。
+- 销毁靶机只删系统盘（`undefine --nvram` + `rm` 磁盘）：`--remove-all-storage` 会把挂载的 ISO/软盘一起删掉。
+- CDP 就绪判据是「能 evaluate 出页面文本」，**不是** `/json/version` 通；单次 attach 约 8s，超时给 12s。
+- 原生文件框：输入路径后首次 Enter 常被吞 → 等 2s 重试 Enter，再轮询落盘结果。
+
+## 发布后体验反馈（不阻塞流程，强制记录）
+
+- Phase 6.5 已撤销：**不再有「用户签署后才发布」的门禁**，`windows` 端证据由 KVM 真机 VM 产出。
+- 用户在发布**之后**下载 Release 构建物试用，反馈按 `AGENTS.md §7.5` 分流：
+  代码 BUG → 快速修复通道（版本号不变）；体验/需求问题 → 完整迭代。
+- 反馈记录写 `文档记录/人工体验记录/<版本号>.md`（问题 / 根因 / 修复 / 复验证据 / 结论），
+  **它是参考材料，不是放行条件**；不得把「用户还没试」当成阻塞项。
+- 禁止：把 UAT 体验写成「已通过」而无实际反馈；禁止为了等体验反馈而推迟已通过门禁的发布。
+
 
 ## 测试设计纪律
 
@@ -195,3 +191,9 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
 ## 安全宪法
 
 详见 `AGENTS.md §9`。你的角色约束见 §9.6 表格 `testing` 行。
+
+
+## 实机验证（强制）
+
+按 `文档记录/验证标准.md` 执行：先 `bash scripts/verify/probe.sh`，再跑本端 runner；
+「当前版本」校验、证据表与门禁见标准 §4 / §8。禁止用旧包或“只启动/只抓帧”冒充通过。

@@ -305,3 +305,9 @@ docker run -p 8080:80 jflove-web:<版本号>
 - [ ] 是否需要处理文件流？如是，必须使用 `stream-frame.ts` 逐帧解密，不能直接 `response.blob()` 或 `<a download>`
 - [ ] 是否在日志/调试输出中明文记录了 token、session_key、文件内容？
 - [ ] 是否新增长期密钥 / 静态盐 / 写死对称密钥？严禁。
+
+
+## 实机验证（强制）
+
+按 `文档记录/验证标准.md` 执行：先 `bash scripts/verify/probe.sh`，再跑本端 runner；
+「当前版本」校验、证据表与门禁见标准 §4 / §8。禁止用旧包或“只启动/只抓帧”冒充通过。

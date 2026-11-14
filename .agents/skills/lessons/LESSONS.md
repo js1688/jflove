@@ -96,11 +96,11 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
      | Android 设备 | `adb devices` | 存在 `device` 行；`emulator-` 前缀 = 模拟器 |
      | Android 构建 | `flutter build apk --debug` | 需 Android SDK + `adb` |
      | Linux 桌面 GUI | `command -v Xvnc kwin_x11` | 有 Xvnc 即可验（**会话锁屏不等于"无显示"**） |
-     | Windows 桌面 | `command -v wine` / `$JF_WINE_BIN` + Release 产物 | 有 wine 可做 UI 可操作验证；安装器/媒体仍需真机 |
+     | Windows 桌面 | `scripts/verify/vm-win.sh status` | 域 `jflove-win10` 运行 + QGA 就绪即可做安装/启动/界面/传输全链路 |
      | iOS / 鸿蒙 | `uname -s` = Darwin / 有 `flutter_ohos` 工具链 | 一律跳过 |
 
-   > 本机已打通：锁屏会话用独立 `Xvnc`（L50），Windows 用 wine + ICU（L52）。
-   > 这两项**不再是天然跳过项**；只有 Xvnc/wine 本身缺失时才允许跳过，并附探测输出。
+   > 本机已打通：锁屏会话用独立 `Xvnc`（L50），Windows 用 KVM 真机 VM（L52）。
+   > 这两项**不再是天然跳过项**；只有 Xvnc 缺失 / VM 域不存在时才允许跳过，并附探测输出。
 
   2. **声明**：在回复/报告开头列「本次验证计划」两栏 —— **能做**（附命令）/ **跳过**（附探测结果作为原因）。
   3. **执行**：能做的**必须做**；不能做的**保留"跳过"字样**，不得改写成"通过"。
@@ -148,7 +148,7 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
   配上 `kwin_x11` 后正常。输入用 `scripts/verify/xinput.py`（XTest）。
 - **无桌面登录时**：`/run/user/$UID` 可能不存在（没有 pam_systemd 用户会话）；
   `scripts/verify/env.sh` 会回退 `XDG_RUNTIME_DIR=/tmp/jf-runtime-$UID`（0700），
-  `dbus-run-session` 自建会话总线。实测 `env -i` 下桌面客户端 / Android 模拟器 / wine
+  `dbus-run-session` 自建会话总线。实测 `env -i` 下桌面客户端 / Android 模拟器 / KVM VM
   都能启动、操作、截图，不依赖登录会话。
 - **判据**：截图非纯黑/纯白；`xprop -root _NET_SUPPORTING_WM_CHECK` 能查到 WM。
 
@@ -162,17 +162,27 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
   用 `-gpu host`；本次实测 **11 秒** `Boot completed`，`adb devices` 立刻可见。
 - **判据**：`adb devices` 出现 `emulator-* device`；`adb shell getprop sys.boot_completed` = 1。
 
-### L52. wine 跑 Windows 客户端：ICU 是硬依赖，且 wine 不是真机
-- **现象**：便携包在 wine 下 `ImportError: DLL load failed while importing QtCore`，
-  窗口都没创建；`WINEDEBUG=+loaddll` 显示 `icuuc.dll` not found。
-- **根因**：Qt6Core 硬依赖 `icuuc.dll`（Windows 10+ 系统自带），PySide6 wheel 与便携包都**不带**它；
-  wine 前缀里没有系统 ICU。`vcrun2022` 只补 MSVC 运行库，补不了 ICU。
-- **正确做法**：把 ICU 的 `icuuc78.dll` 复制成 `icuuc.dll`（`icudt78.dll` 原样）放进
-  `_internal/PySide6/`；`/usr/bin/wine` 可能是断链，用 PortProton `WINE_LG_11-1`；
-  `WINEPREFIX` 必须在 `$HOME` 下（wine 拒绝 `/tmp` 这类非本人属主目录）。
-- **边界**：补 ICU 后可启动/截图/点击/输入/登录；日志里 `Failed to create GLES3 context`
-  会降级 GLES2，**GPU/媒体/Inno 安装包/CfAPI 不在 wine 覆盖内**，发布门禁仍以 CI/真机为准。
-- **判据**：wine 窗口出现 + 截图非空 + 登录后服务端 `login 200` / `files/disks 200`。
+### L52. Windows 端只有一条路：KVM 真机 VM（本机已常备靶机）
+
+- **口径**：Windows 证据一律来自 libvirt 域 `jflove-win10`（Windows 10 22H2），
+  入口是 `scripts/verify/windows_vm_e2e.sh`（安装包 → 启动 → 密钥交换 → 登录 → 上传 SHA256 校验）。
+  **不做「模拟 Win32」的替代验证** —— 安装器、文件关联、SmartScreen、媒体解码只有真 Windows 能给结论。
+- **四条通道**（都已在脚本里封装，不要另造轮子）：
+  | 要做什么 | 用什么 |
+  | --- | --- |
+  | 界面点击/输入/断言 | `windows_vm_ui.mjs`（CDP，QtWebEngine 已开 9222，客机 `netsh portproxy` 转 9223） |
+  | 客机执行命令 / 传文件 | `windows_vm.py`（QEMU Guest Agent：`guest-exec` / `guest-file-*`） |
+  | 原生弹窗（文件选择框、UAC） | `windows_vm.py type/key`（`virsh send-key`）+ `vm-win.sh shot` 截屏 |
+  | 断网、回滚、启停 | `vm-win.sh net down` / `snap` / `revert` / `up` / `down` |
+- **CDP 就绪判据**：`/json/version` 先可用而页面未就绪，单次 attach 约 8s 握手；
+  判据必须是「能 evaluate 出页面文本」，单次超时给 12s、外层 25s，先 `sleep 6` 再轮询。
+- **原生文件框确认键**：输入路径后首次 `Enter` 常被吞 → 输入 → 等 2s → **重试 Enter** → 轮询落盘结果。
+- **配套硬约束**（都在 `scripts/verify/vm/setup-guest.ps1` 里，重建靶机必须保留）：
+  自动登录长效化（`AutoAdminLogon=1` + `AutoLogonCount=999`）、禁锁屏、
+  关自动更新/Defender 实时/空闲计划任务、QGA 装不上就登记开机任务在 OOBE 后重试。
+- **边界**：不覆盖真实 GPU 渲染与硬件解码、真机低配性能、第三方杀软策略、多显示器真实 DPI；
+  报告写「未覆盖（原因）」，不写「通过」。
+- **判据**：`scripts/verify/windows_vm_e2e.sh` 退出码 0，且 `/tmp/jf-win/e2e/SUMMARY.md` 五行全通过。
 
 ### L53. `uvicorn src.main` 会绕过 `JFLOVE_DB_PATH`
 - **现象**：设了 `JFLOVE_DB_PATH=/tmp/xxx.db` 启动服务，改临时库密码不生效；
@@ -199,15 +209,15 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 - **根因**：`.mcp.json` 是 VS Code / Claude 的格式；DSH 的 MCP 走 profile 里的
   `@deepseek-ai/dsh-mcp-client` 插件（`~/.dsh/profiles/<name>/cordis.yml`），
   当前 web profile 未安装该插件。
-- **正确做法**：DSH 里默认走 `scripts/verify/` 的 CLI（adb / CDP / XTest / wine），
+- **正确做法**：DSH 里默认走 `scripts/verify/` 的 CLI（adb / CDP / XTest / KVM VM），
   可复现且不依赖会话配置；需要 MCP 时再在 profile 里加 server 并重启会话。
 - **判据**：技能里写「MCP 工具」的地方必须注明是 VS Code 路径；DSH 的验证判据不得依赖 MCP 工具存在。
 
 ### L56. 验证环境必须按项目入口探测，不能拿默认 `PATH` 判缺失
-- **现象**：用默认 `PATH` 跑 `which adb` / `which wine` / `java -version` 判为“环境没有”，
+- **现象**：用默认 `PATH` 跑 `which adb` / `java -version` 判为“环境没有”，
   于是把 Android / Windows / L3 全部标记跳过；实际上：
   - `adb` 在 `$ANDROID_HOME/platform-tools/adb`；
-  - wine 在 `$JF_WINE_BIN`（PortProton 自带运行时）；
+  - Windows 靶机由 libvirt 管理：`virsh -c qemu:///system list` 可见 `jflove-win10`；
   - JDK 在 `/home/<user>/文档/jdk/jdk-21.0.10`，只是 `JAVA_HOME` 没设，
     Gradle 选了系统 `/usr/lib/jvm/java-25-openjdk`（只有 JRE，无 `javac`）；
   - Playwright 自带 Chromium 缺失时，系统 `microsoft-edge` 可作 Chromium 内核兜底。
@@ -220,11 +230,11 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 
 ### L57. 实机验证必须用**当前版本**构建产物，禁止历史 Release 包
 - **现象**：v1.8.0 的 Windows 实机验证直接复用 `/tmp/jf-win-verify` 里的 **v1.7.0** 便携包，
-  这只能证明 wine 能跑 v1.7，不能证明 v1.8；等于没有验证。
+  这只能证明旧包能跑，不能证明 v1.8；等于没有验证。
 - **正确做法**：
   1. 验证前用当前工作区构建当前版本产物（Android APK / 桌面 onedir/安装包 / 服务端镜像 / Web dist）；
   2. 产物版本必须与 `version.json` 对得上（界面页脚 / 文件名 / 包内版本）；
-  3. `windows_wine.sh` 默认 `VERSION=v1.7.0`，必须显式 `VERSION=v<当前版本>` 或 `URL=<当前版本产物>`；
+  3. Windows 端走 `scripts/verify/windows_vm_e2e.sh`，必须显式 `VERSION=<当前版本>` 或 `URL=<当前版本产物>`；
   4. 当前版本包在当前环境确实无法构建时，报告写「阻塞：当前版本包未构建」，
      **不得**用历史包写“通过”，也不得把历史包的截图放进当前版本证据表。
 - **判据**：每条实机证据都能回答“这是哪个版本、由哪条构建命令产出”；答不上来就不算验证。
@@ -833,13 +843,13 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 - [ ] SDK 的**物理路径**是纯 ASCII 吗？`FLUTTER_HOME` / `ANDROID_HOME` 指向 ASCII 路径还是符号链接？（L49）
 - [ ] 模拟器起不来时，先区分"宿主机 KVM 坏"与"模拟器软件渲染坏"了吗？（L49）
 
-**新增（实机 GUI / wine / 临时库补）：**
+**新增（实机 GUI / Windows VM / 临时库补）：**
 
 - [ ] GUI 验证用的是独立 Xvnc + WM 吗？还是直接截锁屏会话（必然黑/白）？（L50）
 - [ ] 模拟器是窗口化 + `-gpu host` 吗？还在用 `-no-window` / swiftshader 吗？（L51）
-- [ ] wine 验证补了 ICU 吗？`WINEPREFIX` 在 `$HOME` 下吗？GPU/媒体/安装器边界声明了吗？（L52）
+- [ ] Windows 端跑的是 `scripts/verify/windows_vm_e2e.sh` 吗？装了**当前版本**安装包并校验了上传 SHA256 吗？（L52）
 - [ ] 起服务用的是 `run_server.py` 而不是 `uvicorn src.main` 吗？（L53）
 - [ ] 截图工具按环境选对了吗（Xvnc→ffmpeg / 应用内 grab / adb / CDP）？（L54）
 - [ ] 是否把 `.mcp.json` 误当成 DSH 的 MCP 配置？（L55）
-- [ ] 判“环境缺失”前，有没有先 `source scripts/verify/env.sh` 并按文档路径探测 `adb`/`wine`/JDK/Chromium？（L56）
+- [ ] 判“环境缺失”前，有没有先 `source scripts/verify/env.sh` 并按文档路径探测 `adb`/JDK/Chromium/VM 域？（L56）
 - [ ] 实机验证用的是**当前版本构建产物**吗？有没有拿上一版本 Release 包/缓存 zip 冒充？（L57）

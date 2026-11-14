@@ -65,42 +65,25 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
   产物被运行中的实例占用时 `build.py` 会自动改名（onedir → **整目录** `JFLove-new/`，安装包 → `*-setup-new.exe`），
   这时要在回复里说明"当前装的是哪一份"。
 
-## 人工体验（UAT）构建（Phase 6.5，禁止发布 tag）
+## 发布后构建物体验（不影响发布流程）
 
-- **触发**：用户说「人工体验 / UAT / 先给我构建物试试」，且**没有**宣布发布 → 属 Phase 6.5，不是 Phase 8。
-- **方式**：用 `workflow_dispatch`（ref = 当前分支）触发 `.github/workflows/build-*.yml`，
-  **禁止打 `v<版本>` tag** —— 本仓库 tag 会触发 `release.yml` 创建 Draft Release，等于提前进入 Phase 8；
-  且 tag 版本必须与 `version.json` 严格相等，`-rc/-uat` 后缀会被 CI 拒绝。
-- **触发责任在 AI（强制）**：必须由 AI 实际执行 dispatch 并核对 run，不得只输出操作步骤让用户点。
-  首选 `gh workflow run <file> --ref <branch>`；无 `gh` 时用 REST API：
-  ```bash
-  TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')
-  curl -sS -o /dev/null -w "%{http_code}\n" -X POST \
-    -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/<owner>/<repo>/actions/workflows/<file>/dispatches" \
-    -d '{"ref":"<branch>"}'
-  ```
-  四个文件 `build-desktop.yml` / `build-server.yml` / `build-web.yml` / `build-app.yml` 都要触发，
-  每个应返回 **204**；随后用 `GET .../actions/runs` 核对 `head_sha` 并回填记录。
-  凭据缺失 → 明确报告阻塞，不得声称已触发。
-- **代码一致性（强制）**：dispatch 前 `git rev-parse HEAD` 记下目标 commit；dispatch 后核对 run 的
-  `head_sha` 是否一致，并保留 checkout 日志 `git fetch ... +<sha>` 行；可跑
-  `python scripts/verify/check_uat_build.py --sha <commit>`（exit 0 才可用）；不一致就废弃该轮产物重新 dispatch。
-- **产物口径**：UAT 以 **CI 产物**为准；记录 CI run 链接、`head_sha`、artifact 名与 sha256。
-  本地产物只能作兜底，不得替代 CI 产物写“UAT 通过”。
-- **迭代**：修复后提交新 commit → 重新 dispatch；版本号保持不变，用 commit SHA 区分轮次。
-- **出口**：`文档记录/人工体验记录/<版本号>.md` 有用户「人工体验通过（无阻断问题）」后，
-  才允许在 Phase 8 打 `v<版本>` tag；tag 前复查该签署。
+- **Phase 6.5 已撤销**：发布（Phase 8）不再等待用户签署；`windows` 端门禁证据来自
+  `scripts/verify/windows_vm_e2e.sh`（KVM 真机 VM）。
+- 用户在**发布之后**下载 Release 构建物试用；反馈按 `AGENTS.md §7.5` 分流处理，
+  记录写 `文档记录/人工体验记录/<版本号>.md`（不阻塞任何阶段）。
+- 打 tag / 发 Release 一律按 Phase 8 的「真实发布」口径（CI 构建，产物与哈希以 CI 为准）。
+- 产物一致性核验工具仍可复用：`python scripts/verify/check_uat_build.py --sha <commit>`。
+
 
 ## 实机验证产物版本（强制）
 
 - 测试/发布阶段做任何“实机验证”前，**必须用当前 `version.json` 的源码重新构建/打包**；
   产物版本必须能在安装包名、界面「关于/页脚」或 `version.json` 对上。
 - **禁止**用上一版本 Release 包、缓存 zip、历史 APK 代替当前版本：
-  `windows_wine.sh` 默认 `VERSION=v1.7.0`，必须显式 `VERSION=v<当前版本>`/`URL=<当前版本产物>`；
+  Windows 端跑 `scripts/verify/windows_vm_e2e.sh`，必须显式 `VERSION=<当前版本>`/`URL=<当前版本产物>`；
   当前版本包无法在本机构建时，报告写「阻塞：当前版本包未构建」，不得写「通过」。
 - 实机验证入口与探测顺序见 `scripts/verify/README.md` 与 `lessons` L48–L55；
-  先 `source scripts/verify/env.sh`，不要用默认 `PATH` 判断 `adb`/`wine`/`java` 缺失。
+  先 `source scripts/verify/env.sh`，不要用默认 `PATH` 判断 `adb`/`java` 缺失。
 
 ## 构建规则（强制）
 
@@ -336,11 +319,12 @@ scripts/verify/run_all.sh --ends all
 scripts/verify/server.sh smoke
 node scripts/verify/web_shot.mjs --click-text '连接服务端'
 QT_QPA_PLATFORM=offscreen ./JFLove
-scripts/verify/windows_wine.sh --skip-download
+scripts/verify/windows_vm_e2e.sh --keep
 ```
 
 - 冒烟要「点得动」：至少一次点击/输入触发服务端 200；不接受只看进程/窗口。
-- wine 只覆盖 UI 可操作；`setup.exe` 安装、CfAPI、媒体能力必须在真机/CI 验（L52）。
+- Windows 端证据一律来自 KVM 真机 VM；VM 覆盖安装器/文件关联/端到端加解密，
+  不覆盖真实 GPU 与硬件解码（未覆盖项须在报告写明原因）。
 - 判据、清理与边界见 `scripts/verify/README.md`。
 
 ## 文档更新范围
@@ -378,3 +362,9 @@ scripts/verify/windows_wine.sh --skip-download
 ## 安全宪法
 
 详见 `AGENTS.md §9`。你的角色约束见 §9.6 表格 `devops` 行。发布前额外检查 `_PLAIN_PATHS` 白名单未扩大、`_session_store` 仍为内存字典。
+
+
+## 实机验证（强制）
+
+按 `文档记录/验证标准.md` 执行：先 `bash scripts/verify/probe.sh`，再跑本端 runner；
+「当前版本」校验、证据表与门禁见标准 §4 / §8。禁止用旧包或“只启动/只抓帧”冒充通过。

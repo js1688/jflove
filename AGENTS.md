@@ -109,8 +109,9 @@
 ├── Web端开发记录/          # web-frontend 输出
 ├── 代码审查报告/           # code-review 输出
 ├── 测试报告/              # testing 输出
-├── 人工体验记录/           # Phase 6.5 UAT：testing 记录 / 用户裁决
+├── 人工体验记录/           # 发布后体验反馈（不阻塞流程，无签署门槛）
 ├── 项目管理记录/           # pmo 输出（含"下个版本候选台账"小节，见下）
+├── 技能复盘/              # skills-self-growth 输出的月度复盘报告（规则见 §6.5）
 └── 版本发布记录/           # devops 输出
 ```
 
@@ -250,7 +251,8 @@
 
 1. **唯一真相 = `.agents/skills/<技能名>/SKILL.md`**（DSH **工作区级**扫描根，**热扫描**：新增 / 改名 / 删除立即生效）。
    形态只认顶层 `<name>/SKILL.md` 或平铺 `<name>.md`，**不递归**；项目根 = 含 `.git` 的最近祖先。
-   技能名 = **角色名**（`backend` / `code-review` / …），另有 `lessons`（经验库）与 `subagent-delegation`（委派契约）。
+   技能名 = **角色名**（`backend` / `code-review` / …），另有 `lessons`（经验库）、`subagent-delegation`（委派契约）
+   与 `skills-self-growth`（技能自成长，见 §6.5）。
    扫描根优先级（rank 小者优先）：`<项目根>/.dsh/skills` → `<项目根>/.agents/skills` → profile `customSkillDirs`
    → `<dshHome>/skills` → 随包内置。**规则存两处必然漂移，不要引入任何"指路代理"层。**
 2. **frontmatter 必须合法 YAML**：必填 `name`（kebab-case，**与目录名一致**）+ `description`；
@@ -293,6 +295,51 @@
 - [ ] 委派前后 `git status --porcelain` 核对过，越界产物已清理？
 - [ ] 子 agent 回执**带证据**，且父 agent 核对后才采信？
 
+### 6.5 技能自成长（复盘 → 优化，闭环规则）
+
+> 目的：让"踩过的坑"沉淀成**更硬的判据**，而不是更长的文档。
+> 执行体 = `skills-self-growth` 技能；收件箱 = `.agents/skills/lessons/INBOX.md`。
+
+**A. 捕获（每个任务收尾，同步、极低成本）** —— 满足以下**任一条**才写，否则什么都不写：
+
+1. 某条门禁红过 / 同一任务需要返工；
+2. 实际行为与某技能写的判据不符；
+3. 同类问题**第二次**出现；
+4. 技能里写了某条规则，但实际被绕过。
+
+写入 `INBOX.md` 表尾，**一行一条**（8 列，列头不得改）。**没有「命令 + 退出码」或「文件:行」证据的自评结论不算证据**，
+triage 时直接驳回。
+
+**B. triage（月度兜底 + 事故即时触发）** —— 由 `skills-self-growth` 执行，
+产出 `文档记录/技能复盘/<YYYY-MM>.md`。分三档：
+
+| 档 | 对象 | 规则 |
+| --- | --- | --- |
+| **自动可改** | 角色 `SKILL.md`、`LESSONS.md`（只追加）、`INBOX.md` 状态列、复盘报告 | **最多 1 个文件 / 次**，必须走「备份 → 改 → 回读 → 门禁 → 错误数增加则还原」；报告标 `[AUTO-APPLIED]` / `[ROLLBACK]` |
+| **只写提案** | `scripts/**`、`AGENTS.md`、`.github/**`、任何模块源码 | 草稿 diff 进报告，由人应用 |
+| **永不触碰** | `skills-self-growth/**`、`scripts/check_*.py`（裁判）、`.git/**` | 改自己 / 改裁判 = 自证清白，无意义 |
+
+**自动修复不是"免审"**：改动以未提交状态留在工作区，`git diff` 就是审阅入口；
+报告必须贴出 diff 与原文件备份路径。**提交权仍在用户手里**（见 E）。
+
+**C. 铁律：同一条经验第二次复发 ⇒ 停止加文字，升级成脚本/门禁。**
+技能的成长表现为**判据变硬**，不是字数变多；`check_skills.py` 的单技能行数上限（420 行）就是防膨胀的硬闸。
+
+**D. 门禁（退出码即判据）**：
+
+```bash
+jflove-server/venv-linux/bin/python scripts/check_retro.py    # 收件箱结构 + 脱敏扫描
+jflove-server/venv-linux/bin/python scripts/check_skills.py   # 技能形态 + 体积
+```
+
+> 自动化定义**不进 git**（存在 DSH 侧、按工作区存活），换设备需按
+> `skills-self-growth/SKILL.md` §8 的参数各建一次。
+
+**E. git 写操作必须用户同意（无人值守执行尤其严格）。**
+自动化 / 子 agent / 后台任务一律**不得**执行 `git add`、`commit`、`push`、`tag`、`merge`、`rebase`、
+`reset`、`stash`、`checkout --`、`restore`，也不得改 `.git/**`；只允许只读命令
+（`git status` / `git diff` / `git log`）。**提交与推送是用户的动作**：必须在对话中被明确同意后才执行。
+
 ## 7. 版本迭代流程（核心流水线）
 
 > **每个版本迭代必须按以下固定阶段顺序执行，前一阶段完成后才能进入下一阶段。**
@@ -316,13 +363,18 @@ Phase 1              Phase 2              Phase 3
                                     └────────┬─────────┘
                                              │
                                              ▼
-Phase 5              Phase 6              Phase 6.5            Phase 7              Phase 8
-┌──────────┐        ┌──────────┐        ┌──────────────┐    ┌──────────┐        ┌──────────┐
-│ 🔍 代码审查 │   →   │ 🧪 测试报告 │   →   │ 👤 人工体验(UAT)│ →  │ 📊 PMO管理 │   →   │ 🚀 版本发布 │
-└──────────┘        └──────────┘        └──────────────┘    └──────────┘        └──────────┘
-                                           ↑______↓
-                                      问题反馈 / 修复 / 重构建
+Phase 5              Phase 6              Phase 7              Phase 8
+┌──────────┐        ┌──────────┐        ┌──────────┐        ┌──────────┐
+│ 🔍 代码审查 │   →   │ 🧪 测试报告 │   →   │ 📊 PMO管理 │   →   │ 🚀 版本发布 │
+└──────────┘        └──────────┘        └──────────┘        └──────────┘
+                          ↑______↓                                │
+                     问题反馈 / 修复 / 重跑审查与测试                 │
+                                                                   ▼
+                                        用户下载构建物体验（发布之后，不再阻塞流程）
 ```
+
+> **人工体验（UAT）不是版本门禁**：原 Phase 6.5 已撤销。发布是否放行只看 Phase 5/6 的机器证据
+> （含 **Windows 真机 VM** 的端到端结果）。用户体验反馈发生在**发布之后**，按 §7.5 分流处理。
 
 ### 7.2 各阶段详细说明
 
@@ -336,7 +388,6 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
 | **Phase 4c** Web 端开发 | "Web端开发" / "前端开发" | web-frontend | 设计文档 + 后端记录 | Web 端代码 + `文档记录/Web端开发记录/<版本号>.md` |
 | **Phase 5** 代码审查 | "代码审查" | code-review | 所有代码变更 + 需求/设计文档 | `文档记录/代码审查报告/<版本号>.md` |
 | **Phase 6** 测试 | "测试" | testing | 需求/设计文档 + 代码 | 补全测试用例 + `文档记录/测试报告/<版本号>.md` |
-| **Phase 6.5** 人工体验（UAT） | "人工体验" / "UAT" / "体验验收" | testing（记录）+ devops（构建物）+ **用户**（裁决） | 当前分支提交 + Phase 6 报告 + CI 构建物 | `文档记录/人工体验记录/<版本号>.md`（含用户签署） |
 | **Phase 7** 项目管理 | "项目管理" | pmo | 版本范围与任务列表 | `文档记录/项目管理记录/<版本号>.md` |
 | **Phase 8** 版本发布 | "发布" | devops | 审查/测试通过（Phase 5+6） | 构建产物 + `文档记录/版本发布记录/<版本号>.md` |
 
@@ -360,26 +411,12 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
 
 #### Phase 3~4 共用：实机验证前置（**强制**）
 
-> 背景：曾出现「默认 `PATH` 找不到 `adb`/`wine`/`java` 就判跳过」以及「用上一版本 Release 包冒充当前版本验证」。
-> 这两类都不再允许。
-
-1. **先按项目验证入口探测，不要用默认 `PATH` 判缺失**
-   - 必须先 `source scripts/verify/env.sh`（它定义 `JF_WINE_BIN`、`JF_FLUTTER_HOME`、`JF_ANDROID_HOME`、Xvnc 函数）；
-   - 必须先读 `scripts/verify/README.md` 与 `lessons` L48–L55；
-   - 常用真实路径（本机口径，缺失时以 `env.sh`/探测输出为准）：
-     - JDK：`/home/<user>/文档/jdk/jdk-21.0.10`（`JAVA_HOME` 必须显式设置，否则 Gradle 会选到无编译器的系统 JRE）；
-     - `adb`：`$ANDROID_HOME/platform-tools/adb`（不在默认 PATH）；
-     - `wine`：`$JF_WINE_BIN`（`$HOME/PortProton/.../wine`，`/usr/bin/wine` 可能是断链）；
-     - GUI：`Xvnc` + `kwin_x11`（锁屏/无显示时也必须用独立 Xvnc 验证）；
-     - Playwright：自带 Chromium 缺失时，代码回退系统 Microsoft Edge/Chromium，探测 `BROWSER_MANAGER.available()`。
-2. **实机验证必须使用「当前版本」构建产物**
-   - 先构建当前工作区：Android `JAVA_HOME=<jdk> flutter build apk --debug`；桌面 `python build.py -m desktop`（或明确的 onedir/安装包）；Web `npm run build`；服务端镜像 `python build.py -m server`。
-   - **禁止**使用上一版本 Release 包、缓存 zip、历史 APK 代替当前版本；版本号必须能在产物/界面页脚与 `version.json` 对上。
-   - `windows_wine.sh` 默认 `VERSION=v1.7.0`，必须显式传 `VERSION=v<当前版本>` 或 `URL=<当前版本产物>`；拿不到当前版本包时，**报告写“阻塞：当前版本包未构建”**，不得写“通过”。
-3. **跳过必须有可复现的真实探测输出**
-   - 只有「按上述入口探测后仍缺失」才允许跳过设备级/平台专属；
-   - 静态分析/单元测试永远不能因“无设备/无显示”跳过；
-   - 报告每条通过必须附命令+输出+产物版本；每条跳过附探测命令的真实输出。
+> **唯一口径见 `文档记录/验证标准.md`**（证据定义、能力探测、各端矩阵、当前版本一致性、版本切换、门禁）。
+> 本阶段只保留入口：
+>
+> 1. `bash scripts/verify/probe.sh` —— 先探测再判缺失，**禁止**用默认 `PATH` / 默认 libvirt URI 下结论；
+> 2. `python scripts/sync_version.py --check` + 构建**当前版本**产物（禁止上一版本 Release / 缓存包）；
+> 3. 按标准 §5 跑对应端 runner；跳过必须附 probe 与命令输出，报告写「未覆盖（原因）」。
 
 #### Phase 3：后端开发
 
@@ -399,7 +436,7 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
    `jflove-desktop/venv-linux/bin/python scripts/verify/desktop_shot.py`（或 Xvnc + XTest
    点击/输入后接口 200）。**只跑单测 / 只读代码不构成完成**。
    桌面端实机必须跑**当前版本构建产物**（`python build.py -m desktop` 或 `ui/dist` 当前源码构建）；
-   `windows_wine.sh` 必须显式传当前版本 `VERSION`/`URL`，不得用历史 Release 包。
+   Windows 端用 `scripts/verify/windows_vm_e2e.sh`（真机 VM），不得用历史 Release 包。
 4. 更新 `文档记录/桌面端开发记录/<版本号>.md` 与 `jflove-desktop/README.md`
 
 #### Phase 4b：移动端开发
@@ -440,38 +477,18 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
    退出码 0 才允许出报告；**只读代码 / 只跑 pytest 不构成验证完成**。
 6. 输出 `文档记录/测试报告/<版本号>.md`
 
-#### Phase 6.5：人工体验（UAT）
+#### Phase 6.5（已撤销）：人工体验移到发布之后
 
-> **定位**：Phase 6 的自动化/实机证据通过后、Phase 7 之前，由**用户本人**在**当前版本的 CI 构建物**上体验。
-> 本阶段**不计入 Phase 7/8、不产生发布记录、不改版本号**；目的是把「机器能证明的」与「人觉得好用的」分开。
-
-1. **入口（缺一不可）**
-   - Phase 6 报告门禁 `python scripts/check_verification_report.py --version <版本> --require ...` 退出码 0；
-   - 五端证据齐全，**已知未覆盖项**在测试报告中显式列出（不得藏）；
-   - 当前分支已提交并推送，CI 构建物可按 commit SHA 追溯。
-2. **构建物规则（强制）**
-   - **AI 必须亲自触发**：进入 Phase 6.5 后由 AI 立即对当前分支 dispatch
-     `build-desktop.yml` / `build-server.yml` / `build-web.yml` / `build-app.yml` 四个 workflow，
-     并逐个核对 run 的 `head_sha`；**禁止只写操作步骤让用户点**。无 `gh` 时用 GitHub REST API
-     （`POST /repos/<owner>/<repo>/actions/workflows/<file>/dispatches`，凭据取 `git credential fill`，
-     不得打印 token）。凭据缺失时必须报告「阻塞：无 workflow 触发凭据」，不得写成已触发/已通过；
-   - UAT 构建一律用 **`workflow_dispatch`（ref = 当前分支）** 触发 `.github/workflows/build-*.yml`；
-     **禁止打 `v<版本>` 发布 tag** —— 本仓库的 tag 会触发 `release.yml` 创建 Draft Release，属 Phase 8；
-   - **代码一致性（强制）**：dispatch 前先 `git rev-parse HEAD` 记下目标 commit；dispatch 后核对 run 的
-     `head_sha` 与之一致（GitHub UI / `GET /repos/<owner>/<repo>/actions/runs/<id>`），并保留 checkout 日志中的
-     `git fetch ... +<sha>` 行作证；可直接跑 `python scripts/verify/check_uat_build.py --sha <commit>`
-     （退出码 0 才可用）；不一致 → **废弃该轮构建物并重新 dispatch**；
-   - 版本号保持 `version.json` 不变；每轮修复后重新提交 → 重新 dispatch，以 **commit SHA / CI run** 区分迭代；
-   - 产物与哈希**以 CI 为准**；记录里写清 run 链接、artifact 名、`head_sha` 与构建物下载方式。
-3. **循环（用户 → 修复 → 重构建）**
-   - 用户按待验清单逐项体验，反馈需附：版本/commit、复现步骤、期望 vs 实际、截图或日志；
-   - 分类按 §7.5：**代码 BUG / 体验问题**走快速通道，修完重跑 Phase 5（仅变更面）+ Phase 6 相关端 + 全量门禁，
-     然后重新提交、重新 dispatch；**需求/设计问题**回 Phase 1/2 修订后再回来；**全程不新开版本号**；
-   - 每轮把「问题 / 根因 / 修复 / 复验证据 / 结论」写进 `文档记录/人工体验记录/<版本号>.md`。
-4. **出口**
-   - 记录中必须有用户明确写下的「**人工体验通过（无阻断问题）**」；
-   - 只有拿到该签署，Phase 7 才能开始；Phase 8 才允许打 `v<版本>` tag（真实发布）。
-5. **禁止**：UAT 阶段打发布 tag / 发 Release / 改版本号 / 把「CI 没跑」「本机没验」写成通过。
+> **本阶段不再是流水线门禁。** 原「用户在当前版本 CI 构建物上体验并签署」的流程已撤销：
+> 发布放行只认 Phase 5/6 的机器证据（含 Windows 真机 VM 端到端）。
+>
+> **用户的真实体验在发布之后**：下载 Release 构建物试用 → 反馈 → 按 §7.5 分流
+> （代码 BUG 走快速修复通道；体验/需求问题走完整迭代）。反馈记录仍写
+> `文档记录/人工体验记录/<版本号>.md`，但**它不阻塞任何阶段**，也不再需要「签署」才能进 Phase 7/8。
+>
+> 为什么撤销：Windows 端已有 KVM 真机靶机（`scripts/verify/windows_vm_e2e.sh`｜安装 → 启动 →
+> 密钥交换 → 登录 → 上传校验全自动），机器能证明的部分不再需要人重复操作；
+> 机器证明不了的部分（观感、手感、真机硬件差异）本来就只能发布后由用户实际使用才能发现。
 
 #### Phase 7：项目管理
 
@@ -506,6 +523,8 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
 
 ### 7.4 全局规则
 
+- **Windows 端实测**：按《验证标准》§5 跑 `scripts/verify/vm-win.sh up` + `windows_vm_e2e.sh VERSION=<当前版本>`；
+  **不得**用模拟层/历史包充当证据。
 - 对话开始主动确认用户意图；已说明则直接进入对应流程。
 - 开始任何任务前，先阅读项目根 `README.md` 与本文件 `AGENTS.md`。
 - 命中某个阶段后，只做该阶段的事；交叉需求需先得到用户确认。
@@ -558,8 +577,8 @@ Phase 5              Phase 6              Phase 6.5            Phase 7          
 
 #### 7.5.2 分类标准
 
-> **Phase 6.5 人工体验期间**：代码 BUG 与体验问题一律走 §7.3 Phase 6.5 的修复循环
-> （版本号不变、不新开 Phase 1）；**只有需求/设计层面变更**才回 Phase 1/2 修订后回到 UAT。
+> **发布后用户反馈**：代码 BUG 与体验问题都按本表分流 —— 代码 BUG 走快速修复通道（版本号不变），
+> 体验/需求层面变更走完整迭代（新小版本号）。
 
 | 类别 | 子类 | 典型特征 | 处理路径 | 触发关键词示例 |
 |---|---|---|---|---|
@@ -658,7 +677,9 @@ Step 5：发布（devops）
 | 当前能力清单（不带版本号） | 根 `README.md`「功能特性」（速览表 + 小节） | devops（发布时按需增删，**两处同一次改**） |
 | 各模块技术文档（架构 / 启动 / 路由表 / 已知限制） | 各模块 `README.md` | 对应开发角色 |
 | 跨版本技术债 / 下个版本候选台账 | `文档记录/项目管理记录/<最新版本>.md` 的「下个版本候选台账」小节 | pmo |
-| 人工体验（UAT）问题闭环与用户签署 | `文档记录/人工体验记录/<版本号>.md` | testing 记录 / 用户裁决 / devops 提供构建物 |
+| 发布后体验反馈（UAT，不阻塞流程） | `文档记录/人工体验记录/<版本号>.md` | 用户反馈 / testing 记录 / 按 §7.5 分流 |
+| 技能复盘（月度 triage 提案、驳回理由、上期落实） | `文档记录/技能复盘/<YYYY-MM>.md` | `skills-self-growth` 产出提案 / 人审核落地 |
+| 原始复盘条目（未 triage） | `.agents/skills/lessons/INBOX.md` | 各角色收尾时追加 / `skills-self-growth` 改状态 |
 
 - **根 `README.md` 不维护版本历史**：版本历史看 `文档记录/版本发布记录/`，发布产物看 GitHub Releases。
   README 内**不写具体版本号字面量**（用 `x.y.z` / `<版本号>` 占位），避免每版都要回来改它。

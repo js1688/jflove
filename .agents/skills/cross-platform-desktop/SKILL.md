@@ -184,3 +184,9 @@ scripts/verify/windows_vm_e2e.sh --skip-install --keep
   即可用 CDP 做点击/输入/截图（已实测 9222 可 attach 到 QtWebEngine 页面）。
   只有 Wayland 且缺 `ydotool`/`grim` 时，**也不得写「无法验证」**——先走 offscreen+CDP；
   确实覆盖不了的原生模态/硬件行为才写「未覆盖（原因）」。
+
+
+## 实机验证（强制）
+
+按 `文档记录/验证标准.md` 执行：先 `bash scripts/verify/probe.sh`，再跑本端 runner；
+「当前版本」校验、证据表与门禁见标准 §4 / §8。禁止用旧包或“只启动/只抓帧”冒充通过。
