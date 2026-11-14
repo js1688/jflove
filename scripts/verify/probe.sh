@@ -29,13 +29,19 @@ fi
 
 # Linux 无 X 也能验证：offscreen 平台 + QtWebEngine CDP（已验证 9222 可 attach）
 linux_ui="none"
-if [ -n "$linux_display" ]; then
+if [ "$linux_display" != "missing" ]; then
     linux_ui="x11"
 elif [ -x "$ROOT/jflove-desktop/venv-linux/bin/python" ] && [ -f "$ROOT/scripts/verify/desktop_shot.py" ]; then
     linux_ui="offscreen+cdp"
 fi
-xvnc="missing"
-rpm -q tigervnc-server >/dev/null 2>&1 && xvnc="installed"
+xvnc="missing"; command -v Xvnc >/dev/null 2>&1 && xvnc="installed"
+ydotool="missing"; command -v ydotool >/dev/null 2>&1 && ydotool="installed"
+xinput="missing"; command -v xinput >/dev/null 2>&1 && xinput="installed"
+android_avd="none"
+emu="${ANDROID_HOME:-$HOME/sdk/android-sdk}/emulator/emulator"
+if [ -x "$emu" ]; then android_avd="$("$emu" -list-avds 2>/dev/null | head -1)"; [ -z "$android_avd" ] && android_avd="none"; fi
+offscreen_cdp="no"
+if [ -x "$ROOT/jflove-desktop/venv-linux/bin/python" ] && [ -f "$ROOT/scripts/verify/desktop_shot.py" ]; then offscreen_cdp="yes"; fi
 
 adb_bin="${ANDROID_HOME:-$HOME/sdk/android-sdk}/platform-tools/adb"
 android="missing"
@@ -43,7 +49,7 @@ if [ -x "$adb_bin" ]; then
     if "$adb_bin" devices 2>/dev/null | grep -q 'device$'; then android="device"; else android="no-device"; fi
 fi
 
-python3 - "$vm_state" "$linux_display" "$linux_wayland" "$linux_ui" "$xvnc" "$android" <<'PY'
+python3 - "$vm_state" "$linux_display" "$linux_wayland" "$linux_ui" "$xvnc" "$ydotool" "$xinput" "$android" "$android_avd" "$offscreen_cdp" <<'PY'
 import json, sys
 print(json.dumps({
     "windows_vm": sys.argv[1],
@@ -51,6 +57,10 @@ print(json.dumps({
     "linux_wayland": sys.argv[3],
     "linux_ui": sys.argv[4],
     "xvnc": sys.argv[5],
-    "android": sys.argv[6],
+    "ydotool": sys.argv[6],
+    "xinput": sys.argv[7],
+    "android": sys.argv[8],
+    "android_avd": sys.argv[9],
+    "offscreen_cdp": sys.argv[10],
 }, ensure_ascii=False))
 PY
