@@ -180,5 +180,7 @@ scripts/verify/windows_vm_e2e.sh --skip-install --keep
   - Windows VM 必须用 `virsh -c qemu:///system`（默认 `qemu:///session` 看不到域）；
   - Linux 先看 `linux_display` / `linux_wayland`，**不得只试 `:99`** 就断言“无显示”。
 - 桌面端实机证据：Windows 走 `scripts/verify/vm-win.sh up` + `windows_vm_e2e.sh`；
-  Linux 有 X 时走 `desktop_shot.py`，只有 Wayland 时先确认 `ydotool`/`grim` 是否可用，
-  缺输入注入工具要在报告里写「未覆盖（原因）」，不得写「通过」。
+  **Linux 不依赖 X**：`QT_QPA_PLATFORM=offscreen` + `QTWEBENGINE_REMOTE_DEBUGGING=9222`
+  即可用 CDP 做点击/输入/截图（已实测 9222 可 attach 到 QtWebEngine 页面）。
+  只有 Wayland 且缺 `ydotool`/`grim` 时，**也不得写「无法验证」**——先走 offscreen+CDP；
+  确实覆盖不了的原生模态/硬件行为才写「未覆盖（原因）」。

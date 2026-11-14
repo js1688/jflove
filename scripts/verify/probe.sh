@@ -10,6 +10,7 @@
 #    "linux_wayland":"wayland-1|","android":"device|no-device|missing"}
 set -uo pipefail
 
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VM="${JF_WIN_VM:-jflove-win10}"
 UID_NUM="$(id -u)"
 
@@ -26,18 +27,30 @@ if ls /run/user/"$UID_NUM"/wayland-* >/dev/null 2>&1; then
     linux_wayland="$(basename "$(ls /run/user/"$UID_NUM"/wayland-* 2>/dev/null | grep -v '\.lock$' | head -1)")"
 fi
 
+# Linux 无 X 也能验证：offscreen 平台 + QtWebEngine CDP（已验证 9222 可 attach）
+linux_ui="none"
+if [ -n "$linux_display" ]; then
+    linux_ui="x11"
+elif [ -x "$ROOT/jflove-desktop/venv-linux/bin/python" ] && [ -f "$ROOT/scripts/verify/desktop_shot.py" ]; then
+    linux_ui="offscreen+cdp"
+fi
+xvnc="missing"
+rpm -q tigervnc-server >/dev/null 2>&1 && xvnc="installed"
+
 adb_bin="${ANDROID_HOME:-$HOME/sdk/android-sdk}/platform-tools/adb"
 android="missing"
 if [ -x "$adb_bin" ]; then
     if "$adb_bin" devices 2>/dev/null | grep -q 'device$'; then android="device"; else android="no-device"; fi
 fi
 
-python3 - "$vm_state" "$linux_display" "$linux_wayland" "$android" <<'PY'
+python3 - "$vm_state" "$linux_display" "$linux_wayland" "$linux_ui" "$xvnc" "$android" <<'PY'
 import json, sys
 print(json.dumps({
     "windows_vm": sys.argv[1],
     "linux_display": sys.argv[2],
     "linux_wayland": sys.argv[3],
-    "android": sys.argv[4],
+    "linux_ui": sys.argv[4],
+    "xvnc": sys.argv[5],
+    "android": sys.argv[6],
 }, ensure_ascii=False))
 PY
