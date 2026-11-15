@@ -206,4 +206,16 @@ export const localTermService = {
       cols,
       rows,
     }),
+  /**
+   * 补查本机终端打开结果。
+   *
+   * Python 侧先返回通道信息、后台线程再起 shell；启动失败的事件可能**早于**标签页创建
+   * 到达，那样事件会被 `patchTab` 丢弃。建好标签页后查一次即可补齐（v1.10.7）。
+   */
+  status: (sessionId: string) =>
+    callBridge<{ status: 'pending' | 'ready' | 'failed'; message: string }>(
+      'local_term',
+      'session_status',
+      { session_id: sessionId },
+    ),
 };

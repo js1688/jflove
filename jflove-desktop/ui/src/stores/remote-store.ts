@@ -180,6 +180,21 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
       message: '',
     };
     set((state) => ({ tabs: [...state.tabs, tab], activeTabId: tab.id }));
+    // 标签页建好后再补查一次：启动失败的事件可能早于本方法返回（v1.10.7 审查 S1），
+    // 若不补查，失败信息会被 patchTab 丢掉，用户只看到一直"连接中"的黑屏。
+    void localTermService
+      .status(tab.id)
+      .then((state) => {
+        if (state.status === 'failed') {
+          get().patchTab(tab.id, {
+            status: 'failed',
+            message: state.message || '本机终端启动失败',
+          });
+        }
+      })
+      .catch(() => {
+        // 补查失败不影响主流程（事件通道仍在）
+      });
   },
 
   closeTab: async (id) => {

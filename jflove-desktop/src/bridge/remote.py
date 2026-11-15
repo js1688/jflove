@@ -535,15 +535,32 @@ def _h_local_open(params: dict) -> dict:
     def run() -> None:
         try:
             session.open()
-            _publish("local_term.session_ready", {"session_id": session_id})
         except Exception as exc:  # noqa: BLE001
+            message = str(exc)
+            # 失败必须"留痕"：事件可能早于渲染层建标签页到达（审查 S1），
+            # 渲染层建好标签页后会调 local_term.session_status 补查一次。
+            local_terminal_service.remember_open_state(session_id, "failed", message)
+            # 失败不回收会持续泄漏会话/通道（审查 M4）
+            _sessions.pop(session_id, None)
+            try:
+                host.close_session(session_id)
+            except Exception:  # noqa: BLE001 - 回收阶段忽略
+                pass
             _publish(
                 "local_term.session_failed",
-                {"session_id": session_id, "message": str(exc)},
+                {"session_id": session_id, "message": message},
             )
+            return
+        local_terminal_service.remember_open_state(session_id, "ready")
+        _publish("local_term.session_ready", {"session_id": session_id})
 
     threading.Thread(target=run, name="local-term-open", daemon=True).start()
     return {"session_id": session_id, "port": host.port, "token": token}
+
+
+def _h_local_session_status(params: dict) -> dict:
+    """查询本机终端打开结果（ready / failed / pending），供渲染层补查"""
+    return local_terminal_service.get_open_state(str(params.get("session_id") or ""))
 
 
 HANDLERS: dict[str, dict[str, Callable[[dict], Any]]] = {
@@ -582,5 +599,6 @@ HANDLERS: dict[str, dict[str, Callable[[dict], Any]]] = {
         "profiles_update": _h_local_profiles_update,
         "profiles_delete": _h_local_profiles_delete,
         "open": _h_local_open,
+        "session_status": _h_local_session_status,
     },
 }

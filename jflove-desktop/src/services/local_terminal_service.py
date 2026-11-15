@@ -267,6 +267,32 @@ def delete_profile(profile_id: int) -> None:
         conn.commit()
 
 
+# ── 最近一次打开结果（渲染层补查用）──────────────────
+
+#: session_id → {"status": "ready" | "failed", "message": str}
+_OPEN_STATE: dict[str, dict[str, str]] = {}
+#: 只保留最近若干条，避免长期运行无限增长
+_OPEN_STATE_LIMIT = 32
+
+
+def remember_open_state(session_id: str, status: str, message: str = "") -> None:
+    """
+    记住本机终端最近一次打开结果，供渲染层**补查**。
+
+    为什么需要：Python 侧先返回 `{session_id, port, token}`、后台线程再启动 shell，
+    失败事件可能**早于**渲染层建立标签页到达，那样 `patchTab` 会找不到标签页而丢弃
+    （v1.10.7 审查 S1）。渲染层建好标签页后查一次本状态即可补齐。
+    """
+    _OPEN_STATE[session_id] = {"status": status, "message": message}
+    while len(_OPEN_STATE) > _OPEN_STATE_LIMIT:
+        _OPEN_STATE.pop(next(iter(_OPEN_STATE)))
+
+
+def get_open_state(session_id: str) -> dict[str, str]:
+    """查询打开结果；尚未上报时返回 pending"""
+    return dict(_OPEN_STATE.get(session_id) or {"status": "pending", "message": ""})
+
+
 # ── 本地会话 ─────────────────────────────────────────
 
 
@@ -388,14 +414,18 @@ class LocalSession:
         except Exception:  # noqa: BLE001
             pass
 
-    def _env(self) -> dict[str, str]:
-        env = os.environ.copy()
+    def _env_extra(self) -> dict[str, str]:
+        """解析 profile 里的自定义环境变量（坏配置按"无自定义"处理）"""
         extra = self.profile.get("env_json") or "{}"
         try:
             parsed = json.loads(extra) if isinstance(extra, str) else dict(extra)
-            env.update({str(k): str(v) for k, v in parsed.items()})
+            return {str(k): str(v) for k, v in parsed.items()}
         except Exception:  # noqa: BLE001
-            pass
+            return {}
+
+    def _env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.update(self._env_extra())
         return env
 
     def _open_posix(self) -> None:
@@ -421,7 +451,54 @@ class LocalSession:
         self._fd = master
         self.resize(self.cols, self.rows)
 
+    def _winpty_cwd(self) -> str:
+        """
+        pywinpty 的 `cwd` 必须是**存在的绝对目录**（CreateProcess 直接用）。
+
+        配置里留空时用用户主目录；填了但不存在时回退主目录并告警
+        （比让 CreateProcess 直接失败更容易排查）。
+        """
+        raw = str(self.profile.get("cwd") or "").strip()
+        if raw:
+            candidate = os.path.abspath(os.path.expandvars(raw))
+            if os.path.isdir(candidate):
+                return candidate
+            logger.warning("本机终端工作目录不存在，回退到用户主目录：%s", raw)
+        return os.path.abspath(os.path.expanduser("~"))
+
+    def _winpty_env(self) -> str | None:
+        """
+        pywinpty 的 `env` 是 `K=V` 以 `\\0` 分隔的**字符串**（不是 dict）。
+
+        没有自定义环境变量时返回 None（子进程继承本进程环境），
+        避免把整份 `os.environ` 塞进 ConPTY 环境块。
+        末尾那个 `\\0` 与 pywinpty 自己的 `PtyProcess.spawn()` 写法一致。
+        """
+        extra = self._env_extra()
+        if not extra:
+            return None
+        merged = os.environ.copy()
+        merged.update(extra)
+        return "\0".join(f"{k}={v}" for k, v in merged.items()) + "\0"
+
     def _open_windows(self) -> None:
+        """
+        启动 Windows 本机 shell（pywinpty / ConPTY）。
+
+        契约（pywinpty 3.x `_winpty.PTY.spawn`）：
+        `spawn(appname, cmdline=None, cwd=None, env=None) -> bool`
+
+        - `appname`：可执行文件路径（**不是**整条命令行；整条塞进去 ConPTY 起不来）
+        - `cmdline`：参数串（可为 None）
+        - `cwd`：存在的绝对目录
+        - `env`：`K=V` 以 `\\0` 分隔的字符串（传 dict 直接 TypeError）
+        - **返回值 False = 没起来**（ConPTY 失败不抛异常，只会返回 False）；
+          构造 `PTY` 与 `spawn` 仍可能抛 `WinptyError`（Rust 英文文案）
+
+        真机事故（v1.10.6）：打包漏了 pywinpty 的 `OpenConsole.exe` /
+        `winpty-agent.exe` ⇒ spawn 返回 False，旧实现忽略返回值并打印"已启动"
+        ⇒ 前端绿点、画面全黑、日志无异常。
+        """
         try:
             from winpty import PTY  # type: ignore[import-not-found]
         except ImportError as exc:
@@ -429,18 +506,30 @@ class LocalSession:
                 "本机终端缺少 pywinpty 依赖（Windows 需要 ConPTY），"
                 "请安装 pywinpty 后重试"
             ) from exc
-        shell_path = str(self.profile.get("shell_path") or "powershell.exe")
-        args = str(self.profile.get("args") or "")
-        cmdline = f"{shell_path} {args}".strip()
-        pty_obj = PTY(self.cols, self.rows)
-        # pywinpty 不同版本对 cwd/env 的入参有差异：先按标准签名，失败再降级
+        shell_path = str(self.profile.get("shell_path") or "powershell.exe").strip()
+        args = str(self.profile.get("args") or "").strip()
+        cwd = self._winpty_cwd()
         try:
-            pty_obj.spawn(cmdline, cwd=str(self.profile.get("cwd") or "") or None, env=self._env())
-        except TypeError:
-            logger.warning("pywinpty spawn 不接受 cwd/env，降级为仅命令")
-            pty_obj.spawn(cmdline)
+            pty_obj = PTY(self.cols, self.rows)
+            spawned = pty_obj.spawn(
+                shell_path,
+                cmdline=(" " + args) if args else None,
+                cwd=cwd,
+                env=self._winpty_env(),
+            )
+        except Exception as exc:  # noqa: BLE001 - WinptyError 的英文文案对用户无意义
+            raise RuntimeError(
+                f"本机终端启动失败：{shell_path}（{exc}）；"
+                "常见原因是安装包缺少 pywinpty 的 OpenConsole.exe / winpty-agent.exe"
+            ) from exc
+        if not spawned:
+            raise RuntimeError(
+                f"本机终端启动失败：{shell_path}"
+                "（ConPTY 未能启动进程；常见原因是安装包缺少 pywinpty 的 "
+                "OpenConsole.exe / winpty-agent.exe）"
+            )
         self._pty = pty_obj
-        logger.info("本机终端已启动（pywinpty）：%s", cmdline)
+        logger.info("本机终端已启动（pywinpty）：%s args=%r cwd=%s", shell_path, args, cwd)
 
     def _read_loop(self) -> None:
         while not self._closed:

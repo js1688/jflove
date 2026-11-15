@@ -163,7 +163,11 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 - **SSH 会话**：`paramiko` 直连目标（不经过服务端）；跳板用 `direct-tcpip` 串链，任意级；主机指纹 TOFU。
 - **终端通道**：Python 侧 `QWebSocketServer` 只绑 `127.0.0.1`，渲染层 xterm.js 连线；下行二进制、上行 JSON。
 - **SFTP**：与终端共用一条连接；列出/上传/下载/删除/新建目录；传输队列可取消。
-- **本机终端**：POSIX `pty` / Windows `pywinpty`；配置与分组只存本地 `jflove-local.db`。
+- **本机终端**：POSIX `pty` / Windows `pywinpty`（ConPTY）；配置与分组只存本地 `jflove-local.db`。
+- **Windows 打包硬约束**：pywinpty 自带两个运行时助手 exe（`OpenConsole.exe` / `winpty-agent.exe`），
+  PyInstaller **不会自动收集**，必须显式 `--add-data <src>;winpty`，且构建后要能在
+  `_internal/winpty/` 里找到（`build.py::assert_winpty_bundled()` 缺文件即失败）。
+  缺了它们 `PTY.spawn()` 返回 `False`（不抛异常），表现为"终端打开全黑、日志无异常"。
 - **凭据不进渲染层**：桥只回 `has_password` / `has_private_key` 与指纹；打开会话时 Python 直接用原文。
 - **依赖**：`paramiko==5.1.0`；Windows 额外 `pywinpty`；前端 `@xterm/xterm`。
 

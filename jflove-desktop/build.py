@@ -481,6 +481,63 @@ def build_frontend() -> None:
     log(f"前端产物就绪：{index}")
 
 
+#: Windows 本机终端（ConPTY）必须随包携带的 pywinpty 运行时助手。
+#: 缺任意一个，`PTY.spawn()` 就返回 False（ConPTY 起不来）→ 终端全黑且不报错
+#: （v1.10.6 发布包就是这样：PyInstaller 只收了 dll/pyd，漏了这两个 exe）。
+WINPTY_DATA_FILES = ("OpenConsole.exe", "winpty-agent.exe")
+
+
+def winpty_data_args(sep: str = ";", pkg_dir: Path | None = None) -> list[str]:
+    """
+    收集 pywinpty 运行时助手的 `--add-data` 参数（Windows 打包必需）。
+
+    :param sep: `--add-data` 的源/目标分隔符（Windows 为 `;`）
+    :param pkg_dir: pywinpty 包目录（默认取已安装包的真实路径，测试可注入）
+    :returns: PyInstaller 的 `["--add-data", "<src>;winpty", ...]` 参数
+    """
+    if pkg_dir is None:
+        try:
+            import winpty  # noqa: PLC0415 - 仅 Windows 构建环境安装该依赖
+        except ImportError:
+            fail(
+                "构建 Windows 包需要 pywinpty（requirements.txt 已按 sys_platform 声明）："
+                "缺它本机终端只有黑屏，不允许出包"
+            )
+        pkg_dir = Path(winpty.__file__).resolve().parent
+    missing = [name for name in WINPTY_DATA_FILES if not (pkg_dir / name).is_file()]
+    if missing:
+        fail(f"pywinpty 运行时助手缺失：{', '.join(missing)}（目录 {pkg_dir}）")
+    args: list[str] = []
+    for name in WINPTY_DATA_FILES:
+        args += ["--add-data", f"{pkg_dir / name}{sep}winpty"]
+    log(f"pywinpty 运行时助手将随包携带：{', '.join(WINPTY_DATA_FILES)}")
+    return args
+
+
+def assert_winpty_bundled(mode: str) -> None:
+    """
+    构建后硬门禁：onedir 产物里必须真的存在 winpty 运行时助手。
+
+    为什么构建后还要查一遍：`--add-data` 参数写对、但产物里没有（被清理/被忽略）时，
+    安装包照样能出、程序照样能启动，只有打开本机终端才全黑 —— 查产物才拦得住。
+    """
+    if platform.system() != "Windows":
+        return
+    if mode != "onedir":
+        log(f"[skip] {mode} 产物不做 winpty 助手门禁（onefile 的 datas 在 _MEIPASS 里，无法就地检查）")
+        return
+    # PyInstaller 6 起 onedir 的数据文件/二进制统一落在 `<dist>/<name>/_internal/` 下（5.x 平铺），
+    # 所以判据是 `_internal/winpty/<file>`；已用同版本 6.20.0 实测确认。
+    base = _onedir_path() / "_internal" / "winpty"
+    missing = [name for name in WINPTY_DATA_FILES if not (base / name).is_file()]
+    if missing:
+        fail(
+            f"打包后未找到 winpty 运行时助手：{', '.join(missing)}"
+            f"（应在 {_rel(base)}；否则 Windows 本机终端必然黑屏）"
+        )
+    log(f"winpty 运行时助手已随包：{_rel(base)}")
+
+
 def run_pyinstaller(clean: bool, mode: str) -> None:
     if clean and BUILD_DIR.exists():
         log(f"清理 {BUILD_DIR}")
@@ -517,11 +574,17 @@ def run_pyinstaller(clean: bool, mode: str) -> None:
         # Linux 挂载驱动 `src/utils/mount_fuse.py` 是**惰性** import fusepy，
         # PyInstaller 静态分析看不到 ⇒ 必须显式登记，否则打包后挂载降级为应用内视图
         cmd += ["--hidden-import", "fuse"]
+    else:
+        # Windows 本机终端依赖 pywinpty 的 ConPTY：它自带 OpenConsole.exe /
+        # winpty-agent.exe 两个**运行时助手 exe**（不在 .pyd 里），PyInstaller 不会自动收集
+        # ⇒ 必须显式收进 `_internal/winpty/`，否则 spawn 返回 False、终端全黑（v1.10.6 事故）
+        cmd += winpty_data_args(sep)
     cmd.append(str(SRC_MAIN))
     log(f"执行 pyinstaller（{mode}）: " + " ".join(cmd))
     proc = subprocess.run(cmd, cwd=ROOT)
     if proc.returncode != 0:
         fail(f"pyinstaller 失败，退出码 {proc.returncode}")
+    assert_winpty_bundled(mode)
 
 
 # ── 便携 zip ─────────────────────────────────────────────────────
