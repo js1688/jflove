@@ -3,7 +3,7 @@
 #
 # 用法：
 #   scripts/verify/run_all.sh                       # 默认 server,web,desktop（快）
-#   scripts/verify/run_all.sh --ends all            # 五端（Android/wine 较慢）
+#   scripts/verify/run_all.sh --ends all            # 五端（Android/Windows VM 较慢）
 #   scripts/verify/run_all.sh --ends server,web --out /tmp/summary.md
 #
 # 输出：/tmp/jf-verify-summary.md（表格：端 | 命令 | 结果 | 证据）
@@ -114,15 +114,15 @@ if has_end android; then
     fi
 fi
 
-# ── windows（wine）─────────────────────────────────────
+# ── windows（KVM 真机 VM）──────────────────────────────
 if has_end windows; then
     LOG="$LOG_DIR/windows.log"
-    if "$ROOT/scripts/verify/windows_wine.sh" --skip-download >"$LOG" 2>&1; then
-        row "Windows" "scripts/verify/windows_wine.sh --skip-download" \
-            "wine 登录页截图" "/tmp/jf-wine.png"
+    if "$ROOT/scripts/verify/windows_vm_e2e.sh" --keep >"$LOG" 2>&1; then
+        row "Windows" "scripts/verify/windows_vm_e2e.sh --keep" \
+            "安装→启动→密钥交换→登录→上传校验全部通过" "/tmp/jf-win/e2e/SUMMARY.md"
     else
         FAIL=$((FAIL + 1))
-        row "Windows" "scripts/verify/windows_wine.sh --skip-download" "失败（见 log）" "$LOG"
+        row "Windows" "scripts/verify/windows_vm_e2e.sh --keep" "失败（见 log）" "$LOG"
     fi
 fi
 

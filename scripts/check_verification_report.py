@@ -11,7 +11,7 @@
     | Web | `web_shot.mjs --click-text ...` | key-exchange 200 | /tmp/jf-web.png |
     | Linux 桌面 | `desktop_shot.py` | 1180x760 抓帧 | /tmp/jf-desktop.png |
     | Android | `android_smoke.sh --stop` | 安装 Success；登录 200 | /tmp/jf-android.png |
-    | Windows | `scripts/verify/windows_wine.sh --skip-download` | 登录页渲染 | /tmp/jf-wine.png |
+    | Windows | `scripts/verify/windows_vm_e2e.sh --keep` | 安装→启动→密钥交换→登录→上传校验 | /tmp/jf-win/e2e/SUMMARY.md |
 
 跳过某端时：结果写「跳过」，证据写「原因：<真实探测输出>」。
 
@@ -40,7 +40,7 @@ ALIASES = {
     "web": ("web", "web端", "浏览器"),
     "desktop": ("linux桌面", "linux 桌面", "desktop", "桌面端"),
     "android": ("android", "安卓", "移动端"),
-    "windows": ("windows", "wine"),
+    "windows": ("windows", "windows_vm_e2e"),
 }
 HEADING = re.compile(r"^##\s+验证证据.*$")
 NEXT_HEADING = re.compile(r"^##\s+")
@@ -160,7 +160,7 @@ def _self_test() -> int:
 | Web | `node scripts/verify/web_shot.mjs` | key-exchange 200 | /tmp/jf-web.png |
 | Linux 桌面 | `desktop_shot.py` | 1180x760 抓帧 | /tmp/jf-desktop.png |
 | Android | `scripts/verify/android_smoke.sh --stop` | 安装 Success；登录 200 | /tmp/jf-android.png |
-| Windows | `scripts/verify/windows_wine.sh --skip-download` | 登录页渲染 | /tmp/jf-wine.png |
+| Windows | `scripts/verify/windows_vm_e2e.sh --keep` | 安装→启动→密钥交换→登录→上传校验 | /tmp/jf-win/e2e/SUMMARY.md |
 """
     bad_missing = "## 测试范围\n\n只跑了 pytest。\n"
     bad_skip = """## 验证证据

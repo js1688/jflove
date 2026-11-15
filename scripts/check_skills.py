@@ -37,7 +37,11 @@ except ImportError:  # pragma: no cover - 取决于运行环境
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILLS_ROOT = REPO_ROOT / ".agents" / "skills"
 
-# AGENTS.md §6 角色表 + 跨角色经验库 + 委派契约
+# 单技能行数上限：防"规则通胀"（AGENTS.md §6.5 C —— 成长是判据变硬，不是字数变多）。
+# 当前最长 devops 约 380 行，留出余量；顶到上限时先压缩，再谈新增。
+MAX_SKILL_LINES = 420
+
+# AGENTS.md §6 角色表 + 跨角色经验库 + 委派契约 + 技能自成长执行体
 REQUIRED_NAMES = (
     "product",
     "designer",
@@ -51,6 +55,7 @@ REQUIRED_NAMES = (
     "devops",
     "lessons",
     "subagent-delegation",
+    "skills-self-growth",
 )
 
 FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
@@ -77,17 +82,24 @@ def collect_skills() -> list[tuple[str, Path]]:
     return found
 
 
-def check_one(skill_name: str, path: Path) -> tuple[list[str], list[str], str, int]:
-    """校验单个技能，返回 (错误, 警告, 描述, 描述长度)。"""
+def check_one(skill_name: str, path: Path) -> tuple[list[str], list[str], str, int, int]:
+    """校验单个技能，返回 (错误, 警告, 描述, 描述长度, 行数)。"""
     errors: list[str] = []
     warnings: list[str] = []
     text = path.read_text(encoding="utf-8")
     rel = _display_path(path)
+    line_count = len(text.splitlines())
+
+    if line_count > MAX_SKILL_LINES:
+        errors.append(
+            f"{rel}: {line_count} 行，超过单技能上限 {MAX_SKILL_LINES} 行 —— "
+            "先压缩/升级成门禁，再谈新增（AGENTS.md §6.5 C）"
+        )
 
     match = FRONTMATTER_RE.match(text)
     if match is None:
         errors.append(f"{rel}: 缺少 `---` frontmatter 块（DSH 会直接丢弃该技能）")
-        return errors, warnings, "", 0
+        return errors, warnings, "", 0, line_count
 
     raw_frontmatter = match.group(1)
     body = text[match.end():]
@@ -103,10 +115,10 @@ def check_one(skill_name: str, path: Path) -> tuple[list[str], list[str], str, i
                 f"{rel}: frontmatter 不是合法 YAML（{first_line}）——"
                 "含 `: ` 的值必须加双引号，否则该技能被静默丢弃"
             )
-            return errors, warnings, "", 0
+            return errors, warnings, "", 0, line_count
         if not isinstance(data, dict):
             errors.append(f"{rel}: frontmatter 必须是映射（YAML mapping）")
-            return errors, warnings, "", 0
+            return errors, warnings, "", 0, line_count
         name = data.get("name")
         description = data.get("description")
     else:
@@ -141,7 +153,7 @@ def check_one(skill_name: str, path: Path) -> tuple[list[str], list[str], str, i
         if marker in body:
             errors.append(f"{rel}: 正文仍含已删除的生成器残留 `{marker}`（代理机制已废弃，需改为真身）")
 
-    return errors, warnings, description.strip(), len(description.strip())
+    return errors, warnings, description.strip(), len(description.strip()), line_count
 
 
 def main() -> int:
@@ -153,14 +165,14 @@ def main() -> int:
     skills = collect_skills()
     all_errors: list[str] = []
     all_warnings: list[str] = []
-    print(f"\n{'技能名':<26} {'描述字数':>6}  状态")
-    print("-" * 52)
+    print(f"\n{'技能名':<26} {'描述字数':>6} {'行数':>5}  状态")
+    print("-" * 58)
     for skill_name, path in skills:
-        errors, warnings, _description, desc_len = check_one(skill_name, path)
+        errors, warnings, _description, desc_len, line_count = check_one(skill_name, path)
         all_errors.extend(errors)
         all_warnings.extend(warnings)
         status = "OK" if not errors else f"错误 × {len(errors)}"
-        print(f"{skill_name:<26} {desc_len:>6}  {status}")
+        print(f"{skill_name:<26} {desc_len:>6} {line_count:>5}  {status}")
 
     present = {name for name, _path in skills}
     missing = [name for name in REQUIRED_NAMES if name not in present]
