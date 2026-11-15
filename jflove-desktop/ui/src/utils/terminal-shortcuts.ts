@@ -14,7 +14,9 @@ export interface TerminalShortcuts {
   copyPasteMode: CopyPasteMode;
 }
 
-const DEFAULT_SHORTCUTS: TerminalShortcuts = { copyPasteMode: 'ctrl' };
+//: 默认「智能」：有选区 ⇒ 复制；无选区 ⇒ 照常发 SIGINT。
+//: 终端里 Ctrl+C 停不下来是安全隐患（跑飞的进程按不住），所以不能默认成纯复制。
+const DEFAULT_SHORTCUTS: TerminalShortcuts = { copyPasteMode: 'smart' };
 
 /** 读取快捷键设置（非法值回退默认） */
 export function readTerminalShortcuts(): TerminalShortcuts {

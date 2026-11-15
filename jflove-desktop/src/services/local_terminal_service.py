@@ -31,6 +31,17 @@ _DB_PATH = os.path.join(LOCAL_STORAGE_DIR, "jflove-local.db")
 #: 输出块大小
 READ_CHUNK = 4096
 
+#: 默认终端类型。宿主进程（GUI 会话）的 TERM 常常是 `dumb`，
+#: 原样传给 shell 会让 vim/htop/dsh 这类全屏程序退化成无色、甚至禁用交互能力。
+#: 实测（v1.10.7）：`TERM=dumb` 下 dsh TUI 无配色；显式 `xterm-256color` 后恢复正常。
+DEFAULT_TERM = "xterm-256color"
+
+#: 声明 24 位真彩色（xterm 的 256 色主题之外，TUI 的 RGB 取色靠它）
+DEFAULT_COLORTERM = "truecolor"
+
+#: 让 TUI 能识别"自己跑在哪个终端里"（排障与能力探测都用得上）
+TERM_PROGRAM = "JFLove"
+
 _CREATE_GROUPS = """
 CREATE TABLE IF NOT EXISTS local_terminal_groups (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -404,6 +415,25 @@ class LocalSession:
         except Exception as exc:  # noqa: BLE001
             logger.debug("调整本机 PTY 尺寸失败：%s", exc)
 
+    def nudge_redraw(self) -> None:
+        """
+        触发一次 SIGWINCH，让全屏 TUI 整屏重绘。
+
+        备用屏程序（vim / htop / dsh）不会因为"终端要求重绘"而重画，
+        唯一通用手段是改一次窗口尺寸：先缩一列再恢复，内核各发一次 SIGWINCH。
+        放在后台线程做，避免卡 GUI。
+        """
+
+        def run() -> None:
+            try:
+                self.resize(max(2, self.cols - 1), self.rows)
+                time.sleep(0.06)
+                self.resize(self.cols, self.rows)
+            except Exception as exc:  # noqa: BLE001 - 重绘失败不影响会话
+                logger.debug("请求终端重绘失败：%s", exc)
+
+        threading.Thread(target=run, name="local-term-redraw", daemon=True).start()
+
     # ── 内部 ──────────────────────────────────────────
 
     def _status(self, phase: str, index: int, message: str) -> None:
@@ -424,7 +454,21 @@ class LocalSession:
             return {}
 
     def _env(self) -> dict[str, str]:
+        """
+        组装本机 shell 的环境变量。
+
+        宿主进程可能没有 TERM / 是 `dumb`（桌面会话常见），直接继承会破坏
+        全屏 TUI；这里补齐终端类型与真彩色声明，自定义 env 拥有最终否决权。
+        """
         env = os.environ.copy()
+        term = str(env.get("TERM") or "").strip()
+        if not term or term == "dumb":
+            env["TERM"] = DEFAULT_TERM
+        if not str(env.get("COLORTERM") or "").strip():
+            env["COLORTERM"] = DEFAULT_COLORTERM
+        env["TERM_PROGRAM"] = TERM_PROGRAM
+        if not str(env.get("LANG") or "").strip() and not str(env.get("LC_ALL") or "").strip():
+            env["LANG"] = "C.UTF-8"
         env.update(self._env_extra())
         return env
 
@@ -437,6 +481,26 @@ class LocalSession:
         args = str(self.profile.get("args") or "").split()
         cwd = str(self.profile.get("cwd") or "") or None
         master, slave = pty.openpty()
+
+        def _become_session_leader() -> None:
+            """
+            建立**独立会话 + 控制终端**。
+
+            只 `setsid()` 不 `TIOCSCTTY` 时，子进程没有控制终端，
+            PTY 行规程不知道谁是前台进程组 ⇒ `Ctrl+C`（0x03）不会产生 SIGINT、
+            `Ctrl+Z` 不会挂起，TUI 里"中断"整条链路都是坏的（v1.10.7 隐患 R5）。
+            把 slave 设成控制终端后，bash 自己会 `tcsetpgrp` 到自己的前台作业。
+            """
+            os.setsid()
+            try:
+                import fcntl
+                import termios
+
+                fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+            except OSError:
+                # 平台不支持时保持可用（只是没有前台作业控制）
+                pass
+
         self._proc = subprocess.Popen(
             [shell_path] + args,
             stdin=slave,
@@ -444,7 +508,7 @@ class LocalSession:
             stderr=slave,
             cwd=cwd,
             env=self._env(),
-            preexec_fn=os.setsid,
+            preexec_fn=_become_session_leader,
             close_fds=True,
         )
         os.close(slave)
@@ -562,4 +626,7 @@ class LocalSession:
                 except Exception:  # noqa: BLE001
                     break
         if not self._closed:
-            self._status("closed", 0, "本机终端已退出")
+            code = 0
+            if self._proc is not None:
+                code = self._proc.poll() or 0
+            self._status("closed", int(code), "本机终端已退出")

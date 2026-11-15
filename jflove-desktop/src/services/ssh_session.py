@@ -234,6 +234,28 @@ class SshSession:
         except Exception as exc:  # noqa: BLE001
             logger.debug("调整 PTY 尺寸失败：%s", exc)
 
+    def nudge_redraw(self) -> None:
+        """
+        触发一次 SIGWINCH，让全屏 TUI 整屏重绘（终端"重绘"按钮）。
+
+        远端 PTY 只有尺寸变化才会收到 SIGWINCH，所以先缩一列再恢复；
+        放后台线程做，避免阻塞调用方。
+        """
+
+        def run() -> None:
+            try:
+                if self._chan is None or self._closed:
+                    return
+                self._chan.resize_pty(width=max(2, self.cols - 1), height=self.rows)
+                import time as _time
+
+                _time.sleep(0.06)
+                self._chan.resize_pty(width=self.cols, height=self.rows)
+            except Exception as exc:  # noqa: BLE001 - 重绘失败不影响会话
+                logger.debug("请求远端重绘失败：%s", exc)
+
+        threading.Thread(target=run, name="ssh-redraw", daemon=True).start()
+
     def open_sftp(self) -> paramiko.SFTPClient:
         """在同一连接上打开 SFTP 通道（复用认证与跳板链）"""
         if not self._transports:

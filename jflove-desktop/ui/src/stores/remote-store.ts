@@ -21,6 +21,7 @@ export type SessionKind = 'ssh' | 'sftp' | 'local';
 export interface SessionTab {
   id: string;
   kind: SessionKind;
+  /** SSH/SFTP 连接 ID；kind=local 时是本地终端配置 ID（0=默认终端） */
   connectionId: number;
   title: string;
   subtitle: string;
@@ -60,9 +61,13 @@ interface RemoteState {
   createGroup: (name: string) => Promise<void>;
   deleteGroup: (id: number) => Promise<void>;
 
-  openRemoteSession: (connection: RemoteConnectionSummary) => Promise<void>;
+  openRemoteSession: (
+    connection: Pick<RemoteConnectionSummary, 'id' | 'name' | 'host' | 'username' | 'mode'>,
+  ) => Promise<void>;
   openLocalSession: (profileId: number, title: string) => Promise<void>;
   closeTab: (id: string) => Promise<void>;
+  /** 会话结束（进程退出/断链）后按同一配置重开一个标签 */
+  reopenTab: (id: string) => Promise<void>;
   setActiveTab: (id: string) => void;
   setTabView: (id: string, view: 'terminal' | 'files') => void;
   patchTab: (id: string, patch: Partial<SessionTab>) => void;
@@ -169,7 +174,7 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
     const tab: SessionTab = {
       id: result.session_id,
       kind: 'local',
-      connectionId: 0,
+      connectionId: profileId,
       title,
       subtitle: '本机终端',
       port: result.port,
@@ -212,6 +217,19 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
         state.activeTabId === id ? (tabs[tabs.length - 1]?.id ?? null) : state.activeTabId;
       return { tabs, activeTabId };
     });
+  },
+
+  reopenTab: async (id) => {
+    const tab = get().tabs.find((item) => item.id === id);
+    if (!tab) return;
+    if (tab.kind === 'local') {
+      await get().openLocalSession(tab.connectionId, tab.title);
+    } else {
+      // SSH / SFTP：重新取一次连接配置（密码在 Python 侧，渲染层只拿摘要）
+      const { connection } = await remoteService.getConnection(tab.connectionId);
+      await get().openRemoteSession(connection);
+    }
+    await get().closeTab(id);
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),

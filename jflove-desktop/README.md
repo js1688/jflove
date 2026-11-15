@@ -171,6 +171,24 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 - **凭据不进渲染层**：桥只回 `has_password` / `has_private_key` 与指纹；打开会话时 Python 直接用原文。
 - **依赖**：`paramiko==5.1.0`；Windows 额外 `pywinpty`；前端 `@xterm/xterm`。
 
+### 终端底座（v1.10.8 重建）
+
+- **DECRQM 兼容层**（`ui/src/utils/xterm-decrqm.ts`）：xterm 6.0.0 生产包的 DECRQM 处理会抛
+  `ReferenceError`，而 TUI 每帧都探测终端能力 ⇒ 写队列永久卡死。该层在 `term.parser` 上**先注册**
+  同标识 handler（xterm 派发是后注册者先执行）并按规范回 DECRPM，绕开坏路径。
+- **会话级实例注册表**：xterm + WebSocket 存在模块级 `runtimes` 里，**生命周期跟标签走**；
+  路由切换只把 DOM 摘下来再挂回去，不重建、不重连、不清屏。
+  **不做历史回放**：回放原始输出会让终端重新应答 TUI 的能力查询（DA1/OSC10/OSC11），
+  应答被 shell 回显成垃圾字符（真机踩过）。
+- **写队列看门狗**：`write(data, cb)` 5s 未确认即认为卡死 → 丢弃旧 xterm、在同一容器里重建、
+  发 `redraw` 让远端整屏重绘（WS 不动）。
+- **本机终端环境**：`TERM` 缺省/`dumb` → `xterm-256color`，补 `COLORTERM=truecolor`、
+  `TERM_PROGRAM=JFLove`；POSIX 子进程 `setsid + TIOCSCTTY`（有控制终端，Ctrl+C 才产生 SIGINT）。
+- **输出管道**：Python 侧 16ms 合并成一条二进制帧（TUI 每帧几十个 chunk）；上行
+  `input/resize/close/redraw`，下行 `exit` 控制帧（进程退出/链路断开）。
+- **验收脚本**：`node scripts/verify/desktop_terminal_e2e.mjs --port <CDP 端口>`
+  （本机终端 / 中文与输入法 / vim / 大输出 / 复制粘贴 / Ctrl+C / 尺寸 / 多标签 / dsh TUI）。
+
 ## 技术架构
 
 ### 框架与组件

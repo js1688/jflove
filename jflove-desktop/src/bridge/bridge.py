@@ -370,6 +370,7 @@ class Bridge(QObject):
             | sync_bridge.MAIN_THREAD_METHODS
             | transfer_bridge.MAIN_THREAD_METHODS
             | editor_bridge.MAIN_THREAD_METHODS
+            | remote_bridge.MAIN_THREAD_METHODS
         ):
             try:
                 result = handler(params)

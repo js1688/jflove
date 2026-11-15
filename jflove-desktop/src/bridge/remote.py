@@ -213,6 +213,37 @@ def _run_session(session_id: str, session: Any) -> None:
         )
 
 
+def _ssh_status(host: TerminalHost, session_id: str):
+    """SSH 会话状态：桥事件（链路逐跳进度） + 终端通道（退出/断开）双通道上报"""
+
+    def report(phase: str, index: int, message: str) -> None:
+        _publish(
+            "remote.session_status",
+            {
+                "session_id": session_id,
+                "phase": phase,
+                "jump_index": index,
+                "message": message,
+            },
+        )
+        host.notify_status(session_id, phase, message)
+
+    return report
+
+
+def _local_status(host: TerminalHost, session_id: str):
+    """本机会话状态：同上（本机没有跳板，index 不使用）"""
+
+    def report(phase: str, index: int, message: str) -> None:
+        _publish(
+            "local_term.session_status",
+            {"session_id": session_id, "phase": phase, "message": message},
+        )
+        host.notify_status(session_id, phase, message)
+
+    return report
+
+
 def _h_session_open(params: dict) -> dict:
     """打开 SSH 会话：立即返回通道信息，建链在后台进行"""
     host = _require_host()
@@ -227,15 +258,7 @@ def _h_session_open(params: dict) -> dict:
         cols=cols,
         rows=rows,
         on_output=lambda data: host.feed(session_id, data),
-        on_status=lambda phase, index, message: _publish(
-            "remote.session_status",
-            {
-                "session_id": session_id,
-                "phase": phase,
-                "jump_index": index,
-                "message": message,
-            },
-        ),
+        on_status=_ssh_status(host, session_id),
         hostkey_ask=_ask_hostkey(session_id),
         otp_ask=_ask_otp(session_id),
     )
@@ -524,10 +547,7 @@ def _h_local_open(params: dict) -> dict:
         cols=int(params.get("cols") or 80),
         rows=int(params.get("rows") or 24),
         on_output=lambda data: host.feed(session_id, data),
-        on_status=lambda phase, index, message: _publish(
-            "local_term.session_status",
-            {"session_id": session_id, "phase": phase, "message": message},
-        ),
+        on_status=_local_status(host, session_id),
     )
     token = host.register(session_id, session)
     _sessions[session_id] = session
@@ -558,9 +578,34 @@ def _h_local_open(params: dict) -> dict:
     return {"session_id": session_id, "port": host.port, "token": token}
 
 
+def _h_clipboard_read(_params: dict) -> dict:
+    """读系统剪贴板（终端粘贴兜底；GUI 线程执行，见 MAIN_THREAD_METHODS）"""
+    from PySide6.QtGui import QGuiApplication
+
+    clipboard = QGuiApplication.clipboard()
+    return {"text": clipboard.text() if clipboard is not None else ""}
+
+
+def _h_clipboard_write(params: dict) -> dict:
+    """写系统剪贴板（终端复制兜底；GUI 线程执行）"""
+    from PySide6.QtGui import QGuiApplication
+
+    clipboard = QGuiApplication.clipboard()
+    if clipboard is not None:
+        clipboard.setText(str(params.get("text") or ""))
+    return {"ok": True}
+
+
 def _h_local_session_status(params: dict) -> dict:
     """查询本机终端打开结果（ready / failed / pending），供渲染层补查"""
     return local_terminal_service.get_open_state(str(params.get("session_id") or ""))
+
+
+#: 必须跑在 GUI 线程的方法（QClipboard 不是线程安全的）
+MAIN_THREAD_METHODS: set[tuple[str, str]] = {
+    ("local_term", "clipboard_read"),
+    ("local_term", "clipboard_write"),
+}
 
 
 HANDLERS: dict[str, dict[str, Callable[[dict], Any]]] = {
@@ -600,5 +645,7 @@ HANDLERS: dict[str, dict[str, Callable[[dict], Any]]] = {
         "profiles_delete": _h_local_profiles_delete,
         "open": _h_local_open,
         "session_status": _h_local_session_status,
+        "clipboard_read": _h_clipboard_read,
+        "clipboard_write": _h_clipboard_write,
     },
 }

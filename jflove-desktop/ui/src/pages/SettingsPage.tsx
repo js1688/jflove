@@ -237,7 +237,7 @@ export function SettingsPage() {
             <div>
               <div className="text-[13px] font-medium">复制 / 粘贴快捷键</div>
               <div className="mt-0.5 text-[11.5px] text-muted">
-                终端里 Ctrl+C 默认是中断；选择「Ctrl+C/V」会改为复制粘贴
+                默认「智能」：有选区时 Ctrl+C 复制，无选区时照常中断（SIGINT）
               </div>
             </div>
             <select

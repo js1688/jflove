@@ -30,13 +30,32 @@ const send = (method, params = {}) =>
 const evalJs = async (expression) =>
   (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result
     ?.result?.value;
-await evalJs("document.querySelector('.xterm-helper-textarea')?.focus()");
+// 只挑**可见**终端的 textarea（多标签时隐藏标签也在 DOM 里）
+await evalJs(
+  "(() => { const t=[...document.querySelectorAll('.xterm-helper-textarea')].filter((el)=>el.offsetParent!==null)[0]; t && t.focus(); })()",
+);
+// 按键必须走 rawKeyDown → char → keyUp：
+// 直接给 keyDown 带 text 会让 Chromium 再往 textarea 插一次字符，xterm 收到**两遍**
+// （v1.10.8 排查时实测：`echo hello` 被敲成 `echo helloecho hello`）。
+const CODE_OF = (ch) => {
+  if (/[a-z]/i.test(ch)) return 'Key' + ch.toUpperCase();
+  if (/[0-9]/.test(ch)) return 'Digit' + ch;
+  if (ch === ' ') return 'Space';
+  if (ch === '-') return 'Minus';
+  if (ch === '.') return 'Period';
+  if (ch === '/') return 'Slash';
+  if (ch === '_') return 'Minus';
+  return '';
+};
 for (const ch of text) {
-  await send('Input.dispatchKeyEvent', { type: 'keyDown', text: ch, key: ch, unmodifiedText: ch });
-  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch });
+  const code = CODE_OF(ch);
+  await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: ch, code });
+  await send('Input.dispatchKeyEvent', { type: 'char', text: ch, unmodifiedText: ch, key: ch, code });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ch, code });
 }
-await send('Input.dispatchKeyEvent', { type: 'keyDown', text: '\r', key: 'Enter', unmodifiedText: '\r' });
-await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter' });
+await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+await send('Input.dispatchKeyEvent', { type: 'char', text: '\r', unmodifiedText: '\r', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
+await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
 await new Promise((r) => setTimeout(r, 1500));
 const rows = await evalJs(
   "Array.from(document.querySelectorAll('.xterm-rows > div')).map(d=>d.textContent).filter(Boolean).slice(-6).join('\\n')",
