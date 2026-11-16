@@ -427,6 +427,17 @@ export function SessionPage() {
             </div>
           )}
 
+          {/* 行数不足：dsh TUI 在 ≤21 行会画丢输入行（tmux 同样复现），这里明确提示 */}
+          {activeStatus?.tooSmall && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-warning-50 bg-warning-50 px-3 py-2 text-xs text-warning-700">
+              <Icon name="warning" size="sm" />
+              <span className="min-w-0 flex-1">
+                窗口高度不足：终端只有 {activeStatus.rows} 行，全屏 TUI 需要至少{' '}
+                {activeStatus.minRows} 行。请拉高窗口（字号已缩到最小）。
+              </span>
+            </div>
+          )}
+
           {/* ③ 终端卡片：所有标签常驻，只切显隐 */}
           <div className="relative min-h-0 flex-1 px-3 pb-2 pt-2">
             <div className="relative h-full overflow-hidden rounded-xl border border-line-subtle bg-[#0b1220] shadow-e1">
@@ -496,7 +507,10 @@ export function SessionPage() {
             <span className="font-mono tabular-nums">
               {activeStatus ? `行 ${activeStatus.cursorRow} 列 ${activeStatus.cursorCol}` : '—'}
             </span>
-            <span className="text-subtle">⌥ 字号 {fontSize}</span>
+            <span className={activeStatus?.autoShrunk ? 'text-warning-700' : 'text-subtle'}>
+              ⌥ 字号 {fontSize}
+              {activeStatus?.autoShrunk ? `→${activeStatus.effectiveFontSize}（自适应）` : ''}
+            </span>
             <span className="text-subtle">{terminalVisible ? '终端' : '文件'}</span>
           </div>
         </>

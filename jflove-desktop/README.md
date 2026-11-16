@@ -187,7 +187,10 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 - **输出管道**：Python 侧 16ms 合并成一条二进制帧（TUI 每帧几十个 chunk）；上行
   `input/resize/close/redraw`，下行 `exit` 控制帧（进程退出/链路断开）。
 - **验收脚本**：`node scripts/verify/desktop_terminal_e2e.mjs --port <CDP 端口>`
-  （本机终端 / 中文与输入法 / vim / 大输出 / 复制粘贴 / Ctrl+C / 尺寸 / 多标签 / dsh TUI）。
+  （本机终端 / 中文与输入法 / vim / 大输出 / 复制粘贴 / Ctrl+C / 尺寸 / 多标签 / dsh TUI / 矮窗行数）。
+- **矮窗保证 TUI 行数**（v1.10.9）：dsh TUI 在 ≤21 行会画丢输入行（tmux 同样复现），
+  终端侧从"用户字号 + 舒适行高"开始压行高、再缩字号（下限 10px），保证 ≥24 行；
+  窗口拉高自动还原；最紧凑仍不足时显示明确提示。可在 设置 → 终端 关闭。
 
 ## 技术架构
 

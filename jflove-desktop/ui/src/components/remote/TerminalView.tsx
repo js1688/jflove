@@ -25,6 +25,8 @@ import '@xterm/xterm/css/xterm.css';
 import { readTerminalShortcuts } from '../../utils/terminal-shortcuts';
 import { installDecrqmCompat } from '../../utils/xterm-decrqm';
 import { copyText, readClipboardText } from '../../utils/clipboard';
+import { FONT_MIN, TUI_MIN_ROWS, readAutoFitRows } from '../../utils/terminal-prefs';
+import { COMFORT_LINE_HEIGHT, buildFitCandidates, pickFitForMinRows } from '../../utils/terminal-fit';
 
 export interface TerminalStatus {
   /** connecting = 通道建立中；ready = 可用；exited = 进程/链路已结束 */
@@ -35,6 +37,16 @@ export interface TerminalStatus {
   cursorCol: number;
   /** 结束原因（state=exited 时） */
   exitMessage: string;
+  /** 用户设定字号 */
+  userFontSize: number;
+  /** 实际生效字号（窗口偏矮时会自动缩小） */
+  effectiveFontSize: number;
+  /** 是否因行数不足自动缩小了字号 */
+  autoShrunk: boolean;
+  /** 即使最小字号也不足 TUI 所需行数 */
+  tooSmall: boolean;
+  /** TUI 所需最小行数 */
+  minRows: number;
 }
 
 export interface TerminalHandle {
@@ -123,7 +135,16 @@ interface SessionRuntime {
   fit: FitAddon | null;
   ws: WebSocket | null;
   ready: boolean;
-  fontSize: number;
+  /** 用户设定字号（设置页 / 工具条 +/-） */
+  userFontSize: number;
+  /** 实际生效字号（按行数自适应后） */
+  effectiveFontSize: number;
+  /** 是否因为行数不足而缩小了字号 */
+  autoShrunk: boolean;
+  /** 即使缩到最小字号也不够 TUI 行数 */
+  tooSmall: boolean;
+  /** 正在做"字号→行数"测量：此期间的 resize 不往 PTY 发 */
+  measuring: boolean;
   active: boolean;
   actions: ClipboardActions;
   onStatus?: (status: TerminalStatus) => void;
@@ -171,7 +192,58 @@ const notifyStatus = (runtime: SessionRuntime, force = false) => {
     cursorRow: term.buffer.active.cursorY + 1,
     cursorCol: term.buffer.active.cursorX + 1,
     exitMessage: '',
+    userFontSize: runtime.userFontSize,
+    effectiveFontSize: runtime.effectiveFontSize || runtime.userFontSize,
+    autoShrunk: runtime.autoShrunk,
+    tooSmall: runtime.tooSmall,
+    minRows: TUI_MIN_ROWS,
   });
+};
+
+/**
+ * 对齐尺寸（唯一入口）：先按行数反推字号，再 fit。
+ *
+ * 为什么需要：dsh TUI 在 ≤21 行会把输入框内容行画丢（tmux 同样复现，属上位程序缺陷）。
+ * 这里保证终端**至少 TUI_MIN_ROWS 行**：窗口偏矮时把字号往下调（下限 FONT_MIN），
+ * 窗口拉高后自动回到用户设定字号；实在放不下就把 tooSmall 上报给界面显示提示。
+ */
+const applyFit = (runtime: SessionRuntime) => {
+  const term = runtime.term;
+  const fit = runtime.fit;
+  if (!term || !fit || runtime.disposed) return;
+  if (!runtime.wrapper.isConnected) return;
+  if (!runtime.wrapper.clientWidth || !runtime.wrapper.clientHeight) return;
+
+  const userSize = Math.min(22, Math.max(FONT_MIN, Math.round(runtime.userFontSize)));
+  const auto = readAutoFitRows();
+  const candidates = auto
+    ? buildFitCandidates(userSize, FONT_MIN)
+    : [{ fontSize: userSize, lineHeight: COMFORT_LINE_HEIGHT }];
+
+  runtime.measuring = true;
+  let result;
+  try {
+    result = pickFitForMinRows(candidates, TUI_MIN_ROWS, (candidate) => {
+      term.options.fontSize = candidate.fontSize;
+      term.options.lineHeight = candidate.lineHeight;
+      fit.fit();
+      return term.rows;
+    });
+    // 测量过程会把参数停在中途候选，最后显式落到结果候选
+    term.options.fontSize = result.fontSize;
+    term.options.lineHeight = result.lineHeight;
+    fit.fit();
+  } finally {
+    runtime.measuring = false;
+  }
+
+  runtime.effectiveFontSize = result.fontSize;
+  runtime.autoShrunk = auto && result.compacted;
+  runtime.tooSmall = term.rows < TUI_MIN_ROWS;
+  term.refresh(0, Math.max(0, term.rows - 1));
+  // 仅一次 resize 下发（测量期间的 onResize 被 measuring 拦掉）
+  sendMessage(runtime, { type: 'resize', cols: term.cols, rows: term.rows });
+  notifyStatus(runtime, true);
 };
 
 const flushPending = (runtime: SessionRuntime) => {
@@ -246,8 +318,8 @@ const mountTerminal = (runtime: SessionRuntime) => {
   if (runtime.disposed || runtime.term) return;
   const term = new Terminal({
     fontFamily: FONT_FAMILY,
-    fontSize: runtime.fontSize,
-    lineHeight: 1.25,
+    fontSize: runtime.userFontSize,
+    lineHeight: COMFORT_LINE_HEIGHT,
     letterSpacing: 0,
     cursorBlink: true,
     cursorStyle: 'block',
@@ -284,6 +356,7 @@ const mountTerminal = (runtime: SessionRuntime) => {
   [
     term.onData((data) => sendMessage(runtime, { type: 'input', data })),
     term.onResize(({ cols, rows }) => {
+      if (runtime.measuring) return; // 字号测量期间的中间尺寸不下发，由 applyFit 统一发一次
       sendMessage(runtime, { type: 'resize', cols, rows });
       notifyStatus(runtime);
     }),
@@ -322,11 +395,7 @@ const mountTerminal = (runtime: SessionRuntime) => {
 
   window.setTimeout(() => {
     if (runtime.disposed || !runtime.wrapper.isConnected || runtime.term !== term) return;
-    try {
-      fit.fit();
-    } catch {
-      // 容器不可见（0×0）时忽略
-    }
+    applyFit(runtime);
   }, 30);
   if (runtime.active) term.focus();
   notifyStatus(runtime);
@@ -386,7 +455,11 @@ const ensureRuntime = (sessionId: string, port: number, token: string): SessionR
     fit: null as unknown as FitAddon,
     ws: null as WebSocket | null,
     ready: false,
-    fontSize: 13,
+    userFontSize: 13,
+    effectiveFontSize: 13,
+    autoShrunk: false,
+    tooSmall: false,
+    measuring: false,
     active: false,
     actions: {
       copy: async () => false,
@@ -414,12 +487,7 @@ const ensureRuntime = (sessionId: string, port: number, token: string): SessionR
       if (runtime.disposed || !runtime.wrapper.isConnected) return;
       if (!runtime.term || !runtime.fit) return;
       if (!wrapper.clientWidth || !wrapper.clientHeight) return;
-      try {
-        runtime.fit.fit();
-      } catch {
-        // 忽略不可见容器
-      }
-      runtime.term.refresh(0, Math.max(0, runtime.term.rows - 1));
+      applyFit(runtime);
     }, 90);
   });
   runtime.resizeObserver.observe(wrapper);
@@ -532,13 +600,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     fontSizeRef.current = fontSize;
     const runtime = runtimeRef.current;
     if (!runtime) return;
-    runtime.fontSize = fontSize;
-    if (runtime.term) runtime.term.options.fontSize = fontSize;
-    try {
-      runtime.fit?.fit();
-    } catch {
-      // 容器不可见时忽略
-    }
+    runtime.userFontSize = fontSize;
+    applyFit(runtime);
   }, [fontSize]);
 
   useEffect(() => {
@@ -548,13 +611,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     runtime.active = active;
     if (!active) return undefined;
     const timer = window.setTimeout(() => {
-      try {
-        runtime.fit?.fit();
-      } catch {
-        // 容器不可见时忽略
-      }
+      applyFit(runtime);
       runtime.term?.focus();
-      if (runtime.term) runtime.term.refresh(0, Math.max(0, runtime.term.rows - 1));
     }, 30);
     return () => window.clearTimeout(timer);
   }, [active]);
@@ -563,11 +621,8 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     ref,
     () => ({
       fit: () => {
-        try {
-          runtimeRef.current?.fit?.fit();
-        } catch {
-          // 忽略
-        }
+        const runtime = runtimeRef.current;
+        if (runtime) applyFit(runtime);
       },
       focus: () => runtimeRef.current?.term?.focus(),
       clear: () => runtimeRef.current?.term?.clear(),
@@ -587,7 +642,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     if (!host) return undefined;
     const runtime = ensureRuntime(sessionId, port, token);
     runtimeRef.current = runtime;
-    runtime.fontSize = fontSizeRef.current;
+    runtime.userFontSize = fontSizeRef.current;
     runtime.active = activeRef.current;
     runtime.onReady = onReady;
     runtime.onStatus = onStatus;
@@ -595,17 +650,11 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     // ① 先进 DOM：xterm 在游离节点上量不到字体，会退回 80×24
     host.appendChild(runtime.wrapper);
     // ② 再创建/复用 xterm，并立刻按真实容器尺寸对齐
-    runtime.fontSize = fontSizeRef.current;
+    runtime.userFontSize = fontSizeRef.current;
     if (!runtime.term) {
       mountTerminal(runtime);
-    } else if (runtime.term.options.fontSize !== fontSizeRef.current) {
-      runtime.term.options.fontSize = fontSizeRef.current;
     }
-    try {
-      runtime.fit?.fit();
-    } catch {
-      // 容器不可见时忽略
-    }
+    applyFit(runtime);
     if (runtime.active) runtime.term?.focus();
 
     return () => {

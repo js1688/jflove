@@ -653,6 +653,87 @@ async function caseResize() {
   };
 }
 
+/**
+ * 窗口偏矮时的 TUI 兜底（v1.10.9）
+ *
+ * 事故：dsh TUI 在 ≤21 行会画丢输入框内容行（tmux 同样复现）。
+ * 产品兜底：窗口偏矮时自动缩字号保证 ≥24 行；实在放不下则明确提示。
+ */
+async function caseMinRows() {
+  // 自己开一个新终端（上一个用例可能停在 TUI 里）
+  await go('#/remote/local');
+  await sleep(800);
+  await openLocalTerminalCard();
+  await waitFor(`location.hash === '#/remote/session'`, 10000, '进入会话页');
+  await waitFor(`(${visibleHostsJs}) > 0`, 10000, '终端渲染');
+  await focusTerminal();
+
+  const statusJs = `(() => {
+    const texts = [...document.querySelectorAll('span,div')].map((el) => (el.innerText || '').trim());
+    const dims = texts.find((t) => /^\\d+×\\d+$/.test(t)) || '';
+    const font = texts.find((t) => t.startsWith('⌥ 字号')) || '';
+    const warn = document.body.innerText.includes('窗口高度不足');
+    return JSON.stringify({ dims, font, warn });
+  })()`;
+
+  // ① 偏矮但不极端：期望自动缩字号后仍有 ≥24 行
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 900,
+    height: 620,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await sleep(1800);
+  const shrunk = JSON.parse(await cdp.eval(statusJs));
+  const shrunkRows = Number((shrunk.dims.split('×')[1] || '0').trim());
+  if (!(shrunkRows >= 24 && /自适应/.test(shrunk.font))) {
+    throw new Error(`自动缩字号未生效：${JSON.stringify(shrunk)}`);
+  }
+  await shot('15-min-rows-shrunk');
+
+  // ② 在偏矮窗口里真跑 TUI：输入框内容行必须在
+  await focusTerminal();
+  await typeText('TERM=xterm-256color dsh cli');
+  await pressKey('Enter');
+  await waitFor(
+    `(() => { const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null); return (hosts[0]?.innerText||'').includes('dsh-tui') ? true : null; })()`,
+    20000,
+    '偏矮窗口里 dsh TUI 首屏',
+  );
+  await typeText('矮窗测试', 80);
+  await waitFor(
+    `(() => { const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null); return (hosts[0]?.innerText||'').includes('矮窗测试') ? true : null; })()`,
+    12000,
+    '偏矮窗口里 TUI 输入框出现键入文本',
+  );
+  await shot('16-min-rows-tui');
+
+  // ③ 极端矮：缩到最小字号仍不够 → 必须明确提示，而不是静默坏掉
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 900,
+    height: 430,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await sleep(1800);
+  const tooSmall = JSON.parse(await cdp.eval(statusJs));
+  if (!tooSmall.warn) throw new Error(`极端矮窗口未显示提示：${JSON.stringify(tooSmall)}`);
+  await shot('17-min-rows-warning');
+
+  // ④ 恢复窗口：字号回到用户设定，行数 ≥24
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+  await sleep(1800);
+  const restored = JSON.parse(await cdp.eval(statusJs));
+  const restoredRows = Number((restored.dims.split('×')[1] || '0').trim());
+  if (restoredRows < 24 || /自适应/.test(restored.font)) {
+    throw new Error(`恢复窗口后未回到用户字号：${JSON.stringify(restored)}`);
+  }
+  await shot('18-min-rows-restored');
+  return {
+    detail: `偏矮窗口自动 ${shrunk.font} → 恢复后 ${restored.font}；行数 ${shrunkRows}→${restoredRows}`,
+  };
+}
+
 // ── 主流程 ─────────────────────────────────────────
 
 const CASES = [
@@ -665,7 +746,8 @@ const CASES = [
   ['sigint', 'Ctrl+C 中断前台进程', caseSignalInterrupt],
   ['resize', '窗口尺寸变化后行列数更新', caseResize],
   ['tab-switch', '多标签切换内容保留', caseTabSwitch],
-  ['dsh-tui', 'dsh TUI 键盘输入（最后跑：TUI 占满屏幕）', caseDshTui],
+  ['dsh-tui', 'dsh TUI 键盘输入', caseDshTui],
+  ['min-rows', '窗口偏矮时自动保证 TUI 行数（v1.10.9）', caseMinRows],
 ];
 
 async function main() {

@@ -6,6 +6,7 @@ import {
   writeTerminalShortcuts,
   type CopyPasteMode,
 } from '../utils/terminal-shortcuts';
+import { readAutoFitRows, writeAutoFitRows } from '../utils/terminal-prefs';
 import { useSettingsStore } from '../stores/settings-store';
 import { useThemeStore, type ThemeMode } from '../stores/theme-store';
 import { useAuth } from '../hooks/use-auth';
@@ -21,7 +22,16 @@ import { APP_VERSION } from '../config/constants';
 import { SHORTCUT_DEFS } from '../config/shortcuts';
 import { useShortcutStore } from '../stores/shortcut-store';
 import { getTokenExpiresAt, effectiveExpireAt } from '../utils/session';
-import { Button, Card, Icon, IconButton, Segmented, toast, type IconName } from '../components/ui';
+import {
+  Button,
+  Card,
+  Icon,
+  IconButton,
+  Segmented,
+  Switch,
+  toast,
+  type IconName,
+} from '../components/ui';
 import { ServerUrlInput } from '../components/desktop/ServerUrlInput';
 import {
   ShortcutsSettingsDialog,
@@ -62,6 +72,7 @@ export function SettingsPage() {
   const [copyPasteMode, setCopyPasteMode] = useState<CopyPasteMode>(
     () => readTerminalShortcuts().copyPasteMode,
   );
+  const [autoFitRows, setAutoFitRows] = useState<boolean>(() => readAutoFitRows());
   // 生效键位 / 覆盖项：用于「当前键位摘要」（数据源仍是 config/shortcuts.ts 的 SHORTCUT_DEFS）
   const shortcutBindings = useShortcutStore((s) => s.bindings);
   const shortcutOverrides = useShortcutStore((s) => s.overrides);
@@ -253,6 +264,22 @@ export function SettingsPage() {
               <option value="smart">智能：有选区复制，否则中断</option>
               <option value="ctrlShift">Ctrl+Shift+C / Ctrl+Shift+V</option>
             </select>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-4">
+            <div>
+              <div className="text-[13px] font-medium">窗口偏矮时自动缩小字号</div>
+              <div className="mt-0.5 text-[11.5px] text-muted">
+                保证终端至少 24 行：全屏 TUI（dsh / vim / htop）在更矮的终端里会画丢输入行
+              </div>
+            </div>
+            <Switch
+              checked={autoFitRows}
+              onChange={(value) => {
+                setAutoFitRows(value);
+                writeAutoFitRows(value);
+              }}
+              label="窗口偏矮时自动缩小字号"
+            />
           </div>
         </Section>
 
