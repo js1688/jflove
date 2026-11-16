@@ -29,6 +29,10 @@ const shot = arg('shot', '');
 const waitText = arg('wait-text', '');
 const clickText = arg('click-text', '');
 const fillSel = arg('fill-sel', '');
+const insertText = arg('insert-text', '');
+const insertSel = arg('insert-sel', '');
+const clickAtArg = arg('click-at', '');
+const clickCount = Number(arg('count', '1'));
 const fillVal = arg('fill-val', '');
 const evalJs = arg('eval', '');
 const timeoutMs = Number(arg('timeout', '30000'));
@@ -155,6 +159,36 @@ async function main() {
       if (!focused) throw new Error(`找不到输入框：${fillSel}`);
       await cdp.send('Input.insertText', { text: fillVal });
       out.filled = [fillSel, fillVal];
+    }
+    if (insertText) {
+      // 走浏览器输入法通道（Input.insertText）而不是 OS 键盘：
+      // QGA 的命令行有编码问题，中文只能这样可靠地送进渲染层。
+      const focused = await cdp.evaluate(`(() => {
+        const sel = ${JSON.stringify(insertSel)};
+        const el = sel
+          ? document.querySelector(sel)
+          : [...document.querySelectorAll('.xterm-helper-textarea')].filter((t) => t.offsetParent !== null)[0];
+        if (!el) return false;
+        el.focus();
+        return document.activeElement === el;
+      })()`);
+      if (!focused) throw new Error('insert-text：找不到可聚焦的输入目标');
+      await cdp.send('Input.insertText', { text: insertText });
+      out.inserted = insertText;
+    }
+    if (clickAtArg) {
+      // 坐标点按（x,y）+ clickCount：用于 xterm 的"三击选中整行"这类原生鼠标交互
+      const parts = clickAtArg.split(',').map((v) => Number(v.trim()));
+      if (parts.length !== 2 || parts.some((v) => !Number.isFinite(v))) {
+        throw new Error(`--click-at 需要 "x,y"：${clickAtArg}`);
+      }
+      const [x, y] = parts;
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+      for (let i = 1; i <= clickCount; i += 1) {
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: i });
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: i });
+      }
+      out.clickAt = [x, y, clickCount];
     }
     if (clickText) {
       const pos = await cdp.evaluate(CENTER_JS(clickText));

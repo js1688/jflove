@@ -31,10 +31,11 @@
 | `vm-win.sh` | Windows 真机 VM 生命周期（起停/截屏/断网/快照/资源占用） | `scripts/verify/vm-win.sh up` / `down` / `footprint` |
 | `windows_vm.py` | 经 QGA 在客机执行命令、传文件、模拟键盘 | `python3 scripts/verify/windows_vm.py exec --ps "ver"` |
 | `windows_vm_ui.mjs` | CDP 驱动 VM 内 QtWebEngine 界面（点击/输入/断言/截图） | `node scripts/verify/windows_vm_ui.mjs --host <ip> --port 9223 --wait-text '连接服务端'` |
-| `windows_vm_e2e.sh` | Windows 端端到端验收（安装→启动→密钥交换→登录→上传校验） | `scripts/verify/windows_vm_e2e.sh` |
+| `windows_vm_e2e.sh` | Windows 端端到端验收（安装→启动→密钥交换→登录→上传校验；启动前清客户端状态强制全新登录） | `scripts/verify/windows_vm_e2e.sh` |
+| `windows_vm_terminal.sh` | Windows 终端交互验收（打开/键盘/复制粘贴/中文输入/多标签切回） | 先 `windows_vm_e2e.sh --keep`，再 `scripts/verify/windows_vm_terminal.sh` |
+| `desktop_terminal_e2e.mjs` | 桌面端终端底座 10 条实机用例（CDP 驱动真界面 + 真 PTY） | `node scripts/verify/desktop_terminal_e2e.mjs --port 9222` |
 | `xinput.py` | X11 点击/输入/清空/聚焦（Shift 已映射） | `python3 scripts/verify/xinput.py click 718 593` |
 | `run_all.sh` | 一键跑选中的端，产出证据摘要 | `scripts/verify/run_all.sh --ends all` |
-| `check_uat_build.py` | Phase 6.5：核验 UAT 构建物是否由指定 commit 触发（head_sha + success） | `python scripts/verify/check_uat_build.py --sha <commit>` |
 
 ## 典型流程
 

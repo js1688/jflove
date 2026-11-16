@@ -55,7 +55,17 @@ if [ -n "$APK_VER" ] && [ "$APK_VER" != "$VER_JSON" ]; then
     exit 1
 fi
 jf_pass "安装 $APK（versionName=$APK_VER，当前=$VER_JSON）"
-adb install -r "$APK" | tail -1
+# 换了签名密钥（CI 重出包 / 本地重装）时 `-r` 会报 INSTALL_FAILED_UPDATE_INCOMPATIBLE；
+# 靶机上的旧包本来就该被当前版本覆盖，直接卸载重装（只影响模拟器/测试机，不动用户数据）。
+if ! adb install -r "$APK" 2>&1 | tee /tmp/jf-android-install.log | tail -1 | grep -q "Success"; then
+    if grep -q "INSTALL_FAILED_UPDATE_INCOMPATIBLE" /tmp/jf-android-install.log; then
+        jf_pass "旧包签名不一致 → 卸载后重装"
+        adb uninstall "$(sed -n "s/package: name='\([^']*\)'.*/\1/p" <("$AAPT_BIN" dump badging "$APK" 2>/dev/null) | head -1)" >/dev/null 2>&1 || true
+        adb install -r "$APK" | tail -1
+    else
+        jf_die "安装失败（见 /tmp/jf-android-install.log）"
+    fi
+fi
 adb shell am start -n com.jflove.jflove_app/.MainActivity >/dev/null
 sleep 8
 

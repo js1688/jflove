@@ -105,7 +105,9 @@ else
     if ! win exec "if exist ${SETUP} (exit 0) else (exit 1)"; then
         win exec --timeout 900 "curl.exe -sS -L -o ${SETUP} $URL" || bad "安装包下载失败：$URL"
     fi
-    GOT_VER="$(win exec --ps "(Get-Item '${SETUP}').VersionInfo.ProductVersion" 2>/dev/null | tr -d '\r' | tail -1)"
+    # QGA 的 PowerShell 输出会按列宽补空格（实测 v1.10.8："1.10.8" 后面跟一长串空格），
+    # 不 trim 会把正确版本判成"不是当前版本"，白跑一轮。
+    GOT_VER="$(win exec --ps "(Get-Item '${SETUP}').VersionInfo.ProductVersion" 2>/dev/null | tr -d '\r' | sed 's/[[:space:]]//g' | tail -1)"
     [ "$GOT_VER" = "$VERSION" ] || bad "安装包版本 ${GOT_VER:-?} != 当前 ${VERSION}（拒绝旧包）"
     # 覆盖安装前必须结束进程，否则 exe 被占用 → 静默安装按 Abort 回滚（《验证标准》§7）
     win exec --ps "Get-Process JFLove -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2; 'stopped'" >/dev/null || true
@@ -123,6 +125,10 @@ ok "程序目录 / 卸载项版本 / 开始菜单快捷方式 全部就位"
 
 # ── 3. 启动并 attach CDP ──────────────────────────────────────────
 step "3/6 启动客户端并等待界面"
+# 清掉客机上的客户端状态（会话/服务端地址历史），保证这轮是**真正的全新登录**：
+# 否则复用上次会话时 /files/disks 会 401（v1.10.8 实测），磁盘列表为空 → 上传步骤找不到磁盘，
+# 而脚本还会误以为"已登录"。清状态后登录流程本身也成了验收项。
+win exec --ps 'Get-Process JFLove -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Remove-Item -Recurse -Force "$env:APPDATA\JFLove" -ErrorAction SilentlyContinue; "client-state-cleared"' >/dev/null || true
 win push "$ROOT/scripts/verify/vm/launch.ps1" 'C:\jf\launch.ps1' >/dev/null
 win exec --ps "powershell -NoProfile -ExecutionPolicy Bypass -File C:\jf\launch.ps1" >/dev/null
 CDP="http://$GUEST_IP:9223"
@@ -154,8 +160,8 @@ ok "登录页渲染（证据：$WIN_OUT/01-login.png）"
 step "4/6 连接服务端 + 登录"
 FRESH_LOGIN=0
 if [[ "$PAGE_TEXT" == *'文件管理'* ]]; then
-    # 客户端把会话存在本机，复跑时会直接进主界面；此时只能断言「本次连接完成了密钥交换」
-    ok "客户端保留了上次会话（直接进主界面）"
+    # 理论上不可达（上一步已清状态）；真出现说明清理没生效，直接判失败而不是"假装通过"
+    bad "清理客户端状态后仍直接进主界面（会话没被清掉）"
 else
     if [[ "$PAGE_TEXT" == *'连接服务端'* ]]; then
         ui --fill-sel 'input[type=text]' --fill-val "http://$HOST_GW:8989" >/dev/null
