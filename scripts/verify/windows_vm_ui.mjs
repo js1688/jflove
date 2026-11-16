@@ -33,6 +33,8 @@ const insertText = arg('insert-text', '');
 const insertSel = arg('insert-sel', '');
 const clickAtArg = arg('click-at', '');
 const clickCount = Number(arg('count', '1'));
+const metrics = arg('metrics', '');
+const clearMetrics = has('clear-metrics');
 const fillVal = arg('fill-val', '');
 const evalJs = arg('eval', '');
 const timeoutMs = Number(arg('timeout', '30000'));
@@ -175,6 +177,25 @@ async function main() {
       if (!focused) throw new Error('insert-text：找不到可聚焦的输入目标');
       await cdp.send('Input.insertText', { text: insertText });
       out.inserted = insertText;
+    }
+    if (metrics || clearMetrics) {
+      if (clearMetrics) {
+        await cdp.send('Emulation.clearDeviceMetricsOverride');
+        out.metrics = 'cleared';
+      } else {
+        const [width, height] = metrics.split('x').map((v) => Number(v.trim()));
+        if (!Number.isFinite(width) || !Number.isFinite(height)) {
+          throw new Error(`--metrics 需要 WxH：${metrics}`);
+        }
+        await cdp.send('Emulation.setDeviceMetricsOverride', {
+          width,
+          height,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        out.metrics = [width, height];
+      }
+      await sleep(800);
     }
     if (clickAtArg) {
       // 坐标点按（x,y）+ clickCount：用于 xterm 的"三击选中整行"这类原生鼠标交互

@@ -128,7 +128,7 @@ step "3/6 启动客户端并等待界面"
 # 清掉客机上的客户端状态（会话/服务端地址历史），保证这轮是**真正的全新登录**：
 # 否则复用上次会话时 /files/disks 会 401（v1.10.8 实测），磁盘列表为空 → 上传步骤找不到磁盘，
 # 而脚本还会误以为"已登录"。清状态后登录流程本身也成了验收项。
-win exec --ps 'Get-Process JFLove -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 1; Remove-Item -Recurse -Force "$env:APPDATA\JFLove" -ErrorAction SilentlyContinue; "client-state-cleared"' >/dev/null || true
+# 客户端状态由 launch.ps1 生成的 run-app.cmd 在**jf 用户身份**下清理（QGA 的 SYSTEM 清不到 jf 的 APPDATA）。
 win push "$ROOT/scripts/verify/vm/launch.ps1" 'C:\jf\launch.ps1' >/dev/null
 win exec --ps "powershell -NoProfile -ExecutionPolicy Bypass -File C:\jf\launch.ps1" >/dev/null
 CDP="http://$GUEST_IP:9223"

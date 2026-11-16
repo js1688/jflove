@@ -35,6 +35,10 @@ step "0/5 前置：VM / 客户端 / CDP"
 curl -fsS -m 3 "http://$GUEST_IP:$CDP_PORT/json/version" | grep -q QtWebEngine || bad "CDP 不可用（客户端没在跑？）"
 ok "客机 $VM @ $GUEST_IP，CDP 就绪"
 
+# 固定一个已知视口：CDP 的 device-metrics 覆盖在 QtWebEngine 里跨连接会残留，
+# 不先归一化的话，上一次跑留下的矮窗会污染这次（实测踩过）。
+ui --metrics 1180x760 >/dev/null
+sleep 1
 # 聚焦客户端窗口（QGA 的 GUI 交互要求窗口在前台）
 win exec --ps "(New-Object -ComObject WScript.Shell).AppActivate('JFLove') | Out-Null; 'activated'" >/dev/null || true
 sleep 1
@@ -53,12 +57,15 @@ for _ in $(seq 1 8); do
     sleep 1
 done
 
-ui --click-text '远程连接' >/dev/null
-sleep 2
-ui --click-text '本地' >/dev/null
-sleep 2
+ui --eval "location.hash='#/remote/local'; 'ok'" >/dev/null
+sleep 3
 # 本地终端配置卡片（class 含 rounded-xl + p-3.5）双击打开
-ui --eval "(() => { const card=[...document.querySelectorAll('div')].find((el)=> typeof el.className==='string' && el.className.includes('rounded-xl') && el.className.includes('p-3.5')); if(!card) return 'NO_CARD'; card.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return 'OPENED'; })()" >/dev/null
+# e2e 每次启动前会清空客户端状态（含本地终端配置库），所以优先用"打开默认终端"，
+# 没有这个按钮时才回退到双击配置卡片。
+OPENED="$(ui --eval "(() => { const b=[...document.querySelectorAll('button')].find((el)=>(el.innerText||'').includes('打开默认终端')); if(!b) return 'NO_BTN'; b.click(); return 'OPENED'; })()" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("eval",""))')"
+if [ "$OPENED" != 'OPENED' ]; then
+    ui --eval "(() => { const card=[...document.querySelectorAll('div')].find((el)=> typeof el.className==='string' && el.className.includes('rounded-xl') && el.className.includes('p-3.5')); if(!card) return 'NO_CARD'; card.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return 'OPENED'; })()" >/dev/null
+fi
 for _ in $(seq 1 30); do
     R="$(rows 2>/dev/null || true)"
     [ -n "$R" ] && break
@@ -125,11 +132,10 @@ step "4/5 多标签切换内容保留"
 keys "echo TAB_A_MARK_${VERSION}"
 sleep 2
 # 回列表再开一个终端
-ui --click-text '远程连接' >/dev/null 2>&1 || true
-sleep 1
-ui --click-text '本地' >/dev/null 2>&1 || true
-sleep 2
-ui --eval "(() => { const card=[...document.querySelectorAll('div')].find((el)=> typeof el.className==='string' && el.className.includes('rounded-xl') && el.className.includes('p-3.5')); if(!card) return 'NO_CARD'; card.dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); return 'OPENED'; })()" >/dev/null
+ui --eval "location.hash='#/remote/local'; 'ok'" >/dev/null 2>&1 || true
+sleep 3
+OPENED2="$(ui --eval "(() => { const b=[...document.querySelectorAll('button')].find((el)=>(el.innerText||'').includes('打开默认终端')); if(!b) return 'NO_BTN'; b.click(); return 'OPENED'; })()" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("eval",""))')"
+[ "$OPENED2" = 'OPENED' ] || bad "第二个终端打不开（没有默认终端入口）"
 sleep 6
 keys "echo TAB_B_MARK_${VERSION}"
 sleep 2
@@ -142,6 +148,32 @@ R="$(rows)"
 ui --shot "$OUT_DIR/05-tab-a-back.png" >/dev/null
 ok "标签切回后画面仍在（A 标记可见）"
 
+step "4b/5 窗口偏矮时保证 ≥24 行（v1.10.9）"
+# 记录原始视口尺寸：恢复时显式设置回去（QtWebEngine 里跨连接的 clearDeviceMetricsOverride 不生效）
+SIZE_BEFORE="$(ui --eval "JSON.stringify({w: innerWidth, h: innerHeight})" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("eval",""))')"
+ui --metrics 900x620 >/dev/null
+sleep 2
+ROWS_SHRUNK="$(ui --eval "(() => { const h=[...document.querySelectorAll('[data-testid=terminal-host]')].filter((x)=>x.offsetParent!==null)[0]; return h ? h.querySelectorAll('.xterm-rows > div').length : 0; })()" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("eval",0))')"
+FONT_SHRUNK="$(ui --eval "(() => { const t=[...document.querySelectorAll('span')].map((s)=>s.innerText.trim()); return t.find((x)=>x.startsWith('⌥ 字号')) || ''; })()" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("eval",""))')"
+[ "${ROWS_SHRUNK:-0}" -ge 24 ] || bad "矮窗没有保证 24 行（实际 $ROWS_SHRUNK 行）"
+case "$FONT_SHRUNK" in
+    *自适应*) : ;;
+    *) bad "矮窗没有自动缩字号（状态栏：$FONT_SHRUNK）" ;;
+esac
+ui --shot "$OUT_DIR/06-min-rows.png" >/dev/null
+ok "矮窗自动保证行数：${ROWS_SHRUNK} 行 / $FONT_SHRUNK"
+
+ui --metrics 1180x760 >/dev/null
+sleep 2
+ROWS_BACK="$(ui --eval "(() => { const h=[...document.querySelectorAll('[data-testid=terminal-host]')].filter((x)=>x.offsetParent!==null)[0]; return h ? h.querySelectorAll('.xterm-rows > div').length : 0; })()" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("eval",0))')"
+FONT_BACK="$(ui --eval "(() => { const t=[...document.querySelectorAll('span')].map((s)=>s.innerText.trim()); return t.find((x)=>x.startsWith('⌥ 字号')) || ''; })()" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("eval",""))')"
+[ "${ROWS_BACK:-0}" -ge 24 ] || bad "恢复窗口后行数不足（$ROWS_BACK）"
+case "$FONT_BACK" in
+    *自适应*) bad "恢复窗口后仍是自适应字号（$FONT_BACK）" ;;
+esac
+ok "恢复窗口后回到用户字号：${ROWS_BACK} 行 / $FONT_BACK"
+ui --shot "$OUT_DIR/07-restored.png" >/dev/null
+
 step "5/5 汇总"
 cat >"$OUT_DIR/SUMMARY.md" <<EOF
 # Windows 真机终端交互验收（v$VERSION）
@@ -152,6 +184,7 @@ cat >"$OUT_DIR/SUMMARY.md" <<EOF
 | 2 | 键盘输入回显（$MARK） | 通过 | 02-typed.png |
 | 3 | 复制 + 粘贴（$SRC）与中文输入（$CN） | 通过 | 03-copypaste.png / 03b-chinese.png |
 | 4 | 多标签切回内容保留（TAB_A_MARK_$VERSION） | 通过 | 04-tab-b.png / 05-tab-a-back.png |
+| 5 | 矮窗自动保证 ≥24 行并恢复（v1.10.9） | 通过 | 06-min-rows.png / 07-restored.png |
 
 宿主证据目录：$OUT_DIR
 EOF
