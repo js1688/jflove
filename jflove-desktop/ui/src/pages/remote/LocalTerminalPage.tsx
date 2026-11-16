@@ -1,7 +1,8 @@
 /**
  * 本机终端管理页（D3）
  *
- * 配置与分组只存本地 SQLite，不参与服务端同步（`文档记录/设计文档/v1.10.0.md` §3.7）。
+ * 配置只存本地 SQLite，不参与服务端同步（`文档记录/设计文档/v1.10.0.md` §3.7）。
+ * v1.10.10：分组入口已移除（远程连接页同样是唯一入口，本页保留路由兼容深链）。
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -13,19 +14,12 @@ import {
   type LocalShell,
 } from '../../services/remote-service';
 
-interface LocalGroup {
-  id: number;
-  name: string;
-  sort_order: number;
-}
-
 interface FormState {
   id?: number;
   name: string;
   shellPath: string;
   cwd: string;
   initCommand: string;
-  groupId: number;
 }
 
 const EMPTY_FORM: FormState = {
@@ -33,7 +27,6 @@ const EMPTY_FORM: FormState = {
   shellPath: '',
   cwd: '',
   initCommand: '',
-  groupId: 0,
 };
 
 export function LocalTerminalPage() {
@@ -41,18 +34,15 @@ export function LocalTerminalPage() {
   const navigate = useNavigate();
   const [shells, setShells] = useState<LocalShell[]>([]);
   const [profiles, setProfiles] = useState<LocalProfile[]>([]);
-  const [groups, setGroups] = useState<LocalGroup[]>([]);
   const [form, setForm] = useState<FormState | null>(null);
 
   const reload = useCallback(async () => {
-    const [shellResult, profileResult, groupResult] = await Promise.all([
+    const [shellResult, profileResult] = await Promise.all([
       localTermService.detectShells(),
       localTermService.listProfiles(),
-      localTermService.listGroups(),
     ]);
     setShells(shellResult.shells);
     setProfiles(profileResult.profiles);
-    setGroups(groupResult.groups);
   }, []);
 
   useEffect(() => {
@@ -79,7 +69,6 @@ export function LocalTerminalPage() {
       cwd: form.cwd,
       env: {},
       init_command: form.initCommand,
-      group_id: form.groupId,
     };
     if (form.id) await localTermService.updateProfile(form.id, payload);
     else await localTermService.createProfile(payload);
@@ -89,44 +78,6 @@ export function LocalTerminalPage() {
 
   return (
     <div className="flex h-full min-h-0 bg-canvas">
-      <aside className="flex w-[222px] shrink-0 flex-col border-r border-line-subtle bg-surface">
-        <div className="flex h-12 items-center justify-between border-b border-line-subtle px-3 text-xs font-semibold text-muted">
-          <span>本地分组</span>
-          <button
-            type="button"
-            className="text-brand-600"
-            onClick={async () => {
-              const name = window.prompt('新建分组名称');
-              if (name) {
-                await localTermService.createGroup(name);
-                await reload();
-              }
-            }}
-          >
-            ＋
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 space-y-0.5 overflow-auto p-2">
-          {groups.map((group) => (
-            <div key={group.id} className="group flex h-8 items-center gap-2 rounded px-2 text-[12.5px]">
-              <span className="truncate">{group.name}</span>
-              <button
-                type="button"
-                className="ml-auto hidden text-[11px] text-subtle hover:text-danger-500 group-hover:block"
-                onClick={async () => {
-                  if (!window.confirm(`删除分组「${group.name}」？`)) return;
-                  await localTermService.deleteGroup(group.id);
-                  await reload();
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          {groups.length === 0 && <div className="px-2 py-2 text-[11.5px] text-subtle">暂无分组</div>}
-        </div>
-      </aside>
-
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line-subtle px-5">
           <h2 className="text-[15px] font-semibold">本机终端</h2>
@@ -194,7 +145,6 @@ export function LocalTerminalPage() {
                             shellPath: profile.shell_path,
                             cwd: profile.cwd,
                             initCommand: profile.init_command,
-                            groupId: profile.group_id,
                           })
                         }
                       >
@@ -279,21 +229,6 @@ export function LocalTerminalPage() {
                 onChange={(event) => setForm({ ...form, initCommand: event.target.value })}
               />
               <p className="mt-1 text-[11px] text-subtle">打开后自动回显并执行；仅允许单行</p>
-            </div>
-            <div>
-              <div className="mb-1 text-[11.5px] font-semibold text-muted">分组</div>
-              <select
-                className="input"
-                value={String(form.groupId)}
-                onChange={(event) => setForm({ ...form, groupId: Number(event.target.value) })}
-              >
-                <option value="0">未分组</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={String(group.id)}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
           <div className="flex justify-end gap-2 border-t border-line-subtle px-4 py-3">

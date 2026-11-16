@@ -10,7 +10,6 @@ import {
   type RemoteConnectionDetail,
   type RemoteConnectionInput,
   type RemoteConnectionSummary,
-  type RemoteGroup,
 } from '../services/remote-service';
 
 export type SessionStatus = 'connecting' | 'ready' | 'failed' | 'closed';
@@ -42,7 +41,6 @@ interface EditorState {
 }
 
 interface RemoteState {
-  groups: RemoteGroup[];
   connections: RemoteConnectionSummary[];
   keyword: string;
   loading: boolean;
@@ -58,23 +56,40 @@ interface RemoteState {
   saveConnection: (payload: RemoteConnectionInput) => Promise<number | null>;
   deleteConnection: (id: number) => Promise<void>;
   duplicateConnection: (id: number) => Promise<void>;
-  createGroup: (name: string) => Promise<void>;
-  deleteGroup: (id: number) => Promise<void>;
 
   openRemoteSession: (
     connection: Pick<RemoteConnectionSummary, 'id' | 'name' | 'host' | 'username' | 'mode'>,
   ) => Promise<void>;
   openLocalSession: (profileId: number, title: string) => Promise<void>;
   closeTab: (id: string) => Promise<void>;
-  /** 会话结束（进程退出/断链）后按同一配置重开一个标签 */
-  reopenTab: (id: string) => Promise<void>;
+  /**
+   * 会话结束后处理标签（v1.10.10）。
+   *
+   * 只有**真正就绪过**的标签才自动关闭；连接失败/连接中的标签保留，
+   * 让用户能看到 `session_failed` 给出的原因。
+   *
+   * @returns 被关闭的标签（用于 toast）；未关闭时返回 null
+   */
+  handleSessionExit: (id: string, message: string) => SessionTab | null;
+  /** 会话就绪兜底：终端首次输出 / 状态事件 ready 时调用（仅 connecting → ready） */
+  markSessionReady: (id: string) => void;
   setActiveTab: (id: string) => void;
   setTabView: (id: string, view: 'terminal' | 'files') => void;
   patchTab: (id: string, patch: Partial<SessionTab>) => void;
 }
 
+/** 从标签列表移除一个会话，并修正当前激活标签（自动关闭/手动关闭共用） */
+function removeTab(
+  state: Pick<RemoteState, 'tabs' | 'activeTabId'>,
+  id: string,
+): Pick<RemoteState, 'tabs' | 'activeTabId'> {
+  const tabs = state.tabs.filter((item) => item.id !== id);
+  const activeTabId =
+    state.activeTabId === id ? (tabs[tabs.length - 1]?.id ?? null) : state.activeTabId;
+  return { tabs, activeTabId };
+}
+
 export const useRemoteStore = create<RemoteState>((set, get) => ({
-  groups: [],
   connections: [],
   keyword: '',
   loading: false,
@@ -86,11 +101,8 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: '' });
     try {
-      const [groups, connections] = await Promise.all([
-        remoteService.listGroups(),
-        remoteService.listConnections(get().keyword),
-      ]);
-      set({ groups, connections });
+      const connections = await remoteService.listConnections(get().keyword);
+      set({ connections });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -137,16 +149,6 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
 
   duplicateConnection: async (id) => {
     await remoteService.duplicateConnection(id);
-    await get().load();
-  },
-
-  createGroup: async (name) => {
-    await remoteService.createGroup(name);
-    await get().load();
-  },
-
-  deleteGroup: async (id) => {
-    await remoteService.deleteGroup(id);
     await get().load();
   },
 
@@ -203,34 +205,40 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
   },
 
   closeTab: async (id) => {
-    const tab = get().tabs.find((item) => item.id === id);
-    if (!tab) return;
+    if (!get().tabs.some((item) => item.id === id)) return;
+    // 先摘标签再关 Python 会话：手动关闭触发的 closed 事件不能再算「自动结束」，
+    // 否则会多弹一次「会话已结束」toast（事件到达时已查不到标签）。
+    set((state) => removeTab(state, id));
     try {
       // Python 侧 `_h_session_close` 对 SSH 与本机会话都有效（统一从会话表取）
       await remoteService.closeSession(id);
     } catch {
       // 关闭失败不阻塞 UI
     }
-    set((state) => {
-      const tabs = state.tabs.filter((item) => item.id !== id);
-      const activeTabId =
-        state.activeTabId === id ? (tabs[tabs.length - 1]?.id ?? null) : state.activeTabId;
-      return { tabs, activeTabId };
-    });
   },
 
-  reopenTab: async (id) => {
+  handleSessionExit: (id, message) => {
     const tab = get().tabs.find((item) => item.id === id);
-    if (!tab) return;
-    if (tab.kind === 'local') {
-      await get().openLocalSession(tab.connectionId, tab.title);
-    } else {
-      // SSH / SFTP：重新取一次连接配置（密码在 Python 侧，渲染层只拿摘要）
-      const { connection } = await remoteService.getConnection(tab.connectionId);
-      await get().openRemoteSession(connection);
-    }
-    await get().closeTab(id);
+    // 连接失败/未就绪的标签必须保留：用户要能看到失败原因并修正配置
+    if (!tab || tab.status !== 'ready') return null;
+    // 会话已经结束，这里只是兜底回收 Python 侧残留（失败不影响 UI）
+    void remoteService.closeSession(id).catch(() => {
+      // 清理失败忽略：标签已经从界面移除
+    });
+    set((state) => removeTab(state, id));
+    return { ...tab, message };
   },
+
+  markSessionReady: (id) =>
+    set((state) => {
+      const tab = state.tabs.find((item) => item.id === id);
+      if (!tab || tab.status !== 'connecting') return state;
+      return {
+        tabs: state.tabs.map((item) =>
+          item.id === id ? { ...item, status: 'ready' } : item,
+        ),
+      };
+    }),
 
   setActiveTab: (id) => set({ activeTabId: id }),
 
@@ -240,7 +248,11 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
     })),
 
   patchTab: (id, patch) =>
-    set((state) => ({
-      tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab)),
-    })),
+    set((state) => {
+      // 标签可能已被关闭（迟到事件）：无命中就返回原 state，避免无意义的重渲染
+      if (!state.tabs.some((tab) => tab.id === id)) return state;
+      return {
+        tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab)),
+      };
+    }),
 }));

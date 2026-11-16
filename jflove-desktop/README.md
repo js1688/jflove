@@ -159,11 +159,11 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 ## v1.10.0：远程连接（SSH / SFTP + 本机终端）
 
 - **入口**：侧栏「远程连接」（`/remote`）；会话工作区 `/remote/session`；本机终端配置 `/remote/local`。
-- **配置存服务端**：主机/端口/账号/密码/私钥/跳板/分组/连接后执行命令；客户端每次使用时拉取，不落本地缓存。
+- **配置存服务端**：主机/端口/账号/密码/私钥/跳板/连接后执行命令；客户端每次使用时拉取，不落本地缓存。
 - **SSH 会话**：`paramiko` 直连目标（不经过服务端）；跳板用 `direct-tcpip` 串链，任意级；主机指纹 TOFU。
 - **终端通道**：Python 侧 `QWebSocketServer` 只绑 `127.0.0.1`，渲染层 xterm.js 连线；下行二进制、上行 JSON。
 - **SFTP**：与终端共用一条连接；列出/上传/下载/删除/新建目录；传输队列可取消。
-- **本机终端**：POSIX `pty` / Windows `pywinpty`（ConPTY）；配置与分组只存本地 `jflove-local.db`。
+- **本机终端**：POSIX `pty` / Windows `pywinpty`（ConPTY）；配置只存本地 `jflove-local.db`。
 - **Windows 打包硬约束**：pywinpty 自带两个运行时助手 exe（`OpenConsole.exe` / `winpty-agent.exe`），
   PyInstaller **不会自动收集**，必须显式 `--add-data <src>;winpty`，且构建后要能在
   `_internal/winpty/` 里找到（`build.py::assert_winpty_bundled()` 缺文件即失败）。
@@ -191,6 +191,18 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 - **矮窗保证 TUI 行数**（v1.10.9）：dsh TUI 在 ≤21 行会画丢输入行（tmux 同样复现），
   终端侧从"用户字号 + 舒适行高"开始压行高、再缩字号（下限 10px），保证 ≥24 行；
   窗口拉高自动还原；最紧凑仍不足时显示明确提示。可在 设置 → 终端 关闭。
+
+### 会话生命周期与「会话」节点（v1.10.10）
+
+- **分组入口移除**：远程/本机配置表单不再有「分组」字段（旧数据与后端字段保留，编辑不会清空）。
+  左侧树展示全部条目，不再只列 `group_id = 0`。
+- **断开自动关标签**：只有**真正就绪过**的会话在 `exit` / 链路断开 / 本机进程退出后自动关闭并 toast；
+  认证/指纹/跳板失败保留标签显示原因，不自动关。
+- **事件常驻**：`ui/src/utils/remote-session-sync.ts` 挂在 `AppLayout`，离开会话页（如停留在文件页）时
+  会话结束同样会关标签；终端运行时由同一订阅回收（`disposeOrphanTerminals`）。
+- **左侧「会话」节点**：`RemotePage` 树的第一位，计数 + 状态点 + 悬停关闭；单击直达对应会话面板。
+  会话页空态提供「返回连接列表」按钮。
+- **验收脚本**新增 `session-auto-close` / `session-tree` / `session-exit-away` 三条用例。
 
 ## 技术架构
 

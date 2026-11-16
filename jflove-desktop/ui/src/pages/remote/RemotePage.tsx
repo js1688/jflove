@@ -1,29 +1,25 @@
 /**
- * 远程连接管理页（v1.10.3）
+ * 远程连接管理页（v1.10.10）
  *
- * 左侧是一棵合并树：根节点固定「本地 / 远程」，各自可建分组与条目。
- * - 本地：本机终端配置，存本地 SQLite（group_id / shell / 默认命令）
+ * 左侧是一棵合并树：固定根节点「会话 / 本地 / 远程」。
+ * - 会话：当前打开中的标签（来自 `remote-store.tabs`），点击直达会话面板
+ * - 本地：本机终端配置，存本地 SQLite（shell / 默认命令）
  * - 远程：SSH / 仅 SFTP 连接，存服务端
  *
+ * v1.10.10 起分组入口已移除：树不再按分组过滤，表单不再出现分组字段。
  * 新建时按当前选中的一侧决定写本地还是写服务端。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button, EmptyState, Icon, Skeleton } from '../../components/ui';
 import { RemoteConnectionForm } from '../../components/remote/RemoteConnectionForm';
 import { ConfirmModal } from '../../components/remote/ConfirmModal';
-import { useRemoteStore } from '../../stores/remote-store';
+import { useRemoteStore, type SessionTab } from '../../stores/remote-store';
 import { localTermService, type LocalProfile, type LocalShell } from '../../services/remote-service';
 import type { RemoteConnectionSummary } from '../../services/remote-service';
 
-interface LocalGroup {
-  id: number;
-  name: string;
-  sort_order: number;
-}
-
 type Side = 'local' | 'remote';
-type Selection = { side: Side; groupId: number | null };
+type Selection = { side: Side };
 
 interface LocalFormState {
   id?: number;
@@ -31,7 +27,6 @@ interface LocalFormState {
   shellPath: string;
   cwd: string;
   initCommand: string;
-  groupId: number;
 }
 
 const EMPTY_LOCAL_FORM: LocalFormState = {
@@ -39,17 +34,17 @@ const EMPTY_LOCAL_FORM: LocalFormState = {
   shellPath: '',
   cwd: '',
   initCommand: '',
-  groupId: 0,
 };
 
 export function RemotePage() {
   const {
-    groups,
     connections,
     keyword,
     loading,
     error,
     editor,
+    tabs,
+    activeTabId,
     load,
     setKeyword,
     openEditor,
@@ -59,13 +54,14 @@ export function RemotePage() {
     duplicateConnection,
     openRemoteSession,
     openLocalSession,
+    closeTab,
+    setActiveTab,
   } = useRemoteStore();
   const navigate = useNavigate();
 
-  const [selection, setSelection] = useState<Selection>({ side: 'remote', groupId: null });
+  const [selection, setSelection] = useState<Selection>({ side: 'remote' });
   const [createOpen, setCreateOpen] = useState(false);
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
-  const [localGroups, setLocalGroups] = useState<LocalGroup[]>([]);
   const [localProfiles, setLocalProfiles] = useState<LocalProfile[]>([]);
   const [shells, setShells] = useState<LocalShell[]>([]);
   const [localLoading, setLocalLoading] = useState(false);
@@ -74,12 +70,10 @@ export function RemotePage() {
   const loadLocal = useCallback(async () => {
     setLocalLoading(true);
     try {
-      const [groupResult, profileResult, shellResult] = await Promise.all([
-        localTermService.listGroups(),
+      const [profileResult, shellResult] = await Promise.all([
         localTermService.listProfiles(),
         localTermService.detectShells(),
       ]);
-      setLocalGroups(groupResult.groups);
       setLocalProfiles(profileResult.profiles);
       setShells(shellResult.shells);
     } finally {
@@ -92,16 +86,6 @@ export function RemotePage() {
     void loadLocal();
   }, [load, loadLocal]);
 
-  const remoteFiltered = useMemo(() => {
-    if (selection.groupId === null) return connections;
-    return connections.filter((item) => item.ssh_group_id === selection.groupId);
-  }, [connections, selection]);
-
-  const localFiltered = useMemo(() => {
-    if (selection.groupId === null) return localProfiles;
-    return localProfiles.filter((item) => item.group_id === selection.groupId);
-  }, [localProfiles, selection]);
-
   const openRemote = async (connection: RemoteConnectionSummary) => {
     await openRemoteSession(connection);
     navigate('/remote/session');
@@ -112,13 +96,18 @@ export function RemotePage() {
     navigate('/remote/session');
   };
 
+  /** 从「会话」节点回到已打开的会话面板 */
+  const openSession = (sessionId: string) => {
+    setActiveTab(sessionId);
+    navigate('/remote/session');
+  };
+
   const handleCreate = () => {
     if (selection.side === 'local') {
       const first = shells.find((shell) => shell.available);
       setLocalForm({
         ...EMPTY_LOCAL_FORM,
         shellPath: first?.path ?? '',
-        groupId: selection.groupId ?? 0,
       });
       return;
     }
@@ -135,7 +124,6 @@ export function RemotePage() {
       cwd: localForm.cwd,
       env: {},
       init_command: localForm.initCommand,
-      group_id: localForm.groupId,
     };
     if (localForm.id) await localTermService.updateProfile(localForm.id, payload);
     else await localTermService.createProfile(payload);
@@ -158,29 +146,50 @@ export function RemotePage() {
       <aside className="flex w-[260px] shrink-0 flex-col border-r border-line-subtle bg-surface">
         <div className="flex h-12 items-center justify-between border-b border-line-subtle px-3 text-xs font-semibold text-muted">
           <span>连接</span>
-
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-2">
           <TreeRoot
+            label="会话"
+            icon="terminal"
+            active={false}
+            onClick={() => {
+              const id = activeTabId ?? tabs[0]?.id;
+              if (id) openSession(id);
+            }}
+            count={tabs.length}
+          >
+            {tabs.length === 0 && (
+              <div className="px-2 py-1 text-[11px] text-subtle">暂无打开的会话</div>
+            )}
+            {tabs.map((tab) => (
+              <TreeSession
+                key={`session-${tab.id}`}
+                tab={tab}
+                active={tab.id === activeTabId}
+                onOpen={() => openSession(tab.id)}
+                onClose={() => void closeTab(tab.id)}
+              />
+            ))}
+          </TreeRoot>
+
+          <TreeRoot
             label="本地"
             icon="terminal"
             active={selection.side === 'local'}
-            onClick={() => setSelection({ side: 'local', groupId: null })}
+            onClick={() => setSelection({ side: 'local' })}
             count={localProfiles.length}
           >
-            {localProfiles
-              .filter((p) => p.group_id === 0)
-              .map((profile) => (
-                <TreeLeaf
-                  key={`local-${profile.id}`}
-                  label={profile.name}
-                  hint={profile.shell_path || '默认 shell'}
-                  onClick={() => setSelection({ side: 'local', groupId: null })}
-                  onOpen={() => void openLocal(profile)}
-                />
-              ))}
-            {localGroups.length === 0 && localLoading && (
+            {localProfiles.map((profile) => (
+              <TreeLeaf
+                key={`local-${profile.id}`}
+                label={profile.name}
+                hint={profile.shell_path || '默认 shell'}
+                onClick={() => setSelection({ side: 'local' })}
+                onOpen={() => void openLocal(profile)}
+              />
+            ))}
+            {localProfiles.length === 0 && localLoading && (
               <div className="px-2 py-1 text-[11px] text-subtle">加载中…</div>
             )}
           </TreeRoot>
@@ -189,20 +198,18 @@ export function RemotePage() {
             label="远程"
             icon="server"
             active={selection.side === 'remote'}
-            onClick={() => setSelection({ side: 'remote', groupId: null })}
+            onClick={() => setSelection({ side: 'remote' })}
             count={connections.length}
           >
-            {connections
-              .filter((c) => c.ssh_group_id === 0)
-              .map((connection) => (
-                <TreeLeaf
-                  key={`remote-${connection.id}`}
-                  label={connection.name}
-                  hint={`${connection.host}:${connection.port}`}
-                  onClick={() => setSelection({ side: 'remote', groupId: null })}
-                  onOpen={() => void openRemote(connection)}
-                />
-              ))}
+            {connections.map((connection) => (
+              <TreeLeaf
+                key={`remote-${connection.id}`}
+                label={connection.name}
+                hint={`${connection.host}:${connection.port}`}
+                onClick={() => setSelection({ side: 'remote' })}
+                onOpen={() => void openRemote(connection)}
+              />
+            ))}
           </TreeRoot>
         </div>
       </aside>
@@ -211,13 +218,6 @@ export function RemotePage() {
         <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line-subtle px-5">
           <h2 className="text-[15px] font-semibold">
             {selection.side === 'local' ? '本地' : '远程'}
-            {selection.groupId !== null && (
-              <span className="ml-1 text-xs font-normal text-muted">
-                / {selection.side === 'local'
-                  ? localGroups.find((g) => g.id === selection.groupId)?.name
-                  : groups.find((g) => g.id === selection.groupId)?.name}
-              </span>
-            )}
           </h2>
           {selection.side === 'remote' && (
             <div className="search-field !h-8 w-[220px]">
@@ -247,12 +247,12 @@ export function RemotePage() {
             </div>
           )}
 
-          {selection.side === 'remote' && !loading && remoteFiltered.length === 0 && (
+          {selection.side === 'remote' && !loading && connections.length === 0 && (
             <EmptyState icon="terminal" title="还没有远程连接" description="点击右上角新建" />
           )}
-          {selection.side === 'remote' && !loading && remoteFiltered.length > 0 && (
+          {selection.side === 'remote' && !loading && connections.length > 0 && (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
-              {remoteFiltered.map((connection) => (
+              {connections.map((connection) => (
                 <RemoteCard
                   key={connection.id}
                   connection={connection}
@@ -278,16 +278,16 @@ export function RemotePage() {
             </div>
           )}
 
-          {selection.side === 'local' && localFiltered.length === 0 && (
+          {selection.side === 'local' && localProfiles.length === 0 && (
             <EmptyState
               icon="terminal"
               title="还没有本机配置"
               description="新建一个，选择 shell、工作目录与默认命令"
             />
           )}
-          {selection.side === 'local' && localFiltered.length > 0 && (
+          {selection.side === 'local' && localProfiles.length > 0 && (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
-              {localFiltered.map((profile) => (
+              {localProfiles.map((profile) => (
                 <LocalCard
                   key={profile.id}
                   profile={profile}
@@ -299,7 +299,6 @@ export function RemotePage() {
                       shellPath: profile.shell_path,
                       cwd: profile.cwd,
                       initCommand: profile.init_command,
-                      groupId: profile.group_id,
                     })
                   }
                   onDelete={() => deleteLocal(profile)}
@@ -361,7 +360,6 @@ export function RemotePage() {
         <LocalForm
           form={localForm}
           shells={shells}
-          groups={localGroups}
           onChange={setLocalForm}
           onCancel={() => setLocalForm(null)}
           onSave={() => void saveLocal()}
@@ -373,7 +371,6 @@ export function RemotePage() {
           mode={editor.mode}
           connectionMode={editor.connectionMode}
           detail={editor.detail}
-          groups={groups}
           connections={connections}
           onCancel={closeEditor}
           onSave={saveConnection}
@@ -404,6 +401,7 @@ function TreeRoot({
     <div className="mb-2">
       <button
         type="button"
+        data-tree-root={label}
         onClick={onClick}
         className={[
           'flex h-8 w-full items-center gap-2 rounded px-2 text-[12.5px] font-semibold',
@@ -412,7 +410,12 @@ function TreeRoot({
       >
         <Icon name={icon} size="sm" />
         <span className="flex-1 text-left">{label}</span>
-        <span className="rounded-full bg-sunken px-1.5 text-[10.5px] text-subtle">{count}</span>
+        <span
+          data-tree-count={label}
+          className="rounded-full bg-sunken px-1.5 text-[10.5px] text-subtle"
+        >
+          {count}
+        </span>
       </button>
       <div className="ml-3 border-l border-line-subtle pl-1">{children}</div>
     </div>
@@ -447,6 +450,70 @@ function TreeLeaf({
         onClick={onOpen}
       >
         打开
+      </button>
+    </div>
+  );
+}
+
+/** 「会话」节点下的一行：状态点 + 标题，点击回到对应会话面板 */
+function TreeSession({
+  tab,
+  active,
+  onOpen,
+  onClose,
+}: {
+  tab: SessionTab;
+  active: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  const statusLabel =
+    tab.status === 'ready' ? '已连接' : tab.status === 'failed' ? '已断开' : '连接中';
+  return (
+    <div
+      data-testid="session-tab"
+      data-session-id={tab.id}
+      data-status={tab.status}
+      className={[
+        'group flex h-7 items-center gap-1 rounded px-2 text-[12px]',
+        active ? 'bg-active' : 'hover:bg-hover',
+      ].join(' ')}
+    >
+      <span
+        title={statusLabel}
+        className={[
+          'h-1.5 w-1.5 shrink-0 rounded-full',
+          tab.status === 'failed'
+            ? 'bg-danger-500'
+            : tab.status === 'ready'
+              ? 'bg-success-500'
+              : 'bg-warning-500',
+        ].join(' ')}
+      />
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-1 truncate text-left"
+        onClick={onOpen}
+        title={`${tab.title} · ${tab.subtitle} · ${statusLabel}`}
+      >
+        <Icon
+          name={tab.kind === 'sftp' ? 'files' : 'terminal'}
+          size="sm"
+          className="shrink-0 text-subtle"
+        />
+        <span className="truncate">{tab.title}</span>
+      </button>
+      <button
+        type="button"
+        aria-label={`关闭 ${tab.title}`}
+        title="关闭会话"
+        className="hidden shrink-0 rounded text-subtle hover:text-danger-600 group-hover:block"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+      >
+        <Icon name="close" size="sm" />
       </button>
     </div>
   );
@@ -579,14 +646,12 @@ function LocalCard({
 function LocalForm({
   form,
   shells,
-  groups,
   onChange,
   onCancel,
   onSave,
 }: {
   form: LocalFormState;
   shells: LocalShell[];
-  groups: LocalGroup[];
   onChange: (form: LocalFormState) => void;
   onCancel: () => void;
   onSave: () => void;
@@ -639,21 +704,6 @@ function LocalForm({
             onChange={(event) => onChange({ ...form, initCommand: event.target.value })}
           />
           <p className="mt-1 text-[11px] text-subtle">打开后自动执行，仅允许单行</p>
-        </div>
-        <div>
-          <div className="mb-1 text-[11.5px] font-semibold text-muted">分组</div>
-          <select
-            className="input"
-            value={String(form.groupId)}
-            onChange={(event) => onChange({ ...form, groupId: Number(event.target.value) })}
-          >
-            <option value="0">未分组</option>
-            {groups.map((group) => (
-              <option key={group.id} value={String(group.id)}>
-                {group.name}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
       <div className="flex justify-end gap-2 border-t border-line-subtle px-4 py-3">

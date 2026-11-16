@@ -27,6 +27,7 @@ import { installDecrqmCompat } from '../../utils/xterm-decrqm';
 import { copyText, readClipboardText } from '../../utils/clipboard';
 import { FONT_MIN, TUI_MIN_ROWS, readAutoFitRows } from '../../utils/terminal-prefs';
 import { COMFORT_LINE_HEIGHT, buildFitCandidates, pickFitForMinRows } from '../../utils/terminal-fit';
+import { useRemoteStore } from '../../stores/remote-store';
 
 export interface TerminalStatus {
   /** connecting = 通道建立中；ready = 可用；exited = 进程/链路已结束 */
@@ -68,7 +69,6 @@ interface TerminalViewProps {
   fontSize: number;
   onReady?: () => void;
   onStatus?: (status: TerminalStatus) => void;
-  onExit?: (message: string) => void;
 }
 
 /** 终端配色：与产品深色代码块同色系（对比度按 WCAG AA 调过） */
@@ -148,8 +148,9 @@ interface SessionRuntime {
   active: boolean;
   actions: ClipboardActions;
   onStatus?: (status: TerminalStatus) => void;
-  onExit?: (message: string) => void;
   onReady?: () => void;
+  /** 是否已收到首帧输出（用于就绪兜底，见 `markSessionReady`） */
+  outputSeen: boolean;
   /** 订阅释放函数（xterm 重建时重装） */
   disposal: Array<() => void>;
   /** 待写入队列（按帧合并） */
@@ -431,8 +432,9 @@ const handleControl = (runtime: SessionRuntime, raw: string) => {
   }
   if (typeof message !== 'object' || message === null) return;
   if (message.type === 'exit') {
+    // 会话结束的**关标签**逻辑统一由 `useRemoteSessionSync` 处理（跨页面一致）；
+    // 这里只更新本终端运行时状态，避免同一事件两处关闭。
     runtime.ready = false;
-    runtime.onExit?.(String(message.message || '终端已退出'));
     notifyStatus(runtime, true);
   }
 };
@@ -468,6 +470,7 @@ const ensureRuntime = (sessionId: string, port: number, token: string): SessionR
     disposal: [] as Array<() => void>,
     pending: [] as Uint8Array[],
     pendingBytes: 0,
+    outputSeen: false,
     frame: 0,
     pendingSince: 0,
     watchdog: 0,
@@ -524,7 +527,14 @@ function attachSocket(runtime: SessionRuntime, ws: WebSocket): void {
   };
   ws.onmessage = (event: MessageEvent) => {
     if (event.data instanceof ArrayBuffer) {
-      enqueueOutput(runtime, new Uint8Array(event.data));
+      const data = new Uint8Array(event.data);
+      // 首帧输出 = 远端/本机 shell 真的在产出内容：兜底标记就绪，
+      // 避免 `session_ready` 事件早于标签创建而丢失（见远程 store.markSessionReady）。
+      if (!runtime.outputSeen && data.length > 0) {
+        runtime.outputSeen = true;
+        useRemoteStore.getState().markSessionReady(runtime.sessionId);
+      }
+      enqueueOutput(runtime, data);
     } else if (typeof event.data === 'string') {
       handleControl(runtime, event.data);
     }
@@ -580,7 +590,7 @@ export function disposeOrphanTerminals(aliveSessionIds: ReadonlySet<string>): vo
 }
 
 export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(function TerminalView(
-  { sessionId, port, token, active, fontSize, onReady, onStatus, onExit },
+  { sessionId, port, token, active, fontSize, onReady, onStatus },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -593,8 +603,7 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     if (!runtime) return;
     runtime.onReady = onReady;
     runtime.onStatus = onStatus;
-    runtime.onExit = onExit;
-  }, [onReady, onStatus, onExit]);
+  }, [onReady, onStatus]);
 
   useEffect(() => {
     fontSizeRef.current = fontSize;
@@ -646,7 +655,6 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     runtime.active = activeRef.current;
     runtime.onReady = onReady;
     runtime.onStatus = onStatus;
-    runtime.onExit = onExit;
     // ① 先进 DOM：xterm 在游离节点上量不到字体，会退回 80×24
     host.appendChild(runtime.wrapper);
     // ② 再创建/复用 xterm，并立刻按真实容器尺寸对齐
@@ -660,7 +668,6 @@ export const TerminalView = forwardRef<TerminalHandle, TerminalViewProps>(functi
     return () => {
       runtime.onReady = undefined;
       runtime.onStatus = undefined;
-      runtime.onExit = undefined;
       if (runtime.wrapper.parentElement === host) host.removeChild(runtime.wrapper);
       runtimeRef.current = null;
     };

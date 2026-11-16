@@ -734,6 +734,105 @@ async function caseMinRows() {
   };
 }
 
+
+/** v1.10.10：会话结束自动关标签 + 空态返回入口 */
+async function caseSessionAutoClose() {
+  await resetTabs();
+  await ensureTerminal();
+  const before = await cdp.eval(`[...document.querySelectorAll('[role=tab]')].length`);
+
+  await typeText('exit');
+  await pressKey('Enter');
+  await waitFor(
+    `[...document.querySelectorAll('[role=tab]')].length === 0`,
+    10000,
+    'exit 后标签自动关闭',
+  );
+  const empty = await cdp.eval(
+    `document.body.innerText.includes('没有打开的会话') && document.body.innerText.includes('返回连接列表')`,
+  );
+  if (!empty) throw new Error('标签关闭后未显示空态 + 返回连接列表入口');
+  await shot('19-session-auto-close');
+
+  // 空态按钮可回到连接列表
+  await clickText('返回连接列表');
+  await waitFor(`location.hash === '#/remote'`, 8000, '返回连接列表');
+  return { detail: `exit 前标签数=${before}；退出后自动关闭并显示空态返回入口` };
+}
+
+/** v1.10.10：左侧「会话」固定节点（计数 / 点击进入 / 悬停关闭） */
+async function caseSessionTree() {
+  await resetTabs();
+  await ensureTerminal();
+  await go('#/remote');
+  await waitFor(
+    `document.querySelector('[data-tree-root="会话"]') !== null`,
+    8000,
+    '左侧树出现「会话」节点',
+  );
+  const count = await cdp.eval(
+    `document.querySelector('[data-tree-count="会话"]')?.textContent?.trim()`,
+  );
+  const rows = await cdp.eval(`document.querySelectorAll('[data-testid=session-tab]').length`);
+  if (count !== '1' || rows !== 1) {
+    throw new Error(`会话节点计数不正确：count=${count}, rows=${rows}`);
+  }
+  await shot('20-session-tree');
+
+  // 单击会话行 → 回到对应终端面板
+  await cdp.eval(
+    `document.querySelector('[data-testid=session-tab] button:not([aria-label])')?.click(), 'ok'`,
+  );
+  await waitFor(`location.hash === '#/remote/session'`, 8000, '点击会话行进入面板');
+  await waitFor(`[...document.querySelectorAll('[role=tab]')].length === 1`, 8000, '标签仍在');
+  await waitFor(`(${visibleHostsJs}) > 0`, 8000, '终端渲染');
+
+  // 回列表，用会话行悬停关闭按钮关掉
+  await go('#/remote');
+  await waitFor(
+    `document.querySelector('[data-testid=session-tab]') !== null`,
+    8000,
+    '会话行存在',
+  );
+  await cdp.eval(
+    `document.querySelector('[data-testid=session-tab] button[aria-label^="关闭"]')?.click(), 'ok'`,
+  );
+  await waitFor(
+    `document.querySelectorAll('[data-testid=session-tab]').length === 0`,
+    8000,
+    '会话行关闭',
+  );
+  const countAfter = await cdp.eval(
+    `document.querySelector('[data-tree-count="会话"]')?.textContent?.trim()`,
+  );
+  if (countAfter !== '0') throw new Error(`关闭后计数未归零：${countAfter}`);
+  await shot('21-session-tree-closed');
+  return { detail: '会话节点计数 1→0；单击进入面板；关闭按钮生效' };
+}
+
+/** v1.10.10：停留在其它页面时会话结束也要关标签（事件常驻） */
+async function caseExitWhileAway() {
+  await resetTabs();
+  await ensureTerminal();
+  await typeText('sleep 4; exit');
+  await pressKey('Enter');
+  // 命令开始执行后立刻离开会话页（SessionPage 卸载，但终端运行时与事件订阅仍在）
+  await go('#/files');
+  await sleep(5200);
+  await go('#/remote');
+  await sleep(800);
+  const count = await cdp.eval(
+    `document.querySelector('[data-tree-count="会话"]')?.textContent?.trim()`,
+  );
+  const rows = await cdp.eval(`document.querySelectorAll('[data-testid=session-tab]').length`);
+  const tabs = await cdp.eval(`[...document.querySelectorAll('[role=tab]')].length`);
+  await shot('22-session-exit-away');
+  if (count !== '0' || rows !== 0 || tabs !== 0) {
+    throw new Error(`离开会话页后未自动关闭：count=${count}, rows=${rows}, tabs=${tabs}`);
+  }
+  return { detail: '文件页停留期间会话退出，回到远程页标签已自动关闭' };
+}
+
 // ── 主流程 ─────────────────────────────────────────
 
 const CASES = [
@@ -748,6 +847,9 @@ const CASES = [
   ['tab-switch', '多标签切换内容保留', caseTabSwitch],
   ['dsh-tui', 'dsh TUI 键盘输入', caseDshTui],
   ['min-rows', '窗口偏矮时自动保证 TUI 行数（v1.10.9）', caseMinRows],
+  ['session-auto-close', '会话 exit 后标签自动关闭（v1.10.10）', caseSessionAutoClose],
+  ['session-tree', '左侧「会话」节点计数/进入/关闭（v1.10.10）', caseSessionTree],
+  ['session-exit-away', '停留其它页面时会话结束也自动关标签（v1.10.10）', caseExitWhileAway],
 ];
 
 async function main() {

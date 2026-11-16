@@ -3,13 +3,16 @@
  *
  * 多标签：每个标签一个会话（SSH 终端 / SFTP / 本机终端）。
  *
+ * ## v1.10.10
+ *
+ * - 会话状态/结束事件统一由 `useRemoteSessionSync()`（AppLayout 常驻）处理：
+ *   就绪会话断开 → 自动关闭标签；失败标签保留原因。本页不再维护 exits/重开逻辑。
+ * - 标签栏与终端卡片只读 store；空态提供「返回连接列表」入口。
+ *
  * ## v1.10.8 重建（plans/desktop-terminal-base-v1.10.8.md）
  *
  * - **所有标签常驻 DOM**：切标签只切 `hidden`，不卸载 `<TerminalView>`。
- *   旧实现只渲染 activeTab，切走即销毁 xterm + 断开 WS，切回是新建的空终端
- *   （用户实测"切回来面板是空的"）。
  * - 观感重做：标签栏 / 工具条 / 终端卡片 / 状态栏四段式，字号可调，操作按钮齐备。
- * - 会话结束后不再留一块死屏：显示"已结束"横幅，可就地重开。
  * - 跳板链路与主机指纹确认通过桥事件驱动（逻辑未改）。
  */
 import { useEffect, useRef, useState } from 'react';
@@ -17,7 +20,6 @@ import { useNavigate } from 'react-router';
 import { Button, EmptyState, Icon, IconButton, toast } from '../../components/ui';
 import {
   TerminalView,
-  disposeOrphanTerminals,
   type TerminalHandle,
   type TerminalStatus,
 } from '../../components/remote/TerminalView';
@@ -52,8 +54,6 @@ export function SessionPage() {
     setActiveTab,
     setTabView,
     closeTab,
-    patchTab,
-    reopenTab,
   } = useRemoteStore();
   const navigate = useNavigate();
 
@@ -66,52 +66,12 @@ export function SessionPage() {
   const [otpCode, setOtpCode] = useState('');
   const [fontSize, setFontSize] = useState(readTerminalFontSize);
   const [statuses, setStatuses] = useState<Record<string, TerminalStatus>>({});
-  const [exits, setExits] = useState<Record<string, string>>({});
   const terminalRefs = useRef<Record<string, TerminalHandle | null>>({});
 
-  // 标签关闭后回收对应终端运行时（实例跟随"会话"而不是"组件"，必须显式清理）
-  useEffect(() => {
-    disposeOrphanTerminals(new Set(tabs.map((tab) => tab.id)));
-  }, [tabs]);
-
+  // 会话状态/结束事件已上移到 `useRemoteSessionSync`（AppLayout 常驻）；
+  // 这里只保留必须落在本页 UI 的交互：主机指纹确认与 OTP 输入。
   useEffect(() => {
     const offs = [
-      onBridgeEvent('remote.session_status', (payload) => {
-        const data = asRecord(payload);
-        const sessionId = String(data.session_id || '');
-        const phase = String(data.phase || '');
-        const message = String(data.message || '');
-        const tab = useRemoteStore.getState().tabs.find((item) => item.id === sessionId);
-        if (!tab) return;
-        const chain = [...tab.jumpChain];
-        const index = Number(data.jump_index || 0);
-        chain[index] = { label: message, phase };
-        patchTab(sessionId, { jumpChain: chain, message });
-      }),
-      onBridgeEvent('remote.session_ready', (payload) => {
-        const sessionId = String(asRecord(payload).session_id || '');
-        patchTab(sessionId, { status: 'ready', message: '已连接' });
-      }),
-      onBridgeEvent('remote.session_failed', (payload) => {
-        const data = asRecord(payload);
-        const sessionId = String(data.session_id || '');
-        patchTab(sessionId, {
-          status: 'failed',
-          message: String(data.message || '连接失败'),
-        });
-      }),
-      onBridgeEvent('local_term.session_failed', (payload) => {
-        const data = asRecord(payload);
-        const sessionId = String(data.session_id || '');
-        patchTab(sessionId, {
-          status: 'failed',
-          message: String(data.message || '本机终端启动失败'),
-        });
-      }),
-      onBridgeEvent('local_term.session_ready', (payload) => {
-        const sessionId = String(asRecord(payload).session_id || '');
-        patchTab(sessionId, { status: 'ready', message: '已打开' });
-      }),
       onBridgeEvent('remote.hostkey_ask', (payload) => {
         const data = asRecord(payload);
         setHostkeyAsk({
@@ -126,12 +86,20 @@ export function SessionPage() {
       }),
     ];
     return () => offs.forEach((off) => off());
-  }, [patchTab]);
+  }, []);
+
+  // 标签关闭后清掉对应的终端状态，避免长时间使用后 statuses 只增不减
+  useEffect(() => {
+    setStatuses((current) => {
+      const alive = new Set(tabs.map((tab) => tab.id));
+      const entries = Object.entries(current).filter(([id]) => alive.has(id));
+      if (entries.length === Object.keys(current).length) return current;
+      return Object.fromEntries(entries);
+    });
+  }, [tabs]);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const activeStatus = activeTab ? statuses[activeTab.id] : undefined;
-  const activeExit = activeTab ? exits[activeTab.id] : undefined;
-  const exited = Boolean(activeExit) || activeTab?.status === 'failed';
 
   const confirmHostKey = async (accept: boolean) => {
     if (!hostkeyAsk) return;
@@ -150,32 +118,9 @@ export function SessionPage() {
     setStatuses((current) => ({ ...current, [sessionId]: status }));
   };
 
-  const handleExit = (sessionId: string, message: string) => {
-    setExits((current) => ({ ...current, [sessionId]: message }));
-    patchTab(sessionId, { status: 'closed', message });
-  };
-
   const changeFont = (delta: number) => {
     const next = writeTerminalFontSize(fontSize + delta);
     setFontSize(next);
-  };
-
-  const closeAndForget = async (id: string) => {
-    setExits((current) => {
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
-    await closeTab(id);
-  };
-
-  const handleReopen = async (id: string) => {
-    setExits((current) => {
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
-    await reopenTab(id);
   };
 
   /** 工具条动作：全部打到当前标签的终端句柄上 */
@@ -204,7 +149,6 @@ export function SessionPage() {
       <div className="flex h-[44px] shrink-0 items-end gap-1 overflow-x-auto border-b border-line bg-sunken px-2 pt-1">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
-          const exited = Boolean(exits[tab.id]) || tab.status === 'failed';
           return (
             <div
               key={tab.id}
@@ -225,7 +169,7 @@ export function SessionPage() {
               <span
                 className={[
                   'h-1.5 w-1.5 shrink-0 rounded-full',
-                  exited
+                  tab.status === 'failed'
                     ? 'bg-danger-500'
                     : tab.status === 'ready'
                       ? 'bg-success-500'
@@ -244,7 +188,7 @@ export function SessionPage() {
                 className="ml-0.5 rounded p-0.5 text-subtle opacity-0 transition-opacity hover:bg-sunken hover:text-danger-600 group-hover:opacity-100"
                 onClick={(event) => {
                   event.stopPropagation();
-                  void closeAndForget(tab.id);
+                  void closeTab(tab.id);
                 }}
               >
                 <Icon name="close" size="sm" />
@@ -315,7 +259,7 @@ export function SessionPage() {
               <span
                 className={[
                   'mr-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium',
-                  exited || activeTab.status === 'failed'
+                  activeTab.status === 'failed'
                     ? 'bg-danger-50 text-danger-700'
                     : activeTab.status === 'ready'
                       ? 'bg-success-50 text-success-700'
@@ -325,15 +269,15 @@ export function SessionPage() {
                 <span
                   className={[
                     'h-1.5 w-1.5 rounded-full',
-                    exited || activeTab.status === 'failed'
+                    activeTab.status === 'failed'
                       ? 'bg-danger-500'
                       : activeTab.status === 'ready'
                         ? 'bg-success-500'
                         : 'bg-warning-500',
                   ].join(' ')}
                 />
-                {exited || activeTab.status === 'failed'
-                  ? '已结束'
+                {activeTab.status === 'failed'
+                  ? '已断开'
                   : activeTab.status === 'ready'
                     ? '已连接'
                     : '连接中'}
@@ -392,7 +336,7 @@ export function SessionPage() {
                   </div>
                 </>
               )}
-              <Button size="sm" variant="ghost" icon="close" onClick={() => void closeAndForget(activeTab.id)}>
+              <Button size="sm" variant="ghost" icon="close" onClick={() => void closeTab(activeTab.id)}>
                 断开
               </Button>
             </div>
@@ -414,16 +358,11 @@ export function SessionPage() {
             </div>
           )}
 
-          {/* 失败 / 结束提示 */}
-          {(activeTab.status === 'failed' || activeExit) && (
+          {/* 失败提示：连接失败不自动关闭，保留原因供修正配置 */}
+          {activeTab.status === 'failed' && (
             <div className="flex shrink-0 items-center gap-2 border-b border-danger-50 bg-danger-50 px-3 py-2 text-xs text-danger-700">
               <Icon name="error" size="sm" />
-              <span className="min-w-0 flex-1 truncate">{activeExit || activeTab.message}</span>
-              {activeExit && (
-                <Button size="sm" variant="ghost" onClick={() => void handleReopen(activeTab.id)}>
-                  重开
-                </Button>
-              )}
+              <span className="min-w-0 flex-1 truncate">{activeTab.message || '连接失败'}</span>
             </div>
           )}
 
@@ -463,9 +402,7 @@ export function SessionPage() {
                         token={tab.token}
                         active={isActive && showTerminal}
                         fontSize={fontSize}
-                        onReady={() => patchTab(tab.id, { status: 'ready' })}
                         onStatus={(status) => updateStatus(tab.id, status)}
-                        onExit={(message) => handleExit(tab.id, message)}
                       />
                     </div>
                     {tab.kind === 'ssh' && tab.view === 'files' && (
@@ -476,15 +413,6 @@ export function SessionPage() {
                   </div>
                 );
               })}
-              {tabs.length === 0 && (
-                <div className="flex h-full items-center justify-center">
-                  <EmptyState
-                    icon="terminal"
-                    title="没有打开的会话"
-                    description="从左侧选择连接，或返回列表新建"
-                  />
-                </div>
-              )}
             </div>
           </div>
 
@@ -494,10 +422,14 @@ export function SessionPage() {
               <span
                 className={[
                   'h-1.5 w-1.5 rounded-full',
-                  activeStatus?.state === 'ready' ? 'bg-success-500' : 'bg-slate-300',
+                  activeStatus?.state === 'ready' && activeTab.status !== 'failed'
+                    ? 'bg-success-500'
+                    : 'bg-slate-300',
                 ].join(' ')}
               />
-              {activeStatus?.state === 'ready' ? '通道就绪' : '通道未连接'}
+              {activeStatus?.state === 'ready' && activeTab.status !== 'failed'
+                ? '通道就绪'
+                : '通道未连接'}
             </span>
             <span className="font-mono">{TERM_NAME}</span>
             <span>UTF-8</span>
@@ -519,7 +451,12 @@ export function SessionPage() {
           <EmptyState
             icon="terminal"
             title="没有打开的会话"
-            description="从左侧选择连接，或返回列表新建"
+            description="返回连接列表，双击连接或本机配置重新打开"
+            action={
+              <Button variant="primary" icon="terminal" onClick={() => navigate('/remote')}>
+                返回连接列表
+              </Button>
+            }
           />
         </div>
       )}

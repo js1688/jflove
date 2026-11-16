@@ -11,7 +11,6 @@ import type {
   AuthType,
   RemoteConnectionDetail,
   RemoteConnectionInput,
-  RemoteGroup,
 } from '../../services/remote-service';
 
 interface FormProps {
@@ -19,7 +18,6 @@ interface FormProps {
   /** 新建时预选连接类型（ssh / sftp） */
   connectionMode?: 'ssh' | 'sftp';
   detail?: RemoteConnectionDetail;
-  groups: RemoteGroup[];
   connections: Array<{ id: number; name: string }>;
   onCancel: () => void;
   onSave: (payload: RemoteConnectionInput) => Promise<number | null>;
@@ -35,7 +33,6 @@ export function RemoteConnectionForm({
   mode,
   connectionMode,
   detail,
-  groups,
   connections,
   onCancel,
   onSave,
@@ -52,7 +49,6 @@ export function RemoteConnectionForm({
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
   const [jumpId, setJumpId] = useState(String(detail?.jump_connection_id ?? 0));
-  const [groupId, setGroupId] = useState(String(detail?.ssh_group_id ?? 0));
   const [initCommand, setInitCommand] = useState(detail?.init_command ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -79,7 +75,6 @@ export function RemoteConnectionForm({
       username,
       auth_type: authType,
       mode: connectionType,
-      ssh_group_id: Number(groupId) || 0,
       jump_connection_id: Number(jumpId) || 0,
       terminal_type: detail?.terminal_type || 'xterm-256color',
       charset: detail?.charset || 'UTF-8',
@@ -222,23 +217,6 @@ export function RemoteConnectionForm({
               ))}
           </select>
         </Field>
-
-        <div className="flex gap-3">
-          <Field label="分组" className="flex-1">
-            <select
-              className="input"
-              value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
-            >
-              <option value="0">未分组</option>
-              {groups.map((group) => (
-                <option key={group.id} value={String(group.id)}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
 
         <Field label="连接后执行（可选）">
           <input
