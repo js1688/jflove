@@ -221,6 +221,41 @@ def test_port_and_auth_validation(client: TestClient, env: dict) -> None:
         assert resp.status_code == 400, resp.text
 
 
+def test_password_publickey_auth_type(client: TestClient, env: dict) -> None:
+    """「密码 + 密钥」双因素：可创建；缺密码或缺私钥必须 400"""
+    alice = env["alice"]
+    key = "static/pem/fiserv/au-fiserv_private_key_test.pem"
+    conn_id = _create(
+        client,
+        alice,
+        name="dual-factor",
+        auth_type="password_publickey",
+        password="9tT[$h6Lm",
+        private_key=key,
+        passphrase="zC5+aL4$lV1=",
+    )
+    conn = _data(
+        alice, _post(client, alice, "/api/v1/ssh/connections/get", {"id": conn_id})
+    )["connection"]
+    assert conn["auth_type"] == "password_publickey"
+    # 私钥既可以存内容，也可以存本机路径（由客户端解析）
+    assert conn["private_key"] == key
+
+    for missing in ({"password": ""}, {"private_key": ""}):
+        body = {
+            "name": "dual-bad",
+            "host": "test2-gw-apac.firstdataclients.com",
+            "port": 6522,
+            "username": "APGW-KPAYG001",
+            "auth_type": "password_publickey",
+            "password": "x",
+            "private_key": key,
+        }
+        body.update(missing)
+        resp = _post(client, alice, "/api/v1/ssh/connections/create", body)
+        assert resp.status_code == 400, resp.text
+
+
 def test_jump_depth_limit(client: TestClient, env: dict) -> None:
     """跳板链超过 16 级必须被拒绝（防病态配置拖死客户端）"""
     alice = env["alice"]

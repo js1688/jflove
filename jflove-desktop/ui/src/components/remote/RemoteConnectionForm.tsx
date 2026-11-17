@@ -7,6 +7,8 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from '../../components/ui';
+import { callBridge } from '../../utils/desktop-bridge';
+import { describeErrorWithFallback } from '../../utils/error-text';
 import type {
   AuthType,
   RemoteConnectionDetail,
@@ -26,6 +28,7 @@ interface FormProps {
 const AUTH_OPTIONS: Array<{ value: AuthType; label: string }> = [
   { value: 'password', label: '密码' },
   { value: 'publickey', label: '密钥' },
+  { value: 'password_publickey', label: '密码 + 密钥' },
   { value: 'password_keyboard', label: '密码 + OTP' },
 ];
 
@@ -48,12 +51,44 @@ export function RemoteConnectionForm({
   const [password, setPassword] = useState('');
   const [privateKey, setPrivateKey] = useState('');
   const [passphrase, setPassphrase] = useState('');
+  /** 选文件后由 Python 侧暂存的 token（私钥字节不进渲染层） */
+  const [keyToken, setKeyToken] = useState('');
+  const [keyFileName, setKeyFileName] = useState('');
+  const [keyEncrypted, setKeyEncrypted] = useState(false);
   const [jumpId, setJumpId] = useState(String(detail?.jump_connection_id ?? 0));
   const [initCommand, setInitCommand] = useState(detail?.init_command ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const needsPassword = authType === 'password' || authType === 'password_keyboard';
+  /**
+   * 选择本机私钥文件。
+   *
+   * Python 侧读取文件内容并暂存，渲染层只拿 token / 文件名；
+   * 保存连接时由桥把**内容**发给服务端落库（之后连接不再依赖本地文件）。
+   */
+  const pickKeyFile = async () => {
+    setError('');
+    try {
+      const picked = await callBridge<{
+        token?: string;
+        name?: string;
+        encrypted?: boolean;
+        cancelled?: boolean;
+      }>('remote', 'pick_private_key');
+      if (picked?.cancelled || !picked?.token) return;
+      setKeyToken(picked.token);
+      setKeyFileName(picked.name ?? '');
+      setKeyEncrypted(Boolean(picked.encrypted));
+      setPrivateKey('');
+    } catch (e) {
+      setError(describeErrorWithFallback(e, '无法读取私钥文件'));
+    }
+  };
+
+  const needsPassword =
+    authType === 'password' || authType === 'password_keyboard' || authType === 'password_publickey';
+  /** 密钥类认证：只填密钥 / 密码 + 密钥（双因素） */
+  const needsKey = authType === 'publickey' || authType === 'password_publickey';
   const hasSavedPassword = Boolean(detail?.has_password);
   const hasSavedKey = Boolean(detail?.has_private_key);
 
@@ -62,11 +97,23 @@ export function RemoteConnectionForm({
     if (!name.trim()) return setError('名称不能为空');
     if (!host.trim()) return setError('主机不能为空');
     if (needsPassword && mode === 'create' && !password) return setError('该认证方式需要密码');
-    if (authType === 'publickey' && mode === 'create' && !privateKey) {
-      return setError('该认证方式需要私钥');
+    if (needsKey && mode === 'create' && !privateKey && !keyToken) {
+      return setError('该认证方式需要私钥（粘贴内容或选择文件）');
     }
     if (initCommand.includes('\n') || initCommand.includes('\r')) {
       return setError('连接后执行命令只能是单行');
+    }
+    // 有新的私钥（粘贴或选文件）时先本地校验，避免保存成功、连接时才报错
+    if (needsKey && (privateKey || keyToken)) {
+      try {
+        await callBridge('remote', 'validate_private_key', {
+          private_key: privateKey,
+          private_key_file_token: keyToken,
+          passphrase,
+        });
+      } catch (e) {
+        return setError(describeErrorWithFallback(e, '私钥校验失败'));
+      }
     }
     const payload: RemoteConnectionInput = {
       name: name.trim(),
@@ -83,6 +130,10 @@ export function RemoteConnectionForm({
     if (password) payload.password = password;
     if (privateKey) {
       payload.private_key = privateKey;
+      payload.passphrase = passphrase;
+    } else if (keyToken) {
+      // 桥按 token 取出文件内容填入 private_key，服务端最终存的是内容
+      payload.private_key_file_token = keyToken;
       payload.passphrase = passphrase;
     }
     setSaving(true);
@@ -146,14 +197,14 @@ export function RemoteConnectionForm({
         </Field>
 
         <Field label="认证方式">
-          <div className="flex gap-1 rounded-md bg-sunken p-1">
+          <div className="grid grid-cols-2 gap-1 rounded-md bg-sunken p-1">
             {AUTH_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => setAuthType(option.value)}
                 className={[
-                  'flex-1 rounded px-2 py-1.5 text-xs',
+                  'rounded px-2 py-1.5 text-xs',
                   authType === option.value
                     ? 'bg-surface font-semibold text-fg shadow-sm'
                     : 'text-muted',
@@ -177,24 +228,50 @@ export function RemoteConnectionForm({
           </Field>
         )}
 
-        {authType === 'publickey' && (
+        {needsKey && (
           <>
-            <Field label="私钥内容">
+            <Field label="私钥内容或文件路径">
               <textarea
                 className="input min-h-[88px] font-mono text-[11px]"
                 value={privateKey}
                 placeholder={
-                  hasSavedKey ? '已设置，留空不修改' : '-----BEGIN OPENSSH PRIVATE KEY-----'
+                  hasSavedKey
+                    ? '已设置，留空不修改'
+                    : '-----BEGIN OPENSSH PRIVATE KEY-----'
                 }
-                onChange={(e) => setPrivateKey(e.target.value)}
+                onChange={(e) => {
+                  setPrivateKey(e.target.value);
+                  setKeyToken('');
+                  setKeyFileName('');
+                  setKeyEncrypted(false);
+                }}
               />
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <p className="text-[11px] leading-4 text-subtle">
+                  粘贴 OpenSSH/PEM 文本，或点「选择文件…」（内容存服务端，不保存本地路径）；PuTTY .ppk 需先转换
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm shrink-0"
+                  onClick={() => void pickKeyFile()}
+                >
+                  选择文件…
+                </button>
+              </div>
+              {keyToken && (
+                <div className="mt-1 rounded bg-success-50 px-2 py-1.5 text-[11px] text-success-700">
+                  已选择：{keyFileName}
+                  {keyEncrypted ? '（已加密，请填写私钥口令）' : ''}
+                  <span className="text-subtle"> · 保存时读取内容并上传服务端</span>
+                </div>
+              )}
             </Field>
             <Field label="私钥口令（可选）">
               <input
                 className="input"
                 type="password"
                 value={passphrase}
-                placeholder={hasSavedKey ? '已设置，留空不修改' : '未设置'}
+                placeholder={hasSavedKey ? '已设置，留空不修改' : '私钥未加密则留空'}
                 onChange={(e) => setPassphrase(e.target.value)}
               />
             </Field>

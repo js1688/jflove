@@ -204,6 +204,20 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
   会话页空态提供「返回连接列表」按钮。
 - **验收脚本**新增 `session-auto-close` / `session-tree` / `session-exit-away` 三条用例。
 
+### 私钥内容入库、双因素认证与窗口缩放（v1.10.11）
+
+- **私钥输入**：可粘贴 OpenSSH/PEM 文本，也可点「选择文件…」——由 Python 侧读取文件内容、
+  预校验后暂存，保存连接时把**内容**写入服务端数据库（不保存本地路径，换设备可用）。
+  粘贴文本会做规范化：兼容 BOM、整体缩进、单行/字面量 `\n`、CRLF。
+- **格式**：OpenSSH / PEM（PKCS#1）/ PKCS#8（`BEGIN PRIVATE KEY`、加密的
+  `BEGIN ENCRYPTED PRIVATE KEY`），RSA / ECDSA / Ed25519。
+  PuTTY `.ppk`（含 WinSCP 转换产物）不支持，提示改用原始 PEM 或 PuTTYgen「Conversions → Export OpenSSH key」转换。
+- **「密码 + 密钥」双因素**：新增 `auth_type=password_publickey`（登录密码 + 私钥 + 私钥口令），
+  客户端兼容 `publickey,password` 与 `password,publickey` 两种服务器顺序。
+  只配密钥而服务器还要密码时，会明确提示切换该认证方式。
+- **窗口边缘缩放**：修正 `Qt.Edge` 位值（Top=1 / Left=2 / Right=4 / Bottom=8）；
+  缩放在捕获阶段优先于标题栏拖拽，拖边缘不会再变成拖窗口。
+
 ## 技术架构
 
 ### 框架与组件

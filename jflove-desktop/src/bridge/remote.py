@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from pathlib import Path
 from typing import Any, Callable
 
 from src.components.terminal_host import TerminalHost
@@ -42,6 +43,13 @@ HOSTKEY_TIMEOUT = 30
 
 #: OTP 输入超时（秒）
 OTP_TIMEOUT = 60
+
+#: 选文件后暂存的私钥内容：token → {content, name}。
+#: 私钥字节只在 Python 进程内流转，渲染层只拿到 token / 文件名。
+_pending_private_keys: dict[str, dict[str, str]] = {}
+
+#: 暂存上限（防止反复选择文件后内存无界增长）
+MAX_PENDING_PRIVATE_KEYS = 16
 
 
 def init_host() -> None:
@@ -99,18 +107,122 @@ def _h_connections_get(params: dict) -> dict:
     }
 
 
+def _resolve_private_key_payload(payload: dict) -> tuple[str, str]:
+    """
+    取出本次提交的私钥内容。
+
+    :returns: `(私钥文本, token)`；用了「选择文件」时 token 非空
+    :raises RuntimeError: token 已失效（应用重启 / 已保存过）
+    """
+    token = str(payload.pop("private_key_file_token", "") or "")
+    if not token:
+        content = str(payload.get("private_key") or "")
+        # 连接配置只存私钥内容，不存本机路径（用户要求：全放服务端数据库）
+        if content and not any(
+            marker in content for marker in ("-----BEGIN", "PuTTY-User-Key-File")
+        ):
+            raise RuntimeError(
+                "私钥字段需要粘贴私钥文本，或用「选择文件…」选择文件"
+                "（连接配置不保存本地路径）"
+            )
+        return content, ""
+    entry = _pending_private_keys.get(token)
+    if entry is None:
+        raise RuntimeError("私钥文件内容已失效，请重新选择文件")
+    return entry["content"], token
+
+
 def _h_connections_create(params: dict) -> dict:
     payload = dict(params)
     payload.pop("token", None)
-    return {"id": remote_service.create_connection(payload)}
+    content, key_token = _resolve_private_key_payload(payload)
+    if key_token:
+        # 选文件 = 把文件内容存进服务端数据库，之后连接不再依赖本地文件
+        payload["private_key"] = content
+    created = remote_service.create_connection(payload)
+    if key_token:
+        _pending_private_keys.pop(key_token, None)
+    return {"id": created}
 
 
 def _h_connections_update(params: dict) -> dict:
     payload = dict(params)
     connection_id = int(payload.pop("id"))
     payload.pop("token", None)
+    content, key_token = _resolve_private_key_payload(payload)
+    if key_token:
+        payload["private_key"] = content
     remote_service.update_connection(connection_id, payload)
+    if key_token:
+        _pending_private_keys.pop(key_token, None)
     return {"ok": True}
+
+
+def _h_pick_private_key(_params: dict) -> dict:
+    """
+    选择私钥文件：Python 侧读取内容、预校验并暂存，渲染层只拿 token。
+
+    **私钥字节不回渲染层**（安全宪法 §9.6）；保存连接时由桥把内容发给服务端。
+    """
+    from PySide6.QtWidgets import QFileDialog
+
+    from src.bridge import files as files_bridge
+
+    path, _filter = QFileDialog.getOpenFileName(
+        files_bridge._main_window,
+        "选择私钥文件",
+        "",
+        "私钥文件 (*.pem *.key id_rsa* id_ed25519* id_ecdsa*);;所有文件 (*)",
+    )
+    if not path:
+        return {"cancelled": True}
+    try:
+        text = Path(path).read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RuntimeError(f"读取私钥文件失败：{Path(path).name}（{exc}）") from exc
+    if "PuTTY-User-Key-File" in text:
+        raise RuntimeError(
+            "这是 PuTTY 私钥（.ppk，WinSCP 转换产物）。请改用原始 PEM 文件"
+            "（-----BEGIN RSA PRIVATE KEY-----），或用 PuTTYgen 执行 "
+            "Conversions → Export OpenSSH key 后再选择"
+        )
+    encrypted = False
+    fingerprint = ""
+    try:
+        key = ssh_session_module.load_private_key(text, "")
+        fingerprint = ssh_session_module.fetch_fingerprint(key)
+    except ssh_session_module.AuthError as exc:
+        if "已加密" in str(exc):
+            encrypted = True
+        else:
+            raise RuntimeError(str(exc)) from exc
+
+    token = uuid.uuid4().hex
+    _pending_private_keys[token] = {"content": text, "name": Path(path).name}
+    while len(_pending_private_keys) > MAX_PENDING_PRIVATE_KEYS:
+        _pending_private_keys.pop(next(iter(_pending_private_keys)), None)
+    return {
+        "token": token,
+        "name": Path(path).name,
+        "size": len(text.encode("utf-8")),
+        "encrypted": encrypted,
+        "fingerprint": fingerprint,
+    }
+
+
+def _h_validate_private_key(params: dict) -> dict:
+    """保存前校验私钥（文本或选中的文件），失败直接给可读原因"""
+    content, _token = _resolve_private_key_payload(dict(params))
+    if not content:
+        raise RuntimeError("私钥内容为空：请粘贴私钥文本，或选择私钥文件")
+    key = ssh_session_module.load_private_key(
+        content, str(params.get("passphrase") or "")
+    )
+    return {
+        "ok": True,
+        "key_type": type(key).__name__,
+        "fingerprint": ssh_session_module.fetch_fingerprint(key),
+    }
 
 
 def _h_connections_delete(params: dict) -> dict:
@@ -605,6 +717,8 @@ def _h_local_session_status(params: dict) -> dict:
 MAIN_THREAD_METHODS: set[tuple[str, str]] = {
     ("local_term", "clipboard_read"),
     ("local_term", "clipboard_write"),
+    # QFileDialog 必须在 GUI 线程
+    ("remote", "pick_private_key"),
 }
 
 
@@ -614,6 +728,8 @@ HANDLERS: dict[str, dict[str, Callable[[dict], Any]]] = {
         "connections_get": _h_connections_get,
         "connections_create": _h_connections_create,
         "connections_update": _h_connections_update,
+        "pick_private_key": _h_pick_private_key,
+        "validate_private_key": _h_validate_private_key,
         "connections_delete": _h_connections_delete,
         "connections_duplicate": _h_connections_duplicate,
         "groups_list": _h_groups_list,

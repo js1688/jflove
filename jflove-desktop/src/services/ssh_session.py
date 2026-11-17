@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
+import re
 import socket
+import sys
 import threading
 from io import StringIO
+from pathlib import Path
 from typing import Any, Callable
 
 import paramiko
@@ -56,6 +60,26 @@ class JumpError(SshError):
     """跳板链路失败（message 里带具体跳）"""
 
 
+def _auth_error(exc: paramiko.AuthenticationException) -> AuthError:
+    """把 paramiko 认证异常转成可读中文（带服务器允许的认证方式）"""
+    # paramiko 5.x：BadAuthenticationType 与 PartialAuthentication 是**平级**的两种异常
+    # （partial 不继承 BadAuthenticationType），两者都带 `allowed_types`
+    allowed_types = [str(item) for item in (getattr(exc, "allowed_types", None) or ())]
+    if allowed_types:
+        allowed = "、".join(allowed_types)
+        if "password" in allowed_types:
+            return AuthError(
+                f"服务器还要求密码认证（服务器允许：{allowed}），"
+                "请在认证方式里选择「密码 + 密钥」并填写密码"
+            )
+        if "publickey" in allowed_types:
+            return AuthError(
+                f"服务器要求密钥认证（服务器允许：{allowed}），请检查私钥与认证方式"
+            )
+        return AuthError(f"服务器不接受当前认证方式（服务器允许：{allowed}）")
+    return AuthError(f"认证失败：{exc}")
+
+
 def fetch_fingerprint(key: paramiko.PKey) -> str:
     """
     计算 OpenSSH 风格的主机指纹。
@@ -67,19 +91,208 @@ def fetch_fingerprint(key: paramiko.PKey) -> str:
     return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
 
 
-def load_private_key(pem: str, passphrase: str = "") -> paramiko.PKey:
+def load_private_key(source: str, passphrase: str = "") -> paramiko.PKey:
     """
-    从 PEM 文本加载私钥（支持 RSA / Ed25519 / ECDSA）。
+    从私钥文本**或私钥文件路径**加载私钥。
 
-    :raises AuthError: 格式不支持或口令错误
+    支持 OpenSSH / PEM（PKCS#1）/ PKCS#8（`BEGIN PRIVATE KEY`、`BEGIN ENCRYPTED PRIVATE KEY`），
+    以及 RSA / Ed25519 / ECDSA 三种密钥。PuTTY `.ppk` 不支持，会提示先用 PuTTYgen 转换。
+
+    :param source: 私钥文本或本机文件路径（支持 `~`、环境变量与相对路径）
+    :param passphrase: 私钥口令（未加密时留空）
+    :raises AuthError: 文件不存在、格式不支持或口令错误
     """
-    last_error: Exception | None = None
+    text = _read_private_key_text(source)
+    password = passphrase or None
+
+    errors: list[Exception] = []
     for key_type in (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey):
         try:
-            return key_type.from_private_key(StringIO(pem), password=passphrase or None)
+            return key_type.from_private_key(StringIO(text), password=password)
+        except paramiko.PasswordRequiredException:
+            raise AuthError("私钥已加密，请填写「私钥口令」") from None
         except Exception as exc:  # noqa: BLE001 - 依次尝试，最后统一报错
-            last_error = exc
+            errors.append(exc)
+
+    # paramiko 不认 PKCS#8（OpenSSL 3 / 部分网关工具导出的常见格式），用 cryptography 兜底
+    try:
+        return _load_pkcs8_key(text, passphrase)
+    except AuthError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 归一化失败则继续走统一报错
+        errors.append(exc)
+
+    detail = "；".join(str(item) for item in errors[-3:])
+    lowered = detail.lower()
+    if any(
+        marker in lowered
+        for marker in ("bad password", "incorrect", "checkint", "corrupt")
+    ):
+        raise AuthError("私钥口令错误，或私钥文件已损坏（请重新导出一次私钥）")
+    last_error = errors[-1] if errors else "未知错误"
     raise AuthError(f"私钥无法解析（支持 OpenSSH/PEM，不支持 PuTTY .ppk）：{last_error}")
+
+
+#: PEM/OpenSSH 私钥文本的起始标记
+_PEM_MARKER = "-----BEGIN"
+
+
+def _read_private_key_text(source: str) -> str:
+    """
+    统一「私钥文本 / 私钥文件路径」两种输入。
+
+    :param source: 用户输入（表单里的私钥内容或文件路径）
+    :raises AuthError: 内容为空、.ppk、路径不存在或文件读不了
+    """
+    text = str(source or "").lstrip("\ufeff").strip()
+    # 从配置/文档里复制路径时常带引号（"C:/keys/id_rsa"），一并去掉
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        text = text[1:-1].strip()
+    if not text:
+        raise AuthError("私钥内容为空：请粘贴私钥文本，或填写私钥文件路径")
+    if "PuTTY-User-Key-File" in text:
+        raise AuthError(
+            "这是 PuTTY 私钥（.ppk，WinSCP 转换产物）。请改用原始 PEM 文件"
+            "（-----BEGIN RSA PRIVATE KEY-----），或用 PuTTYgen 执行 "
+            "Conversions → Export OpenSSH key 后再选择"
+        )
+    if _PEM_MARKER in text:
+        return _normalize_pem_text(text)
+
+    path, _tried = _resolve_private_key_path(text)
+    if path is None:
+        # 安全宪法 §9.13：错误文案不回显完整路径，只留文件名 + 查找范围
+        file_name = Path(text).name or "（未提供文件名）"
+        looks_like_path = any(sep in text for sep in ("/", "\\")) or text.lower().endswith(
+            (".pem", ".key", ".ppk", ".rsa")
+        )
+        if looks_like_path:
+            raise AuthError(
+                f"私钥文件不存在：{file_name}（已按当前目录、用户主目录、程序目录查找）。"
+                "请检查路径，或用「选择文件…」重新选择"
+            )
+        raise AuthError(
+            "私钥无法解析：既不是 PEM/OpenSSH 私钥文本，也不是可访问的文件路径。"
+            "请粘贴 -----BEGIN ... PRIVATE KEY----- 内容，"
+            "或用「选择文件…」选择私钥文件"
+        )
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise AuthError(f"私钥文件读取失败：{path.name}（{exc}）") from exc
+
+
+def _normalize_pem_text(text: str) -> str:
+    """
+    把私钥文本整理成 paramiko 认得的 PEM/OpenSSH 形态。
+
+    真实用户可能：
+
+    - 从记事本复制时带上 UTF-8 BOM / 整体缩进；
+    - 从 YAML/JSON 里复制成**一行**（换行变成字面量 `\\n` 或被折叠掉）；
+    - Windows 换行（CRLF）。
+
+    paramiko 要求 `-----BEGIN` 出现在**行首**、且至少两行，否则统一报
+    「not a valid ... private key file」——这正是用户看到的那条错误。
+    这里只做格式规范化，不改私钥内容本身。
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
+    # JSON/YAML 里粘出来的字面量换行（base64 不可能含反斜杠，替换是安全的）
+    if "\\n" in text and "\n" not in text:
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+    match = re.search(
+        r"^\s*-----BEGIN ([A-Z0-9 ]+)-----(.*?)-----END \1-----\s*$",
+        text,
+        re.S | re.M,
+    )
+    if not match:
+        return text.strip()
+    label = match.group(1).strip()
+    body = match.group(2)
+    if label == "OPENSSH":
+        lines = [line.strip() for line in body.splitlines() if line.strip()]
+        if len(lines) <= 1:
+            raw = "".join(lines)
+            lines = [raw[index:index + 70] for index in range(0, len(raw), 70)]
+        return f"-----BEGIN {label}-----\n" + "\n".join(lines) + f"\n-----END {label}-----\n"
+
+    # PEM（RSA / EC / PKCS#8）：`Proc-Type` 等头部保留，base64 按 64 列重排
+    headers: list[str] = []
+    chunks: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not chunks and ":" in stripped:
+            headers.append(stripped)
+        else:
+            chunks.append(stripped)
+    raw = "".join(chunks)
+    wrapped = [raw[index:index + 64] for index in range(0, len(raw), 64)]
+    output = [f"-----BEGIN {label}-----", *headers, *wrapped, f"-----END {label}-----"]
+    return "\n".join(output) + "\n"
+
+
+def _resolve_private_key_path(raw: str) -> tuple[Path | None, list[Path]]:
+    """
+    把路径输入解析成真实文件。
+
+    绝对路径直接判断；相对路径依次尝试：当前工作目录 → 用户主目录 → 程序所在目录。
+    返回命中的文件与全部候选（后者用于错误提示）。
+    """
+    expanded = os.path.expandvars(os.path.expanduser(raw))
+    path = Path(expanded)
+    if path.is_absolute():
+        candidates = [path]
+    else:
+        roots = [Path.cwd(), Path.home()]
+        try:
+            roots.append(Path(sys.argv[0]).resolve().parent)
+        except (OSError, ValueError):
+            pass  # 取不到程序目录时只用前两个根
+        candidates = []
+        seen: set[str] = set()
+        for root in roots:
+            candidate = root / path
+            if str(candidate) in seen:
+                continue
+            seen.add(str(candidate))
+            candidates.append(candidate)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate, candidates
+    return None, candidates
+
+
+def _load_pkcs8_key(text: str, passphrase: str) -> paramiko.PKey:
+    """
+    用 cryptography 解析 PKCS#8 私钥（含加密），再转成 OpenSSH 文本交给 paramiko。
+
+    :raises AuthError: 口令错误
+    :raises Exception: 不是 PKCS#8 或转换失败（由调用方统一报错）
+    """
+    from cryptography.hazmat.primitives import serialization
+
+    try:
+        key = serialization.load_pem_private_key(
+            text.encode("utf-8"),
+            password=passphrase.encode("utf-8") if passphrase else None,
+        )
+    except TypeError as exc:
+        if "password was not given" in str(exc).lower():
+            raise AuthError("私钥已加密，请填写「私钥口令」") from exc
+        raise
+    normalized = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.OpenSSH,
+        serialization.NoEncryption(),
+    ).decode("ascii")
+    for key_type in (paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.RSAKey):
+        try:
+            return key_type.from_private_key(StringIO(normalized))
+        except Exception:  # noqa: BLE001 - 归一化后的格式只可能命中一种
+            continue
+    raise paramiko.SSHException("PKCS#8 私钥转换失败")
 
 
 class SshSession:
@@ -312,16 +525,17 @@ class SshSession:
         remote_service.save_host_key_fingerprint(int(row["id"]), actual)
 
     def _authenticate(self, transport: paramiko.Transport, row: dict) -> None:
-        """按配置的认证方式登录"""
+        """按配置的认证方式登录；密钥方式支持「密钥 + 密码」双因素"""
         username = str(row.get("username") or "")
         auth_type = str(row.get("auth_type") or "password")
         password = str(row.get("password") or "")
         try:
-            if auth_type == "publickey":
+            if auth_type in ("publickey", "password_publickey"):
                 key = load_private_key(
                     str(row.get("private_key") or ""), str(row.get("passphrase") or "")
                 )
-                transport.auth_publickey(username, key)
+                # publickey 模式若恰好也存了密码，按双因素尝试（兼容旧配置与 API 直写）
+                self._auth_publickey(transport, username, key, password)
                 return
             transport.auth_password(username, password)
         except paramiko.AuthenticationException as exc:
@@ -332,11 +546,66 @@ class SshSession:
                     return
                 except paramiko.AuthenticationException:
                     raise AuthError("认证失败（密码或验证码错误）")
-            raise AuthError(f"认证失败：{exc}")
+            # 没有 allowed_types 的裸失败：按认证方式给中文原因，不把 paramiko 英文原文抛给用户
+            if not getattr(exc, "allowed_types", None):
+                if auth_type == "password":
+                    raise AuthError("认证失败：用户名或密码错误") from exc
+                if auth_type in ("publickey", "password_publickey"):
+                    raise AuthError("认证失败：密钥或密码不被服务器接受") from exc
+            raise _auth_error(exc)
         except SshError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise AuthError(f"认证失败：{exc}")
+
+    def _auth_publickey(
+        self,
+        transport: paramiko.Transport,
+        username: str,
+        key: paramiko.PKey,
+        password: str,
+    ) -> None:
+        """
+        密钥认证；服务器要求多因素时继续用密码完成。
+
+        兼容两种顺序：
+
+        - `publickey,password`：密钥通过后服务器回 partial，再补密码；
+        - `password,publickey`：服务器直接不认密钥，先走密码，再补密钥。
+        """
+        try:
+            transport.auth_publickey(username, key)
+            return
+        except paramiko.AuthenticationException as exc:
+            if transport.is_authenticated():
+                return
+            allowed = set(getattr(exc, "allowed_types", None) or ())
+            if not password:
+                if "password" in allowed:
+                    raise AuthError(
+                        "服务器还要求密码认证（服务器允许：password）；"
+                        "如需「密码 + 密钥」双因素，请切换该认证方式并填写密码"
+                    ) from exc
+                raise
+            if allowed and "password" not in allowed:
+                # 服务器明确不接受密码（只认密钥）：密钥失败就没必要再试密码
+                raise
+            # allowed 为空 = 密钥被拒但服务器未给出方法列表：
+            # 退回密码再试一次（服务器允许密码/密钥二选一时更宽容）
+
+        # 密钥未被接受（或需要继续），尝试密码阶段
+        try:
+            transport.auth_password(username, password)
+            return
+        except paramiko.AuthenticationException as exc:
+            if transport.is_authenticated():
+                return
+            allowed = set(getattr(exc, "allowed_types", None) or ())
+            if "publickey" not in allowed:
+                raise AuthError("认证失败：密码或密钥不被服务器接受") from exc
+
+        # 密码通过后服务器仍要求密钥（password,publickey 顺序）
+        transport.auth_publickey(username, key)
 
     def _interactive_handler(
         self, title: str, instructions: str, prompts: list[tuple[str, bool]]

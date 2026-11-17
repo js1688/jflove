@@ -23,7 +23,11 @@ MAX_INIT_COMMAND = 1024
 MAX_JUMP_DEPTH = 16
 
 #: 允许的认证方式
-AUTH_TYPES = ("password", "publickey", "password_keyboard")
+#: - password：密码
+#: - publickey：密钥（私钥 + 可选私钥口令）
+#: - password_keyboard：密码 + 动态验证码（键盘交互）
+#: - password_publickey：密码 + 密钥双因素（先密钥后密码，兼容两种服务器顺序）
+AUTH_TYPES = ("password", "publickey", "password_keyboard", "password_publickey")
 
 #: 连接类型：ssh = 终端 + 可选 SFTP；sftp = 纯 SFTP（不依赖 shell）
 CONNECTION_MODES = ("ssh", "sftp")
@@ -103,9 +107,9 @@ def normalize(body: dict[str, Any], is_create: bool) -> dict[str, Any]:
         raise SshError("私钥内容过大（上限 64KB）")
 
     if is_create:
-        if auth_type in ("password", "password_keyboard") and not password:
+        if auth_type in ("password", "password_keyboard", "password_publickey") and not password:
             raise SshError("该认证方式需要密码")
-        if auth_type == "publickey" and not private_key:
+        if auth_type in ("publickey", "password_publickey") and not private_key:
             raise SshError("该认证方式需要私钥")
 
     return {

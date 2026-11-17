@@ -22,10 +22,16 @@ import { titleForPath } from '../../config/placeholders';
 import { router } from '../../config/routes';
 
 /** 边缘缩放热区宽度（px） */
-const RESIZE_MARGIN = 6;
+const RESIZE_MARGIN = 8;
 
-/** Qt::Edges 位掩码 */
-const EDGE = { left: 1, top: 2, right: 4, bottom: 8 } as const;
+/**
+ * `Qt::Edge` 位掩码。
+ *
+ * ⚠ 顺序是 Qt 定的，**不是** left=1：`TopEdge=1 / LeftEdge=2 / RightEdge=4 / BottomEdge=8`
+ * （`PySide6.QtCore.Qt.Edge`）。这里写反会让左右/上下热区互换，
+ * 表现为「拖左右边缘不缩放 / 拖上边缘变拖窗口」。
+ */
+export const EDGE = { top: 1, left: 2, right: 4, bottom: 8 } as const;
 
 /** 双击判定窗口（ms）与位移容差（px） */
 const DOUBLE_CLICK_MS = 400;
@@ -43,7 +49,7 @@ interface ShellControls {
 }
 
 /** 计算某坐标命中的窗口边缘（0 = 不在热区内） */
-function edgesAt(x: number, y: number): number {
+export function edgesAt(x: number, y: number): number {
   let edges = 0;
   if (x <= RESIZE_MARGIN) edges |= EDGE.left;
   else if (x >= window.innerWidth - RESIZE_MARGIN) edges |= EDGE.right;
@@ -154,17 +160,21 @@ export function TitleBar() {
     };
   }, [maximized]);
 
-  // ── 边缘缩放（优先级高于拖拽） ──
+  // ── 边缘缩放（捕获阶段，优先级高于标题栏拖拽） ──
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0 || maximized) return;
       const edges = edgesAt(e.clientX, e.clientY);
       if (!edges) return;
+      // 窗口按钮优先：否则点「关闭」按钮上沿 8px 会变成拉窗口
+      if ((e.target as HTMLElement | null)?.closest('.win-btn')) return;
+      // 捕获阶段拦截：否则标题栏会先 startSystemMove，拖上边缘就变成拖窗口
       e.preventDefault();
+      e.stopPropagation();
       shellRef.current?.startSystemResize(edges);
     };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
   }, [maximized]);
 
   /** 标题栏空白处：拖拽移动 / 双击最大化 */
@@ -173,6 +183,8 @@ export function TitleBar() {
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
       if (target.closest('.win-btn')) return;
+      // 边缘热区交给缩放监听（捕获阶段已处理），这里再兜一层，避免拖上边缘变移动
+      if (edgesAt(e.clientX, e.clientY)) return;
 
       const now = Date.now();
       const last = lastDownRef.current;

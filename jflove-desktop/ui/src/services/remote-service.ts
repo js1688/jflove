@@ -16,7 +16,14 @@ export interface RemoteGroup {
   connection_count: number;
 }
 
-export type AuthType = 'password' | 'publickey' | 'password_keyboard';
+/**
+ * 认证方式：
+ * - password：密码
+ * - publickey：密钥（可选私钥口令）
+ * - password_publickey：密码 + 密钥双因素（WinSCP 的「登录密码 + 私钥口令」场景）
+ * - password_keyboard：密码 + 动态验证码
+ */
+export type AuthType = 'password' | 'publickey' | 'password_publickey' | 'password_keyboard';
 
 /** 连接类型：ssh = 终端 + 可选 SFTP；sftp = 纯 SFTP（不依赖 shell） */
 export type ConnectionMode = 'ssh' | 'sftp';
@@ -67,6 +74,8 @@ export interface RemoteConnectionInput {
   ssh_group_id?: number;
   password?: string;
   private_key?: string;
+  /** 选文件后由 Python 桥暂存的 token；保存时桥把文件内容填入 private_key */
+  private_key_file_token?: string;
   passphrase?: string;
   jump_connection_id?: number;
   terminal_type?: string;

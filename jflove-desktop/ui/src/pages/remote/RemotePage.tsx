@@ -537,6 +537,7 @@ function RemoteCard({
   const authLabel = {
     password: '密码',
     publickey: '密钥',
+    password_publickey: '密码 + 密钥',
     password_keyboard: '密码 + OTP',
   }[connection.auth_type];
   const modeLabel = connection.mode === 'sftp' ? '仅 SFTP' : 'SSH 终端';
