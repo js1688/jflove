@@ -218,6 +218,23 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 - **窗口边缘缩放**：修正 `Qt.Edge` 位值（Top=1 / Left=2 / Right=4 / Bottom=8）；
   缩放在捕获阶段优先于标题栏拖拽，拖边缘不会再变成拖窗口。
 
+### 多因素认证、SFTP 加载边界与表单清空（v1.10.13）
+
+- **多步认证**：按 paramiko 真实语义处理 `auth_publickey` / `auth_password` / `auth_interactive`
+  的**剩余方式列表**（部分认证不抛异常）；支持 `密钥 → 账号密码`、`密钥 → keyboard-interactive`、
+  `密码 → 密钥` 等顺序。结束前硬校验 `transport.is_authenticated()`，未完成绝不显示「已连接」。
+- **两个密码的语义**：`密码` = 服务器账号登录密码（WinSCP 第二次 `Further authentication required`）；
+  `私钥口令` = 解锁私钥文件的口令（WinSCP 第一次「密钥 xxx 的密码」）。表单内已就地标注。
+- **SFTP 有界等待**：打开子系统 15s、单次操作 45s（`JFLOVE_SFTP_OPEN_TIMEOUT` /
+  `JFLOVE_SFTP_OP_TIMEOUT` 可调）；超时给中文原因并丢弃坏 client；列表记录耗时。
+  UI 显示「加载中…（已用 N 秒）」并提供「取消加载」/「重试」。
+- **凭据清空**：密码 / 私钥 / 私钥口令右上角可「清空」，保存时发送 `clear_password` /
+  `clear_private_key` / `clear_passphrase`，服务端把对应列写为空串（不是「留空 = 不修改」）。
+- **跳板连接下拉**：去掉原生 `<select>`（Windows 多显示器混合 DPI 下弹层会持续变大），
+  改页内列表：按 id 去重、排除成环下游连接、最大高度滚动、外部点击/Esc 关闭。
+- **主机指纹 / 继续认证提示**：事件由 `AppLayout` 常驻 hook 收进 store 排队，
+  页面晚挂载也不会丢事件（避免 30s/60s 等超时）。
+
 ## 技术架构
 
 ### 框架与组件

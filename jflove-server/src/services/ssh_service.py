@@ -176,8 +176,11 @@ async def update_connection(
     """
     更新连接。
 
-    凭据语义：`password`/`private_key`/`passphrase` 缺省或空串表示**不修改**；
-    显式传 `clear_password` / `clear_private_key` 才会清空。
+    凭据语义（v1.10.13）：
+
+    - `password` / `private_key` / `passphrase` 缺省或空串表示**不修改**；
+    - 显式传 `clear_password` / `clear_private_key` / `clear_passphrase` 才清空（写空串）；
+    - 只提交非空 `passphrase`（不换私钥）时，允许单独更新口令。
     """
     current = await repo.find_connection(db, user_id, connection_id)
     if current is None:
@@ -226,10 +229,16 @@ async def update_connection(
     elif data["password"]:
         fields["password"] = data["password"]
     if body.get("clear_private_key"):
+        # 私钥与口令是一对：清私钥必须连口令一起清，避免留下孤儿口令
         fields["private_key"] = ""
         fields["passphrase"] = ""
     elif data["private_key"]:
         fields["private_key"] = data["private_key"]
+        fields["passphrase"] = "" if body.get("clear_passphrase") else data["passphrase"]
+    elif body.get("clear_passphrase"):
+        fields["passphrase"] = ""
+    elif body.get("passphrase"):
+        # 只改口令（例如口令填错但私钥本身没问题）
         fields["passphrase"] = data["passphrase"]
     if await repo.update_connection(db, user_id, connection_id, fields) is False:
         raise SshError("没有可更新的字段")

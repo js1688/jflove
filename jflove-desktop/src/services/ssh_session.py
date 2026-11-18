@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import paramiko
+from paramiko.ssh_exception import PartialAuthentication
 
 from src.services import remote_service
 from src.utils.logger import get_logger
@@ -43,6 +44,32 @@ MAX_JUMP_DEPTH = 16
 #: 输出块大小
 READ_CHUNK = 4096
 
+#: 一次认证流程里最多再尝试几轮（服务器多因素认证）
+MAX_AUTH_ROUNDS = 5
+
+#: 单次认证方法最多尝试次数（密钥/密码可能因服务器顺序被要求两遍）
+MAX_METHOD_ATTEMPTS = {"password": 2, "publickey": 2, "keyboard-interactive": 1}
+
+
+def _env_seconds(name: str, default: float) -> float:
+    """读取可覆盖的超时环境变量（非法值回落到默认，避免配置把连接拖死）"""
+    raw = os.environ.get(name, "")
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("环境变量 %s 不是数字，使用默认 %s 秒", name, default)
+        return default
+    return value if value > 0 else default
+
+
+#: 打开 SFTP 子系统（channel + subsystem 握手）的超时（秒）
+SFTP_OPEN_TIMEOUT = _env_seconds("JFLOVE_SFTP_OPEN_TIMEOUT", 15.0)
+
+#: SFTP 单次操作（listdir / read / write 等）超时（秒）
+SFTP_OP_TIMEOUT = _env_seconds("JFLOVE_SFTP_OP_TIMEOUT", 45.0)
+
 
 class SshError(Exception):
     """SSH 会话错误基类"""
@@ -60,23 +87,40 @@ class JumpError(SshError):
     """跳板链路失败（message 里带具体跳）"""
 
 
+def _auth_hint(allowed: set[str], fallback: str) -> AuthError:
+    """
+    把服务器允许的认证方式转成可执行的中文提示。
+
+    :param allowed: 服务器允许的认证方式集合（空集表示服务器未给出方法列表）
+    :param fallback: 没有方法列表时的兜底文案
+    """
+    if not allowed:
+        return AuthError(fallback)
+    allowed_text = "、".join(sorted(allowed))
+    if "password" in allowed:
+        return AuthError(
+            f"服务器还要求账号密码认证（服务器允许：{allowed_text}）。"
+            "请把**服务器登录密码**填到「密码」，认证方式选择「密码 + 密钥」"
+        )
+    if "keyboard-interactive" in allowed:
+        return AuthError(
+            f"服务器还要求继续认证（服务器允许：{allowed_text}）。"
+            "请使用「密码 + 密钥」或「密码 + OTP」，按弹层提示补下一次认证"
+        )
+    if "publickey" in allowed:
+        return AuthError(
+            f"服务器要求密钥认证（服务器允许：{allowed_text}），请检查私钥与认证方式"
+        )
+    return AuthError(f"服务器不接受当前认证方式（服务器允许：{allowed_text}）")
+
+
 def _auth_error(exc: paramiko.AuthenticationException) -> AuthError:
     """把 paramiko 认证异常转成可读中文（带服务器允许的认证方式）"""
     # paramiko 5.x：BadAuthenticationType 与 PartialAuthentication 是**平级**的两种异常
     # （partial 不继承 BadAuthenticationType），两者都带 `allowed_types`
-    allowed_types = [str(item) for item in (getattr(exc, "allowed_types", None) or ())]
+    allowed_types = {str(item) for item in (getattr(exc, "allowed_types", None) or ())}
     if allowed_types:
-        allowed = "、".join(allowed_types)
-        if "password" in allowed_types:
-            return AuthError(
-                f"服务器还要求密码认证（服务器允许：{allowed}），"
-                "请在认证方式里选择「密码 + 密钥」并填写密码"
-            )
-        if "publickey" in allowed_types:
-            return AuthError(
-                f"服务器要求密钥认证（服务器允许：{allowed}），请检查私钥与认证方式"
-            )
-        return AuthError(f"服务器不接受当前认证方式（服务器允许：{allowed}）")
+        return _auth_hint(allowed_types, str(exc))
     return AuthError(f"认证失败：{exc}")
 
 
@@ -331,6 +375,12 @@ class SshSession:
         self._transports: list[paramiko.Transport] = []
         self._sock: socket.socket | None = None
         self._chan: paramiko.Channel | None = None
+        self._sftp_client: paramiko.SFTPClient | None = None
+        #: 传输专用 client（`open_sftp(cached=False)`）；会话关闭时一并清理，避免句柄泄漏
+        self._sftp_extra_clients: set[paramiko.SFTPClient] = set()
+        #: 正在握手/协商中的 SFTP channel（取消加载时要能立刻关掉）
+        self._sftp_opening_chan: paramiko.Channel | None = None
+        self._sftp_open_lock = threading.Lock()
         self._closed = False
         self._write_lock = threading.Lock()
         self._reader: threading.Thread | None = None
@@ -408,6 +458,24 @@ class SshSession:
         if self._closed:
             return
         self._closed = True
+        if self._sftp_opening_chan is not None:
+            try:
+                self._sftp_opening_chan.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._sftp_opening_chan = None
+        try:
+            if self._sftp_client is not None:
+                self._sftp_client.close()
+        except Exception:  # noqa: BLE001 - 关闭阶段忽略异常
+            pass
+        self._sftp_client = None
+        for client in list(self._sftp_extra_clients):
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._sftp_extra_clients.clear()
         try:
             if self._chan is not None:
                 self._chan.close()
@@ -469,15 +537,134 @@ class SshSession:
 
         threading.Thread(target=run, name="ssh-redraw", daemon=True).start()
 
-    def open_sftp(self) -> paramiko.SFTPClient:
+    def open_sftp(self, cached: bool = True) -> paramiko.SFTPClient:
         """
         在同一连接上打开 SFTP 通道（复用认证与跳板链）。
 
-        :raises SshError: 链路尚未建好（此时应等待就绪事件，而不是把它当成目录错误）
+        :param cached: True = 复用/缓存会话级 client（元数据操作）；
+                       False = 为一次传输单独开一条 subsystem 通道（不缓存）。
+                       paramiko 的 SFTPClient 不支持并发同步请求，传输与目录浏览
+                       必须各用各的 client，否则响应可能被另一个线程读走。
+
+        三层边界，避免「目录一直加载中」：
+
+        1. 未认证直接报可读错误（不把未认证会话伪装成已连接）；
+        2. `open_session` 有超时；
+        3. `invoke_subsystem("sftp")` 由定时器兜底关闭 channel —— paramiko 的这个
+           调用内部是无超时 `event.wait()`，服务端不回应会永久阻塞；
+        4. 建立后的 SFTP 通道统一设置操作超时。
+
+        :raises SshError: 链路未建立 / 未认证 / 远端 SFTP 子系统无响应
         """
+        if self._closed:
+            raise SshError("会话已关闭，请重新连接")
         if not self._transports:
             raise SshError("会话尚未建立（正在连接中，请稍候）")
-        return self._transports[-1].open_sftp_client()
+        transport = self._transports[-1]
+        if not transport.is_authenticated():
+            raise AuthError(
+                "SSH 认证尚未完成（服务器还要求继续认证），已停止打开 SFTP；"
+                "请检查认证方式与登录密码，或在会话页按提示完成后续认证"
+            )
+        with self._sftp_open_lock:
+            if cached and self._sftp_client is not None:
+                return self._sftp_client
+            chan: paramiko.Channel | None = None
+            timed_out = threading.Event()
+            try:
+                chan = transport.open_session(timeout=CONNECT_TIMEOUT)
+                chan.settimeout(SFTP_OP_TIMEOUT)
+                self._sftp_opening_chan = chan
+
+                def abort() -> None:
+                    """到点仍未拿到子系统响应：关闭 channel 让阻塞的 wait 立即失败"""
+                    timed_out.set()
+                    try:
+                        chan.close()
+                    except Exception:  # noqa: BLE001 - 兜底关闭忽略异常
+                        pass
+
+                timer = threading.Timer(SFTP_OPEN_TIMEOUT, abort)
+                timer.daemon = True
+                timer.start()
+                try:
+                    chan.invoke_subsystem("sftp")
+                except Exception as exc:
+                    if timed_out.is_set():
+                        raise SshError(
+                            f"远端 SFTP 子系统无响应（超过 {SFTP_OPEN_TIMEOUT:g} 秒）。"
+                            "请确认服务器启用了 sftp 子系统，或检查网络/跳板链路"
+                        ) from exc
+                    raise
+                finally:
+                    timer.cancel()
+                client = paramiko.SFTPClient(chan)
+                self._sftp_opening_chan = None
+                if cached:
+                    self._sftp_client = client
+                else:
+                    self._sftp_extra_clients.add(client)
+                logger.info(
+                    "SFTP 通道已打开（%s，超时 %.0f 秒）",
+                    "会话级" if cached else "传输专用",
+                    SFTP_OP_TIMEOUT,
+                )
+                return client
+            except SshError:
+                if chan is not None:
+                    try:
+                        chan.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                raise
+            except socket.timeout as exc:
+                if chan is not None:
+                    try:
+                        chan.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                raise SshError(
+                    f"远端 SFTP 握手超时（超过 {SFTP_OP_TIMEOUT:g} 秒），服务器未响应"
+                ) from exc
+            except Exception as exc:  # noqa: BLE001 - 统一转成可读原因
+                if chan is not None:
+                    try:
+                        chan.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                if timed_out.is_set():
+                    raise SshError(
+                        f"远端 SFTP 子系统无响应（超过 {SFTP_OPEN_TIMEOUT:g} 秒）"
+                    ) from exc
+                raise SshError(f"无法打开 SFTP 通道：{exc}") from exc
+            finally:
+                self._sftp_opening_chan = None
+
+    def release_sftp(self, client: paramiko.SFTPClient) -> None:
+        """传输结束：从追踪集合移除专用 client（关闭由调用方负责）"""
+        self._sftp_extra_clients.discard(client)
+
+    def drop_sftp(self) -> None:
+        """
+        丢弃会话级 SFTP client（取消加载 / 超时 / 协议出错后调用）。
+
+        必须在会话侧也清掉缓存：桥里 `_sftp_clients` 只是副本，若只关桥里的那把，
+        下一次 `open_sftp()` 会拿到已关闭的同一个 client，表现为「点刷新也没反应」。
+        """
+        opening = self._sftp_opening_chan
+        if opening is not None:
+            # 首次打开还没完成：关掉 channel 让 invoke_subsystem/SFTPClient 立刻失败
+            try:
+                opening.close()
+            except Exception:  # noqa: BLE001
+                pass
+        client = self._sftp_client
+        self._sftp_client = None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001 - 丢弃阶段忽略异常
+                pass
 
     # ── 内部 ──────────────────────────────────────────
 
@@ -529,96 +716,238 @@ class SshSession:
         remote_service.save_host_key_fingerprint(int(row["id"]), actual)
 
     def _authenticate(self, transport: paramiko.Transport, row: dict) -> None:
-        """按配置的认证方式登录；密钥方式支持「密钥 + 密码」双因素"""
+        """
+        完成认证（支持服务器多步/多因素认证）。
+
+        paramiko 的关键语义：`auth_publickey` / `auth_password` / `auth_interactive`
+        在**部分认证通过**时不会抛异常，而是**返回本轮仍允许的认证方式列表**；
+        只有 `transport.is_authenticated()` 为真才算真正登录成功。
+
+        本方法按服务器返回的列表继续推进（密钥 → 密码 / 键盘交互 / 再补密钥），
+        结束时硬校验 `is_authenticated()` —— 未完成绝不返回，避免会话把
+        「未认证」误报成「已连接」。
+        """
         username = str(row.get("username") or "")
         auth_type = str(row.get("auth_type") or "password")
         password = str(row.get("password") or "")
+        key: paramiko.PKey | None = None
+        if auth_type in ("publickey", "password_publickey"):
+            key = load_private_key(
+                str(row.get("private_key") or ""), str(row.get("passphrase") or "")
+            )
+        attempts: dict[str, int] = {}
         try:
-            if auth_type in ("publickey", "password_publickey"):
-                key = load_private_key(
-                    str(row.get("private_key") or ""), str(row.get("passphrase") or "")
+            if key is not None:
+                status, allowed = self._attempt_auth(
+                    transport, "publickey", username, key=key
                 )
-                # publickey 模式若恰好也存了密码，按双因素尝试（兼容旧配置与 API 直写）
-                self._auth_publickey(transport, username, key, password)
-                return
-            transport.auth_password(username, password)
-        except paramiko.AuthenticationException as exc:
-            # 密码 + 键盘交互：密码通过后仍可能要求 OTP
-            if auth_type == "password_keyboard" and self.otp_ask is not None:
-                try:
-                    transport.auth_interactive(username, self._interactive_handler)
+                attempts["publickey"] = 1
+                initial_allowed = set(allowed)
+                if status == "rejected":
+                    # BadAuthenticationType 的语义就是「这个方式被拒」，别再原地重试
+                    allowed.discard("publickey")
+                if transport.is_authenticated():
                     return
-                except paramiko.AuthenticationException:
+                if not allowed:
+                    # 裸失败（服务器没给方法列表）：有密码就退回密码，保持旧兼容
+                    if password and status == "failed":
+                        status, allowed = self._attempt_auth(
+                            transport, "password", username, password=password
+                        )
+                        attempts["password"] = 1
+                        if transport.is_authenticated():
+                            return
+                    elif initial_allowed and not (
+                        initial_allowed & {"password", "keyboard-interactive"}
+                    ):
+                        # 服务器明确只允许密钥（或其它非密码方式）：不要无谓再试密码
+                        raise _auth_hint(initial_allowed, "认证失败：密钥不被服务器接受")
+                    elif not password:
+                        raise AuthError("认证失败：密钥不被服务器接受")
+                    else:
+                        status, allowed = self._attempt_auth(
+                            transport, "password", username, password=password
+                        )
+                        attempts["password"] = 1
+                        if transport.is_authenticated():
+                            return
+            else:
+                status, allowed = self._attempt_auth(
+                    transport, "password", username, password=password
+                )
+                attempts["password"] = 1
+                if status == "rejected":
+                    allowed.discard("password")
+                if transport.is_authenticated():
+                    return
+                if not allowed and auth_type != "password_keyboard":
+                    raise AuthError("认证失败：用户名或密码错误")
+                if not allowed and auth_type == "password_keyboard":
                     raise AuthError("认证失败（密码或验证码错误）")
-            # 没有 allowed_types 的裸失败：按认证方式给中文原因，不把 paramiko 英文原文抛给用户
-            if not getattr(exc, "allowed_types", None):
-                if auth_type == "password":
-                    raise AuthError("认证失败：用户名或密码错误") from exc
-                if auth_type in ("publickey", "password_publickey"):
-                    raise AuthError("认证失败：密钥或密码不被服务器接受") from exc
-            raise _auth_error(exc)
+            allowed = self._continue_auth(
+                transport, username, password, key, allowed, attempts
+            )
+            if not transport.is_authenticated():
+                raise _auth_hint(
+                    allowed, "认证未完成：服务器没有接受当前凭据，请检查认证方式与密码"
+                )
+            logger.info(
+                "SSH 认证完成（auth_type=%s，方法=%s）",
+                auth_type,
+                "、".join(sorted(attempts)),
+            )
         except SshError:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except paramiko.AuthenticationException as exc:
+            raise _auth_error(exc)
+        except Exception as exc:  # noqa: BLE001 - 网络/协议异常统一转成可读原因
             raise AuthError(f"认证失败：{exc}")
 
-    def _auth_publickey(
+    def _attempt_auth(
+        self,
+        transport: paramiko.Transport,
+        method: str,
+        username: str,
+        *,
+        key: paramiko.PKey | None = None,
+        password: str = "",
+    ) -> tuple[str, set[str]]:
+        """
+        执行一次认证方法尝试。
+
+        :returns: `(状态, 服务器允许的下一轮方式)`；状态为
+                  `ok`（通过/部分通过）、`rejected`（该方式不被允许）、`failed`（凭据错误）
+        """
+        try:
+            if method == "publickey":
+                remaining = transport.auth_publickey(username, key)
+            elif method == "keyboard-interactive":
+                remaining = transport.auth_interactive(
+                    username, self._make_interactive_handler(username, password)
+                )
+            else:
+                remaining = transport.auth_password(username, password)
+        except PartialAuthentication as exc:  # 兼容抛出 partial 的旧实现
+            return "ok", set(exc.allowed_types or ())
+        except paramiko.BadAuthenticationType as exc:
+            return "rejected", set(exc.allowed_types or ())
+        except paramiko.AuthenticationException:
+            return "failed", set()
+        return "ok", set(remaining or ())
+
+    def _continue_auth(
         self,
         transport: paramiko.Transport,
         username: str,
-        key: paramiko.PKey,
         password: str,
-    ) -> None:
+        key: paramiko.PKey | None,
+        allowed: set[str],
+        attempts: dict[str, int],
+    ) -> set[str]:
+        """按服务器允许的认证方式继续推进，直到认证完成、无路可走或超出轮次"""
+        for _ in range(MAX_AUTH_ROUNDS):
+            if transport.is_authenticated() or not allowed:
+                break
+            method = self._pick_next_method(allowed, password, key, attempts)
+            if method is None:
+                break
+            attempts[method] = attempts.get(method, 0) + 1
+            if method == "publickey":
+                status, allowed = self._attempt_auth(
+                    transport, method, username, key=key
+                )
+            else:
+                status, allowed = self._attempt_auth(
+                    transport, method, username, password=password
+                )
+            if status == "rejected":
+                # 刚被拒的方式不再原地重试（由 allowed 列表决定下一步）
+                allowed.discard(method)
+        return allowed
+
+    @staticmethod
+    def _pick_next_method(
+        allowed: set[str],
+        password: str,
+        key: paramiko.PKey | None,
+        attempts: dict[str, int],
+    ) -> str | None:
+        """按优先级挑下一个认证方式（密码 → 键盘交互 → 密钥），并限制重试次数"""
+        if password and "password" in allowed:
+            if attempts.get("password", 0) < MAX_METHOD_ATTEMPTS["password"]:
+                return "password"
+        if "keyboard-interactive" in allowed:
+            if (
+                attempts.get("keyboard-interactive", 0)
+                < MAX_METHOD_ATTEMPTS["keyboard-interactive"]
+            ):
+                return "keyboard-interactive"
+        if key is not None and "publickey" in allowed:
+            if attempts.get("publickey", 0) < MAX_METHOD_ATTEMPTS["publickey"]:
+                return "publickey"
+        return None
+
+    def _make_interactive_handler(self, username: str, password: str):
         """
-        密钥认证；服务器要求多因素时继续用密码完成。
+        构造键盘交互回调。
 
-        兼容两种顺序：
-
-        - `publickey,password`：密钥通过后服务器回 partial，再补密码；
-        - `password,publickey`：服务器直接不认密钥，先走密码，再补密钥。
+        服务器在「密钥通过后要求继续认证」时通常会问 `Password:` /
+        `Further authentication required`，这正是 WinSCP 第二次弹窗的内容；
+        有账号密码时直接代答，验证码类提示才弹 UI。
         """
+
+        def handler(
+            title: str, instructions: str, prompts: list[tuple[str, bool]]
+        ) -> list[str]:
+            answers: list[str] = []
+            for prompt, _echo in prompts:
+                answers.append(
+                    self._answer_interactive_prompt(
+                        prompt, username, password, title, instructions
+                    )
+                )
+            return answers
+
+        return handler
+
+    def _answer_interactive_prompt(
+        self,
+        prompt: str,
+        username: str,
+        password: str,
+        title: str = "",
+        instructions: str = "",
+    ) -> str:
+        """按提示文本决定答案：用户名 / 账号密码 / 动态验证码（弹 UI）"""
+        text = str(prompt or "").strip()
+        lowered = text.lower()
+        # 验证码类提示必须先判断：中文「动态密码」不能被当成账号密码代答
+        code_keywords = (
+            "verification", "verify", "code", "otp", "token", "challenge",
+            "动态", "验证码", "一次性", "口令卡",
+        )
+        if any(marker in lowered for marker in code_keywords):
+            return self._ask_interactive(text or instructions or title)
+        if any(marker in lowered for marker in ("username", "user name", "login as")):
+            return username
+        if password and any(
+            marker in lowered for marker in ("password", "passwd", "密码", "passphrase")
+        ):
+            return password
+        if password and len(text) == 0:
+            return password
+        return self._ask_interactive(text or instructions or title)
+
+    def _ask_interactive(self, prompt: str) -> str:
+        """把服务器提示交给渲染层输入（超时/未回答返回空串，认证会继续失败并可重试）"""
+        if self.otp_ask is None:
+            return ""
+        message = str(prompt or "").strip() or "服务器要求继续认证"
         try:
-            transport.auth_publickey(username, key)
-            return
-        except paramiko.AuthenticationException as exc:
-            if transport.is_authenticated():
-                return
-            allowed = set(getattr(exc, "allowed_types", None) or ())
-            if not password:
-                if "password" in allowed:
-                    raise AuthError(
-                        "服务器还要求密码认证（服务器允许：password）；"
-                        "如需「密码 + 密钥」双因素，请切换该认证方式并填写密码"
-                    ) from exc
-                raise
-            if allowed and "password" not in allowed:
-                # 服务器明确不接受密码（只认密钥）：密钥失败就没必要再试密码
-                raise
-            # allowed 为空 = 密钥被拒但服务器未给出方法列表：
-            # 退回密码再试一次（服务器允许密码/密钥二选一时更宽容）
-
-        # 密钥未被接受（或需要继续），尝试密码阶段
-        try:
-            transport.auth_password(username, password)
-            return
-        except paramiko.AuthenticationException as exc:
-            if transport.is_authenticated():
-                return
-            allowed = set(getattr(exc, "allowed_types", None) or ())
-            if "publickey" not in allowed:
-                raise AuthError("认证失败：密码或密钥不被服务器接受") from exc
-
-        # 密码通过后服务器仍要求密钥（password,publickey 顺序）
-        transport.auth_publickey(username, key)
-
-    def _interactive_handler(
-        self, title: str, instructions: str, prompts: list[tuple[str, bool]]
-    ) -> list[str]:
-        """键盘交互：逐项向 UI 要答案"""
-        answers: list[str] = []
-        for prompt, _echo in prompts:
-            answers.append(self.otp_ask(prompt) if self.otp_ask else "")
-        return answers
+            return str(self.otp_ask(message) or "")
+        except Exception as exc:  # noqa: BLE001 - UI 回调异常不拖垮认证线程
+            logger.debug("键盘交互输入失败：%s", exc)
+            return ""
 
     def _read_loop(self) -> None:
         """持续读取远端输出并交给回调"""

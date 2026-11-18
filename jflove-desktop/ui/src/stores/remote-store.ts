@@ -17,6 +17,19 @@ export type SessionStatus = 'connecting' | 'ready' | 'failed' | 'closed';
 /** 会话类型：ssh 有终端+文件；sftp 只有文件；local 只有终端 */
 export type SessionKind = 'ssh' | 'sftp' | 'local';
 
+/**
+ * 需要用户回答的会话提示（主机指纹 / 键盘交互）。
+ *
+ * 为什么放进 store：`hostkey_ask` / `otp_ask` 事件可能早于 SessionPage 挂载
+ * （会话在 `session_open` 返回后立刻后台建链），旧实现只由 SessionPage 订阅 ⇒
+ * 事件丢失 ⇒ 等待 30/60 秒超时后连接失败。现在由 AppLayout 常驻的
+ * `useRemoteSessionSync` 接收并排队，SessionPage 挂载后即可看到。
+ */
+export type PendingPrompt =
+  | { kind: 'hostkey'; sessionId: string; host: string; fingerprint: string }
+  | { kind: 'otp'; sessionId: string; prompt: string };
+
+
 export interface SessionTab {
   id: string;
   kind: SessionKind;
@@ -38,6 +51,8 @@ interface EditorState {
   detail?: RemoteConnectionDetail;
   /** 新建时预选的连接类型；编辑时由 detail.mode 决定 */
   connectionMode?: 'ssh' | 'sftp';
+  /** 全量连接（不受搜索词过滤），供「跳板连接」下拉使用 */
+  allConnections?: RemoteConnectionSummary[];
 }
 
 interface RemoteState {
@@ -48,6 +63,8 @@ interface RemoteState {
   editor: EditorState | null;
   tabs: SessionTab[];
   activeTabId: string | null;
+  /** 等待用户回答的提示队列（见 PendingPrompt 注释） */
+  pendingPrompts: PendingPrompt[];
 
   load: () => Promise<void>;
   setKeyword: (keyword: string) => void;
@@ -76,6 +93,9 @@ interface RemoteState {
   setActiveTab: (id: string) => void;
   setTabView: (id: string, view: 'terminal' | 'files') => void;
   patchTab: (id: string, patch: Partial<SessionTab>) => void;
+  pushPrompt: (prompt: PendingPrompt) => void;
+  resolvePrompt: (sessionId: string, kind: PendingPrompt['kind']) => void;
+  dropPrompts: (sessionId: string) => void;
 }
 
 /** 从标签列表移除一个会话，并修正当前激活标签（自动关闭/手动关闭共用） */
@@ -97,6 +117,7 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
   editor: null,
   tabs: [],
   activeTabId: null,
+  pendingPrompts: [],
 
   load: async () => {
     set({ loading: true, error: '' });
@@ -113,12 +134,19 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
   setKeyword: (keyword) => set({ keyword }),
 
   openEditor: async (mode, id, connectionMode) => {
+    // 跳板下拉必须看到**全量**连接：当前列表可能被搜索框过滤，不能拿它当选项源。
+    let allConnections: RemoteConnectionSummary[] = get().connections;
+    try {
+      allConnections = await remoteService.listConnections('');
+    } catch {
+      // 拉全量失败不阻塞编辑：退回当前列表（最坏情况是搜索时选项不全）
+    }
     if (mode === 'edit' && id !== undefined) {
       const { connection } = await remoteService.getConnection(id);
-      set({ editor: { mode, id, detail: connection } });
+      set({ editor: { mode, id, detail: connection, allConnections } });
       return;
     }
-    set({ editor: { mode, connectionMode } });
+    set({ editor: { mode, connectionMode, allConnections } });
   },
 
   closeEditor: () => set({ editor: null }),
@@ -208,6 +236,7 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
     if (!get().tabs.some((item) => item.id === id)) return;
     // 先摘标签再关 Python 会话：手动关闭触发的 closed 事件不能再算「自动结束」，
     // 否则会多弹一次「会话已结束」toast（事件到达时已查不到标签）。
+    get().dropPrompts(id);
     set((state) => removeTab(state, id));
     try {
       // Python 侧 `_h_session_close` 对 SSH 与本机会话都有效（统一从会话表取）
@@ -225,6 +254,7 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
     void remoteService.closeSession(id).catch(() => {
       // 清理失败忽略：标签已经从界面移除
     });
+    get().dropPrompts(id);
     set((state) => removeTab(state, id));
     return { ...tab, message };
   },
@@ -254,5 +284,34 @@ export const useRemoteStore = create<RemoteState>((set, get) => ({
       return {
         tabs: state.tabs.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab)),
       };
+    }),
+
+  pushPrompt: (prompt) =>
+    set((state) => {
+      // 同一会话同一种提示只保留一条（重复事件不能叠成两条弹层）
+      const exists = state.pendingPrompts.some(
+        (item) => item.sessionId === prompt.sessionId && item.kind === prompt.kind,
+      );
+      if (exists) return state;
+      return { pendingPrompts: [...state.pendingPrompts, prompt] };
+    }),
+
+  resolvePrompt: (sessionId, kind) =>
+    set((state) => {
+      const index = state.pendingPrompts.findIndex(
+        (item) => item.sessionId === sessionId && item.kind === kind,
+      );
+      if (index < 0) return state;
+      return {
+        pendingPrompts: state.pendingPrompts.filter((_, position) => position !== index),
+      };
+    }),
+
+  dropPrompts: (sessionId) =>
+    set((state) => {
+      const next = state.pendingPrompts.filter((item) => item.sessionId !== sessionId);
+      return next.length === state.pendingPrompts.length
+        ? state
+        : { pendingPrompts: next };
     }),
 }));

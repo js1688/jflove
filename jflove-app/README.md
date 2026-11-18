@@ -2,11 +2,11 @@
 
 JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构建的个人数字工作台移动端：文件浏览与传输、笔记、媒体播放、相册自动备份。
 
-> **当前版本：v1.8.4（`pubspec.yaml` 中 `version: 1.8.4+1008004`，`+` 后为 build number，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
+> **当前版本：v1.10.13（`pubspec.yaml` 中 `version: 1.10.13+1010013`，`+` 后为 versionCode，由版本号派生）** — 版本号对齐服务端/桌面/Web 端。
 
 > **v1.8.4** — 大文件同步卡死修复：上传拆成「校验段（并发 1）+ 上传段（并发 3）」两段式管线，**校验期间显示百分比与已校验字节**、可即时取消（kill isolate 并释放并发槽位）、无进展 90 秒自动超时；SHA256 改用 `package:crypto`（实测 37.5 → 62 MB/s）并新增**哈希缓存**（`path+size+mtime` 命中即复用，重试/重启不再重算）；相册备份新增**失败计数按目标隔离**（本地库 v4→v5）、**远端索引暂不重建的说明**、**未开始传输任务 ≥10 时本轮不提交**。
 
-> **v1.10.0** — 新增「远程连接」：SSH 终端（含任意级跳板、密码/密钥/OTP、连接后执行命令）与 SFTP 文件管理；底部导航改为 **6 项**（文件/笔记/传输/远程/相册/设置），离线下载并入传输页页签。
+> **远程连接不在移动端提供**：v1.10.0 曾加入远程连接页面，入口与路由已在 v1.10.4 移除；当前底部导航为 **6 项**（文件/笔记/传输任务/离线下载/相册同步/设置），远程页面代码为未接入的预留实现（不在路由表、不出现在导航）。
 >
 > **v1.8.3** — 移动端信息架构与相册同步体验：底部导航改为 **6 个一级入口**（文件/笔记/传输任务/离线下载/相册同步/设置）；新增独立**相册同步页**（阶段/进度/停止、图片与视频分类计数、上次检测时间/频率、查看已上传、失败原因）；大视频上传的 **SHA256 移入后台 isolate** 并节流进度，修复核对远端/启动扫描时 UI 卡死；无扩展名的视频文件名自动补本地扩展名；移动端传输记录最多保留 50 条；移除设置页重复入口、传输页相册摘要与相册页最近列表；删除无效的「允许重编码降级」开关。
 
@@ -25,14 +25,14 @@ JFLove 移动端 App（Android 首版），基于 Flutter + Dart + Riverpod 构�
 | 框架 | Flutter 3.44+ |
 | 语言 | Dart 3.12+ |
 | 状态管理 | Riverpod（flutter_riverpod 3.x，7 个 Provider 文件） |
-| 路由 | go_router（13 条路由 + ShellRoute 底部导航 + 路由守卫） |
+| 路由 | go_router（16 条路由 + ShellRoute 底部导航 + 路由守卫） |
 | HTTP | dio + 自研 HttpService（加密信封 + ECDH 重同步） |
 | 加密 | pointycastle + x25519（ChaCha20-Poly1305 + X25519 ECDH + HKDF-SHA256） |
 | 安全存储 | flutter_secure_storage（Android Keystore） |
 | 流式代理 | `lib/utils/stream_proxy.dart`（本地 HTTP 代理，ExoPlayer 边下边播 + Range） |
 | 图表渲染 | webview_flutter（本地 HTML 页 + 内联离线 mermaid bundle，零网络依赖） |
 | Markdown | flutter_markdown + markdown（自定义 `MermaidBuilder`） |
-| 测试 | flutter_test（208 个用例，25 个测试文件） |
+| 测试 | flutter_test（用例数以 `flutter test` 实际输出为准） |
 
 ### 设计令牌体系（v1.5.0）
 
@@ -88,7 +88,7 @@ Material 主题、图表色表、Markdown 高亮配色）。
                                     └── session.dart (session_key 仅存内存)
 ```
 
-### 支持的页面（17 个路由；`/` 重定向 `/files`，底部导航 6 项：文件/笔记/传输/远程/相册/设置）
+### 支持的页面（16 个路由；`/` 重定向 `/files`，底部导航 6 项：文件/笔记/传输任务/离线下载/相册同步/设置）
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
@@ -104,16 +104,15 @@ Material 主题、图表色表、Markdown 高亮配色）。
 | `/settings` | 设置 | 安全状态 + **外观（主题切换）** + **相册自动同步（远端去重 / 失败可见 / 手动重试）** + 账号 + 退出 + 管理入口 + 离线修复配置（admin） + 关于 |
 | `/transfer` | 传输任务 | 三个页签：传输进度 / 离线下载（内嵌）/ 修复中心 |
 | `/repair` | 修复中心 | 兼容旧路径；实际落到传输页**第三页签**（修复任务列表 + 验证播放 + 覆盖原文件） |
-| `/remote` | 远程连接列表 | 分组筛选 + 连接卡片；长按编辑/删除 |
-| `/remote/edit` | 新建/编辑连接 | 主机/端口/认证方式/密码或私钥/跳板/分组/连接后执行 |
-| `/remote/terminal` | 远程终端 | 全屏 xterm + 底部特殊键；页内切 SFTP（上传/下载/删除） |
 | `/admin/users` | 用户管理 | 添加/删除/密码/启用禁用（admin） |
 | `/admin/disks` | 磁盘管理 | 添加/编辑/删除（admin） |
 | `/admin/permissions` | 权限配置 | 磁盘权限矩阵（admin） |
 
-> **导航收敛说明（v1.7.0）**：底部导航由 5 项收敛为 4 项，「同步」整页移除——
-> 移动端改为**设置页的「相册自动同步」**（开关 + 远端目标 + 范围 + 进度）。
-> 「修复中心」仍并入「传输」页第二个页签，`/repair` 路由保留并高亮归一化到「传输任务」。
+> **导航收敛说明**：底部导航为 **6 个一级入口**（文件/笔记/传输任务/离线下载/相册同步/设置）。
+> 「同步」整页已移除，改为设置页的「相册自动同步」；「修复中心」并入传输页第二个页签，
+> `/repair` 路由保留并高亮归一化到「传输任务」。
+> 远程连接**不在移动端提供**：`/remote*` 路由已移除，`lib/pages/remote/*` /
+> `lib/services/remote_ssh_service.dart` / `lib/providers/remote_provider.dart` 为未接入的预留代码。
 > 回归用例见 `test/navigation_test.dart`。
 
 ---
@@ -152,7 +151,7 @@ flutter build apk --debug
 jflove-app/
 ├── lib/
 │   ├── main.dart              # 入口（ProviderContainer retry=null + 主题恢复 + 竖屏锁定）
-│   ├── app.dart               # MaterialApp.router + 14 条路由 + 底部导航（4 项）
+│   ├── app.dart               # MaterialApp.router + 16 条路由 + 底部导航（6 项）
 │   ├── config/                # 应用配置 + 设计令牌（design_tokens）/ 主题 / 图表主题
 │   ├── models/                # 数据模型（6 个文件）
 │   ├── providers/             # Riverpod 状态管理（8 个文件，含 theme_provider / album_backup_provider）
@@ -161,7 +160,7 @@ jflove-app/
 │   ├── widgets/               # 公共 UI 组件（app_card 统一卡片 / mermaid_block / empty_state …）
 │   └── utils/                 # crypto/http_service/session/stream_frame/stream_proxy/markdown/…
 ├── assets/mermaid/            # 离线图表渲染资源（renderer.html + mermaid.bundle.js）
-├── test/                      # 232 个测试用例（27 个文件：设计令牌/主题/导航/异步失败态/加密/模型/Widget/相册备份/哈希与传输管线）
+├── test/                      # flutter_test 用例（设计令牌/主题/导航/异步失败态/加密/模型/Widget/相册备份/哈希与传输管线）
 ├── android/                   # Android 原生壳
 ├── pubspec.yaml
 └── README.md
@@ -178,7 +177,7 @@ jflove-app/
 | 身份认证 | JWT（ES256，通过加密 Body 传递） |
 | 文件流加密 | 64 KB 分片独立加密帧 [4B长度][12B nonce][密文+16B tag] |
 
-三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`，测试集现为 208 个用例）。
+三端（服务端/桌面端/移动端）加密互通已验证通过（`flutter test`）。
 
 ---
 

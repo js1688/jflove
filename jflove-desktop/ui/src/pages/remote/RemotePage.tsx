@@ -371,7 +371,7 @@ export function RemotePage() {
           mode={editor.mode}
           connectionMode={editor.connectionMode}
           detail={editor.detail}
-          connections={connections}
+          connections={editor.allConnections ?? connections}
           onCancel={closeEditor}
           onSave={saveConnection}
         />

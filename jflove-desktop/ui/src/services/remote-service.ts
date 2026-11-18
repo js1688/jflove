@@ -83,6 +83,8 @@ export interface RemoteConnectionInput {
   init_command?: string;
   clear_password?: boolean;
   clear_private_key?: boolean;
+  /** 只清空已保存的私钥口令（不动私钥） */
+  clear_passphrase?: boolean;
 }
 
 export interface OpenSessionResult {
@@ -161,6 +163,9 @@ export const remoteService = {
     }),
   sftpCancel: (sessionId: string) =>
     callBridge<{ ok: boolean }>('remote', 'sftp_cancel', { session_id: sessionId }),
+  /** 只取消目录加载（不误伤同时进行的传输） */
+  sftpAbort: (sessionId: string) =>
+    callBridge<{ ok: boolean }>('remote', 'sftp_abort', { session_id: sessionId }),
   sftpUpload: (sessionId: string, localPath: string, remotePath: string) =>
     callBridge<{ transfer_id: string }>('remote', 'sftp_upload', {
       session_id: sessionId,

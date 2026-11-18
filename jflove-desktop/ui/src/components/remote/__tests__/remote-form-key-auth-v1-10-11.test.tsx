@@ -26,11 +26,13 @@ vi.mock('../../../utils/desktop-bridge', () => ({
 import { RemoteConnectionForm } from '../RemoteConnectionForm';
 
 function field(label: string): HTMLInputElement | HTMLTextAreaElement {
-  // 认证方式按钮也可能叫「密码」，用“父节点里带输入控件”区分字段标签
-  const labelEl = screen
-    .getAllByText(label)
-    .find((element) => element.parentElement?.querySelector('input, textarea'));
-  const element = labelEl?.parentElement?.querySelector('input, textarea');
+  // v1.10.13 起字段标题行另起一层：label → 标题行 → 字段容器（输入控件在同一容器内）。
+  // 认证方式按钮也可能叫「密码」，但它所在的字段容器没有输入控件，借此区分。
+  const labelEl = screen.getAllByText(label).find((element) => {
+    const fieldWrapper = element.parentElement?.parentElement;
+    return Boolean(fieldWrapper?.querySelector('input, textarea'));
+  });
+  const element = labelEl?.parentElement?.parentElement?.querySelector('input, textarea');
   if (!element) throw new Error(`找不到字段：${label}`);
   return element as HTMLInputElement | HTMLTextAreaElement;
 }

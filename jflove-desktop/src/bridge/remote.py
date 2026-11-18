@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -29,6 +30,17 @@ _sessions: dict[str, Any] = {}
 
 #: 每个 SSH 会话复用一个 SFTP client；取消传输时直接关闭它即可中断
 _sftp_clients: dict[str, Any] = {}
+
+#: 每个会话的 SFTP 元操作锁（重入）。
+#:
+#: 桥的每个请求都在独立 Worker 线程执行，而 paramiko 的 SFTPClient **不支持**
+#: 多个同步请求并发（响应可能被另一个线程读走）。连接期间 `SftpView` 每秒探活 +
+#: 就绪后首次加载可能同时发生，必须把 listdir/mkdir/rename/delete 串行化。
+_sftp_locks: dict[str, threading.RLock] = {}
+
+#: 传输专用 SFTP client（每笔上传/下载一条独立 subsystem 通道，不与会话级 client 共用）。
+#: 取消/断开时统一关闭，避免「传大文件时目录刷不出来」。
+_sftp_transfer_clients: dict[str, set[Any]] = {}
 
 #: 主机指纹确认等待
 _hostkey_events: dict[str, threading.Event] = {}
@@ -400,6 +412,8 @@ def _h_session_close(params: dict) -> dict:
             client.close()
         except Exception:  # noqa: BLE001
             pass
+    _sftp_locks.pop(session_id, None)
+    _close_transfer_clients(session_id)
     session = _sessions.pop(session_id, None)
     if session is not None:
         session.close()
@@ -441,7 +455,9 @@ def _friendly_sftp_error(exc: Exception) -> str:
         "permission denied": "权限不足",
         "connection reset": "连接被远端重置",
         "socket is closed": "连接已关闭，请重新打开会话",
-        "timed out": "操作超时",
+        "timed out": "远端 SFTP 响应超时（服务器长时间无响应，请重试或检查网络）",
+        "timeout opening channel": "远端未响应（打开 SFTP 通道超时）",
+        "server connection dropped": "远端 SFTP 连接已断开，请刷新重试",
     }
     lowered = text.lower()
     for key, value in mapping.items():
@@ -450,28 +466,85 @@ def _friendly_sftp_error(exc: Exception) -> str:
     return f"远端操作失败：{text}"
 
 
+def _sftp_lock(session_id: str) -> threading.RLock:
+    """取该会话的 SFTP 元操作锁（重入；首次使用时创建）"""
+    lock = _sftp_locks.get(session_id)
+    if lock is None:
+        lock = threading.RLock()
+        _sftp_locks[session_id] = lock
+    return lock
+
+
+def _close_transfer_clients(session_id: str) -> None:
+    """关闭该会话的全部传输专用 SFTP client"""
+    clients = _sftp_transfer_clients.pop(session_id, set())
+    session = _sessions.get(session_id)
+    for client in list(clients):
+        if session is not None and hasattr(session, "release_sftp"):
+            try:
+                session.release_sftp(client)
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001 - 关闭阶段忽略异常
+            pass
+
+
+def _drop_sftp(session_id: str) -> None:
+    """
+    丢弃该会话缓存的 SFTP client（会话侧缓存一起清）。
+
+    超时/协议错后 channel 可能已不可用，必须重建；否则后续「刷新」会继续拿到坏
+    client，表现为「点刷新也没反应」。
+    """
+    client = _sftp_clients.pop(session_id, None)
+    if client is not None:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001 - 丢弃阶段忽略异常
+            pass
+    session = _sessions.get(session_id)
+    if session is not None and hasattr(session, "drop_sftp"):
+        try:
+            session.drop_sftp()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _sftp(session_id: str):
     """取（或建立）该会话的 SFTP client；断开时由 `_h_session_close` 统一关闭"""
-    client = _sftp_clients.get(session_id)
-    if client is not None:
+    with _sftp_lock(session_id):
+        client = _sftp_clients.get(session_id)
+        if client is not None:
+            return client
+        session = _sessions.get(session_id)
+        if session is None or not hasattr(session, "open_sftp"):
+            raise RuntimeError("会话不存在或不是 SSH 会话（可能已断开，请重新打开标签）")
+        client = session.open_sftp()
+        _sftp_clients[session_id] = client
         return client
-    session = _sessions.get(session_id)
-    if session is None or not hasattr(session, "open_sftp"):
-        raise RuntimeError("会话不存在或不是 SSH 会话（可能已断开，请重新打开标签）")
-    client = session.open_sftp()
-    _sftp_clients[session_id] = client
-    return client
 
 
 def _h_sftp_list(params: dict) -> dict:
-    """列出远端目录（只返回本层条目，不递归）"""
-    sftp = _sftp(str(params.get("session_id") or ""))
+    """列出远端目录（只返回本层条目，不递归；带耗时日志，慢目录可定位）"""
+    session_id = str(params.get("session_id") or "")
     path = str(params.get("path") or ".")
     entries: list[dict] = []
-    try:
-        attrs = sftp.listdir_attr(path)
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(_friendly_sftp_error(exc)) from exc
+    with _sftp_lock(session_id):
+        sftp = _sftp(session_id)
+        started = time.monotonic()
+        try:
+            attrs = sftp.listdir_attr(path)
+        except Exception as exc:  # noqa: BLE001
+            _drop_sftp(session_id)
+            logger.warning(
+                "SFTP listdir 失败：%s（%.0f ms）",
+                type(exc).__name__,
+                (time.monotonic() - started) * 1000,
+            )
+            raise RuntimeError(_friendly_sftp_error(exc)) from exc
+        elapsed_ms = (time.monotonic() - started) * 1000
     for attr in attrs:
         entries.append(
             {
@@ -483,33 +556,81 @@ def _h_sftp_list(params: dict) -> dict:
             }
         )
     entries.sort(key=lambda item: (not item["is_dir"], item["name"].lower()))
+    logger.info("SFTP listdir 完成：%d 项，%.0f ms", len(entries), elapsed_ms)
     return {"entries": entries}
 
 
 def _h_sftp_mkdir(params: dict) -> dict:
-    _sftp(str(params["session_id"])).mkdir(str(params["path"]))
+    session_id = str(params["session_id"])
+    with _sftp_lock(session_id):
+        try:
+            _sftp(session_id).mkdir(str(params["path"]))
+        except Exception as exc:  # noqa: BLE001
+            _drop_sftp(session_id)
+            raise RuntimeError(_friendly_sftp_error(exc)) from exc
     return {"ok": True}
 
 
 def _h_sftp_rename(params: dict) -> dict:
-    _sftp(str(params["session_id"])).rename(str(params["old"]), str(params["new"]))
+    session_id = str(params["session_id"])
+    with _sftp_lock(session_id):
+        try:
+            _sftp(session_id).rename(str(params["old"]), str(params["new"]))
+        except Exception as exc:  # noqa: BLE001
+            _drop_sftp(session_id)
+            raise RuntimeError(_friendly_sftp_error(exc)) from exc
     return {"ok": True}
 
 
 def _h_sftp_delete(params: dict) -> dict:
-    sftp = _sftp(str(params["session_id"]))
+    session_id = str(params["session_id"])
     path = str(params["path"])
-    if params.get("is_dir"):
-        sftp.rmdir(path)
-    else:
-        sftp.remove(path)
+    with _sftp_lock(session_id):
+        sftp = _sftp(session_id)
+        try:
+            if params.get("is_dir"):
+                sftp.rmdir(path)
+            else:
+                sftp.remove(path)
+        except Exception as exc:  # noqa: BLE001
+            _drop_sftp(session_id)
+            raise RuntimeError(_friendly_sftp_error(exc)) from exc
     return {"ok": True}
+
+
+def _open_transfer_sftp(session_id: str) -> Any:
+    """为一次传输开独立 SFTP client，并登记到该会话（取消时统一关闭）"""
+    session = _sessions.get(session_id)
+    if session is None or not hasattr(session, "open_sftp"):
+        raise RuntimeError("会话不存在或不是 SSH 会话（可能已断开，请重新打开标签）")
+    client = session.open_sftp(cached=False)
+    _sftp_transfer_clients.setdefault(session_id, set()).add(client)
+    return client
+
+
+def _finish_transfer_sftp(session_id: str, client: Any) -> None:
+    """传输结束：注销并关闭专用 client"""
+    clients = _sftp_transfer_clients.get(session_id)
+    if clients is not None:
+        clients.discard(client)
+        if not clients:
+            _sftp_transfer_clients.pop(session_id, None)
+    session = _sessions.get(session_id)
+    if session is not None and hasattr(session, "release_sftp"):
+        try:
+            session.release_sftp(client)
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        client.close()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _h_sftp_download(params: dict) -> dict:
     """后台下载（进度经 `remote.sftp_progress` 推送）"""
     session_id = str(params["session_id"])
-    sftp = _sftp(session_id)
+    sftp = _open_transfer_sftp(session_id)
     remote_path = str(params["remote_path"])
     local_path = str(params["local_path"])
     transfer_id = uuid.uuid4().hex
@@ -541,6 +662,8 @@ def _h_sftp_download(params: dict) -> dict:
                 "remote.sftp_failed",
                 {"transfer_id": transfer_id, "message": _friendly_sftp_error(exc)},
             )
+        finally:
+            _finish_transfer_sftp(session_id, sftp)
 
     threading.Thread(target=run, name="sftp-download", daemon=True).start()
     return {"transfer_id": transfer_id}
@@ -549,7 +672,7 @@ def _h_sftp_download(params: dict) -> dict:
 def _h_sftp_upload(params: dict) -> dict:
     """后台上传（进度经 `remote.sftp_progress` 推送）"""
     session_id = str(params["session_id"])
-    sftp = _sftp(session_id)
+    sftp = _open_transfer_sftp(session_id)
     local_path = str(params["local_path"])
     remote_path = str(params["remote_path"])
     transfer_id = uuid.uuid4().hex
@@ -581,22 +704,62 @@ def _h_sftp_upload(params: dict) -> dict:
                 "remote.sftp_failed",
                 {"transfer_id": transfer_id, "message": _friendly_sftp_error(exc)},
             )
+        finally:
+            _finish_transfer_sftp(session_id, sftp)
 
     threading.Thread(target=run, name="sftp-upload", daemon=True).start()
     return {"transfer_id": transfer_id}
 
 
-def _h_sftp_cancel(params: dict) -> dict:
-    """取消传输：关闭该会话的 SFTP client（会中断正在进行的 get/put）"""
+def _h_sftp_abort(params: dict) -> dict:
+    """
+    取消**目录加载**：只丢弃会话级 SFTP client，不影响正在进行的传输。
+
+    与 `sftp_cancel` 分开：后者是「取消传输」，会把传输专用 client 也关掉；
+    在目录加载中点取消不应误伤同时进行的上传/下载。
+    """
     session_id = str(params.get("session_id") or "")
     client = _sftp_clients.pop(session_id, None)
-    if client is None:
-        return {"ok": False}
-    try:
-        client.close()
-    except Exception:  # noqa: BLE001
-        pass
-    return {"ok": True}
+    closed_any = client is not None
+    if client is not None:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+    session = _sessions.get(session_id)
+    if session is not None and hasattr(session, "drop_sftp"):
+        try:
+            session.drop_sftp()
+        except Exception:  # noqa: BLE001
+            pass
+        closed_any = True
+    return {"ok": closed_any}
+
+
+def _h_sftp_cancel(params: dict) -> dict:
+    """
+    取消传输：关闭会话级 client + 全部传输专用 client。
+
+    同时让 `SshSession` 清缓存，否则下一次 `open_sftp()` 会返回已关闭的同一个 client。
+    只取消目录加载请用 `sftp_abort`（不会误伤正在进行的上传/下载）。
+    """
+    session_id = str(params.get("session_id") or "")
+    client = _sftp_clients.pop(session_id, None)
+    closed_any = client is not None
+    if client is not None:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+    session = _sessions.get(session_id)
+    if session is not None and hasattr(session, "drop_sftp"):
+        try:
+            session.drop_sftp()
+        except Exception:  # noqa: BLE001
+            pass
+    closed_any = bool(_sftp_transfer_clients.get(session_id)) or closed_any
+    _close_transfer_clients(session_id)
+    return {"ok": closed_any}
 
 
 # ── 本机终端 ─────────────────────────────────────────
@@ -757,6 +920,7 @@ HANDLERS: dict[str, dict[str, Callable[[dict], Any]]] = {
         "sftp_download": _h_sftp_download,
         "sftp_upload": _h_sftp_upload,
         "sftp_cancel": _h_sftp_cancel,
+        "sftp_abort": _h_sftp_abort,
     },
     "local_term": {
         "detect_shells": _h_local_detect_shells,

@@ -71,6 +71,8 @@ export function SftpView({ sessionId }: SftpViewProps) {
   const [path, setPath] = useState('.');
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  /** 当前一次目录加载已用秒数（远端慢时让用户分得清「慢」与「卡死」） */
+  const [loadingSeconds, setLoadingSeconds] = useState(0);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
@@ -122,6 +124,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
         setPath(target);
         pathRef.current = target;
         setSelected(new Set());
+        setError('');
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -137,6 +140,35 @@ export function SftpView({ sessionId }: SftpViewProps) {
     bootedRef.current = sessionId;
     void load('.');
   }, [load, sessionId, sessionReady]);
+
+  /** 加载计时（仅展示，不改判据；超时/失败仍以 Python 侧超时为准） */
+  useEffect(() => {
+    if (!loading) {
+      setLoadingSeconds(0);
+      return undefined;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setLoadingSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [loading]);
+
+  /**
+   * 取消当前目录加载：关闭该会话的 SFTP client（阻塞中的读会立即失败）。
+   *
+   * Python 侧的 listdir 有 45s 上限；这里给的是一次「不想等了」的主动出口。
+   */
+  const cancelLoad = async () => {
+    // 先给即时反馈：关闭 client 后阻塞中的 listdir 会失败，但可能需要一点时间传播
+    setLoading(false);
+    setError('已取消加载，可点「重试」重新拉取目录');
+    try {
+      await remoteService.sftpAbort(sessionId);
+    } catch {
+      // 取消本身失败不覆盖真正的加载错误
+    }
+  };
 
   /**
    * 连接中兜底探活（见 `probedReady` 注释）：每 1s 试一次目录，最多 30 次；
@@ -427,10 +459,31 @@ export function SftpView({ sessionId }: SftpViewProps) {
             </div>
           )}
           {sessionReady && loading && (
-            <div className="p-6 text-center text-sm text-muted">加载中…</div>
+            <div className="p-6 text-center text-sm text-muted">
+              <div>加载中…（已用 {loadingSeconds} 秒）</div>
+              <div className="mt-1 text-[11px] text-subtle">
+                远端目录或网络较慢；超过 45 秒会自动失败并给出原因
+              </div>
+              <button
+                type="button"
+                className="mt-3 rounded border border-line px-3 py-1 text-xs text-muted hover:bg-hover hover:text-fg"
+                onClick={() => void cancelLoad()}
+              >
+                取消加载
+              </button>
+            </div>
           )}
           {sessionReady && !loading && error && (
-            <div className="p-6 text-center text-sm text-danger-500">{error}</div>
+            <div className="p-6 text-center text-sm text-danger-500">
+              <div>{error}</div>
+              <button
+                type="button"
+                className="mt-3 rounded border border-line px-3 py-1 text-xs text-muted hover:bg-hover hover:text-fg"
+                onClick={() => void load(path)}
+              >
+                重试
+              </button>
+            </div>
           )}
           {sessionReady && !loading && !error && entries.length === 0 && (
             <EmptyState icon="folder" title="空目录" description="点击右上角上传文件" />

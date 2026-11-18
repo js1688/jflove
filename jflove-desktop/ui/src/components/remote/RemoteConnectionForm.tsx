@@ -1,12 +1,19 @@
 /**
  * 新建 / 编辑远程连接（右侧抽屉）
  *
- * 凭据语义：编辑时输入框留空 = 不修改；只有用户重新输入才会覆盖。
- * 渲染层永远拿不到已保存的密码/私钥原文（服务端只回 `has_*` 与指纹）。
+ * 凭据语义（v1.10.13）：
+ * - 编辑时输入框留空 = **不修改**；
+ * - 要真正删除已保存的凭据，点字段右上角「清空」——保存时发送
+ *   `clear_password` / `clear_private_key` / `clear_passphrase`，由服务端把列写成空串；
+ * - 渲染层永远拿不到已保存的密码/私钥原文（服务端只回 `has_*` 与指纹）。
+ *
+ * 「密码」与「私钥口令」不是一回事（WinSCP 两次弹窗）：
+ * - 私钥口令：解锁**私钥文件**的口令（WinSCP「密钥 xxx 的密码」）；
+ * - 密码：**服务器账号**登录密码（WinSCP「Further authentication required / 密码」）。
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Button, toast } from '../../components/ui';
+import { Button, Icon, toast } from '../../components/ui';
 import { callBridge } from '../../utils/desktop-bridge';
 import { describeErrorWithFallback } from '../../utils/error-text';
 import type {
@@ -15,12 +22,19 @@ import type {
   RemoteConnectionInput,
 } from '../../services/remote-service';
 
+interface ConnectionOption {
+  id: number;
+  name: string;
+  /** 仅用于排除「把当前连接当成下游跳板」的循环 */
+  jump_connection_id?: number;
+}
+
 interface FormProps {
   mode: 'create' | 'edit';
   /** 新建时预选连接类型（ssh / sftp） */
   connectionMode?: 'ssh' | 'sftp';
   detail?: RemoteConnectionDetail;
-  connections: Array<{ id: number; name: string }>;
+  connections: ConnectionOption[];
   onCancel: () => void;
   onSave: (payload: RemoteConnectionInput) => Promise<number | null>;
 }
@@ -67,6 +81,14 @@ export function RemoteConnectionForm({
    */
   const [keyError, setKeyError] = useState('');
 
+  /** 已保存凭据的清空标记：只有「保存」才真正落库 */
+  const [clearPassword, setClearPassword] = useState(false);
+  const [clearPrivateKey, setClearPrivateKey] = useState(false);
+  const [clearPassphrase, setClearPassphrase] = useState(false);
+
+  const hasSavedPassword = Boolean(detail?.has_password);
+  const hasSavedKey = Boolean(detail?.has_private_key);
+
   /**
    * 选择本机私钥文件。
    *
@@ -88,6 +110,8 @@ export function RemoteConnectionForm({
       setKeyFileName(picked.name ?? '');
       setKeyEncrypted(Boolean(picked.encrypted));
       setPrivateKey('');
+      setClearPrivateKey(false);
+      setClearPassphrase(false);
     } catch (e) {
       const message = describeErrorWithFallback(e, '无法读取私钥文件');
       setKeyError(message);
@@ -99,8 +123,46 @@ export function RemoteConnectionForm({
     authType === 'password' || authType === 'password_keyboard' || authType === 'password_publickey';
   /** 密钥类认证：只填密钥 / 密码 + 密钥（双因素） */
   const needsKey = authType === 'publickey' || authType === 'password_publickey';
-  const hasSavedPassword = Boolean(detail?.has_password);
-  const hasSavedKey = Boolean(detail?.has_private_key);
+
+  /**
+   * 「跳板连接」选项：按 id 去重 + 排除自己 + 排除会形成环的下游连接。
+   *
+   * v1.10.13：不再使用原生 `<select>`（Windows 多显示器混合 DPI 下弹层会持续变大）；
+   * 这里只产数据，渲染交给 `JumpSelect`（页内列表）。
+   */
+  const jumpOptions = useMemo(() => {
+    const currentId = Number(detail?.id ?? 0);
+    const byId = new Map<number, ConnectionOption>();
+    for (const item of connections) {
+      if (!byId.has(item.id)) byId.set(item.id, item);
+    }
+    /** 候选连接是否（直接或间接）以当前连接为跳板 */
+    const createsCycle = (candidateId: number): boolean => {
+      if (!currentId) return false;
+      const seen = new Set<number>();
+      let cursor = candidateId;
+      while (cursor) {
+        if (cursor === currentId) return true;
+        if (seen.has(cursor)) return true; // 历史脏数据里的环，直接排除
+        seen.add(cursor);
+        cursor = Number(byId.get(cursor)?.jump_connection_id ?? 0);
+      }
+      return false;
+    };
+    const options: Array<{ id: number; name: string }> = [{ id: 0, name: '直连' }];
+    for (const item of connections) {
+      if (item.id === currentId) continue;
+      if (options.some((option) => option.id === item.id)) continue; // 防御重复条目
+      if (createsCycle(item.id)) continue;
+      options.push({ id: item.id, name: item.name });
+    }
+    // 已保存的跳板可能已被删除/不可见：保留一条占位，避免下拉显示「直连」却仍在提交旧 ID
+    const savedJump = Number(detail?.jump_connection_id ?? 0);
+    if (savedJump && !options.some((option) => option.id === savedJump)) {
+      options.push({ id: savedJump, name: `跳板 #${savedJump}（已不可见）` });
+    }
+    return options;
+  }, [connections, detail?.id, detail?.jump_connection_id]);
 
   const submit = async () => {
     setError('');
@@ -145,7 +207,12 @@ export function RemoteConnectionForm({
       // 桥按 token 取出文件内容填入 private_key，服务端最终存的是内容
       payload.private_key_file_token = keyToken;
       payload.passphrase = passphrase;
+    } else if (clearPassphrase && !clearPrivateKey) {
+      // 只清口令、不动私钥：服务端单独支持 clear_passphrase
+      payload.clear_passphrase = true;
     }
+    if (clearPassword) payload.clear_password = true;
+    if (clearPrivateKey) payload.clear_private_key = true;
     setSaving(true);
     const saved = await onSave(payload);
     setSaving(false);
@@ -224,30 +291,91 @@ export function RemoteConnectionForm({
               </button>
             ))}
           </div>
+          <p className="mt-1 text-[11px] leading-4 text-subtle">
+            服务器先验密钥、再要求账号密码时选「密码 + 密钥」：私钥口令解锁私钥，密码是登录密码。
+          </p>
         </Field>
 
         {needsPassword && (
-          <Field label="密码">
+          <Field
+            label="密码"
+            action={
+              <ClearAction
+                scheduled={clearPassword}
+                disabled={mode === 'create' ? !password : !password && !hasSavedPassword}
+                onClear={() => {
+                  setPassword('');
+                  if (mode === 'edit' && hasSavedPassword) setClearPassword(true);
+                }}
+                onUndo={() => setClearPassword(false)}
+              />
+            }
+          >
             <input
               className="input"
               type="password"
               value={password}
-              placeholder={hasSavedPassword ? '已设置，留空不修改' : '输入密码'}
-              onChange={(e) => setPassword(e.target.value)}
+              placeholder={
+                clearPassword
+                  ? '保存后清空'
+                  : hasSavedPassword
+                    ? '已设置，留空不修改'
+                    : '输入密码'
+              }
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setClearPassword(false);
+              }}
             />
+            {clearPassword && (
+              <p className="mt-1 text-[11px] text-warning-700">已标记清空：保存后服务端密码列写为空</p>
+            )}
+            <p className="mt-1 text-[11px] leading-4 text-subtle">
+              服务器账号登录密码。WinSCP 第二次弹出的「Further authentication required / 密码」就是它。
+            </p>
           </Field>
         )}
 
         {needsKey && (
           <>
-            <Field label="私钥内容或文件路径">
+            <Field
+              label="私钥内容或文件路径"
+              action={
+                <ClearAction
+                  scheduled={clearPrivateKey}
+                  disabled={
+                    mode === 'create'
+                      ? !privateKey && !keyToken
+                      : !privateKey && !keyToken && !hasSavedKey
+                  }
+                  onClear={() => {
+                    setPrivateKey('');
+                    setKeyToken('');
+                    setKeyFileName('');
+                    setKeyEncrypted(false);
+                    setKeyError('');
+                    setPassphrase('');
+                    if (mode === 'edit' && hasSavedKey) {
+                      setClearPrivateKey(true);
+                      setClearPassphrase(true);
+                    }
+                  }}
+                  onUndo={() => {
+                    setClearPrivateKey(false);
+                    setClearPassphrase(false);
+                  }}
+                />
+              }
+            >
               <textarea
                 className="input min-h-[88px] font-mono text-[11px]"
                 value={privateKey}
                 placeholder={
-                  hasSavedKey
-                    ? '已设置，留空不修改'
-                    : '-----BEGIN OPENSSH PRIVATE KEY-----'
+                  clearPrivateKey
+                    ? '保存后清空已保存的私钥'
+                    : hasSavedKey
+                      ? '已设置，留空不修改'
+                      : '-----BEGIN OPENSSH PRIVATE KEY-----'
                 }
                 onChange={(e) => {
                   setPrivateKey(e.target.value);
@@ -255,6 +383,8 @@ export function RemoteConnectionForm({
                   setKeyFileName('');
                   setKeyEncrypted(false);
                   setKeyError('');
+                  setClearPrivateKey(false);
+                  setClearPassphrase(false);
                 }}
               />
               <div className="mt-1 flex items-center justify-between gap-2">
@@ -281,34 +411,66 @@ export function RemoteConnectionForm({
                   <span className="text-subtle"> · 保存时读取内容并上传服务端</span>
                 </div>
               )}
+              {clearPrivateKey && (
+                <p className="mt-1 text-[11px] text-warning-700">
+                  已标记清空：保存后服务端私钥与私钥口令都写为空
+                </p>
+              )}
             </Field>
-            <Field label="私钥口令（可选）">
+            <Field
+              label="私钥口令（可选）"
+              action={
+                <ClearAction
+                  scheduled={clearPassphrase}
+                  disabled={
+                    mode === 'create' ? !passphrase : !passphrase && !hasSavedKey
+                  }
+                  onClear={() => {
+                    setPassphrase('');
+                    if (mode === 'edit' && hasSavedKey) setClearPassphrase(true);
+                  }}
+                  onUndo={() => setClearPassphrase(false)}
+                />
+              }
+            >
               <input
                 className="input"
                 type="password"
                 value={passphrase}
-                placeholder={hasSavedKey ? '已设置，留空不修改' : '私钥未加密则留空'}
-                onChange={(e) => setPassphrase(e.target.value)}
+                disabled={clearPrivateKey}
+                placeholder={
+                  clearPrivateKey
+                    ? '私钥清空时口令一并清空'
+                    : clearPassphrase
+                      ? '保存后清空'
+                      : hasSavedKey
+                        ? '已设置，留空不修改'
+                        : '私钥未加密则留空'
+                }
+                onChange={(e) => {
+                  setPassphrase(e.target.value);
+                  setClearPassphrase(false);
+                }}
               />
+              {clearPassphrase && !clearPrivateKey && (
+                <p className="mt-1 text-[11px] text-warning-700">已标记清空：保存后口令列写为空</p>
+              )}
+              <p className="mt-1 text-[11px] leading-4 text-subtle">
+                解锁私钥文件的口令（WinSCP 第一次弹出的「密钥 xxx 的密码」），不是服务器登录密码。
+              </p>
             </Field>
           </>
         )}
 
         <Field label="跳板连接">
-          <select
-            className="input"
-            value={jumpId}
-            onChange={(e) => setJumpId(e.target.value)}
-          >
-            <option value="0">直连</option>
-            {connections
-              .filter((item) => item.id !== detail?.id)
-              .map((item) => (
-                <option key={item.id} value={String(item.id)}>
-                  {item.name}
-                </option>
-              ))}
-          </select>
+          <JumpSelect
+            value={Number(jumpId) || 0}
+            options={jumpOptions}
+            onChange={(id) => setJumpId(String(id))}
+          />
+          <p className="mt-1 text-[11px] text-subtle">
+            选项来自全部已保存连接，已排除当前连接与会造成循环的下游连接
+          </p>
         </Field>
 
         <Field label="连接后执行（可选）">
@@ -338,18 +500,130 @@ export function RemoteConnectionForm({
   );
 }
 
+/** 字段右上角的「清空 / 撤销清空」按钮（凭据类字段专用） */
+function ClearAction({
+  scheduled,
+  disabled,
+  onClear,
+  onUndo,
+}: {
+  scheduled: boolean;
+  disabled: boolean;
+  onClear: () => void;
+  onUndo: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled && !scheduled}
+      className="text-[11px] text-brand-600 hover:underline disabled:text-subtle disabled:no-underline"
+      onClick={() => (scheduled ? onUndo() : onClear())}
+    >
+      {scheduled ? '撤销清空' : '清空'}
+    </button>
+  );
+}
+
+/**
+ * 页内跳板下拉（替代原生 `<select>`）。
+ *
+ * 原生 select 的弹出列表是系统/QtWebEngine 级弹层：Windows 多显示器混合 DPI 下
+ * 窗口跨屏后弹层会持续变大（用户实测「点击后展示框慢慢变大」）。这里改成
+ * 页面内列表：DOM 渲染、限高滚动、无系统弹层依赖。
+ */
+function JumpSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: number;
+  options: Array<{ id: number; name: string }>;
+  onChange: (id: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.id === value);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && boxRef.current && !boxRef.current.contains(target)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={boxRef}>
+      <button
+        type="button"
+        data-testid="jump-select"
+        className="input flex w-full items-center justify-between gap-2 text-left"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="truncate">{selected?.name ?? '直连'}</span>
+        <Icon name="next" size="sm" className={open ? 'rotate-90 text-subtle transition-transform' : 'text-subtle transition-transform'} />
+      </button>
+      {open && (
+        <div
+          className="mt-1 max-h-56 overflow-auto rounded-md border border-line bg-surface p-1 shadow-e2"
+          role="listbox"
+        >
+          {options.map((option) => {
+            const active = option.id === value;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="option"
+                aria-selected={active}
+                className={[
+                  'flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-xs',
+                  active ? 'bg-active font-semibold text-brand-700' : 'text-fg hover:bg-hover',
+                ].join(' ')}
+                onClick={() => {
+                  onChange(option.id);
+                  setOpen(false);
+                }}
+              >
+                <span className="truncate">{option.name}</span>
+                {active && <Icon name="checked" size="sm" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({
   label,
   children,
   className,
+  action,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  action?: ReactNode;
 }) {
   return (
     <div className={className}>
-      <div className="mb-1 text-[11.5px] font-semibold text-muted">{label}</div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="text-[11.5px] font-semibold text-muted">{label}</div>
+        {action}
+      </div>
       {children}
     </div>
   );

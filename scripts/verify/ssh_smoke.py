@@ -100,6 +100,18 @@ def main() -> int:
     results["direct_startup_command"] = _wait_output(direct_chunks, "DIRECT_CMD_OK", 5)
     direct.write(b"echo SHELL_OK\n")
     results["direct_shell_io"] = _wait_output(direct_chunks, "SHELL_OK", 5)
+
+    # ── 1.1) SFTP 目录（v1.10.13：打开有界 + listdir 真实链路）──
+    try:
+        started = time.monotonic()
+        sftp = direct.open_sftp()
+        attrs = sftp.listdir_attr(".")
+        results["sftp_list_ok"] = len(attrs) > 0
+        results["sftp_list_entries"] = len(attrs)
+        results["sftp_list_ms"] = round((time.monotonic() - started) * 1000)
+    except Exception as exc:  # noqa: BLE001 - 失败要写进结果，不能静默
+        results["sftp_list_ok"] = False
+        results["sftp_list_error"] = str(exc)
     direct.close()
     time.sleep(0.3)
 

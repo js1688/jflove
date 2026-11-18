@@ -25,7 +25,6 @@ import {
 } from '../../components/remote/TerminalView';
 import { SftpView } from '../../components/remote/SftpView';
 import { useRemoteStore, type SessionTab } from '../../stores/remote-store';
-import { onBridgeEvent } from '../../utils/desktop-bridge';
 import {
   FONT_MAX,
   FONT_MIN,
@@ -33,10 +32,6 @@ import {
   writeTerminalFontSize,
 } from '../../utils/terminal-prefs';
 import { remoteService } from '../../services/remote-service';
-
-function asRecord(payload: unknown): Record<string, unknown> {
-  return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-}
 
 const KIND_LABEL: Record<SessionTab['kind'], string> = {
   local: '本机',
@@ -54,40 +49,21 @@ export function SessionPage() {
     setActiveTab,
     setTabView,
     closeTab,
+    pendingPrompts,
+    resolvePrompt,
   } = useRemoteStore();
   const navigate = useNavigate();
 
-  const [hostkeyAsk, setHostkeyAsk] = useState<{
-    sessionId: string;
-    host: string;
-    fingerprint: string;
-  } | null>(null);
-  const [otpAsk, setOtpAsk] = useState<{ sessionId: string; prompt: string } | null>(null);
+  // 提示由 AppLayout 常驻的 `useRemoteSessionSync` 收进 store：页面晚挂载也不会丢事件。
+  const hostkeyAsk = pendingPrompts.find((item) => item.kind === 'hostkey') ?? null;
+  const otpAsk = pendingPrompts.find((item) => item.kind === 'otp') ?? null;
   const [otpCode, setOtpCode] = useState('');
   const [fontSize, setFontSize] = useState(readTerminalFontSize);
   const [statuses, setStatuses] = useState<Record<string, TerminalStatus>>({});
   const terminalRefs = useRef<Record<string, TerminalHandle | null>>({});
 
-  // 会话状态/结束事件已上移到 `useRemoteSessionSync`（AppLayout 常驻）；
-  // 这里只保留必须落在本页 UI 的交互：主机指纹确认与 OTP 输入。
-  useEffect(() => {
-    const offs = [
-      onBridgeEvent('remote.hostkey_ask', (payload) => {
-        const data = asRecord(payload);
-        setHostkeyAsk({
-          sessionId: String(data.session_id || ''),
-          host: String(data.host || ''),
-          fingerprint: String(data.fingerprint || ''),
-        });
-      }),
-      onBridgeEvent('remote.otp_ask', (payload) => {
-        const data = asRecord(payload);
-        setOtpAsk({ sessionId: String(data.session_id || ''), prompt: String(data.prompt || '') });
-      }),
-    ];
-    return () => offs.forEach((off) => off());
-  }, []);
-
+  // 会话状态/结束/主机指纹/OTP 事件全部由 `useRemoteSessionSync`（AppLayout 常驻）接收；
+  // 本页只从 store 渲染并回填答案（避免页面挂载晚于事件导致 30s/60s 超时）。
   // 标签关闭后清掉对应的终端状态，避免长时间使用后 statuses 只增不减
   useEffect(() => {
     setStatuses((current) => {
@@ -104,13 +80,13 @@ export function SessionPage() {
   const confirmHostKey = async (accept: boolean) => {
     if (!hostkeyAsk) return;
     await remoteService.confirmHostKey(hostkeyAsk.sessionId, accept);
-    setHostkeyAsk(null);
+    resolvePrompt(hostkeyAsk.sessionId, 'hostkey');
   };
 
   const confirmOtp = async () => {
     if (!otpAsk) return;
     await remoteService.confirmOtp(otpAsk.sessionId, otpCode);
-    setOtpAsk(null);
+    resolvePrompt(otpAsk.sessionId, 'otp');
     setOtpCode('');
   };
 
@@ -483,17 +459,26 @@ export function SessionPage() {
       )}
 
       {otpAsk && (
-        <div className="fixed inset-x-0 top-16 z-40 mx-auto flex w-[420px] items-center gap-2 rounded-lg border border-brand-200 bg-surface p-3 text-xs shadow-e3">
-          <span className="min-w-0 flex-1 truncate">{otpAsk.prompt || '请输入验证码'}</span>
+        <div className="fixed inset-x-0 top-16 z-40 mx-auto flex w-[560px] items-start gap-3 rounded-lg border border-brand-200 bg-surface p-3 text-xs shadow-e3">
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-brand-700">服务器要求继续认证</div>
+            <div className="mt-0.5 truncate font-mono text-[11px] text-muted">
+              {otpAsk.prompt || '请输入服务器要求的密码或验证码'}
+            </div>
+            <div className="mt-1 text-[10.5px] text-subtle">
+              密钥通过后服务器仍要求账号密码（WinSCP 的「Further authentication required / 密码」）时填这里
+            </div>
+          </div>
           <input
-            className="input w-28"
+            className="input w-44 shrink-0"
             value={otpCode}
+            placeholder="密码 / 验证码"
             onChange={(event) => setOtpCode(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') void confirmOtp();
             }}
           />
-          <Button size="sm" variant="primary" onClick={() => void confirmOtp()}>
+          <Button size="sm" variant="primary" className="shrink-0" onClick={() => void confirmOtp()}>
             确定
           </Button>
         </div>

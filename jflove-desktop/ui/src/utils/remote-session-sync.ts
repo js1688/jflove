@@ -24,6 +24,7 @@ export function useRemoteSessionSync(): void {
   useEffect(() => {
     /** 会话结束：仅就绪会话会被关闭；重复事件因标签已移除而自动 no-op */
     const closeIfEnded = (sessionId: string, message: string) => {
+      useRemoteStore.getState().dropPrompts(sessionId);
       const closed = useRemoteStore.getState().handleSessionExit(sessionId, message);
       if (!closed) return;
       toast.info(`会话已结束：${closed.title}`, message || '会话已断开');
@@ -55,9 +56,28 @@ export function useRemoteSessionSync(): void {
       onBridgeEvent('remote.session_failed', (payload) => {
         const data = asRecord(payload);
         const sessionId = String(data.session_id || '');
+        useRemoteStore.getState().dropPrompts(sessionId);
         useRemoteStore.getState().patchTab(sessionId, {
           status: 'failed',
           message: String(data.message || '连接失败'),
+        });
+      }),
+      // 提示事件必须在这里接收（AppLayout 常驻）：SessionPage 挂载可能晚于事件到达。
+      onBridgeEvent('remote.hostkey_ask', (payload) => {
+        const data = asRecord(payload);
+        useRemoteStore.getState().pushPrompt({
+          kind: 'hostkey',
+          sessionId: String(data.session_id || ''),
+          host: String(data.host || ''),
+          fingerprint: String(data.fingerprint || ''),
+        });
+      }),
+      onBridgeEvent('remote.otp_ask', (payload) => {
+        const data = asRecord(payload);
+        useRemoteStore.getState().pushPrompt({
+          kind: 'otp',
+          sessionId: String(data.session_id || ''),
+          prompt: String(data.prompt || ''),
         });
       }),
       onBridgeEvent('local_term.session_status', (payload) => {
