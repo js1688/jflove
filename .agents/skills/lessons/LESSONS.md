@@ -239,21 +239,6 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
      **不得**用历史包写“通过”，也不得把历史包的截图放进当前版本证据表。
 - **判据**：每条实机证据都能回答“这是哪个版本、由哪条构建命令产出”；答不上来就不算验证。
 
-### L58. UAT 构建物不能靠「发布 tag」触发
-
-- **现象**：想给用户一份“先体验”的构建物，顺手 `git push origin v<版本>`；结果同时触发了
-  `release.yml`（创建 Draft Release）与 `build-*.yml`（把产物挂到 Release Assets）——
-  人工体验还没开始，版本发布记录/Release 已经先产生了。
-- **根因**：本仓库的 tag 语义 = 发布（`release.yml` 只监听 `push tags: v*`），不是“打个包”。
-  且构建 workflow 会校验 `tag 版本 == version.json`，`v<版本>-rc1` 这类后缀会直接失败。
-- **正确做法**：
-  - UAT/体验包一律用 **`workflow_dispatch`（ref = 当前分支）** 触发 `build-*.yml`；
-  - 产物按 **CI run + head_sha + artifact 名 + sha256** 交付，版本号保持不变；
-  - 每轮修复 = 新 commit + 新 dispatch，用 SHA 区分，不新开版本号、不打 tag；
-  - 只有 Phase 6.5 记录里出现用户「人工体验通过（无阻断问题）」后，Phase 8 才打 `v<版本>` tag。
-- **判据**：UAT 期间远端**没有新增 tag / Release**；UAT 记录能对上 CI run 的 `head_sha`；
-  发布 tag 只在 UAT 签署之后出现。
-
 ---
 
 ## 三、流程与协作

@@ -65,16 +65,6 @@ description: "运维工程师，负责构建、打包、部署、发布与生产
   产物被运行中的实例占用时 `build.py` 会自动改名（onedir → **整目录** `JFLove-new/`，安装包 → `*-setup-new.exe`），
   这时要在回复里说明"当前装的是哪一份"。
 
-## 发布后构建物体验（不影响发布流程）
-
-- **Phase 6.5 已撤销**：发布（Phase 8）不再等待用户签署；`windows` 端门禁证据来自
-  `scripts/verify/windows_vm_e2e.sh`（KVM 真机 VM）。
-- 用户在**发布之后**下载 Release 构建物试用；反馈按 `AGENTS.md §7.5` 分流处理，
-  记录写 `文档记录/人工体验记录/<版本号>.md`（不阻塞任何阶段）。
-- 打 tag / 发 Release 一律按 Phase 8 的「真实发布」口径（CI 构建，产物与哈希以 CI 为准）。
-- 产物一致性核验工具仍可复用：`python scripts/verify/check_uat_build.py --sha <commit>`。
-
-
 ## 实机验证产物版本（强制）
 
 - 测试/发布阶段做任何“实机验证”前，**必须用当前 `version.json` 的源码重新构建/打包**；

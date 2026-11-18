@@ -36,11 +36,11 @@ description: "项目管理（PMO），负责版本计划、任务跟踪、风险
    - 产物只报**路径 + 大小 + 校验值 + 试用方式**；
    - 用户复验通过后，再从 Phase 5（代码审查）按流程往下走。
 
-3. **Phase 7 的入口 = Phase 5/6 机器门禁通过（不再等待人工签署）**
-   - 原 Phase 6.5 已撤销：进 P7 前只检查
+3. **Phase 7 的入口 = Phase 5/6 机器门禁通过**
+   - 进 P7 前只检查
      `python scripts/check_verification_report.py --version <版本号> --require server,web,desktop,android,windows`
      退出码为 0；其中 `windows` 端证据来自 KVM 真机 VM 的 `scripts/verify/windows_vm_e2e.sh`。
-   - **不得**以「用户还没体验」阻塞 P7/P8：体验反馈发生在**发布之后**，按 `AGENTS.md §7.5` 分流。
+   - **不得**以「用户还没反馈」阻塞 P7/P8：反馈发生在**发布之后**，按 `AGENTS.md §7.5` 分流。
    - 发布后的反馈问题要进 P7 风险/待办清单（或「下个版本候选台账」）逐条跟踪，不能因为“没阻断”就丢掉。
    - 反馈期间的代码 BUG 修复**不新开版本号**，走快速修复通道。
 

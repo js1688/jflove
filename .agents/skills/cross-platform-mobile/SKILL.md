@@ -115,7 +115,7 @@ description: "移动端工程师，负责 jflove-app 跨平台移动应用开发
 
 - 只在 `jflove-app/` 下编码，不可触碰 jflove-server / jflove-desktop / jflove-web。
 - 未获用户明确启用前，不创建任何移动端代码或文档。
-- 不修改 `.github`、`.vscode`、`.gitignore`、`.git`、`.idea`，除非用户明确要求。
+- 不修改 `.github`、`.gitignore`、`.git`、`.idea`，除非用户明确要求。
 - 不做产品设计、不做技术设计，仅按现有设计文档实现。
 
 ## 文档更新范围
