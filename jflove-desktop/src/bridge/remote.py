@@ -158,6 +158,16 @@ def _h_connections_update(params: dict) -> dict:
     return {"ok": True}
 
 
+#: 私钥文件选择过滤器。
+#:
+#: **必须包含 `*.ppk`**：过滤器里没有的扩展名，原生对话框会显示成灰色不可选，
+#: 用户点了没有任何反应 —— 这正是「选 ppk 毫无反应」的第一层原因（v1.10.12 修复）。
+#: 选中 `.ppk` 后仍按既有口径拒绝并给出转换指引（见 `_h_pick_private_key`）。
+PRIVATE_KEY_FILTER = (
+    "私钥文件 (*.pem *.key *.ppk *.rsa id_rsa* id_ed25519* id_ecdsa*);;所有文件 (*)"
+)
+
+
 def _h_pick_private_key(_params: dict) -> dict:
     """
     选择私钥文件：Python 侧读取内容、预校验并暂存，渲染层只拿 token。
@@ -172,7 +182,7 @@ def _h_pick_private_key(_params: dict) -> dict:
         files_bridge._main_window,
         "选择私钥文件",
         "",
-        "私钥文件 (*.pem *.key id_rsa* id_ed25519* id_ecdsa*);;所有文件 (*)",
+        PRIVATE_KEY_FILTER,
     )
     if not path:
         return {"cancelled": True}
@@ -182,9 +192,9 @@ def _h_pick_private_key(_params: dict) -> dict:
         raise RuntimeError(f"读取私钥文件失败：{Path(path).name}（{exc}）") from exc
     if "PuTTY-User-Key-File" in text:
         raise RuntimeError(
-            "这是 PuTTY 私钥（.ppk，WinSCP 转换产物）。请改用原始 PEM 文件"
-            "（-----BEGIN RSA PRIVATE KEY-----），或用 PuTTYgen 执行 "
-            "Conversions → Export OpenSSH key 后再选择"
+            "这是 PuTTY 私钥（.ppk，WinSCP 转换产物），当前版本不直接支持。"
+            "请用 PuTTYgen 打开它并执行 Conversions → Export OpenSSH key 导出成 .pem 后再选择；"
+            "或在 WinSCP 的会话设置里重新导出 OpenSSH 私钥"
         )
     encrypted = False
     fingerprint = ""
@@ -447,7 +457,7 @@ def _sftp(session_id: str):
         return client
     session = _sessions.get(session_id)
     if session is None or not hasattr(session, "open_sftp"):
-        raise RuntimeError("会话不存在或不是 SSH 会话")
+        raise RuntimeError("会话不存在或不是 SSH 会话（可能已断开，请重新打开标签）")
     client = session.open_sftp()
     _sftp_clients[session_id] = client
     return client

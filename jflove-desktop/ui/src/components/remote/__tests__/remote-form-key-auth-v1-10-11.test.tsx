@@ -172,4 +172,34 @@ describe('RemoteConnectionForm · v1.10.11', () => {
     expect(callBridge).not.toHaveBeenCalled();
     expect(props.onSave).not.toHaveBeenCalled();
   });
+
+  /**
+   * v1.10.12：选到 `.ppk` 必须**当场有反应**。
+   *
+   * 旧实现把桥抛出的拒绝原因写进抽屉最底部的 `error`（表单比可视区高，看不到），
+   * 用户实测观感是「选 ppk 毫无反应」。现在必须在私钥字段内就地显示。
+   */
+  it('选到 .ppk（桥拒绝）⇒ 私钥字段内就地显示转换指引', async () => {
+    callBridge.mockRejectedValue(
+      new Error(
+        '这是 PuTTY 私钥（.ppk，WinSCP 转换产物），当前版本不直接支持。'
+          + '请用 PuTTYgen 打开它并执行 Conversions → Export OpenSSH key 导出成 .pem 后再选择',
+      ),
+    );
+    render(<RemoteConnectionForm {...baseProps()} />);
+    await fillConnection();
+    chooseKeyAuth();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '选择文件…' }));
+    });
+
+    const hint = await screen.findByText(/PuTTY 私钥/);
+    // 提示必须落在「私钥内容或文件路径」字段块内（与选择按钮同一块），而不是抽屉底部
+    const keyField = field('私钥内容或文件路径').parentElement as HTMLElement;
+    expect(keyField.contains(hint)).toBe(true);
+    expect(hint.textContent).toMatch(/Conversions → Export OpenSSH key/);
+    // 仍然没有私钥 ⇒ 不能提交
+    expect(callBridge).not.toHaveBeenCalledWith('remote', 'validate_private_key', expect.anything());
+  });
 });

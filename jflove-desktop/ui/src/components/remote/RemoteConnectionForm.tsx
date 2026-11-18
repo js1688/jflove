@@ -6,7 +6,7 @@
  */
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Button } from '../../components/ui';
+import { Button, toast } from '../../components/ui';
 import { callBridge } from '../../utils/desktop-bridge';
 import { describeErrorWithFallback } from '../../utils/error-text';
 import type {
@@ -59,6 +59,13 @@ export function RemoteConnectionForm({
   const [initCommand, setInitCommand] = useState(detail?.init_command ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  /**
+   * 选文件失败的**就地**原因（v1.10.12 修复）。
+   *
+   * 抽屉比可视区高，底部 `error` 用户看不到 —— 选 `.ppk` 时观感就是「毫无反应」。
+   * 这里在私钥字段内直接显示，并同时弹一次 toast。
+   */
+  const [keyError, setKeyError] = useState('');
 
   /**
    * 选择本机私钥文件。
@@ -68,6 +75,7 @@ export function RemoteConnectionForm({
    */
   const pickKeyFile = async () => {
     setError('');
+    setKeyError('');
     try {
       const picked = await callBridge<{
         token?: string;
@@ -81,7 +89,9 @@ export function RemoteConnectionForm({
       setKeyEncrypted(Boolean(picked.encrypted));
       setPrivateKey('');
     } catch (e) {
-      setError(describeErrorWithFallback(e, '无法读取私钥文件'));
+      const message = describeErrorWithFallback(e, '无法读取私钥文件');
+      setKeyError(message);
+      toast.error('私钥文件无法使用', message);
     }
   };
 
@@ -244,6 +254,7 @@ export function RemoteConnectionForm({
                   setKeyToken('');
                   setKeyFileName('');
                   setKeyEncrypted(false);
+                  setKeyError('');
                 }}
               />
               <div className="mt-1 flex items-center justify-between gap-2">
@@ -258,6 +269,11 @@ export function RemoteConnectionForm({
                   选择文件…
                 </button>
               </div>
+              {keyError && (
+                <div className="mt-1 rounded bg-danger-50 px-2 py-1.5 text-[11px] leading-4 text-danger-700">
+                  {keyError}
+                </div>
+              )}
               {keyToken && (
                 <div className="mt-1 rounded bg-success-50 px-2 py-1.5 text-[11px] text-success-700">
                   已选择：{keyFileName}

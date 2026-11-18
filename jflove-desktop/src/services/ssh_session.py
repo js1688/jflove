@@ -470,9 +470,13 @@ class SshSession:
         threading.Thread(target=run, name="ssh-redraw", daemon=True).start()
 
     def open_sftp(self) -> paramiko.SFTPClient:
-        """在同一连接上打开 SFTP 通道（复用认证与跳板链）"""
+        """
+        在同一连接上打开 SFTP 通道（复用认证与跳板链）。
+
+        :raises SshError: 链路尚未建好（此时应等待就绪事件，而不是把它当成目录错误）
+        """
         if not self._transports:
-            raise SshError("会话尚未建立")
+            raise SshError("会话尚未建立（正在连接中，请稍候）")
         return self._transports[-1].open_sftp_client()
 
     # ── 内部 ──────────────────────────────────────────

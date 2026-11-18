@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, EmptyState, Icon } from '../../components/ui';
 import { callBridge, onBridgeEvent } from '../../utils/desktop-bridge';
 import { remoteService, type SftpEntry } from '../../services/remote-service';
+import { useRemoteStore } from '../../stores/remote-store';
 import { PromptModal } from './PromptModal';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -82,6 +83,34 @@ export function SftpView({ sessionId }: SftpViewProps) {
   } | null>(null);
   const pathRef = useRef('.');
   const reloadTimer = useRef<number | null>(null);
+  /**
+   * 会话是否已就绪（v1.10.12 修复）。
+   *
+   * 标签是在 `session_open` 返回时立刻建的（`stores/remote-store.ts`），那一刻 Python 侧
+   * 还在后台线程建链；旧实现挂载即 `load('.')`，只会拿到「会话尚未建立」且**永不重试**
+   * —— 面板红字常驻，点「刷新」才会出目录。现在改为按 store 的会话状态门控：
+   * `connecting` 只显示占位，`ready` 后自动加载一次。
+   *
+   * store 里查不到该会话（单测 / 独立使用）时按已就绪处理，保持旧行为。
+   */
+  const tabStatus = useRemoteStore(
+    (state) => state.tabs.find((tab) => tab.id === sessionId)?.status,
+  );
+  const storeReady = tabStatus === undefined || tabStatus === 'ready';
+  const sessionUnavailable = tabStatus === 'failed' || tabStatus === 'closed';
+  /**
+   * 兜底探活成功标记。
+   *
+   * `remote.session_ready` / `phase=ready` 有可能**早于标签创建**到达（标签是在
+   * `session_open` 返回后由 store 建的，而 Python 侧先启动后台建链线程再返回）。
+   * 事件早到 ⇒ `patchTab` 打在还不存在的标签上 = no-op ⇒ store 永远停在 `connecting`。
+   * 只信 store 会让面板永久停在「正在连接」，所以连接中按秒探活一次（最多 30 次），
+   * 探到就按就绪处理 —— 事件是主路径，探活只是自愈兜底。
+   */
+  const [probedReady, setProbedReady] = useState(false);
+  const sessionReady = storeReady || probedReady;
+  /** 已初始化过的会话 id（避免状态抖动时重复 `load('.')` 覆盖用户当前路径） */
+  const bootedRef = useRef('');
 
   const load = useCallback(
     async (target: string) => {
@@ -103,8 +132,48 @@ export function SftpView({ sessionId }: SftpViewProps) {
   );
 
   useEffect(() => {
+    if (!sessionReady) return;
+    if (bootedRef.current === sessionId) return;
+    bootedRef.current = sessionId;
     void load('.');
-  }, [load]);
+  }, [load, sessionId, sessionReady]);
+
+  /**
+   * 连接中兜底探活（见 `probedReady` 注释）：每 1s 试一次目录，最多 30 次；
+   * 探到即按就绪处理并停表。就绪事件正常到达时本效果随即被 deps 变化取消，不会重复请求。
+   */
+  useEffect(() => {
+    if (sessionReady || sessionUnavailable) return undefined;
+    let cancelled = false;
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts += 1;
+      if (attempts > 30) {
+        window.clearInterval(timer);
+        return;
+      }
+      void remoteService
+        .sftpList(sessionId, '.')
+        .then((result) => {
+          if (cancelled) return;
+          window.clearInterval(timer);
+          bootedRef.current = sessionId; // 已加载过：就绪效果不再重复拉一次
+          setEntries(result.entries);
+          setPath('.');
+          pathRef.current = '.';
+          setSelected(new Set());
+          setError('');
+          setProbedReady(true);
+        })
+        .catch(() => {
+          /* 还没就绪：保持占位，等下一轮 */
+        });
+    }, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionId, sessionReady, sessionUnavailable]);
 
   /** 传输结束后合并刷新（批量下载时避免每个文件刷一次） */
   const scheduleReload = useCallback(() => {
@@ -280,7 +349,8 @@ export function SftpView({ sessionId }: SftpViewProps) {
         <button
           type="button"
           onClick={() => void load(parentPath(path))}
-          className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover"
+          disabled={!sessionReady}
+          className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-hover disabled:opacity-40"
           title="上级目录"
         >
           <Icon name="prev" size="sm" />
@@ -289,6 +359,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
           type="button"
           className="min-w-0 flex-1 truncate rounded-md bg-sunken px-2 py-1 text-left font-mono text-xs"
           title="点击跳转到路径"
+          disabled={!sessionReady}
           onClick={() =>
             askPrompt('跳转到路径', path, (next) => {
               if (next) void load(next);
@@ -297,16 +368,34 @@ export function SftpView({ sessionId }: SftpViewProps) {
         >
           {path}
         </button>
-        <Button size="sm" variant="ghost" icon="refresh" onClick={() => void load(path)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="refresh"
+          disabled={!sessionReady}
+          onClick={() => void load(path)}
+        >
           刷新
         </Button>
-        <Button size="sm" variant="ghost" icon="folder" onClick={handleMkdir}>
+        <Button size="sm" variant="ghost" icon="folder" disabled={!sessionReady} onClick={handleMkdir}>
           新建目录
         </Button>
-        <Button size="sm" variant="ghost" icon="download" onClick={() => void handleDownloadSelected()}>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="download"
+          disabled={!sessionReady}
+          onClick={() => void handleDownloadSelected()}
+        >
           下载所选{selectedCount > 0 ? ` (${selectedCount})` : ''}
         </Button>
-        <Button size="sm" variant="primary" icon="upload" onClick={() => void handleUpload()}>
+        <Button
+          size="sm"
+          variant="primary"
+          icon="upload"
+          disabled={!sessionReady}
+          onClick={() => void handleUpload()}
+        >
           上传
         </Button>
       </div>
@@ -326,9 +415,24 @@ export function SftpView({ sessionId }: SftpViewProps) {
           <span className="w-16 text-right">操作</span>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-2 py-1">
-          {loading && <div className="p-6 text-center text-sm text-muted">加载中…</div>}
-          {!loading && error && <div className="p-6 text-center text-sm text-danger-500">{error}</div>}
-          {!loading && !error && entries.length === 0 && (
+          {/* 会话未就绪：给明确的等待/失败语义，不再把「会话尚未建立」当成目录错误 */}
+          {!sessionReady && !sessionUnavailable && (
+            <div className="p-6 text-center text-sm text-muted">
+              会话正在连接，就绪后自动加载目录…
+            </div>
+          )}
+          {!sessionReady && sessionUnavailable && (
+            <div className="p-6 text-center text-sm text-danger-500">
+              会话未就绪，请关闭标签后重新连接
+            </div>
+          )}
+          {sessionReady && loading && (
+            <div className="p-6 text-center text-sm text-muted">加载中…</div>
+          )}
+          {sessionReady && !loading && error && (
+            <div className="p-6 text-center text-sm text-danger-500">{error}</div>
+          )}
+          {sessionReady && !loading && !error && entries.length === 0 && (
             <EmptyState icon="folder" title="空目录" description="点击右上角上传文件" />
           )}
           {entries.map((entry) => (
