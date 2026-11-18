@@ -46,7 +46,6 @@ docker run -d --name jflove-web -p 8080:80 --restart=always \
 | **AI 模型** | **DeepSeek-V4.1-Flash**（provider `deepseek-account`，默认推理等级 high）；可选 provider `hsfz` 的 `deepseek-v4.1-flash` |
 | **Node.js** | 22+ / npm 10+（Web 端构建与运行，Vite 6） |
 | **代码风格** | EditorConfig 统一缩进（2 空格，UTF-8，LF 换行） |
-| **调试配置** | `.vscode/launch.json` 预设服务端/桌面端/Web 端（Edge）启动配置（可选，用于本地单步调试） |
 
 ### AI 代理角色
 

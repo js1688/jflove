@@ -35,7 +35,7 @@ CODE_SUFFIXES: frozenset[str] = frozenset({
 
 #: 全仓扫描默认跳过的目录（依赖、虚拟环境、产物、**文档与计划**、第三方离线包）
 DEFAULT_SKIP_DIRS: frozenset[str] = frozenset({
-    ".git", ".github_cache", ".idea", ".vscode",
+    ".git", ".github_cache", ".idea",
     "node_modules", "venv-win", "venv-linux", "site-packages",
     "dist", "build", "__pycache__", ".pytest_cache", ".vite",
     "out", "vendor", "文档记录", "plans",

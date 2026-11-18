@@ -123,7 +123,6 @@ Material 主题、图表色表、Markdown 高亮配色）。
 ### 前置条件
 
 - Flutter SDK 3.44+（`D:\flutter\flutter_3.44.6-stable`）
-- VSCode + Flutter 插件
 - Android SDK（构建 APK 需要）
 
 ### 构建与测试
