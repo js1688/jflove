@@ -6,7 +6,8 @@
 # 结论：禁止用默认命令/默认 URI 直接判缺失。
 #
 # 输出 JSON（退出码 0；缺件写在字段里）：
-#   {"windows_vm":"running|shut off|missing","linux_display":"x11::0|missing",
+#   {"windows_vm":"running|shut off|missing","windows_vm_session":"…",
+#    "linux_display":"x11::0|missing",
 #    "linux_wayland":"wayland-1|","android":"device|no-device|missing"}
 set -uo pipefail
 
@@ -16,6 +17,9 @@ UID_NUM="$(id -u)"
 
 vm_state="$(virsh -c qemu:///system domstate "$VM" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
 [ -z "$vm_state" ] && vm_state="missing"
+# 2026-11-15 复盘 D2：只查 system 时，域在 session URI / 被改名仍会误报 missing（同一类"信默认值"）
+vm_session="$(virsh -c qemu:///session domstate "$VM" 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
+[ -z "$vm_session" ] && vm_session="missing"
 
 linux_display="missing"
 for d in :0 :1; do
@@ -49,10 +53,11 @@ if [ -x "$adb_bin" ]; then
     if "$adb_bin" devices 2>/dev/null | grep -q 'device$'; then android="device"; else android="no-device"; fi
 fi
 
-python3 - "$vm_state" "$linux_display" "$linux_wayland" "$linux_ui" "$xvnc" "$ydotool" "$xinput" "$android" "$android_avd" "$offscreen_cdp" <<'PY'
+python3 - "$vm_state" "$linux_display" "$linux_wayland" "$linux_ui" "$xvnc" "$ydotool" "$xinput" "$android" "$android_avd" "$offscreen_cdp" "$vm_session" <<'PY'
 import json, sys
 print(json.dumps({
     "windows_vm": sys.argv[1],
+    "windows_vm_session": sys.argv[11],
     "linux_display": sys.argv[2],
     "linux_wayland": sys.argv[3],
     "linux_ui": sys.argv[4],

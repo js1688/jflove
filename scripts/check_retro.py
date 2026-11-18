@@ -43,8 +43,12 @@ REQUIRED_COLUMNS = ("日期", "角色/任务", "现象", "证据", "归因", "�
 STATUSES = {"open", "triaged", "rejected"}
 MAX_OPEN = 40
 MAX_INBOX_LINES = 200
-MAX_REPORT_LINES = 180
+# 与 skills-self-growth §7 的 150 对齐（原 180 比技能宽 30 行 = 两处口径漂移）
+MAX_REPORT_LINES = 150
 REPORT_SECTION = "## 本次运行判据"
+# 分层决策报告的必需层级（skills-self-growth §7；只查标题存在，不解析内容 —— 防"退回流水账"）
+REQUIRED_REPORT_SECTIONS = ("## 一句话结论", "## 一、我这轮收集到什么", "## 二、有效性裁定",
+                            "## 三、我已自行修复", "## 四、需要你决策")
 REPORT_NAME_RE = re.compile(r"^\d{4}-\d{2}\.md$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -167,6 +171,25 @@ def check_reports() -> tuple[list[str], list[str]]:
             )
         if REPORT_SECTION not in text:
             errors.append(f"{_rel(path)}: 缺少「{REPORT_SECTION}」小节（无法证明本次运行被验证过）")
+        missing_layers = [layer for layer in REQUIRED_REPORT_SECTIONS if layer not in text]
+        if missing_layers:
+            errors.append(
+                f"{_rel(path)}: 缺分层小节 {'、'.join(missing_layers)}"
+                "（skills-self-growth §7 要求固定顺序的分层决策报告，不接受流水账）"
+            )
+        # 时效协议（skills-self-growth §15）：报告必须自带「生成/核实基线」行，
+        # 否则几天后读它的人无法判断结论是否已过期。
+        if not any(line.startswith("> 生成") and "核实基线" in line for line in text.splitlines()):
+            errors.append(f"{_rel(path)}: 缺「> 生成 …｜核实基线 …」行（§15：没有它，报告几天后不可执行）")
+        # 每张决策卡必须有「复验命令」，卡数用行首锚定统计（正文引用 `### D` 不算）
+        section4 = text.split("## 四、需要你决策")[1].split("\n## ")[0] if "## 四、需要你决策" in text else ""
+        card_count = len(re.findall(r"^### D\d", section4, re.MULTILINE))
+        cmd_count = len(re.findall(r"^- 复验命令：", section4, re.MULTILINE))
+        if card_count != cmd_count:
+            errors.append(
+                f"{_rel(path)}: §四 有 {card_count} 张决策卡但 {cmd_count} 条「复验命令」"
+                "（§15：每张卡都要能 10 秒判定 仍在/已消失）"
+            )
     return errors, warnings
 
 

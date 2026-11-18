@@ -118,6 +118,15 @@ def validate_text(text: str, required: list[str]) -> list[str]:
     if executed == 0:
         errors.append("没有任何「实际执行」的端（全是跳过或空表）")
 
+    # 验证标准 §2 第 1 步：判“缺失/跳过”之前必须先跑 probe.sh。
+    # 2026-11-15 复盘 D1：此前只写在文档里，脚本零检查 ⇒ 报告可以不写 probe 而照样 exit 0。
+    probe_re = re.compile(r"^[`\s]*(bash\s+)?scripts/verify/probe\.sh(\s|`|$)")
+    probe_ok = any(probe_re.match(cells[1]) and cells[2].startswith("退出码 0") for cells in rows)
+    if not probe_ok:
+        errors.append(
+            "缺 `scripts/verify/probe.sh` 证据行（验证标准 §2 第 1 步：判“缺失/跳过”前必须先跑 probe）"
+        )
+
     for key in required:
         aliases = ALIASES.get(key)
         if aliases is None:
@@ -156,6 +165,7 @@ def _self_test() -> int:
 
 | 端 | 命令 | 结果 | 证据 |
 | --- | --- | --- | --- |
+| 能力矩阵 | `bash scripts/verify/probe.sh` | 退出码 0 | /tmp/jf-probe.json |
 | 服务端 | `scripts/verify/server.sh smoke` | 退出码 0；/health 200 | /tmp/jf-server.log |
 | Web | `node scripts/verify/web_shot.mjs` | key-exchange 200 | /tmp/jf-web.png |
 | Linux 桌面 | `desktop_shot.py` | 1180x760 抓帧 | /tmp/jf-desktop.png |
@@ -170,8 +180,12 @@ def _self_test() -> int:
 | Android | `adb devices` | 跳过 | 无 |
 """
     bad_no_end = good.replace("| Windows |", "| 其他 |")
+    bad_no_probe = "\n".join(line for line in good.splitlines() if "probe.sh" not in line) + "\n"
+    bad_fake_probe = good.replace("`bash scripts/verify/probe.sh`", "`echo scripts/verify/probe.sh`")
     cases = [
         (good, list(ALIASES), 0, "完整五端"),
+        (bad_no_probe, list(ALIASES), 1, "缺 probe 证据行"),
+        (bad_fake_probe, list(ALIASES), 1, "probe 行是 echo 冒充"),
         (bad_missing, [], 1, "缺章节"),
         (bad_skip, ["android"], 1, "跳过无原因"),
         (bad_no_end, ["windows"], 1, "缺 Windows 行"),
