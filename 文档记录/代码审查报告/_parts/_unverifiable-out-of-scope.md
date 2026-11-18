@@ -32,4 +32,4 @@ jflove-app/test/mermaid_security_test.dart
 
 ### 9.3 其他受保护路径
 
-`git diff --name-only 049c20d..HEAD -- .gitignore .vscode .idea` → **0 个**。`plans/`（`.gitignore:19`）与 `ui/public/vendor/`（`.gitignore:86`）为既有忽略规则，本版**未修改忽略文件**。
+`git diff --name-only 049c20d..HEAD -- .gitignore .idea` → **0 个**。`plans/`（`.gitignore:19`）与 `ui/public/vendor/`（`.gitignore:86`）为既有忽略规则，本版**未修改忽略文件**。
