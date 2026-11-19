@@ -169,7 +169,9 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
   `_internal/winpty/` 里找到（`build.py::assert_winpty_bundled()` 缺文件即失败）。
   缺了它们 `PTY.spawn()` 返回 `False`（不抛异常），表现为"终端打开全黑、日志无异常"。
 - **凭据不进渲染层**：桥只回 `has_password` / `has_private_key` 与指纹；打开会话时 Python 直接用原文。
-- **依赖**：`paramiko==5.1.0`；Windows 额外 `pywinpty`；前端 `@xterm/xterm`。
+- **依赖**：`paramiko==4.0.0`（**不要升 5.x**：5.0 起移除 `ssh-rsa`/RSA-SHA1 与 SHA-1 KEX，
+  旧企业 SFTP 网关会直接握手失败；4.0 仍保留现代算法 Ed25519/ECDSA/rsa-sha2 且默认优先现代）；
+  Windows 额外 `pywinpty`；前端 `@xterm/xterm`。
 
 ### 终端底座（v1.10.8 重建）
 
@@ -234,6 +236,20 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
   改页内列表：按 id 去重、排除成环下游连接、最大高度滚动、外部点击/Esc 关闭。
 - **主机指纹 / 继续认证提示**：事件由 `AppLayout` 常驻 hook 收进 store 排队，
   页面晚挂载也不会丢事件（避免 30s/60s 等超时）。
+
+### 旧服务器 SSH 算法兼容（v1.10.14）
+
+- **新旧兼容**：`paramiko` 固定 4.0.0。现代服务器仍优先 Ed25519 / ECDSA / `rsa-sha2-512`
+  （默认算法顺序不变）；只有服务器**只提供旧算法**时才协商 `ssh-rsa` / `diffie-hellman-group14-sha1`。
+- **旧公钥签名回退**：RSA 私钥首次 `publickey` 认证失败、且服务器未声明只支持 SHA-2 时，
+  自动临时改用 `ssh-rsa`（RSA-SHA1）重试一次，成功或失败后恢复算法列表；现代服务器首次成功，
+  不会走回退路径。
+- **诊断文案**：`no acceptable host key` / `no acceptable kex algorithm` 翻成中文并说明旧服务器限制；
+  「服务器只接受密钥认证」会区分「认证方式选错」与「私钥被拒」，提示改认证方式或核对
+  `authorized_keys` / 私钥口令 / 密钥类型。
+- **日志**：记录远端版本、主机密钥类型、KEX 与认证方法（不含密码/私钥）。
+- **已知边界**：只支持 `ssh-dss`（DSA）主机密钥的服务器仍不支持（paramiko 4.0 已移除 DSA；
+  需服务器升级到 RSA/Ed25519）。
 
 ## 技术架构
 

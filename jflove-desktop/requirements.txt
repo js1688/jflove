@@ -5,6 +5,8 @@ pyinstaller==6.20.0
 # Linux 系统级挂载（FUSE）；Windows 用系统自带 Cloud Filter API
 fusepy==3.0.1; sys_platform != "win32"
 # v1.10.0：远程 SSH/SFTP 会话
-paramiko==5.1.0
+# 旧企业 SFTP 网关只提供 ssh-rsa/RSA-SHA1；paramiko 5.0 起移除该算法（5.1 已无 ssh-rsa），
+# 4.0.0 是上游最后保留 ssh-rsa 与 SHA-1 KEX 的版本，同时仍支持 Ed25519/ECDSA/rsa-sha2。
+paramiko==4.0.0
 # v1.10.0：Windows 本机终端 ConPTY（其他平台不安装）
 pywinpty==3.1.2; sys_platform == "win32"
