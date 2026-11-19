@@ -16,7 +16,7 @@ from pathlib import Path
 
 # ── 应用基本信息 ──────────────────────────────────────
 APP_NAME = "JFLove"
-APP_VERSION = "1.10.14"
+APP_VERSION = "1.10.15"
 APP_ORG = "JFLove"
 
 # ── 登录有效期下拉选项 (秒, 中文显示) ──

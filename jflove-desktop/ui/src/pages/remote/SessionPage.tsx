@@ -32,6 +32,17 @@ import {
   writeTerminalFontSize,
 } from '../../utils/terminal-prefs';
 import { remoteService } from '../../services/remote-service';
+import { copyText } from '../../utils/clipboard';
+
+/**
+ * 复制失败详情（含「诊断：…」行）到剪贴板。
+ *
+ * 走 `copyText` 而不是 `navigator.clipboard`：QtWebEngine 下后者会永久 pending。
+ */
+async function copyFailureDetail(text: string): Promise<void> {
+  const ok = await copyText(text);
+  toast.info(ok ? '失败详情已复制' : '复制失败，可到日志中查看诊断');
+}
 
 const KIND_LABEL: Record<SessionTab['kind'], string> = {
   local: '本机',
@@ -335,10 +346,22 @@ export function SessionPage() {
           )}
 
           {/* 失败提示：连接失败不自动关闭，保留原因供修正配置 */}
+          {/* v1.10.15：认证失败附带「诊断：…」行（远端版本/签名算法），必须完整可见且可一键复制 */}
           {activeTab.status === 'failed' && (
-            <div className="flex shrink-0 items-center gap-2 border-b border-danger-50 bg-danger-50 px-3 py-2 text-xs text-danger-700">
+            <div className="flex shrink-0 items-start gap-2 border-b border-danger-50 bg-danger-50 px-3 py-2 text-xs text-danger-700">
               <Icon name="error" size="sm" />
-              <span className="min-w-0 flex-1 truncate">{activeTab.message || '连接失败'}</span>
+              <span className="min-w-0 flex-1 whitespace-pre-line break-all">
+                {activeTab.message || '连接失败'}
+              </span>
+              {activeTab.message && (
+                <button
+                  type="button"
+                  className="shrink-0 text-[11px] underline decoration-dotted underline-offset-2 hover:no-underline"
+                  onClick={() => void copyFailureDetail(activeTab.message)}
+                >
+                  复制详情
+                </button>
+              )}
             </div>
           )}
 

@@ -48,7 +48,12 @@ READ_CHUNK = 4096
 MAX_AUTH_ROUNDS = 5
 
 #: 单次认证方法最多尝试次数（密钥/密码可能因服务器顺序被要求两遍）
-MAX_METHOD_ATTEMPTS = {"password": 2, "publickey": 2, "keyboard-interactive": 1}
+#: publickey=3：首轮 + ssh-rsa 回退 + 「服务器部分认证后仍要 publickey」的补一轮
+#: （部分旧网关第一次是算法不匹配、第二次才计数，Maverick 一类 Java SSH 服务端即是）
+MAX_METHOD_ATTEMPTS = {"password": 2, "publickey": 3, "keyboard-interactive": 1}
+
+#: `server-sig-algs` 暂存哨兵（区分「扩展不存在」与「扩展值为空」）
+_LEGACY_EXT_UNSET = object()
 
 #: 认证方式的中文名（错误提示用，不把枚举值直接抛给用户）
 AUTH_TYPE_LABELS = {
@@ -459,9 +464,13 @@ class SshSession:
                 self._transports.append(transport)
                 self._verify_host_key(transport, row)
                 self._authenticate(transport, row)
-            except (HostKeyError, AuthError):
+            except (HostKeyError, AuthError) as exc:
                 self.close()
-                raise
+                # 多跳链路必须让用户知道是哪一跳失败：认证/指纹错误带上「跳板 N / 目标 + 主机」
+                message = f"{label} {row['host']}:{row['port']}：{exc}"
+                if isinstance(exc, HostKeyError):
+                    raise HostKeyError(message) from exc
+                raise AuthError(message) from exc
             except paramiko.SSHException as exc:
                 self.close()
                 raise JumpError(
@@ -820,6 +829,7 @@ class SshSession:
                 str(row.get("private_key") or ""), str(row.get("passphrase") or "")
             )
         attempts: dict[str, int] = {}
+        diag = ""
         try:
             if key is not None:
                 status, allowed = self._attempt_auth(
@@ -827,19 +837,22 @@ class SshSession:
                 )
                 attempts["publickey"] = 1
                 initial_allowed = set(allowed)
+                diag = self._auth_diag(transport, key, status, allowed)
                 if not transport.is_authenticated() and self._can_retry_legacy_rsa(
                     transport, key, status
                 ):
-                    # 旧服务器只认 ssh-rsa（RSA-SHA1）；首轮 rsa-sha2 被拒后才重试，
+                    # 旧服务器只认 ssh-rsa（RSA-SHA1）；首轮失败或服务器要求继续认证后才重试，
                     # 现代服务器第一次就会成功，不会走这条路径。
                     logger.info(
-                        "公钥认证未通过，尝试旧式 ssh-rsa 签名（远端版本：%s）",
+                        "公钥认证未通过（%s），尝试旧式 ssh-rsa 签名（远端版本：%s）",
+                        status,
                         getattr(transport, "remote_version", "未知"),
                     )
                     status, allowed = self._attempt_legacy_rsa(
                         transport, username, key
                     )
                     attempts["publickey"] = attempts.get("publickey", 0) + 1
+                    diag += f"；ssh-rsa 回退={status}"
                     if allowed:
                         initial_allowed = set(allowed)
                 if status == "rejected":
@@ -861,20 +874,26 @@ class SshSession:
                         initial_allowed & {"password", "keyboard-interactive"}
                     ):
                         # 服务器明确只允许密钥（或其它非密码方式）：不要无谓再试密码
-                        raise _auth_hint(
-                            initial_allowed,
-                            "服务器未接受当前密钥（私钥）：请确认 authorized_keys、私钥口令与密钥类型；"
-                            "旧服务器可能只支持 ssh-rsa（本版已自动兼容）",
-                            auth_type=auth_type,
-                            key_type=key_hint,
+                        raise self._fail_auth(
+                            _auth_hint(
+                                initial_allowed,
+                                "服务器未接受当前密钥（私钥）：请确认 authorized_keys、私钥口令与密钥类型；"
+                                "旧服务器可能只支持 ssh-rsa（本版已自动兼容）",
+                                auth_type=auth_type,
+                                key_type=key_hint,
+                            ),
+                            diag,
                         )
                     elif not password:
-                        raise _auth_hint(
-                            initial_allowed or allowed,
-                            "服务器未接受当前密钥（私钥）：请确认 authorized_keys、私钥口令与密钥类型；"
-                            "旧服务器可能只支持 ssh-rsa（本版已自动兼容）",
-                            auth_type=auth_type,
-                            key_type=key_hint,
+                        raise self._fail_auth(
+                            _auth_hint(
+                                initial_allowed or allowed,
+                                "服务器未接受当前密钥（私钥）：请确认 authorized_keys、私钥口令与密钥类型；"
+                                "旧服务器可能只支持 ssh-rsa（本版已自动兼容）",
+                                auth_type=auth_type,
+                                key_type=key_hint,
+                            ),
+                            diag,
                         )
                     else:
                         status, allowed = self._attempt_auth(
@@ -893,18 +912,38 @@ class SshSession:
                 if transport.is_authenticated():
                     return
                 if not allowed and auth_type != "password_keyboard":
-                    raise AuthError("认证失败：用户名或密码错误")
+                    raise self._fail_auth(
+                        AuthError("认证失败：用户名或密码错误"),
+                        diag or self._peer_facts(transport),
+                    )
                 if not allowed and auth_type == "password_keyboard":
-                    raise AuthError("认证失败（密码或验证码错误）")
+                    raise self._fail_auth(
+                        AuthError("认证失败（密码或验证码错误）"),
+                        diag or self._peer_facts(transport),
+                    )
             allowed = self._continue_auth(
                 transport, username, password, key, allowed, attempts
             )
             if not transport.is_authenticated():
-                raise _auth_hint(
-                    allowed,
-                    "认证未完成：服务器没有接受当前凭据，请检查认证方式与密码",
-                    auth_type=auth_type,
-                    key_type=key.get_name() if key is not None else "",
+                if allowed == {"publickey"} and attempts.get("publickey", 0) > 1:
+                    # 服务器已经接受过这把密钥，却仍要求「再来一次密钥认证」：
+                    # 典型是要两把不同私钥的网关；当前每条连接只支持一把私钥。
+                    raise self._fail_auth(
+                        AuthError(
+                            "服务器已接受密钥，但仍要求再次进行密钥认证"
+                            "（常见于要求两把不同私钥的网关）；"
+                            "当前每条连接只支持一把私钥，请在服务器侧确认是否需要第二把密钥"
+                        ),
+                        diag or self._peer_facts(transport),
+                    )
+                raise self._fail_auth(
+                    _auth_hint(
+                        allowed,
+                        "认证未完成：服务器没有接受当前凭据，请检查认证方式与密码",
+                        auth_type=auth_type,
+                        key_type=key.get_name() if key is not None else "",
+                    ),
+                    diag or self._peer_facts(transport),
                 )
             logger.info(
                 "SSH 认证完成（auth_type=%s，方法=%s，密钥类型=%s，远端=%s，主机密钥=%s）",
@@ -917,13 +956,22 @@ class SshSession:
         except SshError:
             raise
         except paramiko.AuthenticationException as exc:
-            raise _auth_error(
-                exc,
-                auth_type=auth_type,
-                key_type=key.get_name() if key is not None else "",
-            )
+            raise self._fail_auth(
+                _auth_error(
+                    exc,
+                    auth_type=auth_type,
+                    key_type=key.get_name() if key is not None else "",
+                ),
+                diag or self._peer_facts(transport),
+            ) from exc
         except Exception as exc:  # noqa: BLE001 - 网络/协议异常统一转成可读原因
-            raise AuthError(f"认证失败：{exc}")
+            raise self._fail_auth(
+                AuthError(f"认证失败：{exc}"),
+                diag or self._peer_facts(transport),
+            ) from exc
+        finally:
+            # 旧式 ssh-rsa 模式只在本轮认证内有效，成功/失败都要恢复
+            self._exit_legacy_rsa(transport)
 
     def _attempt_auth(
         self,
@@ -957,6 +1005,63 @@ class SshSession:
             return "failed", set()
         return "ok", set(remaining or ())
 
+    def _fail_auth(self, exc: AuthError, diag: str) -> AuthError:
+        """
+        给认证失败补上可复制的诊断行（不含任何凭据），并写一条 INFO 日志。
+
+        :param exc: 面向用户的认证错误
+        :param diag: 协商事实摘要（可为空）
+        :returns: 追加了诊断行的新错误对象（调用方直接 raise）
+        """
+        if not diag:
+            return exc
+        logger.info("SSH 认证失败诊断：%s", diag)
+        return AuthError(f"{exc}\n诊断：{diag}")
+
+    @classmethod
+    def _auth_diag(
+        cls,
+        transport: paramiko.Transport,
+        key: paramiko.PKey,
+        status: str,
+        allowed: set[str],
+    ) -> str:
+        """首轮公钥认证后的诊断摘要（远端版本/主机密钥/KEX/签名算法/私钥/结果）"""
+        parts = [cls._peer_facts(transport)]
+        bits = getattr(key, "get_bits", None)
+        key_text = key.get_name()
+        if callable(bits):
+            key_text += f"({bits()}位)"
+        parts.append(f"私钥={key_text}")
+        result = f"首轮结果={status}"
+        if allowed:
+            result += f"（服务器允许：{'、'.join(sorted(allowed))}）"
+        parts.append(result)
+        return "；".join(parts)
+
+    @staticmethod
+    def _peer_facts(transport: paramiko.Transport) -> str:
+        """
+        收集 SSH 协商事实（可安全外传，不含凭据）。
+
+        测试替身/协商未完成时字段缺失，一律退化成 `-`，绝不抛异常。
+        """
+        remote = str(getattr(transport, "remote_version", "") or "未知")
+        try:
+            host_key = transport.get_remote_server_key().get_name()
+        except Exception:  # noqa: BLE001 - 测试替身或握手未完成
+            host_key = "-"
+        kex = str(getattr(getattr(transport, "kex_engine", None), "name", "") or "-")
+        extensions = getattr(transport, "server_extensions", {}) or {}
+        sig = extensions.get("server-sig-algs", b"") if isinstance(extensions, dict) else b""
+        if isinstance(sig, bytes):
+            sig = sig.decode("ascii", "ignore")
+        agreed = str(getattr(transport, "_agreed_pubkey_algorithm", "") or "-")
+        return (
+            f"远端={remote}；主机密钥={host_key}；KEX={kex}；"
+            f"服务器签名算法={str(sig) or '未提供'}；本次签名算法={agreed}"
+        )
+
     @staticmethod
     def _remote_host_key_type(transport: paramiko.Transport) -> str:
         """取主机密钥类型（测试替身没有该方法时返回 `-`，只用于日志）"""
@@ -977,33 +1082,70 @@ class SshSession:
         """
         判断是否值得用旧式 `ssh-rsa`（RSA-SHA1）再试一次公钥认证。
 
-        只在「真实 paramiko transport + RSA 私钥 + 首次公钥认证失败」时启用：
+        只在「真实 paramiko transport + RSA 私钥 + 首轮未完成认证」时启用：
 
         - 现代服务器第一次就会成功，不会走到这里；
-        - 服务器若明确声明只支持 SHA-2 的 `server-sig-algs`，不强行降级；
-        - 非 RSA 私钥（Ed25519/ECDSA）不降级。
+        - `server-sig-algs` **不作为门槛**：部分旧网关把扩展写成 `rsa-sha2-*`
+          （甚至写全），实际却只接受 RSA-SHA1 签名。首轮失败后多试一次没有副作用，
+          真正的凭据错误仍会被拒绝，只是多一次认证往返；
+        - 服务器「部分认证」后仍只要求 publickey 时也值得再试（有网关把签名算法
+          不匹配误报成部分成功，换 `ssh-rsa` 才能通过）；
+        - `rejected`（服务器不允许该方式）、transport 已断开、非 RSA 私钥不重试。
+
+        v1.10.15 调整了门槛：v1.10.14 要求扩展里必须出现 `ssh-rsa` 才回退，
+        恰好挡住了「扩展与实际能力不符」这一类旧服务器。
         """
+        if not isinstance(key, paramiko.RSAKey):
+            return False
         if not isinstance(transport, paramiko.Transport):
             return False
-        if status != "failed" or not isinstance(key, paramiko.RSAKey):
+        if transport.is_authenticated() or not transport.is_active():
             return False
-        extensions = getattr(transport, "server_extensions", {}) or {}
-        sig = extensions.get("server-sig-algs", b"")
-        if isinstance(sig, bytes):
-            sig = sig.decode("ascii", "ignore")
-        algos = {item.strip() for item in str(sig).split(",") if item.strip()}
-        return "ssh-rsa" in algos if algos else True
+        return status != "rejected"
 
     def _attempt_legacy_rsa(
         self, transport: paramiko.Transport, username: str, key: paramiko.PKey
     ) -> tuple[str, set[str]]:
-        """临时把公钥算法限制为 ssh-rsa，兼容只认 RSA-SHA1 的旧服务器"""
-        previous = transport._preferred_pubkeys
+        """
+        进入「只发 ssh-rsa（RSA-SHA1）签名」模式，并用它做一次公钥认证。
+
+        进入后**一直保持到本次认证流程结束**（`_exit_legacy_rsa` 恢复），不是只发一次：
+        一部分旧网关（Maverick 一类 Java SSH 服务端）把第一次签名算法不匹配算作一次失败，
+        第二次才真正验签；如果第二次成功后还要求补一轮 publickey，
+        第补这一轮也必须继续用 ssh-rsa，否则又会被同样的算法检查打回。
+
+        同时摘掉 `server-sig-algs`：paramiko 的 `_finalize_pubkey_algorithm`
+        会先按该扩展求交集，扩展里没有 `ssh-rsa` 时它会抛
+        「Unable to agree on a pubkey algorithm」—— 即使我们已经指定了 ssh-rsa。
+        摘掉后 paramiko 退回「用本端首选算法」分支，正好拿到 `ssh-rsa`。
+        """
+        self._enter_legacy_rsa(transport)
+        return self._attempt_auth(transport, "publickey", username, key=key)
+
+    @staticmethod
+    def _enter_legacy_rsa(transport: paramiko.Transport) -> None:
+        """把连接切到 ssh-rsa 签名模式（幂等；原始算法表/扩展暂存，认证结束恢复）"""
+        if getattr(transport, "_jflove_legacy_backup", None) is not None:
+            return
+        extensions = getattr(transport, "server_extensions", None)
+        hidden = _LEGACY_EXT_UNSET
+        if isinstance(extensions, dict) and "server-sig-algs" in extensions:
+            hidden = extensions.pop("server-sig-algs")
+        transport._jflove_legacy_backup = (transport._preferred_pubkeys, hidden)
         transport._preferred_pubkeys = ("ssh-rsa",)
-        try:
-            return self._attempt_auth(transport, "publickey", username, key=key)
-        finally:
-            transport._preferred_pubkeys = previous
+
+    @staticmethod
+    def _exit_legacy_rsa(transport: paramiko.Transport) -> None:
+        """恢复进入旧式模式前的算法表与 `server-sig-algs` 扩展"""
+        backup = getattr(transport, "_jflove_legacy_backup", None)
+        if backup is None:
+            return
+        previous, hidden = backup
+        transport._preferred_pubkeys = previous
+        extensions = getattr(transport, "server_extensions", None)
+        if hidden is not _LEGACY_EXT_UNSET and isinstance(extensions, dict):
+            extensions["server-sig-algs"] = hidden
+        transport._jflove_legacy_backup = None
 
     def _continue_auth(
         self,
