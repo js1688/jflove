@@ -241,19 +241,26 @@ def test_password_publickey_auth_type(client: TestClient, env: dict) -> None:
     # 私钥既可以存内容，也可以存本机路径（由客户端解析）
     assert conn["private_key"] == key
 
-    for missing in ({"password": ""}, {"private_key": ""}):
-        body = {
-            "name": "dual-bad",
-            "host": "test2-gw-apac.firstdataclients.com",
-            "port": 6522,
-            "username": "APGW-KPAYG001",
-            "auth_type": "password_publickey",
-            "password": "x",
-            "private_key": key,
-        }
-        body.update(missing)
-        resp = _post(client, alice, "/api/v1/ssh/connections/create", body)
-        assert resp.status_code == 400, resp.text
+    # 缺私钥：必须拒绝（密钥类认证没有私钥无法连接）
+    body = {
+        "name": "dual-bad",
+        "host": "test2-gw-apac.firstdataclients.com",
+        "port": 6522,
+        "username": "APGW-KPAYG001",
+        "auth_type": "password_publickey",
+        "password": "x",
+        "private_key": "",
+    }
+    resp = _post(client, alice, "/api/v1/ssh/connections/create", body)
+    assert resp.status_code == 400, resp.text
+
+    # 缺密码但有私钥：**允许**（v1.10.16）。这类网关（Maverick 一类）的第二个因子
+    # 走键盘交互，保存时拿不到账号密码；连接时缺密码会弹层补，不再逼用户瞎填。
+    body["private_key"] = key
+    body["name"] = "dual-no-password"
+    body["password"] = ""
+    resp = _post(client, alice, "/api/v1/ssh/connections/create", body)
+    assert resp.status_code == 200, resp.text
 
 
 def test_jump_depth_limit(client: TestClient, env: dict) -> None:

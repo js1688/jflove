@@ -1,7 +1,7 @@
 name: jflove_app
 description: "JFLove 移动端 App - 端到端加密的个人数字工作台（文件 / 笔记 / 媒体 / 相册备份）"
 publish_to: 'none'
-version: 1.10.16+1010016
+version: 1.10.17+1010017
 
 environment:
   sdk: ^3.12.2

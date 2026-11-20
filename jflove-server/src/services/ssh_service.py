@@ -108,7 +108,11 @@ def normalize(body: dict[str, Any], is_create: bool) -> dict[str, Any]:
 
     if is_create:
         if auth_type in ("password", "password_keyboard", "password_publickey") and not password:
-            raise SshError("该认证方式需要密码")
+            # 「密钥 + 连上后再弹框输密码」的网关（如 Maverick 一类）在**保存时**
+            # 根本拿不到账号密码 —— 它的第二个因子是键盘交互，连接时由弹层收集。
+            # 这类连接允许密码留空：有私钥就放行，连接时缺密码会弹框补（不再逼用户瞎填）。
+            if not (private_key and auth_type in ("password_publickey", "password_keyboard")):
+                raise SshError("该认证方式需要密码")
         if auth_type in ("publickey", "password_publickey") and not private_key:
             raise SshError("该认证方式需要私钥")
 

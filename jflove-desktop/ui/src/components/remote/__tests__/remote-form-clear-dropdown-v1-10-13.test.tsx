@@ -43,6 +43,8 @@ function detail(overrides: Partial<RemoteConnectionDetail> = {}): RemoteConnecti
     private_key_fingerprint: 'SHA256:abc',
     has_password: true,
     has_private_key: true,
+    //: 口令是否真的存过由服务端 `has_passphrase` 决定（不再由 has_private_key 推断）
+    has_passphrase: true,
     ...overrides,
   };
 }

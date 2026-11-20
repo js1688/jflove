@@ -123,3 +123,42 @@ def test_empty_without_clear_flag_still_means_unchanged(client: TestClient, env:
     assert conn["password"] == "login-pw"
     assert conn["private_key"] == _KEY
     assert conn["passphrase"] == "key-pass"
+
+
+# ── has_passphrase（v1.10.16 补）────────────────────────
+
+
+def _summary(client: TestClient, session: Session, conn_id: int) -> dict:
+    """从列表接口取某条连接的摘要（列表不含凭据原文）"""
+    rows = _data(session, _post(client, session, "/api/v1/ssh/connections/list", {}))[
+        "connections"
+    ]
+    return next(row for row in rows if row["id"] == conn_id)
+
+
+def test_has_passphrase_reflects_real_column(client: TestClient, env: dict) -> None:
+    """
+    `has_passphrase` 必须反映 `passphrase` 列真实内容。
+
+    以前前端拿 `has_private_key` 推断「口令已设置」，于是只要存过私钥，
+    表单里就永远显示「已设置，留空不修改」—— 用户以为库里有个自己没设过的口令。
+    """
+    alice = env["alice"]
+    conn_id = _create(client, alice)
+
+    # 三凭据齐全：口令确实存在
+    assert _summary(client, alice, conn_id)["has_passphrase"] is True
+
+    # 清掉口令、私钥仍在：has_private_key 为真，但 has_passphrase 必须为假
+    _update(client, alice, conn_id, {"clear_passphrase": True})
+    row = _summary(client, alice, conn_id)
+    assert row["has_private_key"] is True
+    assert row["has_passphrase"] is False
+
+    # 清掉私钥（连带清口令）：两者都为假
+    _update(client, alice, conn_id, {"clear_private_key": True})
+    row = _summary(client, alice, conn_id)
+    assert row["has_private_key"] is False
+    assert row["has_passphrase"] is False
+    #: 凭据原文绝不出现在列表摘要里（安全宪法 §9.4）
+    assert "passphrase" not in row

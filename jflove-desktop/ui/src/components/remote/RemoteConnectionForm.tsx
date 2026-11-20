@@ -88,6 +88,15 @@ export function RemoteConnectionForm({
 
   const hasSavedPassword = Boolean(detail?.has_password);
   const hasSavedKey = Boolean(detail?.has_private_key);
+  /**
+   * 私钥口令是否真的存过（v1.10.16 修复）。
+   *
+   * 以前用 `hasSavedKey` 推断「口令已设置」，于是只要存过私钥，
+   * 口令框就永远显示「已设置，留空不修改」、清空按钮永远可点 ——
+   * 用户会以为库里有个自己没设过的口令（实际是空串）。这里只认服务端的
+   * `has_passphrase`，与 `has_private_key` 解耦。
+   */
+  const hasSavedPassphrase = Boolean(detail?.has_passphrase);
 
   /**
    * 选择本机私钥文件。
@@ -168,7 +177,12 @@ export function RemoteConnectionForm({
     setError('');
     if (!name.trim()) return setError('名称不能为空');
     if (!host.trim()) return setError('主机不能为空');
-    if (needsPassword && mode === 'create' && !password) return setError('该认证方式需要密码');
+    // 「密钥 + 连上后弹框输密码」的网关（第二个因子走键盘交互）在保存时拿不到账号密码：
+    // 只要选了密钥类认证并提供了私钥，就允许密码留空 —— 连接时缺密码会弹层补。
+    const passwordOptional = needsKey && (privateKey.trim() !== '' || keyToken !== '');
+    if (needsPassword && !passwordOptional && mode === 'create' && !password) {
+      return setError('该认证方式需要密码');
+    }
     if (needsKey && mode === 'create' && !privateKey && !keyToken) {
       return setError('该认证方式需要私钥（粘贴内容或选择文件）');
     }
@@ -332,6 +346,7 @@ export function RemoteConnectionForm({
             )}
             <p className="mt-1 text-[11px] leading-4 text-subtle">
               服务器账号登录密码。WinSCP 第二次弹出的「Further authentication required / 密码」就是它。
+              {needsKey && ' 若这台网关是连上后才弹框要密码（第二个因子走键盘交互），这里可以留空，连接时再输入。'}
             </p>
           </Field>
         )}
@@ -423,11 +438,11 @@ export function RemoteConnectionForm({
                 <ClearAction
                   scheduled={clearPassphrase}
                   disabled={
-                    mode === 'create' ? !passphrase : !passphrase && !hasSavedKey
+                    mode === 'create' ? !passphrase : !passphrase && !hasSavedPassphrase
                   }
                   onClear={() => {
                     setPassphrase('');
-                    if (mode === 'edit' && hasSavedKey) setClearPassphrase(true);
+                    if (mode === 'edit' && hasSavedPassphrase) setClearPassphrase(true);
                   }}
                   onUndo={() => setClearPassphrase(false)}
                 />
@@ -443,7 +458,7 @@ export function RemoteConnectionForm({
                     ? '私钥清空时口令一并清空'
                     : clearPassphrase
                       ? '保存后清空'
-                      : hasSavedKey
+                      : hasSavedPassphrase
                         ? '已设置，留空不修改'
                         : '私钥未加密则留空'
                 }

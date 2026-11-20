@@ -40,6 +40,8 @@ export interface RemoteConnectionSummary {
   jump_connection_id: number;
   has_password: boolean;
   has_private_key: boolean;
+  /** 私钥口令是否真的存过（服务端只回布尔，不回原文） */
+  has_passphrase: boolean;
   last_connected_at: string | null;
   updated_at: string;
 }
@@ -61,6 +63,8 @@ export interface RemoteConnectionDetail {
   private_key_fingerprint: string;
   has_password: boolean;
   has_private_key: boolean;
+  /** 私钥口令是否真的存过（服务端只回布尔，不回原文） */
+  has_passphrase: boolean;
 }
 
 /** 新建 / 更新时提交的字段（凭据留空 = 不修改） */

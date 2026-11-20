@@ -25,7 +25,11 @@ _SUMMARY_FIELDS = (
     "id, ssh_group_id, name, host, port, username, auth_type, jump_connection_id, mode, "
     "last_connected_at, updated_at, "
     "CASE WHEN password <> '' THEN 1 ELSE 0 END AS has_password, "
-    "CASE WHEN private_key <> '' THEN 1 ELSE 0 END AS has_private_key"
+    "CASE WHEN private_key <> '' THEN 1 ELSE 0 END AS has_private_key, "
+    #: 私钥口令是否真的存过（只回布尔，绝不回原文）。
+    #: 前端据此决定「已设置，留空不修改」还是「私钥未加密则留空」——
+    #: 以前用 has_private_key 推断，导致「只要存过私钥就永远显示已设置」（UI 撒谎）。
+    "CASE WHEN passphrase <> '' THEN 1 ELSE 0 END AS has_passphrase"
 )
 
 #: 全量字段（含凭据，仅 `find_connection` 使用）
@@ -67,6 +71,7 @@ def _summary(row: aiosqlite.Row) -> dict[str, Any]:
     data = dict(row)
     data["has_password"] = bool(data.get("has_password"))
     data["has_private_key"] = bool(data.get("has_private_key"))
+    data["has_passphrase"] = bool(data.get("has_passphrase"))
     return data
 
 
@@ -75,6 +80,7 @@ def _full(row: aiosqlite.Row) -> dict[str, Any]:
     data = dict(row)
     data["has_password"] = bool(data.get("password"))
     data["has_private_key"] = bool(data.get("private_key"))
+    data["has_passphrase"] = bool(data.get("passphrase"))
     return data
 
 
