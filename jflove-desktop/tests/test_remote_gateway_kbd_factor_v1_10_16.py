@@ -1,30 +1,29 @@
 """
-网关第二因子「authlist 只说 password、实际走键盘交互」回归（v1.10.16 补丁）
+网关「公钥 + 账号密码」双因子回归（v1.10.19，按 RFC 4252 重写）
 
-## 钉住的问题（用户 2026-11-20 实测，`SSH-2.0-Maverick_SSHD`，`16.162.59.156:6522`）
+## 前提修正（2026-11-20 17:10 外部客户端 Debug 2 日志）
 
-用户 WinSCP 日志：
+本文件 v1.10.16 版本曾假设「服务器 authlist 只列 password、真正的第二因子在
+keyboard-interactive 里」，据此让客户端在服务器**未列出** keyboard-interactive 时也发它。
+该假设**已被日志证伪**：
 
+```text
+Server offered these authentication methods: publickey,password
+Offer of public key accepted
+Server offered these authentication methods: password
+Prompt (password, "SSH password", ...)
+Sent password
+Access granted
 ```
-使用用户名"INGW-KPAYS001"。
-使用公钥"imported-openssh-key"进行认证。
-Further authentication required      ← 这是 keyboard-interactive 的提示
-```
 
-即：**服务器 authlist 只列 `password`，但真正的第二个因子在键盘交互里问密码**。
-客户端当时的三处错误行为：
+服务器第二因子就是 `password` 方法；标准客户端是**本地弹框收集密码，再用
+`password` 方法发送**。全程没有 keyboard-interactive。
 
-1. 只认 authlist ⇒ 永远只发 `password` 认证，永远试不到键盘交互；
-2. 密码被拒后服务器把 authlist 交回 `publickey`，`_continue_auth` 又发一次公钥，
-   形成 `publickey→password→publickey→password→publickey` 的死循环（用户看到的认证序列）；
-3. 表单把「私钥口令」用 `has_private_key` 推断成「已设置」，用户误以为库里有个
-   自己没设过的口令。口令只用于解私钥，**从不进 SSH 认证**。
+因此本文件改为钉住标准行为：
 
-## 本文件的判据
-
-- 网关「只列 password、第二因子走键盘交互」时，必须能连上（含本地无密码的情形）；
-- 密钥被接受后，**不得**再发 publickey（除旧网关 ssh-rsa 补签名那种合法情形）；
-- 失败文案要指向「键盘交互里输入的是账号密码」，不再让用户改认证方式。
+1. 服务器列 `password` 且本地无密码 → 弹框 → **以 password 方法发送** → 通过；
+2. 密钥被接受后**不得**再用同一把钥反复重发（避免被网关当成「还差一把钥」）；
+3. **绝不发送服务器未列出的方法**（kbd 只在服务器列出时才能用）。
 """
 
 from __future__ import annotations
@@ -68,22 +67,25 @@ def _row(private_key: str, *, password: str = "", auth_type: str = "password_pub
 
 class _KbdFactorGateway(paramiko.ServerInterface):
     """
-    模拟用户那台网关：authlist 只说 password，第二个因子实际在键盘交互里。
+    复刻用户那台网关：公钥通过后只列 `password`（与外部客户端 Debug 2 日志一致）。
 
-    :param reject_password_method: `password` 认证一律拒绝（网关只在键盘交互里收密码）
+    :param advertise_kbd: 额外把 `keyboard-interactive` 也列出来（与 password 并列）
+    :param kbd_only: 公钥通过后**只**列 `keyboard-interactive`（验证真的按列表走）
     :param extra_publickey_after_reject: 密码被拒后把 authlist 交回 publickey
-                                        （复刻死循环触发条件）
+                                        （复刻旧实现重发密钥的死循环条件）
     """
 
     def __init__(
         self,
         authorized_base64: str,
         *,
-        reject_password_method: bool = True,
+        advertise_kbd: bool = False,
+        kbd_only: bool = False,
         extra_publickey_after_reject: bool = True,
     ) -> None:
         self.authorized_base64 = authorized_base64
-        self.reject_password_method = reject_password_method
+        self.advertise_kbd = advertise_kbd
+        self.kbd_only = kbd_only
         self.extra_publickey_after_reject = extra_publickey_after_reject
         self.key_ok = False
         self.need_password = False
@@ -93,7 +95,9 @@ class _KbdFactorGateway(paramiko.ServerInterface):
         if not self.key_ok:
             return "publickey,password"
         if self.need_password:
-            return "password"
+            if self.kbd_only:
+                return "keyboard-interactive"
+            return "password,keyboard-interactive" if self.advertise_kbd else "password"
         return "publickey" if self.extra_publickey_after_reject else ""
 
     def check_auth_publickey(self, username: str, key: paramiko.PKey) -> int:
@@ -111,11 +115,10 @@ class _KbdFactorGateway(paramiko.ServerInterface):
 
     def check_auth_password(self, _username: str, password: str) -> int:
         self.trace.append(f"password({password!r})")
-        if self.reject_password_method:
-            # 关键：方式被允许，但凭据经这个方式永远不通过（第二因子在交互里）
-            self.need_password = False
-            return paramiko.AUTH_FAILED
-        return paramiko.AUTH_SUCCESSFUL if password == _PASSWORD else paramiko.AUTH_FAILED
+        if password == _PASSWORD:
+            return paramiko.AUTH_SUCCESSFUL
+        self.need_password = False
+        return paramiko.AUTH_FAILED
 
     def check_auth_interactive(self, _username: str, _submethods: str):
         self.trace.append("keyboard-interactive")
@@ -193,11 +196,11 @@ def _open(row: dict, gateway: _LocalGateway, *, answers: list[str] | None = None
     return session
 
 
-def test_no_local_password_still_connects_via_keyboard_interactive() -> None:
+def test_no_local_password_prompts_then_sends_password_method() -> None:
     """
-    用户真实形态：**没有填账号密码**，连上后由弹框输入。
+    服务器列 `password`、本地没有密码 ⇒ 弹框收集，**以 password 方法发送**并连上。
 
-    服务器 authlist 只列 `password`，第二个因子实际在键盘交互里 → 必须连上。
+    这正是外部客户端 Debug 2 日志里的标准流程（`Prompt (password, ...)` → `Sent password`）。
     """
     key = paramiko.RSAKey.generate(2048)
     gateway = _LocalGateway(key.get_base64())
@@ -205,61 +208,77 @@ def test_no_local_password_still_connects_via_keyboard_interactive() -> None:
         session = _open(_row(_private_key_pem(key)), gateway, answers=[_PASSWORD])
         assert session._transports[-1].is_authenticated() is True
         trace = gateway.interface.trace
-        # 密钥只发一次，随后直接键盘交互（不再有第二次 publickey）
         assert trace.count("publickey") == 1
-        assert "keyboard-interactive" in trace
-        assert f"kbd(['{_PASSWORD}'])" in trace
+        #: 第二因子必须用服务器列出的 password 方法，且只发一次
+        assert any(item.startswith("password(") for item in trace), f"未以 password 方法发送：{trace}"
+        assert not any(item.startswith("keyboard-interactive") for item in trace), (
+            f"发了服务器未列出的方法：{trace}"
+        )
         session.close()
     finally:
         gateway.close()
 
 
-def test_local_password_tries_password_then_keyboard_interactive() -> None:
-    """库里存了密码但网关只认键盘交互：password 失败后补键盘交互，仍能连上"""
+def test_prefers_password_when_server_lists_both() -> None:
+    """
+    服务器同时列 `password` 与 `keyboard-interactive` 时优先走 `password`。
+
+    依据外部客户端日志：真实会话里第二因子就是 password（`Sent password`），
+    keyboard-interactive 只是它「也允许」的备选。
+    """
     key = paramiko.RSAKey.generate(2048)
-    gateway = _LocalGateway(key.get_base64())
+    gateway = _LocalGateway(key.get_base64(), advertise_kbd=True)
     try:
-        session = _open(_row(_private_key_pem(key), password=_PASSWORD), gateway)
+        session = _open(_row(_private_key_pem(key)), gateway, answers=[_PASSWORD])
         assert session._transports[-1].is_authenticated() is True
         trace = gateway.interface.trace
-        assert trace.count("publickey") == 1
-        assert "keyboard-interactive" in trace
+        assert any(item.startswith("password(") for item in trace), f"未用 password：{trace}"
+        assert not any(item.startswith("keyboard-interactive") for item in trace), trace
+        session.close()
+    finally:
+        gateway.close()
+
+
+def test_keyboard_interactive_used_when_server_lists_only_it() -> None:
+    """服务器**只**列 keyboard-interactive 时，走键盘交互并按其 prompt 应答"""
+    key = paramiko.RSAKey.generate(2048)
+    gateway = _LocalGateway(key.get_base64(), kbd_only=True)
+    try:
+        session = _open(_row(_private_key_pem(key)), gateway, answers=[_PASSWORD])
+        assert session._transports[-1].is_authenticated() is True
+        assert any(
+            item.startswith("keyboard-interactive") for item in gateway.interface.trace
+        )
         session.close()
     finally:
         gateway.close()
 
 
 def test_key_accepted_never_resent_in_dead_loop() -> None:
-    """
-    密码被拒后服务器把 authlist 交回 `publickey`：密钥**不得**再发。
-
-    v1.10.16 首版在 `known == {publickey}` 时不设 `skip_key`，于是形成
-    `publickey→password→publickey→password→publickey` 的死循环。
-    """
+    """密钥被接受后不得反复重发同一把钥（避免被网关当成「还差一把钥」）"""
     key = paramiko.RSAKey.generate(2048)
     gateway = _LocalGateway(key.get_base64())
     try:
-        session = _open(_row(_private_key_pem(key), password="wrong"), gateway, answers=["bad"])
-        assert session  # 连接失败也无妨，关键是不得重发密钥
-    except AuthError:
-        pass
-    finally:
+        try:
+            _open(_row(_private_key_pem(key), password="wrong"), gateway, answers=["bad"])
+        except AuthError:
+            pass
         trace = gateway.interface.trace
+        assert trace.count("publickey") <= 1, f"密钥被重发了：{trace}"
+    finally:
         gateway.close()
-    assert trace.count("publickey") == 1, f"密钥被重发了：{trace}"
 
 
-def test_failure_message_points_at_keyboard_interactive() -> None:
-    """补过键盘交互仍失败：文案要说明「弹框里要填账号密码」，且带实际序列、不含凭据"""
+def test_failure_message_points_at_account_password() -> None:
+    """密码确实不对：文案指向账号密码，且带实际序列、不含用户输入"""
     key = paramiko.RSAKey.generate(2048)
     gateway = _LocalGateway(key.get_base64())
     try:
         with pytest.raises(AuthError) as excinfo:
             _open(_row(_private_key_pem(key)), gateway, answers=["also-wrong"])
         message = str(excinfo.value)
-        assert "键盘交互" in message
+        assert "账号密码" in message
         assert "认证序列=" in message
         assert "also-wrong" not in message
-        assert "BEGIN RSA PRIVATE KEY" not in message
     finally:
         gateway.close()

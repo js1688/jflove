@@ -489,7 +489,7 @@ export function SessionPage() {
               {otpAsk.prompt || '请输入服务器要求的密码或验证码'}
             </div>
             <div className="mt-1 text-[10.5px] text-subtle">
-              密钥通过后服务器仍要求账号密码（WinSCP 的「Further authentication required / 密码」）时填这里
+              服务器要求继续认证（SSH password 方法）时在此输入**服务器账号登录密码**
             </div>
           </div>
           <input

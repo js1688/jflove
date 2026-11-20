@@ -250,7 +250,11 @@ class _PasswordOnlyTransport:
 
 def test_password_auth_on_key_only_server_gives_actionable_hint() -> None:
     """认证方式选错：必须明确告诉用户改「密钥 / 密码 + 密钥」"""
-    session = SshSession(_row("", auth_type="password"))
+    row = _row("", auth_type="password")
+    # v1.10.19：登录密码不再是「弹框索取」路径 —— 这里配一个已存密码，
+    # 让流程走到「password 被拒 → 服务器只列 publickey」这一分支
+    row["password"] = "any-stored-password"
+    session = SshSession(row)
     session_key = session
     transport = _PasswordOnlyTransport()
     with pytest.raises(AuthError) as excinfo:

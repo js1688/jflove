@@ -47,6 +47,9 @@ READ_CHUNK = 4096
 #: 一次认证流程里最多再尝试几轮（服务器多因素认证）
 MAX_AUTH_ROUNDS = 5
 
+#: 弹框索取账号密码的最多次数（首次 + 一次重试；避免无限弹框）
+MAX_PASSWORD_PROMPTS = 2
+
 #: 单次认证方法最多尝试次数（密钥/密码可能因服务器顺序被要求两遍）
 #: publickey=3：首轮 + ssh-rsa 回退 + 「服务器部分认证后仍要 publickey」的补一轮
 #: （部分旧网关第一次是算法不匹配、第二次才计数，Maverick 一类 Java SSH 服务端即是）
@@ -120,6 +123,7 @@ def _auth_hint(
     trace: list[str] | None = None,
     key_accepted: bool = False,
     interactive_empty: bool = False,
+    other_factor_tried: bool = False,
 ) -> AuthError:
     """
     把服务器允许的认证方式转成可执行的中文提示。
@@ -139,14 +143,14 @@ def _auth_hint(
     sent_text = _trace_text(trace)
     sent_part = f"本次已发送：{sent_text}；" if sent_text else ""
     if "password" in allowed:
-        # 已经补过键盘交互仍失败：说明这台网关的第二因子**确实**在键盘交互里
-        # （WinSCP 的 Further authentication required），别再让用户去改认证方式。
+        # 服务器同时列了 keyboard-interactive 且已试过：按协议继续推进即可，
+        # 不应再让用户去改认证方式。
         interactive_sent = "keyboard-interactive" in (trace or [])
         if interactive_sent and interactive_empty:
             return AuthError(
                 f"没有收到你输入的账号密码（服务器允许：{allowed_text}）。"
                 f"{sent_part}"
-                "这台网关会弹框要求继续认证（WinSCP 的「Further authentication required」），"
+                "服务器会弹框要求继续认证（SSH 密码）"
                 "但本次弹框没有拿到输入（超时约 60 秒、或没点「确定」就关掉了）。"
                 "请重新连接，在弹出的输入框里填**服务器账号登录密码**后点「确定」"
             )
@@ -154,7 +158,7 @@ def _auth_hint(
             return AuthError(
                 f"账号密码没有被服务器接受（服务器允许：{allowed_text}）。"
                 f"{sent_part}"
-                "这台网关的第二个因子走键盘交互（WinSCP 的「Further authentication required」），"
+                "本次由键盘交互（keyboard-interactive）收集口令，服务器仍未接受"
                 "本次已弹出输入框并提交，但服务器仍拒绝 —— 请确认输入的是"
                 "**服务器账号登录密码**（不是私钥口令），然后重新连接再输一次"
             )
@@ -162,7 +166,7 @@ def _auth_hint(
             return AuthError(
                 f"账号密码没有被服务器接受（服务器允许：{allowed_text}）。"
                 f"{sent_part}"
-                "最常见的原因是登录密码不对（WinSCP 第二次弹框里填的那个），"
+                "最常见的原因是登录密码不对，"
                 "请重新填写「密码」后重试；若这个网关的第二个因子是键盘交互验证码，"
                 "把认证方式改为「密码 + OTP」"
             )
@@ -177,6 +181,21 @@ def _auth_hint(
             "若提示里要的就是账号登录密码，把它填到「密码」即可自动代答"
         )
     if "publickey" in allowed:
+        if key_accepted and other_factor_tried:
+            return AuthError(
+                "服务器已接受这把密钥，但**账号密码**没有被接受"
+                f"（{sent_part}服务器当前的列表：{'、'.join(sorted(allowed))}）。"
+                "私钥本身没有问题；请确认你填写的「密码」/弹框里输入的是"
+                "**服务器账号登录密码**，然后再试一次"
+            )
+        if key_accepted and allowed == {"publickey"}:
+            return AuthError(
+                "服务器已接受这把密钥，但仍要求继续用密钥认证"
+                f"（{sent_part}服务器当前只列出 publickey）。"
+                "这通常表示服务器还需要**另一把**私钥（即需要两把不同私钥）；"
+                "当前每条连接只支持配置一把私钥，请与服务器管理员确认"
+                "该账号是否绑定了第二把密钥，或改用跳板"
+            )
         if key_accepted:
             # 密钥这一步**已经通过**（后面还发过密码 / 键盘交互）：服务器现在又列出
             # publickey 是它自己的事，用户的凭据问题不在私钥上。绝不能再劝他换私钥。
@@ -312,7 +331,7 @@ def _read_private_key_text(source: str) -> str:
         raise AuthError("私钥内容为空：请粘贴私钥文本，或填写私钥文件路径")
     if "PuTTY-User-Key-File" in text:
         raise AuthError(
-            "这是 PuTTY 私钥（.ppk，WinSCP 转换产物）。请改用原始 PEM 文件"
+            "这是 PuTTY 私钥（.ppk）。请改用原始 PEM 文件"
             "（-----BEGIN RSA PRIVATE KEY-----），或用 PuTTYgen 执行 "
             "Conversions → Export OpenSSH key 后再选择"
         )
@@ -879,155 +898,183 @@ class SshSession:
 
     def _authenticate(self, transport: paramiko.Transport, row: dict) -> None:
         """
-        完成认证（支持服务器多步/多因素认证）。
+        完成 SSH 用户认证（**严格按 RFC 4252 的 authlist 推进**）。
 
-        paramiko 的关键语义：`auth_publickey` / `auth_password` / `auth_interactive`
-        在**部分认证通过**时不会抛异常，而是**返回本轮仍允许的认证方式列表**；
-        只有 `transport.is_authenticated()` 为真才算真正登录成功。
+        标准流程与 OpenSSH / 主流客户端一致：
 
-        本方法按服务器返回的列表继续推进（密钥 → 密码 / 键盘交互 / 再补密钥），
-        结束时硬校验 `is_authenticated()` —— 未完成绝不返回，避免会话把
-        「未认证」误报成「已连接」。
+        1. 先发一次 `none` 取服务器的**初始方法列表**（`SSH_MSG_USERAUTH_FAILURE`
+           里的 name-list 是下一步该用什么方法的唯一权威）；
+        2. 每一轮取「服务器列出的方法」∩「本地能提供的能力」，挑一个发送；
+        3. 服务器回 `partial success` 时继续下一轮，直到 `is_authenticated()`。
+
+        **绝不发送服务器没有列出的方法**。本地缺凭据时（例如只配了私钥、
+        服务器却要求账号密码）应当**弹框向用户索取**，再用服务器列出的那个方法发送 ——
+        这是所有标准客户端的做法，而不是改认证方式或改用别的方法试探。
+
+        :param transport: 已完成密钥交换的传输层
+        :param row: 连接配置（含 auth_type / password / private_key / passphrase）
+        :raises AuthError: 认证无法完成（文案会说明缺哪一步、服务器当前列了什么）
         """
         username = str(row.get("username") or "")
         auth_type = str(row.get("auth_type") or "password")
-        password = str(row.get("password") or "")
+        stored_password = str(row.get("password") or "")
         key: paramiko.PKey | None = None
         if auth_type in ("publickey", "password_publickey"):
             key = load_private_key(
                 str(row.get("private_key") or ""), str(row.get("passphrase") or "")
             )
-        attempts: dict[str, int] = {}
-        #: 实际发出的认证序列（诊断行用，只含方法名，不含任何凭据）
+
+        #: 实际发出的认证方法序列（诊断行用，**只含方法名**，不含任何凭据）
         trace: list[str] = []
-        #: 服务器是否已经接受这把密钥（`partial` / 通过）；决定后面能不能再发公钥
+        #: 本轮公钥是否已被服务器接受（决定报错时能不能说「私钥被拒」）
         key_accepted = False
-        # 纯密码认证没有「首轮公钥」摘要，这里先放协商事实，失败时至少还能给出远端/算法
+        #: 公钥已发送次数（受 MAX_METHOD_ATTEMPTS 限制：既支持旧网关「同一把钥
+        #: 连发两次签名」，又不会无限重发）
+        key_attempts = 0
+        #: 上一轮被服务器拒绝（BadAuthenticationType）的方法：只跳过下一轮
+        skip_this_round: set[str] = set()
+        #: 弹框索取过的一次性密码（只在本连接内复用，不落库）
+        prompted_password = ""
+        #: 已经向用户要过几次密码（首次 + 一次重试，避免无限弹框）
+        password_prompts = 0
+        #: 已尝试次数（防止服务器反复列同一方法导致死循环）
+        attempts: dict[str, int] = {}
+        #: 存储的密码是否还能用（错一次就不再原地重打，改由弹框重填）
+        stored_password_usable = bool(stored_password)
+        #: 是否试过「除密钥以外」的因子（密码 / 键盘交互）
+        other_factor_tried = False
+        #: 是否**真的发出过**非空密码（用于区分「密码被拒」与「没收到输入」）
+        password_sent = False
+        # 起始诊断：先用协商事实兜底，公钥下发后会被更详细的摘要覆盖
         diag = self._peer_facts(transport)
+
         try:
-            if key is not None:
-                status, allowed = self._attempt_auth(
-                    transport, "publickey", username, key=key
-                )
-                attempts["publickey"] = 1
-                trace.append("publickey")
-                # 只有 `ok`（通过 / 部分通过）才算服务器接受了这把密钥；
-                # `rejected`（方式不被允许）与 `failed`（凭据错）都不是，
-                # 否则后面「密钥已接受就不再发公钥」的闸门会被误放行。
-                key_accepted = status == "ok"
-                initial_allowed = set(allowed)
-                diag = self._auth_diag(transport, key, status, allowed)
-                if not transport.is_authenticated() and self._can_retry_legacy_rsa(
-                    transport, key, status, allowed
-                ):
-                    # 旧服务器只认 ssh-rsa（RSA-SHA1）；首轮失败或服务器要求继续认证后才重试，
-                    # 现代服务器第一次就会成功，不会走这条路径。
-                    logger.info(
-                        "公钥认证未通过（%s），尝试旧式 ssh-rsa 签名（远端版本：%s）",
-                        status,
-                        getattr(transport, "remote_version", "未知"),
-                    )
-                    status, allowed = self._attempt_legacy_rsa(
-                        transport, username, key
-                    )
-                    attempts["publickey"] = attempts.get("publickey", 0) + 1
-                    trace.append("publickey(ssh-rsa)")
-                    diag += f"；ssh-rsa 回退={status}"
-                    key_accepted = status == "ok"
-                    if allowed:
-                        initial_allowed = set(allowed)
-                if status == "rejected":
-                    # BadAuthenticationType 的语义就是「这个方式被拒」，别再原地重试
-                    allowed.discard("publickey")
+            allowed, already_authenticated = self._probe_methods(transport, username)
+            if already_authenticated:
+                return
+            if not allowed:
+                # 取不到列表（老实现 / 测试替身）：按本地凭据猜首个方法，后续以服务器返回为准
+                allowed = self._guess_initial_methods(key, stored_password, auth_type)
+
+            for _ in range(MAX_AUTH_ROUNDS):
                 if transport.is_authenticated():
-                    return
-                if not allowed:
-                    key_hint = key.get_name()
-                    # 裸失败（服务器没给方法列表）：有密码就退回密码，保持旧兼容
-                    if password and status == "failed":
-                        status, allowed = self._attempt_auth(
-                            transport, "password", username, password=password
+                    break
+                usable = self._usable_methods(
+                    allowed,
+                    key=key,
+                    attempts=attempts,
+                    key_accepted=key_accepted,
+                    other_factor_tried=other_factor_tried,
+                    has_password=bool(
+                        (stored_password and stored_password_usable) or prompted_password
+                    ),
+                    can_prompt=password_prompts < MAX_PASSWORD_PROMPTS,
+                )
+                # 刚被拒的发放只跳过这一轮（服务器之后若重新列出，仍可再试）
+                usable -= skip_this_round
+                skip_this_round = set()
+                if not usable:
+                    break
+                method = self._choose_method(usable, key_attempts=key_attempts)
+
+                # 服务器要 password 但本地没有：弹框索取（拿到的值按 password 方法发送）
+                needs_password_prompt = method == "password" and not prompted_password and not (
+                    stored_password and stored_password_usable
+                )
+                if needs_password_prompt:
+                    prompted_password = self._ask_password()
+                    password_prompts += 1
+                    if not prompted_password and "keyboard-interactive" in usable:
+                        # 服务器同时列出了 keyboard-interactive：改走它（同样会按 prompt 索取）
+                        method = "keyboard-interactive"
+                    elif not prompted_password:
+                        hint = (
+                            "账号密码没有被服务器接受"
+                            if password_sent
+                            else "没有收到你输入的账号密码"
                         )
-                        attempts["password"] = 1
-                        trace.append("password")
-                        if transport.is_authenticated():
-                            return
-                    elif initial_allowed and not (
-                        initial_allowed & {"password", "keyboard-interactive"}
-                    ):
-                        # 服务器明确只允许密钥（或其它非密码方式）：不要无谓再试密码
                         raise self._fail_auth(
-                            _auth_hint(
-                                initial_allowed,
-                                "服务器未接受当前密钥（私钥）：请确认 authorized_keys、私钥口令与密钥类型；"
-                                "旧服务器可能只支持 ssh-rsa（本版已自动兼容）",
-                                auth_type=auth_type,
-                                key_type=key_hint,
+                            AuthError(
+                                f"{hint}（服务器允许：{'、'.join(sorted(allowed))}）。"
+                                "服务器要求继续认证（SSH 密码）"
+                                + (
+                                    "，本次提交的账号密码被拒绝，请确认填的是"
+                                    "**服务器账号登录密码**（不是私钥口令）"
+                                    if password_sent
+                                    else "，但弹框没有拿到输入（超时约 60 秒、"
+                                    "或没点「确定」就关掉了）。请重新连接，"
+                                    "在弹出的输入框里填**服务器账号登录密码**"
+                                ),
                             ),
                             self._finish_diag(diag, trace, allowed),
                         )
-                    elif not password:
-                        raise self._fail_auth(
-                            _auth_hint(
-                                initial_allowed or allowed,
-                                "服务器未接受当前密钥（私钥）：请确认 authorized_keys、私钥口令与密钥类型；"
-                                "旧服务器可能只支持 ssh-rsa（本版已自动兼容）",
-                                auth_type=auth_type,
-                                key_type=key_hint,
-                            ),
-                            self._finish_diag(diag, trace, allowed or initial_allowed),
-                        )
-                    else:
-                        status, allowed = self._attempt_auth(
-                            transport, "password", username, password=password
-                        )
-                        attempts["password"] = 1
-                        trace.append("password")
-                        if transport.is_authenticated():
-                            return
-            else:
-                status, allowed = self._attempt_auth(
-                    transport, "password", username, password=password
+
+                secret = self._auth_secret(
+                    method,
+                    stored_password=stored_password,
+                    stored_password_usable=stored_password_usable,
+                    prompted_password=prompted_password,
                 )
-                attempts["password"] = 1
-                trace.append("password")
-                if status == "rejected":
-                    allowed.discard("password")
+                if method == "password" and secret:
+                    password_sent = True
+                status, next_allowed = self._attempt_auth(
+                    transport,
+                    method,
+                    username,
+                    key=key if method == "publickey" else None,
+                    # password 方法只用「仍然可信」的那份（存储的错一次就不重打）；
+                    # keyboard-interactive 仍可以用存储的密码去应答它的 prompt
+                    password=secret,
+                )
+                attempts[method] = attempts.get(method, 0) + 1
+                trace.append(method)
+                if method != "publickey":
+                    other_factor_tried = True
+                if method == "publickey":
+                    key_attempts += 1
+                    key_accepted = status == "ok"
+                    if not transport.is_authenticated():
+                        diag = self._auth_diag(transport, key, status, next_allowed)
+                        # 旧服务器只认 ssh-rsa（RSA-SHA1）时再补一次签名；
+                        # 服务器已给出下一步方法（说明密钥这步已过）时绝不回退。
+                        if self._can_retry_legacy_rsa(
+                            transport, key, status, next_allowed
+                        ):
+                            logger.info(
+                                "公钥认证未通过（%s），尝试旧式 ssh-rsa 签名（远端版本：%s）",
+                                status,
+                                getattr(transport, "remote_version", "未知"),
+                            )
+                            status, next_allowed = self._attempt_legacy_rsa(
+                                transport, username, key
+                            )
+                            attempts["publickey"] = attempts.get("publickey", 0) + 1
+                            trace.append("publickey(ssh-rsa)")
+                            diag += f"；ssh-rsa 回退={status}"
+                            key_attempts += 1
+                            key_accepted = status == "ok"
+                    if status == "rejected":
+                        next_allowed.discard("publickey")
+
                 if transport.is_authenticated():
-                    return
-                if not allowed and auth_type != "password_keyboard":
-                    raise self._fail_auth(
-                        AuthError("认证失败：用户名或密码错误"),
-                        self._finish_diag(diag, trace, allowed),
-                    )
-                if not allowed and auth_type == "password_keyboard":
-                    raise self._fail_auth(
-                        AuthError("认证失败（密码或验证码错误）"),
-                        self._finish_diag(diag, trace, allowed),
-                    )
-            allowed = self._continue_auth(
-                transport,
-                username,
-                password,
-                key,
-                allowed,
-                attempts,
-                trace,
-                key_accepted=key_accepted,
-                auth_type=auth_type,
-            )
+                    break
+
+                # 密码被拒：存储的那份不再重打（改由弹框重填），弹框的也清掉允许再问一次
+                if method == "password" and status in ("failed", "rejected"):
+                    if stored_password and not prompted_password:
+                        stored_password_usable = False
+                    prompted_password = ""
+                if status == "rejected":
+                    # 该方式不被允许：以服务器给出的列表为准（即使为空也不沿用旧列表）
+                    next_allowed.discard(method)
+                    allowed = next_allowed
+                    skip_this_round.add(method)
+                elif next_allowed:
+                    # 成功 / 部分成功：服务器给出的下一步列表就是权威
+                    allowed = next_allowed
+                # 普通失败（凭据错）时 paramiko 不回列表，沿用上一轮已知集合
+
             if not transport.is_authenticated():
-                if allowed == {"publickey"} and attempts.get("publickey", 0) > 1:
-                    # 服务器已经接受过这把密钥，却仍要求「再来一次密钥认证」：
-                    # 典型是要两把不同私钥的网关；当前每条连接只支持一把私钥。
-                    raise self._fail_auth(
-                        AuthError(
-                            "服务器已接受密钥，但仍要求再次进行密钥认证"
-                            "（常见于要求两把不同私钥的网关）；"
-                            "当前每条连接只支持一把私钥，请在服务器侧确认是否需要第二把密钥"
-                        ),
-                        self._finish_diag(diag, trace, allowed),
-                    )
                 raise self._fail_auth(
                     _auth_hint(
                         allowed,
@@ -1037,6 +1084,7 @@ class SshSession:
                         trace=trace,
                         key_accepted=key_accepted,
                         interactive_empty=self._interactive_empty,
+                        other_factor_tried=other_factor_tried,
                     ),
                     self._finish_diag(diag, trace, allowed),
                 )
@@ -1069,6 +1117,131 @@ class SshSession:
         finally:
             # 旧式 ssh-rsa 模式只在本轮认证内有效，成功/失败都要恢复
             self._exit_legacy_rsa(transport)
+
+    @staticmethod
+    def _auth_secret(
+        method: str,
+        *,
+        stored_password: str,
+        stored_password_usable: bool,
+        prompted_password: str,
+    ) -> str:
+        """
+        给出本次尝试要用的密码 / 交互应答口令。
+
+        - `password` 方法：存储的密码**错一次就不再重打**（改由弹框重填），
+          弹框拿到的一次性密码优先；
+        - `keyboard-interactive`：仍然用存储的密码去应答它的 prompt
+          （服务器可能只接受同一个口令的另一条认证路径）；
+        - `publickey`：不带密码。
+        """
+        if method == "publickey":
+            return ""
+        if method == "keyboard-interactive":
+            return prompted_password or stored_password
+        stored = stored_password if stored_password_usable else ""
+        return prompted_password or stored
+
+    def _probe_methods(
+        self, transport: paramiko.Transport, username: str
+    ) -> tuple[set[str], bool]:
+        """
+        用一次 `none` 请求取服务器的**初始认证方法列表**（RFC 4252 §5.2）。
+
+        这是标准做法（OpenSSH 同样先发 `none`）：只有服务器给出的 name-list
+        才决定下一步该用哪种方法，客户端不应猜测。
+
+        :returns: `(服务器列出的方法, 是否已经认证通过)`
+                  老实现 / 测试替身没有 `auth_none` 时返回 `(set(), False)`
+        """
+        probe = getattr(transport, "auth_none", None)
+        if probe is None:
+            return set(), False
+        try:
+            probe(username)
+        except paramiko.BadAuthenticationType as exc:
+            return set(exc.allowed_types or ()), False
+        except paramiko.AuthenticationException:
+            return set(), False
+        except Exception as exc:  # noqa: BLE001 - 探测失败不应中断认证
+            logger.debug("取初始认证方法列表失败：%s", exc)
+            return set(), False
+        return set(), bool(transport.is_authenticated())
+
+    @staticmethod
+    def _guess_initial_methods(
+        key: paramiko.PKey | None, password: str, auth_type: str
+    ) -> set[str]:
+        """取不到服务器列表时的首个方法（只用于兼容老实现；之后以服务器返回为准）"""
+        guess: set[str] = set()
+        if key is not None:
+            guess.add("publickey")
+        if password or auth_type in ("password", "password_keyboard", "password_publickey"):
+            guess.add("password")
+        return guess
+
+    @staticmethod
+    def _usable_methods(
+        allowed: set[str],
+        *,
+        key: paramiko.PKey | None,
+        attempts: dict[str, int] | None = None,
+        key_accepted: bool = False,
+        other_factor_tried: bool = False,
+        has_password: bool = False,
+        can_prompt: bool = True,
+    ) -> set[str]:
+        """
+        取「服务器列出」∩「本地能做」的方法集合。
+
+        - `publickey`：有私钥、未用完尝试上限；**已被接受的钥不再重发**，
+          除非服务器当前只列 publickey 且还没试过其它因子（旧网关「补一次签名」）
+        - `password`：有已存/已弹框得到的密码，或仍允许弹框索取
+        - `keyboard-interactive`：服务器列出即可（回调能应答 / 弹框）
+        """
+        tried = attempts or {}
+        usable: set[str] = set()
+        if (
+            "publickey" in allowed
+            and key is not None
+            and tried.get("publickey", 0) < MAX_METHOD_ATTEMPTS["publickey"]
+            and (
+                not key_accepted
+                or (allowed == {"publickey"} and not other_factor_tried)
+            )
+        ):
+            usable.add("publickey")
+        if (
+            "password" in allowed
+            and (has_password or can_prompt)
+            and tried.get("password", 0) < MAX_METHOD_ATTEMPTS["password"]
+        ):
+            usable.add("password")
+        if (
+            "keyboard-interactive" in allowed
+            and tried.get("keyboard-interactive", 0)
+            < MAX_METHOD_ATTEMPTS["keyboard-interactive"]
+        ):
+            usable.add("keyboard-interactive")
+        return usable
+
+    @staticmethod
+    def _choose_method(usable: set[str], *, key_attempts: int = 0) -> str:
+        """
+        在服务器已列出的方法里挑一个发送。
+
+        - 还没发过公钥时，优先公钥（最强的凭据）；
+        - 公钥已经试过（失败或已通过）时，先补齐其它因子，不在原地重复同一凭据；
+        - 都没有时，才回头再发公钥（旧网关可能要求同一把钥补一次签名）。
+        """
+        if key_attempts == 0 and "publickey" in usable:
+            return "publickey"
+        for method in ("password", "keyboard-interactive"):
+            if method in usable:
+                return method
+        if "publickey" in usable:
+            return "publickey"
+        raise AssertionError("usable 为空时不应调用 _choose_method")
 
     def _attempt_auth(
         self,
@@ -1284,205 +1457,11 @@ class SshSession:
             extensions["server-sig-algs"] = hidden
         transport._jflove_legacy_backup = None
 
-    def _continue_auth(
-        self,
-        transport: paramiko.Transport,
-        username: str,
-        password: str,
-        key: paramiko.PKey | None,
-        allowed: set[str],
-        attempts: dict[str, int],
-        trace: list[str] | None = None,
-        *,
-        key_accepted: bool = False,
-        auth_type: str = "",
-    ) -> set[str]:
-        """
-        按服务器允许的认证方式继续推进，直到认证完成、无路可走或超出轮次。
-
-        优先级完全跟随服务器返回的 `allowed`（它才是「下一步要什么」的唯一依据）：
-        密码 → 键盘交互 → 再补密钥。每轮都把服务器新公布的方式并入候选，
-        因为多因素网关常在中途把列表从 `publickey` 换成 `password`。
-
-        关键兜底（v1.10.16）：paramiko 在「方式本身被允许、但凭据不对」时
-        （`_parse_userauth_failure` 的非 partial 分支）**不回传 authlist**，
-        `allowed` 会变成空集，于是「password 被拒、但服务器其实还提供
-        keyboard-interactive」这种网关会被误判成「无路可走」。这里记住本轮
-        拿到过的候选方式，空集时据此换一个还没试过的因子。
-
-        另一条（v1.10.16）：**密钥已被接受后不再重发** —— 服务器要的是下一个因子；
-        再发同一把私钥会被网关当成「还差一把密钥」，把「请输入账号密码」误报成
-        「请提供第二把私钥」。判定条件是 `key_accepted`：**只要本轮公钥已被接受过，
-        publickey 就永久退出候选**（v1.10.16 第一版只在「还有别的候选」时才跳过，
-        于是「密码被拒 → 服务器回 publickey」的网关会走到 publickey→password→
-        publickey→… 的死循环，正是用户那台 Maverick 网关的现象）。
-
-        第三条（v1.10.16 补）：**服务器只列 `password`，实际第二因子是 keyboard-interactive**
-        的网关照常支持。这类网关（用户实测 WinSCP 弹「Further authentication required」）
-        会在密码认证被拒后把 authlist 又交回 `password`；paramiko 的密码认证不会自动
-        转键盘交互。因此 `password` 失败后，即使 authlist 里没写 keyboard-interactive，
-        也要**补一次**键盘交互（该网关在交互提示里要 Password），成功与否由服务器判定。
-
-        :param key_accepted: 本轮公钥认证是否已被服务器接受（`partial` / 通过）
-        :param auth_type: 连接的认证方式（决定「没有本地密码」时能否改用键盘交互）
-        """
-        known = set(allowed)
-        #: 服务器公布过「这是合法方式」的集合（只增不减：用来判断还差哪个因子）
-        offered = set(allowed)
-        #: 凭据被拒的方式：同一凭据再打一次只会多一次失败的认证往返
-        failed: set[str] = set()
-        #: 试过但没成功的方式（含 `rejected`：paramiko 在服务器把该方法从 authlist
-        #: 摘掉时会抛 BadAuthenticationType，本质也是「这条路走不通」）。
-        #: 只用于「要不要改走键盘交互」的判断 —— 这类网关常把 password 摘掉，
-        #: 只盯 `failed` 会漏掉它，从而又回到「只看 authlist 就放弃」的老问题。
-        dead: set[str] = set()
-        #: 是否已经补过「authlist 没写但网关常备」的键盘交互（每个连接只补一次）
-        interactive_tried = False
-        for _ in range(MAX_AUTH_ROUNDS):
-            if transport.is_authenticated():
-                break
-            if allowed:
-                # 服务器给了新的列表 ⇒ 以它为准（多因素网关会中途换列表）
-                known = set(allowed)
-                offered |= allowed
-            candidates = {
-                item
-                for item in known
-                if attempts.get(item, 0) < MAX_METHOD_ATTEMPTS.get(item, 1)
-            }
-            candidates -= failed
-            if key_accepted and self._key_already_done(known, failed, attempts):
-                # 密钥这一步已经过了，且已经试过其它因子：不再发公钥
-                # （否则网关会误判「还差一把密钥」，把「请输入密码」变成「请给第二把私钥」）
-                candidates.discard("publickey")
-            # 只在「密钥这一步已经过了、服务器又说要 password、而密码已被拒」
-            # 这种典型网关上补键盘交互（WinSCP 的 Further authentication required）。
-            # 纯密码连接（key_accepted=False）不补：那是另一个故事，别擅自多打一轮。
-            if (
-                not candidates
-                and key_accepted
-                and not interactive_tried
-                and ("password" in dead or not password)
-            ):
-                # 只剩「服务器说 password 但密码被拒」：这类网关的第二个因子实际走
-                # 键盘交互（WinSCP 的 Further authentication required），补试一次
-                candidates = {"keyboard-interactive"}
-            if not candidates:
-                break
-            method = self._pick_next_method(candidates, password, key, attempts)
-            if method is None:
-                # 候选里没有可选项（例如 password 已用完次数），补键盘交互兜底
-                if (
-                    key_accepted
-                    and not interactive_tried
-                    and ("password" in dead or not password)
-                ):
-                    method = "keyboard-interactive"
-                else:
-                    break
-            if method == "keyboard-interactive" and method not in known:
-                interactive_tried = True
-            attempts[method] = attempts.get(method, 0) + 1
-            if trace is not None:
-                trace.append(method)
-            if method == "publickey":
-                status, allowed = self._attempt_auth(
-                    transport, method, username, key=key
-                )
-            else:
-                status, allowed = self._attempt_auth(
-                    transport, method, username, password=password
-                )
-            if status == "rejected":
-                # 刚被拒的方式不再原地重试（由 allowed 列表决定下一步）
-                allowed.discard(method)
-                known.discard(method)
-                offered.discard(method)
-                dead.add(method)
-            elif status == "failed":
-                # 凭据不对：换因子（password → keyboard-interactive）而不是重打同一个
-                failed.add(method)
-                dead.add(method)
-        # 空集时回落到「刚才用掉的因子」：让文案指出**是哪个凭据没被接受**
-        # （paramiko 普通失败不回传 authlist，否则只能报笼统的「认证未完成」）
-        return allowed or failed or offered
-
-    @staticmethod
-    def _key_already_done(
-        known: set[str], failed: set[str], attempts: dict[str, int]
-    ) -> bool:
-        """
-        判断「公钥这一因子是否已经彻底过关、不该再发」。
-
-        必须区分两种「服务器只列 publickey」：
-
-        - **合法**：旧网关（Maverick 一类）在 ssh-rsa 验签成功后仍回
-          `partial(publickey)`，要求再用同一把密钥补一轮签名 —— 这时其它因子
-          一个都没试过，必须照做，否则永远连不上；
-        - **误判**：密钥其实已通过，服务器把第二个因子（密码 / 键盘交互）拒掉后
-          又重新列表 `publickey` —— 这时**其它因子已经试过**，再发公钥会被网关
-          当成「还差一把密钥」，形成 `publickey→password→publickey→…` 的死循环。
-
-        :param known: 服务器本轮的 authlist
-        :param failed: 凭据被拒过的方法
-        :param attempts: 各认证方式已尝试的次数
-        """
-        if known - {"publickey"}:
-            return True
-        if failed:
-            return True
-        return any(attempts.get(method, 0) > 0 for method in ("password", "keyboard-interactive"))
-
-    @staticmethod
-    def _pick_next_method(
-        allowed: set[str],
-        password: str,
-        key: paramiko.PKey | None,
-        attempts: dict[str, int],
-    ) -> str | None:
-        """
-        按优先级挑下一个认证方式：密码 → 键盘交互 → 密钥。
-
-        门槛基本是「**服务器说了才做**」，只有一条例外：
-        - `password` 需要本地有密码（没有就别浪费一次往返）；
-        - `keyboard-interactive` 不要求本地有密码：网关常把第二个因子放在键盘交互里
-          （提示「Password:」），由 `_make_interactive_handler` 代答，没有密码时弹层补；
-        - **例外**：密钥已用过、本地没有密码、服务器列着 `password` 时，也走键盘交互 ——
-          这类网关（用户实测 `Maverick_SSHD`）的 authlist 不列键盘交互，但真正的
-          第二因子就在交互提示里（WinSCP 的「Further authentication required」）。
-          **该例外与所选的认证方式无关**：用户选「密钥」时服务器要密码，同样要弹框，
-          而不是直接报「请改用密码 + 密钥」再让他去改配置（v1.10.18 修复）；
-        - `publickey` 只在服务器仍列着它、且未超过本轮上限时才选（是否真的重发由
-          `_continue_auth` 按 `key_accepted` 决定）。
-        """
-        if "password" in allowed and password:
-            if attempts.get("password", 0) < MAX_METHOD_ATTEMPTS["password"]:
-                return "password"
-        # 键盘交互每个连接只补一次（否则会在同一轮里无限补同一步）
-        interactive_used_up = (
-            attempts.get("keyboard-interactive", 0)
-            >= MAX_METHOD_ATTEMPTS["keyboard-interactive"]
-        )
-        if not interactive_used_up:
-            if "keyboard-interactive" in allowed:
-                return "keyboard-interactive"
-            if not password and "password" in allowed and key is not None:
-                # 有私钥、本地没有密码、服务器又要 password：这类网关（用户实测
-                # Maverick）的第二个因子实际在键盘交互里问 Password，走弹层输入。
-                # **不看所选的认证方式** —— 用户选「密钥」时也该弹框，而不是报配置错误。
-                # 纯密码连接（没有私钥）不走这条，避免把「没填密码」变成一次交互尝试。
-                return "keyboard-interactive"
-        if key is not None and "publickey" in allowed:
-            if attempts.get("publickey", 0) < MAX_METHOD_ATTEMPTS["publickey"]:
-                return "publickey"
-        return None
-
     def _make_interactive_handler(self, username: str, password: str):
         """
         构造键盘交互回调。
 
-        服务器在「密钥通过后要求继续认证」时通常会问 `Password:` /
-        `Further authentication required`，这正是 WinSCP 第二次弹窗的内容；
+        服务器在「密钥通过后要求继续认证」时通常会给 `Password:` 之类的 prompt；
         有账号密码时直接代答，验证码类提示才弹 UI。
         """
 
@@ -1527,6 +1506,22 @@ class SshSession:
         if password and len(text) == 0:
             return password
         return self._ask_interactive(text or instructions or title)
+
+    def _ask_password(self, prompt: str = "") -> str:
+        """
+        弹框向用户索取**服务器账号登录密码**（服务器列出 `password` 而本地没有时）。
+
+        标准客户端（OpenSSH 等）在服务器要求 `password` 而客户端未配密码时，
+        都会本地弹框索取，然后用 `password` 方法把用户输入发给服务器。
+        这里复用会话的提示回调，拿到空串时记 `_interactive_empty`（文案据此区分
+        「没收到输入」与「输入被拒绝」）。
+
+        :param prompt: 自定义提示语；空则用默认文案
+        :returns: 用户输入；未配置回调 / 超时 / 取消时返回空串
+        """
+        message = prompt or "服务器要求账号密码认证（SSH password），请输入登录密码"
+        answer = self._ask_interactive(message)
+        return answer
 
     def _ask_interactive(self, prompt: str) -> str:
         """

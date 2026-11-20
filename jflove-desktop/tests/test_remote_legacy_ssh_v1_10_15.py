@@ -208,7 +208,7 @@ def test_partial_publickey_reports_second_key_requirement(monkeypatch) -> None:
         with pytest.raises(AuthError) as excinfo:
             _open(_row(_private_key_pem(user_key)), server)
         message = str(excinfo.value)
-        assert "再次进行密钥认证" in message
+        assert "仍要求继续用密钥认证" in message
         assert "两把不同私钥" in message
         # 部分认证（status=ok）也必须触发一次旧式 ssh-rsa 重试
         assert legacy_calls == ["ssh-rsa"]

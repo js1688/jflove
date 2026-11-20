@@ -7,9 +7,9 @@
  *   `clear_password` / `clear_private_key` / `clear_passphrase`，由服务端把列写成空串；
  * - 渲染层永远拿不到已保存的密码/私钥原文（服务端只回 `has_*` 与指纹）。
  *
- * 「密码」与「私钥口令」不是一回事（WinSCP 两次弹窗）：
- * - 私钥口令：解锁**私钥文件**的口令（WinSCP「密钥 xxx 的密码」）；
- * - 密码：**服务器账号**登录密码（WinSCP「Further authentication required / 密码」）。
+ * 「密码」与「私钥口令」不是一回事（SSH 里是两个不同的东西）：
+ * - 私钥口令：解锁**私钥文件**的本机口令（只用于本地解密，不会发给服务器）；
+ * - 密码：**服务器账号**登录密码（按 password 方法认证时提交给服务器）。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -345,8 +345,8 @@ export function RemoteConnectionForm({
               <p className="mt-1 text-[11px] text-warning-700">已标记清空：保存后服务端密码列写为空</p>
             )}
             <p className="mt-1 text-[11px] leading-4 text-subtle">
-              服务器账号登录密码。WinSCP 第二次弹出的「Further authentication required / 密码」就是它。
-              {needsKey && ' 若这台网关是连上后才弹框要密码（第二个因子走键盘交互），这里可以留空，连接时再输入。'}
+              服务器账号登录密码。服务器要求继续认证（password 方法）时提交给服务器；
+              留空则连接时弹框再输入。
             </p>
           </Field>
         )}
@@ -471,7 +471,7 @@ export function RemoteConnectionForm({
                 <p className="mt-1 text-[11px] text-warning-700">已标记清空：保存后口令列写为空</p>
               )}
               <p className="mt-1 text-[11px] leading-4 text-subtle">
-                解锁私钥文件的口令（WinSCP 第一次弹出的「密钥 xxx 的密码」），不是服务器登录密码。
+                解锁私钥文件的本机口令（不会发给服务器），不是服务器登录密码。
               </p>
             </Field>
           </>

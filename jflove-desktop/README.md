@@ -213,7 +213,7 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
   粘贴文本会做规范化：兼容 BOM、整体缩进、单行/字面量 `\n`、CRLF。
 - **格式**：OpenSSH / PEM（PKCS#1）/ PKCS#8（`BEGIN PRIVATE KEY`、加密的
   `BEGIN ENCRYPTED PRIVATE KEY`），RSA / ECDSA / Ed25519。
-  PuTTY `.ppk`（含 WinSCP 转换产物）不支持，提示改用原始 PEM 或 PuTTYgen「Conversions → Export OpenSSH key」转换。
+  PuTTY `.ppk` 不支持，提示改用原始 PEM 或 PuTTYgen「Conversions → Export OpenSSH key」转换。
 - **「密码 + 密钥」双因素**：新增 `auth_type=password_publickey`（登录密码 + 私钥 + 私钥口令），
   客户端兼容 `publickey,password` 与 `password,publickey` 两种服务器顺序。
   只配密钥而服务器还要密码时，会明确提示切换该认证方式。
@@ -225,8 +225,8 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
 - **多步认证**：按 paramiko 真实语义处理 `auth_publickey` / `auth_password` / `auth_interactive`
   的**剩余方式列表**（部分认证不抛异常）；支持 `密钥 → 账号密码`、`密钥 → keyboard-interactive`、
   `密码 → 密钥` 等顺序。结束前硬校验 `transport.is_authenticated()`，未完成绝不显示「已连接」。
-- **两个密码的语义**：`密码` = 服务器账号登录密码（WinSCP 第二次 `Further authentication required`）；
-  `私钥口令` = 解锁私钥文件的口令（WinSCP 第一次「密钥 xxx 的密码」）。表单内已就地标注。
+- **两个密码的语义**：`密码` = 服务器账号登录密码（按 `password` 方法提交）；
+  `私钥口令` = 解锁私钥文件的本机口令（不发给服务器）。表单内已就地标注。
 - **SFTP 有界等待**：打开子系统 15s、单次操作 45s（`JFLOVE_SFTP_OPEN_TIMEOUT` /
   `JFLOVE_SFTP_OP_TIMEOUT` 可调）；超时给中文原因并丢弃坏 client；列表记录耗时。
   UI 显示「加载中…（已用 N 秒）」并提供「取消加载」/「重试」。
@@ -266,33 +266,27 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
   不再误导去查 `authorized_keys`。**已知边界**：每条连接只支持一把私钥，两把私钥的服务器仍不支持。
 - **多跳定位**：认证 / 主机指纹失败统一带 `跳板 N / 目标 + host:port` 前缀。
 
-### 网关多因素认证序列（v1.10.16）
+### SSH 认证流程（按 RFC 4252 的 authlist 推进）
 
-旧网关（`ssh-rsa` 主机密钥 + `rsa-sha2-*` 签名表 + 一把 RSA 私钥 + 账号密码）的认证顺序是
-**密钥一次 → 密码一次**，中间不能多插任何请求。本版把客户端序列对齐到这个事实：
+认证方法**只由服务器返回的 authlist 决定**，客户端不猜测、不试探、不发送未列出的方法：
 
-- **密钥只发一次**：首轮公钥认证已被服务器接受（`partial`，且服务器另列出 `password` /
-  `keyboard-interactive`）时，**不再回退重发 `publickey`**。之前多发的一次会让网关把它当成
-  「还差一把密钥」，把「请输入账号密码」误报成「请提供第二把私钥」。
-- **回退门槛改为「服务器没给下一步」**：`ssh-rsa`（RSA-SHA1）回退只在首轮**裸失败**
-  （服务器没回认证方式列表）或只列 `publickey` 时触发；`rejected` 与「已给出其它因子」都不回退。
-- **按服务器实际列表补齐**：`password` → `keyboard-interactive` → `publickey`；服务器中途换列表时
-  以新列表为准。网关把第二个因子放在键盘交互里（提示 `Password:`）时，有账号密码就自动代答。
-- **同一凭据不重复打**：`password` 被拒后不再原地重试，而是换下一个公布过的因子；
-  `paramiko` 在「方式合法但凭据不对」时不回传方式列表，客户端用本轮拿到过的列表兜底。
-- **诊断行加「认证序列」**：`认证序列=publickey→password`，失败文案据此指明是哪个凭据没被接受，
-  并附「下一步该填什么」，不再一律提示去查 `authorized_keys`。
-- **第二因子走键盘交互的网关**：authlist 只列 `password`、实际在键盘交互里问密码
-  （WinSCP 的「Further authentication required」）也支持 —— `password` 被拒后自动补一次键盘交互，
-  弹层输入账号密码即可；本地没有密码时同样走这条路径。
-- **密码可留空**：密钥类认证（「密钥」「密码 + 密钥」「密码 + OTP」）在保存时允许不填账号密码，
-  连接时弹层补（这类网关在保存阶段本来就拿不到密码）。
-- **弹框不看认证方式**：只要配了私钥、服务器又要账号密码，就会弹框询问（选「密钥」也一样），
-  与 WinSCP「先用密钥、连上后弹框要密码」一致。
-- **失败原因三分**：明确区分「弹框没收到输入（超时/没点确定）」「账号密码不对」「私钥确实被拒」，
-  密钥已通过时**不再**报「服务器未接受当前密钥」。
-- **凭据状态不再靠推断**：私钥口令是否已设置由服务端 `has_passphrase` 决定；
-  没设过口令时显示「私钥未加密则留空」，不再因为存过私钥就谎报「已设置」。
+1. 先发一次 `none` 请求取服务器的**初始方法列表**（与 OpenSSH 相同）；
+2. 每轮取「服务器列出的方法」∩「本地能提供的能力」发一个：
+   - `publickey`：有私钥且未用完尝试上限；已被接受的钥不再重发
+     （除非服务器当前只列 `publickey` 且尚未试过其它因子 —— 旧网关要求同一把钥补签一次）
+   - `password`：有已存密码，或**弹框向用户索取**
+   - `keyboard-interactive`：**仅当服务器列出时**才使用，按 prompt 应答 / 弹框
+3. 服务器回 `partial success` 时继续下一轮，直到真正认证通过。
+
+**本地缺凭据时的标准做法**：服务器列出 `password` 而连接未存密码 → 弹框索取 →
+用 `password` 方法发送（不是改用别的方法）。这与所有标准客户端一致。
+
+其他约定：
+
+- `ssh-rsa`（RSA-SHA1）回退依 `server-sig-algs` 与密钥类型判断，仅在服务器确实只接受旧算法时启用；
+  `rejected` 与「服务器已给出下一步」时都不回退。
+- 诊断行带 `认证序列=`（只含方法名），失败文案据此说明卡在哪一步、服务器当前列了什么。
+- 同一凭据不原地重复打：存储的密码被拒一次后不再重打（改由弹框重填）。
 
 ## 技术架构
 

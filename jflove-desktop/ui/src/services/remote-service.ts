@@ -20,7 +20,7 @@ export interface RemoteGroup {
  * 认证方式：
  * - password：密码
  * - publickey：密钥（可选私钥口令）
- * - password_publickey：密码 + 密钥双因素（WinSCP 的「登录密码 + 私钥口令」场景）
+ * - password_publickey：密码 + 密钥双因素（先用密钥、再由服务器要求账号密码）
  * - password_keyboard：密码 + 动态验证码
  */
 export type AuthType = 'password' | 'publickey' | 'password_publickey' | 'password_keyboard';

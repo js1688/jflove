@@ -184,7 +184,7 @@ describe('RemoteConnectionForm · v1.10.11', () => {
   it('选到 .ppk（桥拒绝）⇒ 私钥字段内就地显示转换指引', async () => {
     callBridge.mockRejectedValue(
       new Error(
-        '这是 PuTTY 私钥（.ppk，WinSCP 转换产物），当前版本不直接支持。'
+        '这是 PuTTY 私钥（.ppk），当前版本不直接支持。'
           + '请用 PuTTYgen 打开它并执行 Conversions → Export OpenSSH key 导出成 .pem 后再选择',
       ),
     );

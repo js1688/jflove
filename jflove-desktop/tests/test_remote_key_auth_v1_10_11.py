@@ -217,18 +217,24 @@ def test_authenticate_key_only_with_password_field() -> None:
     assert transport.calls == ["publickey", "password"]
 
 
-def test_authenticate_key_without_password_prompts_keyboard_interactive() -> None:
+def test_authenticate_key_without_password_prompts_password() -> None:
     """
-    v1.10.18 行为变更：只配密钥、服务器还要密码、本地没有密码时**走键盘交互**（弹框），
-    不再直接报「请改用密码 + 密钥」把用户挡在门外。
+    v1.10.19（RFC 4252 语义）：服务器列出 `password`、本地没有密码时，
+    **弹框索取，再用 `password` 方法发送** —— 不是改用 keyboard-interactive。
 
-    依据：用户实测的网关把第二个因子放在键盘交互里（WinSCP 的 Further authentication
-    required），选「密钥」时同样该弹框；只有连键盘交互也被服务器拒绝，才回退到配置提示。
+    依据（外部客户端 Debug 2 日志）：服务器在公钥通过后只列 `password`，
+    标准客户端本地弹框后日志为 `Sent password` → `Access granted`，
+    全程没有任何 keyboard-interactive。
     """
-    session = SshSession(_row("publickey"))
-    transport = _FakeTransport([PartialAuthentication(["password"])])
+    asked: list[str] = []
+    session = SshSession(
+        _row("publickey"), otp_ask=lambda prompt: (asked.append(prompt), "login-pw")[1]
+    )
+    transport = _FakeTransport([PartialAuthentication(["password"]), "ok"])
     session._authenticate(transport, session.connection)
-    assert transport.calls == ["publickey", "keyboard-interactive"]
+    #: 方法必须与服务器列出的完全一致（password），不能自作主张换方法
+    assert transport.calls == ["publickey", "password"]
+    assert len(asked) == 1
     assert transport.is_authenticated()
 
 

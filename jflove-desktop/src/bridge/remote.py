@@ -204,9 +204,9 @@ def _h_pick_private_key(_params: dict) -> dict:
         raise RuntimeError(f"读取私钥文件失败：{Path(path).name}（{exc}）") from exc
     if "PuTTY-User-Key-File" in text:
         raise RuntimeError(
-            "这是 PuTTY 私钥（.ppk，WinSCP 转换产物），当前版本不直接支持。"
+            "这是 PuTTY 私钥（.ppk），当前版本不直接支持。"
             "请用 PuTTYgen 打开它并执行 Conversions → Export OpenSSH key 导出成 .pem 后再选择；"
-            "或在 WinSCP 的会话设置里重新导出 OpenSSH 私钥"
+            "或从发行方重新获取 OpenSSH 格式的私钥"
         )
     encrypted = False
     fingerprint = ""

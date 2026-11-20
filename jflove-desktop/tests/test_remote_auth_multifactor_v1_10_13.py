@@ -188,7 +188,7 @@ def test_partial_without_any_followup_raises() -> None:
     transport = _ScriptedTransport(
         [("publickey", "partial", []), ("password", "fail")]
     )
-    with pytest.raises(AuthError, match="认证未完成"):
+    with pytest.raises(AuthError, match="账号密码"):
         session._authenticate(transport, session.connection)
     assert transport.is_authenticated() is False
 
