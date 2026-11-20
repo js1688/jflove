@@ -47,8 +47,8 @@ READ_CHUNK = 4096
 #: 一次认证流程里最多再尝试几轮（服务器多因素认证）
 MAX_AUTH_ROUNDS = 5
 
-#: 弹框索取账号密码的最多次数（首次 + 一次重试；避免无限弹框）
-MAX_PASSWORD_PROMPTS = 2
+#: 弹框索取账号密码的最多次数（首次 + 两次重试；避免无限弹框）
+MAX_PASSWORD_PROMPTS = 3
 
 #: 单次认证方法最多尝试次数（密钥/密码可能因服务器顺序被要求两遍）
 #: publickey=3：首轮 + ssh-rsa 回退 + 「服务器部分认证后仍要 publickey」的补一轮
@@ -900,12 +900,18 @@ class SshSession:
         """
         完成 SSH 用户认证（**严格按 RFC 4252 的 authlist 推进**）。
 
-        标准流程与 OpenSSH / 主流客户端一致：
+        流程（不发送任何多余的探测请求）：
 
-        1. 先发一次 `none` 取服务器的**初始方法列表**（`SSH_MSG_USERAUTH_FAILURE`
-           里的 name-list 是下一步该用什么方法的唯一权威）；
-        2. 每一轮取「服务器列出的方法」∩「本地能提供的能力」，挑一个发送；
-        3. 服务器回 `partial success` 时继续下一轮，直到 `is_authenticated()`。
+        1. **首轮按本地凭据直接发送**：有私钥发 `publickey`，否则发 `password`；
+        2. 服务器在 `SSH_MSG_USERAUTH_FAILURE` / `SSH_MSG_USERAUTH_PK_OK` 里给出的
+           name-list 是后续每一步的**唯一依据**；
+        3. 每一轮取「服务器列出的方法」∩「本地能提供的能力」，挑一个发送；
+        4. 服务器回 `partial success` 时继续下一轮，直到 `is_authenticated()`。
+
+        为什么**不做 `none` 探测**：部分网关限制认证尝试次数（如 `MaxAuthTries=2`），
+        多一次探测就会吃掉最后一次密码机会 —— 表现为「密码明明正确却被拒」。
+        保持最小序列（`publickey` → `password` 两次请求）即可，
+        方法列表永远随服务器的失败响应一起返回，不需要额外索取。
 
         **绝不发送服务器没有列出的方法**。本地缺凭据时（例如只配了私钥、
         服务器却要求账号密码）应当**弹框向用户索取**，再用服务器列出的那个方法发送 ——
@@ -949,12 +955,12 @@ class SshSession:
         diag = self._peer_facts(transport)
 
         try:
-            allowed, already_authenticated = self._probe_methods(transport, username)
-            if already_authenticated:
-                return
+            # 不发送 `none` 探测：部分网关限制认证尝试次数（如 MaxAuthTries=2），
+            # 多一次探测就会吃掉最后一次密码机会。有私钥直接发公钥、否则直接发密码；
+            # 服务器回复的 authlist 依然是后续每一步的唯一依据（RFC 4252 §5.1）。
+            allowed = self._guess_initial_methods(key, stored_password, auth_type)
             if not allowed:
-                # 取不到列表（老实现 / 测试替身）：按本地凭据猜首个方法，后续以服务器返回为准
-                allowed = self._guess_initial_methods(key, stored_password, auth_type)
+                allowed = {"publickey", "password"}
 
             for _ in range(MAX_AUTH_ROUNDS):
                 if transport.is_authenticated():
@@ -987,7 +993,7 @@ class SshSession:
                     if not prompted_password and "keyboard-interactive" in usable:
                         # 服务器同时列出了 keyboard-interactive：改走它（同样会按 prompt 索取）
                         method = "keyboard-interactive"
-                    elif not prompted_password:
+                    elif not prompted_password and password_prompts >= MAX_PASSWORD_PROMPTS:
                         hint = (
                             "账号密码没有被服务器接受"
                             if password_sent
@@ -1064,6 +1070,10 @@ class SshSession:
                     if stored_password and not prompted_password:
                         stored_password_usable = False
                     prompted_password = ""
+                    if status == "failed":
+                        # 密码被拒：只有还有剩余轮次才允许重新索取
+                        # （attempts 已达本轮上限时不再重弹，避免对网关反复失败）
+                        attempts.setdefault("password", 0)
                 if status == "rejected":
                     # 该方式不被允许：以服务器给出的列表为准（即使为空也不沿用旧列表）
                     next_allowed.discard(method)
@@ -1072,6 +1082,10 @@ class SshSession:
                 elif next_allowed:
                     # 成功 / 部分成功：服务器给出的下一步列表就是权威
                     allowed = next_allowed
+                elif status == "ok":
+                    # 服务器「部分认证成功」但没有给出下一步方法：无路可走，必须终止
+                    # （否则会沿用旧集合，把同一凭据反复重打）
+                    break
                 # 普通失败（凭据错）时 paramiko 不回列表，沿用上一轮已知集合
 
             if not transport.is_authenticated():
@@ -1142,37 +1156,16 @@ class SshSession:
         stored = stored_password if stored_password_usable else ""
         return prompted_password or stored
 
-    def _probe_methods(
-        self, transport: paramiko.Transport, username: str
-    ) -> tuple[set[str], bool]:
-        """
-        用一次 `none` 请求取服务器的**初始认证方法列表**（RFC 4252 §5.2）。
-
-        这是标准做法（OpenSSH 同样先发 `none`）：只有服务器给出的 name-list
-        才决定下一步该用哪种方法，客户端不应猜测。
-
-        :returns: `(服务器列出的方法, 是否已经认证通过)`
-                  老实现 / 测试替身没有 `auth_none` 时返回 `(set(), False)`
-        """
-        probe = getattr(transport, "auth_none", None)
-        if probe is None:
-            return set(), False
-        try:
-            probe(username)
-        except paramiko.BadAuthenticationType as exc:
-            return set(exc.allowed_types or ()), False
-        except paramiko.AuthenticationException:
-            return set(), False
-        except Exception as exc:  # noqa: BLE001 - 探测失败不应中断认证
-            logger.debug("取初始认证方法列表失败：%s", exc)
-            return set(), False
-        return set(), bool(transport.is_authenticated())
-
     @staticmethod
     def _guess_initial_methods(
         key: paramiko.PKey | None, password: str, auth_type: str
     ) -> set[str]:
-        """取不到服务器列表时的首个方法（只用于兼容老实现；之后以服务器返回为准）"""
+        """
+        首轮可发送的方法（不依赖任何探测请求）。
+
+        依据本地凭据决定：有私钥发 `publickey`，有密码（或认证方式含密码语义）发 `password`。
+        服务器若拒绝，会在 `SSH_MSG_USERAUTH_FAILURE` 里返回它允许的方法，后续以此为准。
+        """
         guess: set[str] = set()
         if key is not None:
             guess.add("publickey")
@@ -1211,11 +1204,7 @@ class SshSession:
             )
         ):
             usable.add("publickey")
-        if (
-            "password" in allowed
-            and (has_password or can_prompt)
-            and tried.get("password", 0) < MAX_METHOD_ATTEMPTS["password"]
-        ):
+        if "password" in allowed and (has_password or can_prompt):
             usable.add("password")
         if (
             "keyboard-interactive" in allowed

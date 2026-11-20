@@ -238,14 +238,24 @@ def test_authenticate_key_without_password_prompts_password() -> None:
     assert transport.is_authenticated()
 
 
-def test_authenticate_key_hints_password_when_keyboard_interactive_rejected() -> None:
-    """键盘交互也走不通时，仍要给出「改用密码 + 密钥」这类可执行提示"""
-    session = SshSession(_row("publickey"))
-    transport = _FakeTransport(
-        [PartialAuthentication(["password"]), AuthenticationException("no")]
+def test_authenticate_key_retries_password_once_when_rejected() -> None:
+    """
+    v1.10.20：服务器列 `password`、本地无密码时，弹框索取失败/被拒后
+    仍允许**再索取一次**（受 MAX_PASSWORD_PROMPTS 约束），两次都用 `password` 方法。
+
+    该替身只实现 password，故序列为 publickey→password→password。
+    """
+    asked: list[str] = []
+    session = SshSession(
+        _row("publickey"), otp_ask=lambda prompt: (asked.append(prompt), "login-pw")[1]
     )
-    with pytest.raises(AuthError, match="密码"):
-        session._authenticate(transport, session.connection)
+    transport = _FakeTransport(
+        [PartialAuthentication(["password"]), AuthenticationException("no"), "ok"]
+    )
+    session._authenticate(transport, session.connection)
+    assert transport.calls == ["publickey", "password", "password"]
+    assert len(asked) == 2, f"应弹框两次，实际 {len(asked)}"
+    assert transport.is_authenticated()
 
 
 def test_authenticate_key_failure_falls_back_to_password() -> None:
