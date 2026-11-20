@@ -176,14 +176,42 @@ def type_text(text: str, delay: float = 0.02) -> int:
     return sent
 
 
-def guest_ip() -> str:
-    """取客机第一个 IPv4 地址。"""
-    out = _virsh("domifaddr", VM, "--source", "agent", "--full")
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[2] == "ipv4":
-            return parts[3].split("/")[0]
-    return ""
+def guest_ip(timeout: float = 60.0) -> str:
+    """
+    取客机**非回环** IPv4 地址。
+
+    QGA 刚上线时 `domifaddr --source agent` 常常还没有网卡信息（只写回环或完全空），
+    早期版本直接取「第一行 ipv4」会拿到 `127.0.0.1`，后续所有 HTTP/CDP 动作都连到
+    客机自己身上而失败，表现为「未取到客机 IP」或莫名其妙的超时。这里改为：
+
+    - 轮询到超时为止，跳过 Loopback（父网卡名含 `Loopback` 或地址以 `127.` 开头）；
+    - 优先返回非 `169.254.*`（链路本地）地址。
+
+    :param timeout: 最长等待秒数（默认 60s）
+    :returns: 客机 IPv4 字符串；超时返回空串
+    """
+    deadline = time.time() + timeout
+    while True:
+        out = _virsh("domifaddr", VM, "--source", "agent", "--full")
+        candidates: list[str] = []
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) < 4 or parts[2] != "ipv4":
+                continue
+            # 回环条目没有 MAC 列，网卡名以 "Loopback" 开头
+            if parts[0].startswith("Loopback"):
+                continue
+            addr = parts[3].split("/")[0]
+            if addr.startswith("127.") or not addr:
+                continue
+            candidates.append(addr)
+        if candidates:
+            # 链路本地地址排到最后（它通常不是可用地址）
+            candidates.sort(key=lambda a: a.startswith("169.254."))
+            return candidates[0]
+        if time.time() >= deadline:
+            return ""
+        time.sleep(3)
 
 
 def main() -> int:
