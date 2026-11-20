@@ -118,6 +118,8 @@ def _auth_hint(
     auth_type: str = "",
     key_type: str = "",
     trace: list[str] | None = None,
+    key_accepted: bool = False,
+    interactive_empty: bool = False,
 ) -> AuthError:
     """
     把服务器允许的认证方式转成可执行的中文提示。
@@ -127,6 +129,9 @@ def _auth_hint(
     :param auth_type: 当前配置的认证方式（用于区分「认证方式选错」与「私钥被拒」）
     :param key_type: 当前私钥的 SSH 类型（如 `ssh-rsa` / `ssh-ed25519`）
     :param trace: 实际发出的认证序列（用于让用户看到「发过什么、还差什么」）
+    :param key_accepted: 本轮公钥是否已被服务器接受 —— 已接受时**绝不**再说「密钥被拒」，
+                        否则用户会去反复换私钥（v1.10.18 修复：用户实测被这条文案误导）
+    :param interactive_empty: 键盘交互弹框是否**没有收到输入**（超时 / 未点确定 / 取消）
     """
     if not allowed:
         return AuthError(fallback)
@@ -137,6 +142,14 @@ def _auth_hint(
         # 已经补过键盘交互仍失败：说明这台网关的第二因子**确实**在键盘交互里
         # （WinSCP 的 Further authentication required），别再让用户去改认证方式。
         interactive_sent = "keyboard-interactive" in (trace or [])
+        if interactive_sent and interactive_empty:
+            return AuthError(
+                f"没有收到你输入的账号密码（服务器允许：{allowed_text}）。"
+                f"{sent_part}"
+                "这台网关会弹框要求继续认证（WinSCP 的「Further authentication required」），"
+                "但本次弹框没有拿到输入（超时约 60 秒、或没点「确定」就关掉了）。"
+                "请重新连接，在弹出的输入框里填**服务器账号登录密码**后点「确定」"
+            )
         if interactive_sent:
             return AuthError(
                 f"账号密码没有被服务器接受（服务器允许：{allowed_text}）。"
@@ -164,6 +177,24 @@ def _auth_hint(
             "若提示里要的就是账号登录密码，把它填到「密码」即可自动代答"
         )
     if "publickey" in allowed:
+        if key_accepted:
+            # 密钥这一步**已经通过**（后面还发过密码 / 键盘交互）：服务器现在又列出
+            # publickey 是它自己的事，用户的凭据问题不在私钥上。绝不能再劝他换私钥。
+            if interactive_empty:
+                return AuthError(
+                    f"没有收到你输入的账号密码（服务器现在要求：{allowed_text}）。"
+                    f"{sent_part}"
+                    "私钥本身没有问题；这台网关会弹框要求继续认证，"
+                    "但本次弹框没有拿到输入（超时约 60 秒、或没点「确定」就关掉了）。"
+                    "请重新连接，在弹出的输入框里填**服务器账号登录密码**后点「确定」"
+                )
+            return AuthError(
+                f"服务器已接受密钥，但后续认证没有通过（服务器现在要求：{allowed_text}）。"
+                f"{sent_part}"
+                "私钥本身没有问题；请确认你在弹框 / 密码栏里填的是**服务器账号登录密码**。"
+                "若这台网关确实要求第二把不同私钥，当前每条连接只支持一把，"
+                "需在服务器侧确认或改用跳板"
+            )
         if auth_type and auth_type not in ("publickey", "password_publickey"):
             current = AUTH_TYPE_LABELS.get(auth_type, auth_type)
             return AuthError(
@@ -456,6 +487,10 @@ class SshSession:
         self.on_status = on_status
         self.hostkey_ask = hostkey_ask
         self.otp_ask = otp_ask
+        #: 键盘交互弹框是否**没有拿到输入**（超时 / 未点确定 / 取消）。
+        #: 用于把「你输入的密码不对」和「弹框根本没收到输入」区分开 ——
+        #: 二者在服务器眼里都是认证失败，但对用户的下一步完全不同。
+        self._interactive_empty = False
 
         self._transports: list[paramiko.Transport] = []
         self._sock: socket.socket | None = None
@@ -1000,6 +1035,8 @@ class SshSession:
                         auth_type=auth_type,
                         key_type=key.get_name() if key is not None else "",
                         trace=trace,
+                        key_accepted=key_accepted,
+                        interactive_empty=self._interactive_empty,
                     ),
                     self._finish_diag(diag, trace, allowed),
                 )
@@ -1052,7 +1089,12 @@ class SshSession:
             if method == "publickey":
                 remaining = transport.auth_publickey(username, key)
             elif method == "keyboard-interactive":
-                remaining = transport.auth_interactive(
+                handler = getattr(transport, "auth_interactive", None)
+                if handler is None:
+                    raise paramiko.SSHException(
+                        "当前 SSH 实现不支持键盘交互认证"
+                    )
+                remaining = handler(
                     username, self._make_interactive_handler(username, password)
                 )
             else:
@@ -1284,10 +1326,6 @@ class SshSession:
         :param key_accepted: 本轮公钥认证是否已被服务器接受（`partial` / 通过）
         :param auth_type: 连接的认证方式（决定「没有本地密码」时能否改用键盘交互）
         """
-        #: 认证方式本身含「密码」语义：没有本地密码时，网关常把密码放在键盘交互里问
-        expects_password = auth_type in (
-            "password", "password_keyboard", "password_publickey",
-        )
         known = set(allowed)
         #: 服务器公布过「这是合法方式」的集合（只增不减：用来判断还差哪个因子）
         offered = set(allowed)
@@ -1324,22 +1362,20 @@ class SshSession:
                 not candidates
                 and key_accepted
                 and not interactive_tried
-                and ("password" in dead or (expects_password and not password))
+                and ("password" in dead or not password)
             ):
                 # 只剩「服务器说 password 但密码被拒」：这类网关的第二个因子实际走
                 # 键盘交互（WinSCP 的 Further authentication required），补试一次
                 candidates = {"keyboard-interactive"}
             if not candidates:
                 break
-            method = self._pick_next_method(
-                candidates, password, key, attempts, expects_password
-            )
+            method = self._pick_next_method(candidates, password, key, attempts)
             if method is None:
                 # 候选里没有可选项（例如 password 已用完次数），补键盘交互兜底
                 if (
                     key_accepted
                     and not interactive_tried
-                    and ("password" in dead or (expects_password and not password))
+                    and ("password" in dead or not password)
                 ):
                     method = "keyboard-interactive"
                 else:
@@ -1403,7 +1439,6 @@ class SshSession:
         password: str,
         key: paramiko.PKey | None,
         attempts: dict[str, int],
-        expects_password: bool = False,
     ) -> str | None:
         """
         按优先级挑下一个认证方式：密码 → 键盘交互 → 密钥。
@@ -1412,9 +1447,11 @@ class SshSession:
         - `password` 需要本地有密码（没有就别浪费一次往返）；
         - `keyboard-interactive` 不要求本地有密码：网关常把第二个因子放在键盘交互里
           （提示「Password:」），由 `_make_interactive_handler` 代答，没有密码时弹层补；
-        - **例外**：密钥已用过、本地没有密码、服务器只列 `password` 时，也走键盘交互 ——
+        - **例外**：密钥已用过、本地没有密码、服务器列着 `password` 时，也走键盘交互 ——
           这类网关（用户实测 `Maverick_SSHD`）的 authlist 不列键盘交互，但真正的
-          第二因子就在交互提示里（WinSCP 的「Further authentication required」）；
+          第二因子就在交互提示里（WinSCP 的「Further authentication required」）。
+          **该例外与所选的认证方式无关**：用户选「密钥」时服务器要密码，同样要弹框，
+          而不是直接报「请改用密码 + 密钥」再让他去改配置（v1.10.18 修复）；
         - `publickey` 只在服务器仍列着它、且未超过本轮上限时才选（是否真的重发由
           `_continue_auth` 按 `key_accepted` 决定）。
         """
@@ -1429,10 +1466,11 @@ class SshSession:
         if not interactive_used_up:
             if "keyboard-interactive" in allowed:
                 return "keyboard-interactive"
-            if not password and "password" in allowed and key is not None and expects_password:
-                # 密钥已用过、本地没有密码、服务器又要 password：这类网关（用户实测
+            if not password and "password" in allowed and key is not None:
+                # 有私钥、本地没有密码、服务器又要 password：这类网关（用户实测
                 # Maverick）的第二个因子实际在键盘交互里问 Password，走弹层输入。
-                # 纯密码连接（没有密钥）不走这条，避免把「没填密码」变成一次交互尝试。
+                # **不看所选的认证方式** —— 用户选「密钥」时也该弹框，而不是报配置错误。
+                # 纯密码连接（没有私钥）不走这条，避免把「没填密码」变成一次交互尝试。
                 return "keyboard-interactive"
         if key is not None and "publickey" in allowed:
             if attempts.get("publickey", 0) < MAX_METHOD_ATTEMPTS["publickey"]:
@@ -1491,15 +1529,24 @@ class SshSession:
         return self._ask_interactive(text or instructions or title)
 
     def _ask_interactive(self, prompt: str) -> str:
-        """把服务器提示交给渲染层输入（超时/未回答返回空串，认证会继续失败并可重试）"""
+        """
+        把服务器提示交给渲染层输入（超时/未回答返回空串，认证会继续失败并可重试）。
+
+        空输入会记到 `_interactive_empty`：认证失败时据此告诉用户「弹框没收到输入」，
+        而不是笼统地说「密码不对」或「密钥被拒」。
+        """
         if self.otp_ask is None:
+            self._interactive_empty = True
             return ""
         message = str(prompt or "").strip() or "服务器要求继续认证"
         try:
-            return str(self.otp_ask(message) or "")
+            answer = str(self.otp_ask(message) or "")
         except Exception as exc:  # noqa: BLE001 - UI 回调异常不拖垮认证线程
             logger.debug("键盘交互输入失败：%s", exc)
-            return ""
+            answer = ""
+        if not answer:
+            self._interactive_empty = True
+        return answer
 
     def _read_loop(self) -> None:
         """持续读取远端输出并交给回调"""

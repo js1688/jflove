@@ -154,6 +154,11 @@ class _FakeTransport:
         self.calls.append("password")
         self._consume()
 
+    def auth_interactive(self, _username: str, _handler: Any) -> None:
+        """v1.10.18：密钥通过后本地无密码时会改走键盘交互（替身要支持）"""
+        self.calls.append("keyboard-interactive")
+        self._consume()
+
     def _consume(self) -> None:
         step = self.steps.pop(0) if self.steps else "ok"
         if step == "ok":
@@ -212,10 +217,27 @@ def test_authenticate_key_only_with_password_field() -> None:
     assert transport.calls == ["publickey", "password"]
 
 
-def test_authenticate_key_requires_password_hint() -> None:
-    """只配密钥但服务器还要密码：提示切换「密码 + 密钥」"""
+def test_authenticate_key_without_password_prompts_keyboard_interactive() -> None:
+    """
+    v1.10.18 行为变更：只配密钥、服务器还要密码、本地没有密码时**走键盘交互**（弹框），
+    不再直接报「请改用密码 + 密钥」把用户挡在门外。
+
+    依据：用户实测的网关把第二个因子放在键盘交互里（WinSCP 的 Further authentication
+    required），选「密钥」时同样该弹框；只有连键盘交互也被服务器拒绝，才回退到配置提示。
+    """
     session = SshSession(_row("publickey"))
     transport = _FakeTransport([PartialAuthentication(["password"])])
+    session._authenticate(transport, session.connection)
+    assert transport.calls == ["publickey", "keyboard-interactive"]
+    assert transport.is_authenticated()
+
+
+def test_authenticate_key_hints_password_when_keyboard_interactive_rejected() -> None:
+    """键盘交互也走不通时，仍要给出「改用密码 + 密钥」这类可执行提示"""
+    session = SshSession(_row("publickey"))
+    transport = _FakeTransport(
+        [PartialAuthentication(["password"]), AuthenticationException("no")]
+    )
     with pytest.raises(AuthError, match="密码"):
         session._authenticate(transport, session.connection)
 
