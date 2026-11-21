@@ -57,6 +57,24 @@ description: "桌面端工程师，负责 jflove-desktop 跨平台桌面应用�
 
 > **版本迭代前置**：见 `AGENTS.md §7.6`。
 
+## SSH 多步认证（硬约束）
+
+`src/services/ssh_session.py::_AuthChannel` 规定：**整次认证只开一条 `ssh-userauth` 会话**（RFC 4252 §4）。
+
+- **禁止**直接用 `transport.auth_publickey` / `auth_password` / `auth_interactive` 跑多步认证：
+  paramiko 这三个便利方法**每调用一次就新建 `AuthHandler` 并重发一次
+  `SSH_MSG_SERVICE_REQUEST("ssh-userauth")`**（`paramiko/auth_handler.py::_request_auth`）。
+  部分网关（`SSH-2.0-UNLAWFUL ENTRY…` 一类）把「新的服务请求」当作**认证进度重置**，
+  于是「公钥过了 → 密码被拒，服务器仍要求 publickey」。
+- 新增认证路径必须走 `_AuthChannel`（`publickey` / `password` / `interactive` 三入口），
+  它只在首步开服务，后续只发 `SSH_MSG_USERAUTH_REQUEST`。
+- **判据**：任何新增/改动的认证用例都断言「一次完整认证中服务请求计数 == 1」
+  （`tests/test_remote_single_userauth_v1_10_21.py` 是模板）。
+- **排障顺序**：先抓客户端报文序列（`SERVICE_REQUEST` 出现几次），再讨论「该发哪个方法」——
+  否则会在方法选择上反复返工（v1.10.13→1.10.20 连续八版即此坑）。
+- 报文组装**复用** paramiko 的 `_get_key_type_and_bits` / `_finalize_pubkey_algorithm` /
+  `_get_session_blob` / `sign_ssh_data`，**不要自行实现签名与编码**。
+
 ## 渲染层硬约束（不可降级）
 
 1. **渲染层（JS）无网络出口**
