@@ -67,7 +67,7 @@ class _AuthChannel:
     `auth_interactive` **每调用一次就新建一个 `AuthHandler`，并重发一次
     `SSH_MSG_SERVICE_REQUEST("ssh-userauth")`**（`auth_handler.py::_request_auth`）。
 
-    标准客户端（OpenSSH / JSch / WinSCP）整个认证过程**只发一次**服务请求，
+    标准客户端（OpenSSH 及各类图形 / Java 客户端）整个认证过程**只发一次**服务请求，
     之后在同一会话里连续发多条 `SSH_MSG_USERAUTH_REQUEST`。部分网关（用户的
     `UNLAWFUL ENTRY…` 那台）会把「新的 ssh-userauth 服务请求」当作**认证进度重置**，
     于是出现这条死结：
