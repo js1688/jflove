@@ -177,14 +177,20 @@ export function RemoteConnectionForm({
     setError('');
     if (!name.trim()) return setError('名称不能为空');
     if (!host.trim()) return setError('主机不能为空');
-    // 「密钥 + 连上后弹框输密码」的网关（第二个因子走键盘交互）在保存时拿不到账号密码：
-    // 只要选了密钥类认证并提供了私钥，就允许密码留空 —— 连接时缺密码会弹层补。
-    const passwordOptional = needsKey && (privateKey.trim() !== '' || keyToken !== '');
-    if (needsPassword && !passwordOptional && mode === 'create' && !password) {
-      return setError('该认证方式需要密码');
-    }
     if (needsKey && mode === 'create' && !privateKey && !keyToken) {
       return setError('该认证方式需要私钥（粘贴内容或选择文件）');
+    }
+    /**
+     * 「密码 + 密钥」允许密码留空（与服务端同口径：`ssh_service.normalize` 在有私钥时放行）。
+     *
+     * 这类网关在保存时**根本拿不到账号密码**（WinSCP 也是连上后才弹框），
+     * 逼用户先填只会让他反复试错。判据必须是「有私钥」——
+     * 新建看本次输入，编辑看库里已存的那把（`hasSavedKey`）。
+     */
+    const keyAvailable = privateKey.trim() !== '' || keyToken !== '' || hasSavedKey;
+    const passwordOptional = authType === 'password_publickey' && keyAvailable;
+    if (needsPassword && !passwordOptional && mode === 'create' && !password) {
+      return setError('该认证方式需要密码');
     }
     if (initCommand.includes('\n') || initCommand.includes('\r')) {
       return setError('连接后执行命令只能是单行');

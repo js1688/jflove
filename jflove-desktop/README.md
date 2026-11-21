@@ -266,7 +266,25 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
   不再误导去查 `authorized_keys`。**已知边界**：每条连接只支持一把私钥，两把私钥的服务器仍不支持。
 - **多跳定位**：认证 / 主机指纹失败统一带 `跳板 N / 目标 + host:port` 前缀。
 
-### SSH 认证流程（按 RFC 4252 的 authlist 推进）
+### SSH 认证流程（一条 userauth 会话内推进，v1.10.21）
+
+**整次认证只开一条 `ssh-userauth` 会话**（RFC 4252 §4 的「服务器驱动、会话内多步推进」）。
+
+这是 v1.10.21 修的根因：`paramiko` 的 `Transport.auth_publickey` / `auth_password` /
+`auth_interactive` **每调用一次就新建 `AuthHandler` 并重发一次
+`SSH_MSG_SERVICE_REQUEST("ssh-userauth")`**。部分网关（如 `SSH-2.0-UNLAWFUL ENTRY…` 那台）
+把「新的服务请求」当作**认证进度重置**，于是：
+
+```text
+publickey    → partial：允许 password     （公钥这一步过了）
+重发服务请求 → 网关把「公钥已通过」清掉
+password     → 网关认为公钥还没过 ⇒ 拒绝，只列 publickey
+```
+
+表现就是「密码明明正确却被拒，服务器仍要求 `publickey`」。标准客户端
+（OpenSSH / JSch / WinSCP）全程只发一次服务请求，所以它们能连。
+实现见 `src/services/ssh_session.py::_AuthChannel`：首步正常开服务，
+后续只发 `SSH_MSG_USERAUTH_REQUEST`，报文序列与标准客户端一致。
 
 认证方法**只由服务器返回的 authlist 决定**，客户端不猜测、不试探、不发送未列出的方法：
 
@@ -289,6 +307,8 @@ JFLove 桌面客户端：**原生外壳（PySide6）+ Web UI（QtWebEngine 渲�
   `rejected` 与「服务器已给出下一步」时都不回退。
 - 诊断行带 `认证序列=`（只含方法名），失败文案据此说明卡在哪一步、服务器当前列了什么。
 - 同一凭据不原地重复打：存储的密码被拒一次后不再重打（改由弹框重填）。
+- **「密码 + 密钥」允许密码留空**（前端与服务端同口径）：这类网关在保存时拿不到账号密码，
+  连上后弹框再输入即可。
 
 ## 技术架构
 

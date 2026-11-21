@@ -58,6 +58,134 @@ MAX_METHOD_ATTEMPTS = {"password": 2, "publickey": 3, "keyboard-interactive": 1}
 #: `server-sig-algs` 暂存哨兵（区分「扩展不存在」与「扩展值为空」）
 _LEGACY_EXT_UNSET = object()
 
+
+class _AuthChannel:
+    """
+    一条**贯穿整次认证**的 `ssh-userauth` 会话（RFC 4252 §4 的「一步接一步」模型）。
+
+    为什么必须自己管：`paramiko.Transport.auth_publickey` / `auth_password` /
+    `auth_interactive` **每调用一次就新建一个 `AuthHandler`，并重发一次
+    `SSH_MSG_SERVICE_REQUEST("ssh-userauth")`**（`auth_handler.py::_request_auth`）。
+
+    标准客户端（OpenSSH / JSch / WinSCP）整个认证过程**只发一次**服务请求，
+    之后在同一会话里连续发多条 `SSH_MSG_USERAUTH_REQUEST`。部分网关（用户的
+    `UNLAWFUL ENTRY…` 那台）会把「新的 ssh-userauth 服务请求」当作**认证进度重置**，
+    于是出现这条死结：
+
+    ```text
+    发 publickey   → 服务器 partial：允许 password     （公钥这一步过了）
+    重发服务请求   → 服务器把「公钥已通过」清掉
+    发 password    → 服务器认为公钥还没过 ⇒ 拒绝，且只列 publickey
+    ```
+
+    表现就是「密码明明正确却被拒，服务器仍要求 publickey」，与报错文案完全一致。
+
+    本类复用**同一个** `AuthHandler`：第一跳发服务请求，后续只发 userauth 报文。
+    """
+
+    def __init__(self, transport: paramiko.Transport, username: str) -> None:
+        self.transport = transport
+        self.username = username
+        #: 是否已经发过 `SSH_MSG_SERVICE_REQUEST`（决定下一步是否还要发）
+        self._opened = False
+        #: 复用的 paramiko 认证处理器（同一实例 ⇒ 不会重发服务请求）
+        self._handler: paramiko.auth_handler.AuthHandler | None = None
+
+    # ── 公开方法 ─────────────────────────────────────────────
+
+    def publickey(self, username: str, key: paramiko.PKey) -> list[str]:
+        """用私钥认证一次（首次会开 userauth 服务，之后复用）"""
+        return self._run("publickey", username, key=key)
+
+    def password(self, username: str, password: str) -> list[str]:
+        """用账号密码认证一次（复用同一条 userauth 会话）"""
+        return self._run("password", username, password=password)
+
+    def interactive(self, username: str, answers: Callable) -> list[str]:
+        """用键盘交互认证一次（复用同一条 userauth 会话）"""
+        return self._run("keyboard-interactive", username, answers=answers)
+
+    # ── 内部实现 ─────────────────────────────────────────────
+
+    def _run(
+        self,
+        method: str,
+        username: str,
+        *,
+        key: paramiko.PKey | None = None,
+        password: str = "",
+        answers: Callable | None = None,
+    ) -> list[str]:
+        """
+        发出一条认证请求并等待服务器结论。
+
+        :returns: 服务器给出的「还能继续的方法」列表（空列表表示没有下一步）
+        :raises PartialAuthentication: 兼容旧实现的 partial 语义
+        :raises paramiko.BadAuthenticationType: 该方式不被允许
+        :raises paramiko.AuthenticationException: 凭据错误
+        """
+        import threading as _threading
+
+        handler = self._handler
+        if handler is None:
+            handler = paramiko.auth_handler.AuthHandler(self.transport)
+            self._handler = handler
+            # 必须挂回 transport：run 循环靠 `transport.auth_handler._handler_table`
+            # 分发 SERVICE_ACCEPT / USERAUTH_SUCCESS / USERAUTH_FAILURE 等报文。
+            self.transport.auth_handler = handler
+        handler.username = username
+        handler.auth_method = method
+        handler.auth_event = _threading.Event()
+        if key is not None:
+            handler.private_key = key
+        if method in ("password", "keyboard-interactive"):
+            # 空串也要赋值：`_send_request` 会把它编码成空口令（None 会直接抛异常）
+            handler.password = password
+        if answers is not None:
+            handler.interactive_handler = answers
+
+        if self._opened:
+            # 关键：已开过 userauth 服务 ⇒ 直接发请求报文，绝不重发服务请求
+            self._send_request(handler)
+        else:
+            # 第一步：正常走 paramiko 的服务请求（由 _parse_service_accept 接着发请求）
+            handler._request_auth()
+            self._opened = True
+
+        return handler.wait_for_response(handler.auth_event)
+
+    def _send_request(self, handler: paramiko.auth_handler.AuthHandler) -> None:
+        """
+        手工组装并发送 `SSH_MSG_USERAUTH_REQUEST`（等价于 paramiko 收到服务接受后的行为）。
+
+        复用 paramiko 自己的报文构造逻辑，避免自行实现签名/编码出错。
+        """
+        message = paramiko.message.Message()
+        message.add_byte(paramiko.common.cMSG_USERAUTH_REQUEST)
+        message.add_string(handler.username)
+        message.add_string("ssh-connection")
+        message.add_string(handler.auth_method)
+        if handler.auth_method == "password":
+            message.add_boolean(False)
+            message.add_string(paramiko.util.b(handler.password))
+        elif handler.auth_method == "publickey":
+            key_type, bits = handler._get_key_type_and_bits(handler.private_key)
+            algorithm = handler._finalize_pubkey_algorithm(key_type)
+            message.add_boolean(True)
+            message.add_string(algorithm)
+            message.add_string(bits)
+            blob = handler._get_session_blob(
+                handler.private_key, "ssh-connection", handler.username, algorithm
+            )
+            message.add_string(handler.private_key.sign_ssh_data(blob, algorithm))
+        elif handler.auth_method == "keyboard-interactive":
+            message.add_string("")
+            message.add_string(handler.submethods or "")
+        else:  # pragma: no cover - 只有上面三种会被调用
+            raise paramiko.SSHException(f"不支持的认证方式：{handler.auth_method}")
+        self.transport._send_message(message)
+
+
 #: 认证方式的中文名（错误提示用，不把枚举值直接抛给用户）
 AUTH_TYPE_LABELS = {
     "password": "密码",
@@ -953,6 +1081,12 @@ class SshSession:
         password_sent = False
         # 起始诊断：先用协商事实兜底，公钥下发后会被更详细的摘要覆盖
         diag = self._peer_facts(transport)
+        #: **整次认证共用一条 ssh-userauth 会话**：paramiko 的 auth_* 每调用一次都会重发
+        #: SERVICE_REQUEST，被「把新服务请求当作认证进度重置」的网关（用户那台
+        #: UNLAWFUL ENTRY…）打回 publickey。这里复用一个 handler，只开一次服务。
+        #: 挂在实例上而不是逐层传参：`_attempt_auth` / `_attempt_legacy_rsa` 的签名
+        #: 保持原样（测试替身与既有用例不受影响）。
+        self._active_auth_channel = self._auth_channel(transport, username)
 
         try:
             # 不发送 `none` 探测：部分网关限制认证尝试次数（如 MaxAuthTries=2），
@@ -1131,6 +1265,8 @@ class SshSession:
         finally:
             # 旧式 ssh-rsa 模式只在本轮认证内有效，成功/失败都要恢复
             self._exit_legacy_rsa(transport)
+            # userauth 会话绑定在本次连接的 transport 上，认证结束即释放引用
+            self._active_auth_channel = None
 
     @staticmethod
     def _auth_secret(
@@ -1240,27 +1376,37 @@ class SshSession:
         *,
         key: paramiko.PKey | None = None,
         password: str = "",
+        channel: "_AuthChannel | None" = None,
     ) -> tuple[str, set[str]]:
         """
         执行一次认证方法尝试。
 
+        :param channel: 本连接共用的 userauth 会话（多步认证必须复用；见 `_AuthChannel`）
         :returns: `(状态, 服务器允许的下一轮方式)`；状态为
                   `ok`（通过/部分通过）、`rejected`（该方式不被允许）、`failed`（凭据错误）
         """
+        if channel is None:
+            channel = getattr(self, "_active_auth_channel", None)
         try:
             if method == "publickey":
-                remaining = transport.auth_publickey(username, key)
+                if channel is not None:
+                    remaining = channel.publickey(username, key)
+                else:
+                    remaining = transport.auth_publickey(username, key)
             elif method == "keyboard-interactive":
                 handler = getattr(transport, "auth_interactive", None)
-                if handler is None:
-                    raise paramiko.SSHException(
-                        "当前 SSH 实现不支持键盘交互认证"
-                    )
-                remaining = handler(
-                    username, self._make_interactive_handler(username, password)
-                )
+                if channel is None and handler is None:
+                    raise paramiko.SSHException("当前 SSH 实现不支持键盘交互认证")
+                answers = self._make_interactive_handler(username, password)
+                if channel is not None:
+                    remaining = channel.interactive(username, answers)
+                else:
+                    remaining = handler(username, answers)
             else:
-                remaining = transport.auth_password(username, password)
+                if channel is not None:
+                    remaining = channel.password(username, password)
+                else:
+                    remaining = transport.auth_password(username, password)
         except PartialAuthentication as exc:  # 兼容抛出 partial 的旧实现
             return "ok", set(exc.allowed_types or ())
         except paramiko.BadAuthenticationType as exc:
@@ -1268,6 +1414,19 @@ class SshSession:
         except paramiko.AuthenticationException:
             return "failed", set()
         return "ok", set(remaining or ())
+
+    def _auth_channel(
+        self, transport: paramiko.Transport, username: str
+    ) -> "_AuthChannel | None":
+        """
+        取（或创建）本连接共用的 userauth 会话。
+
+        只对**真实 paramiko transport** 生效；测试替身（自定义 `auth_*` 方法）返回
+        `None`，继续走 transport 自身的 `auth_*`，保持既有替身用例不受影响。
+        """
+        if not isinstance(transport, paramiko.Transport):
+            return None
+        return _AuthChannel(transport, username)
 
     def _fail_auth(self, exc: AuthError, diag: str) -> AuthError:
         """
