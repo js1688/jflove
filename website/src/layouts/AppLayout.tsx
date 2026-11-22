@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet } from 'react-router';
-import { siteVersion } from '../content';
+import { ISSUES_URL, REPO_URL, siteVersion } from '../content';
 
 /**
  * 全站布局：顶栏 + 内容 + 页脚。
@@ -21,7 +21,7 @@ const FOOT_LINKS: { title: string; items: { to: string; label: string }[] }[] = 
     items: [
       { to: '/features', label: '功能特性' },
       { to: '/download', label: '下载' },
-      { to: '/install', label: '安装指引' },
+      { to: '/download', label: '下载与安装' },
     ],
   },
   {
@@ -47,6 +47,13 @@ const FOOT_LINKS: { title: string; items: { to: string; label: string }[] }[] = 
       { to: '/docs#changelog', label: '更新日志' },
     ],
   },
+];
+
+/** 页脚里需要外链的项（GitHub / 问题反馈），单独渲染 */
+const FOOT_EXTERNAL: { label: string; href: string }[] = [
+  { label: 'GitHub 仓库', href: REPO_URL },
+  { label: '问题反馈', href: ISSUES_URL },
+  { label: 'Releases', href: `${REPO_URL}/releases` },
 ];
 
 export function AppLayout() {
@@ -80,6 +87,17 @@ export function AppLayout() {
             <span className="tnum rounded border border-line px-2 py-0.5 text-[12.5px] text-ink-500">
               v{siteVersion}
             </span>
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noreferrer"
+              title="开源仓库"
+              aria-label="GitHub 开源仓库"
+              className="hidden items-center gap-1.5 rounded-[7px] border border-line px-3 py-2 text-[13px] text-ink-700 transition-colors hover:border-brand-500 hover:text-brand-600 sm:inline-flex"
+            >
+              <GitHubIcon />
+              GitHub
+            </a>
             <Link
               to="/download"
               className="rounded-[7px] bg-brand-500 px-4 py-2 text-[13.5px] font-[520] text-white transition-colors hover:bg-brand-600"
@@ -121,13 +139,42 @@ export function AppLayout() {
                 ))}
               </div>
             ))}
+            <div className="text-[12.8px]">
+              <div className="mb-2 font-[600] text-ink-900">开源</div>
+              {FOOT_EXTERNAL.map((item) => (
+                <a
+                  key={item.href}
+                  href={item.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mb-1.5 block text-ink-500 transition-colors hover:text-brand-600"
+                >
+                  {item.label}
+                </a>
+              ))}
+            </div>
           </div>
           <div className="tnum mt-8 flex flex-wrap justify-between gap-2.5 border-t border-line pt-5 text-[12px] text-ink-500">
             <span>© 2026 JFLove · 本站版本 v{siteVersion}（与项目版本一致）</span>
-            <span>ghcr.io/js1688/jflove-website:{siteVersion}</span>
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <a href={REPO_URL} target="_blank" rel="noreferrer" className="hover:text-brand-600">
+                github.com/js1688/jflove
+              </a>
+              <span aria-hidden className="text-ink-300">·</span>
+              <span>ghcr.io/js1688/jflove-website:{siteVersion}</span>
+            </span>
           </div>
         </div>
       </footer>
     </div>
+  );
+}
+
+/** GitHub 图标（内联 SVG，不引外部资源） */
+function GitHubIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+    </svg>
   );
 }

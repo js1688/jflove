@@ -11,6 +11,7 @@ import featuresJson from '../../content/features.json';
 import routesJson from '../../content/api-routes.json';
 import metaJson from '../../content/meta.json';
 import openapiJson from '../../content/api-openapi.json';
+import releasesJson from '../../content/releases.json';
 
 export interface FeatureSupport {
   [platform: string]: string;
@@ -73,6 +74,25 @@ export interface OpenApiGroup {
   operations: OpenApiOperation[];
 }
 
+/** 一个可下载产物（来自 GitHub Release，禁止手写） */
+export interface ReleaseAsset {
+  kind: string;
+  name: string;
+  size: number;
+  size_human: string;
+  url: string;
+  state: string;
+}
+
+export interface ReleasesManifest {
+  version: string;
+  tag: string;
+  published_at: string;
+  release_url: string;
+  assets: ReleaseAsset[];
+  ignored_assets: string[];
+}
+
 export interface OpenApiManifest {
   source: string;
   openapi: string;
@@ -87,6 +107,15 @@ export const features = featuresJson as FeaturesManifest;
 export const apiRoutes = routesJson as ApiRoutesManifest;
 export const meta = metaJson as MetaManifest;
 export const openapi = openapiJson as OpenApiManifest;
+export const releases = releasesJson as ReleasesManifest;
+
+/**
+ * 取某类产物。**页面禁止自己拼文件名 / 写体积**（`AGENTS.md §10.2`）。
+ * 找不到返回 undefined，由调用方决定如何降级显示。
+ */
+export function releaseAsset(kind: string): ReleaseAsset | undefined {
+  return releases.assets.find((a) => a.kind === kind);
+}
 
 /** 当前官网版本 = 项目版本（由 sync_version.py 同步，禁止手改） */
 export const siteVersion: string = meta.version;
@@ -112,3 +141,9 @@ export function supportCount(platform: string): number {
 export const allOperations: OpenApiOperation[] = openapi.groups.flatMap(
   (g) => g.operations,
 );
+
+/** 开源仓库地址（官网多处引用，集中一处避免写错） */
+export const REPO_URL = 'https://github.com/js1688/jflove';
+
+/** 问题反馈 / 新建议入口 */
+export const ISSUES_URL = `${REPO_URL}/issues`;

@@ -67,8 +67,18 @@ jobs:
           pip install -r website/requirements-gen.txt
           python website/scripts/gen_api_docs.py
 
+      # 下载产物清单：文件名/体积/直链一律从 GitHub Release 取，禁止页面手写。
+      # 资产缺失会让本步骤失败 —— 这是**故意**的拦截点（先发产品，最后更新官网）。
+      - name: 生成下载产物清单（Release 资产）
+        env:
+          # CI 内用 token 调用 API，避免匿名限流（60 次/小时/IP）
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python website/scripts/gen_releases.py
+
       # 内容一致性门禁：内容陈旧 / 版本漂移 / Logo 不一致都在这拦住
       - name: 内容一致性门禁
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python scripts/check_website_sync.py
           python scripts/check_website_sync.py --self-test

@@ -1,0 +1,15 @@
+# 官网模块自身的构建产物
+#
+# 为什么单独放一份而不是改根 .gitignore：
+#   根 .gitignore 属项目公共配置（AGENTS.md §10.4 明确禁止官网改动它），
+#   而本文件在 website/ 白名单内，只作用于官网模块，互不干扰。
+
+# TypeScript 增量编译信息：每次构建都变，跟踪它只会制造 diff 噪音
+*.tsbuildinfo
+
+# 构建产物与依赖
+dist/
+node_modules/
+
+# 本地截图/验证的临时目录
+.tmp/

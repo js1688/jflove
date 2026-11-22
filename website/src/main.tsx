@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createBrowserRouter, RouterProvider } from 'react-router';
+import { createBrowserRouter, Navigate, RouterProvider } from 'react-router';
 import './index.css';
 import { AppLayout } from './layouts/AppLayout';
 import { HomePage } from './pages/HomePage';
@@ -9,7 +9,6 @@ import { DocsPage } from './pages/DocsPage';
 import { ApiPage } from './pages/ApiPage';
 import { ApiAnnouncementsPage } from './pages/ApiAnnouncementsPage';
 import { DownloadPage } from './pages/DownloadPage';
-import { InstallPage } from './pages/InstallPage';
 import { GuidePage } from './pages/GuidePage';
 import { SecurityPage } from './pages/SecurityPage';
 
@@ -30,7 +29,8 @@ const router = createBrowserRouter([
       { path: 'api', element: <ApiPage /> },
       { path: 'api-announcements', element: <ApiAnnouncementsPage /> },
       { path: 'download', element: <DownloadPage /> },
-      { path: 'install', element: <InstallPage /> },
+      // 下载与安装已合并（用户反馈）：/install 保留以兼容旧链接，直接落到 /download
+      { path: 'install', element: <Navigate to="/download" replace /> },
       { path: 'guide/:platform', element: <GuidePage /> },
       { path: 'security', element: <SecurityPage /> },
     ],

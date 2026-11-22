@@ -26,11 +26,11 @@ export function DocsPage() {
 
           <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <EntryCard
-              to="/install"
-              title="安装指引"
+              to="/download"
+              title="下载与安装"
               badge="4 类产物"
-              desc="Windows 安装包与便携版、Fedora RPM、Android APK。含服务端需要开放的明文接口、各端怎么填服务器地址。"
-              cta="按端查看"
+              desc="每端一个直接下载按钮 + 分步安装说明；服务端含 Docker 前置条件、参数作用与一键更新脚本。"
+              cta="去下载安装"
               tags={['Windows', 'Fedora', 'Android', '服务端']}
             />
             <EntryCard

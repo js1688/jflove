@@ -598,6 +598,53 @@ def check_screenshots_versioned() -> Result:
     return _fail("⑫截图版本绑定", detail[-10:] or ["截图台账校验失败"])
 
 
+def check_releases_sync() -> Result:
+    """判据 ⑬：下载页的产物清单必须与 GitHub Release 当前资产逐项一致。
+
+    为什么必须有这条（`AGENTS.md §10.2` 的硬要求）：
+        下载页曾把文件名与体积**手写**在页面里。手写必然出三类事故：
+          ① 发版后忘了改官网 ⇒ 按钮指向不存在的文件（死链）；
+          ② 体积写错 ⇒ 用户以为下错了；
+          ③ 版本号改了但文件名没跟着改（文件名含版本号）。
+        改成"构建期从 Release API 取 + 门禁比对"后，这三类都不可能发生。
+
+    校验内容（委托 `website/scripts/gen_releases.py --check`）：
+      ① 最新 Release 的 tag 版本必须等于 version.json；
+      ② 四类产物（Windows 安装版/便携版、Linux RPM、Android APK）必须齐全；
+      ③ 每个资产的 name / size 必须与官网登记的一致（死链在构建期就被拦）。
+    """
+    script = WEBSITE_DIR / "scripts" / "gen_releases.py"
+    manifest = CONTENT_DIR / "releases.json"
+
+    if not script.is_file():
+        return _fail("⑬Release产物一致", ["缺少 website/scripts/gen_releases.py"])
+    if not manifest.is_file():
+        return _fail(
+            "⑬Release产物一致",
+            [
+                f"缺少 {manifest.relative_to(REPO_ROOT)}",
+                "修法：python website/scripts/gen_releases.py",
+            ],
+        )
+
+    import subprocess
+
+    proc = subprocess.run(
+        [sys.executable, str(script), "--check"],
+        cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8",
+    )
+    if proc.returncode == 0:
+        data = _load_json(manifest)
+        kinds = ", ".join(a["kind"] for a in data.get("assets", []))
+        return _ok(
+            "⑬Release产物一致",
+            f"v{data.get('version')} 的 {len(data.get('assets', []))} 个产物与 Release 一致（{kinds}）",
+        )
+
+    detail = (proc.stdout or proc.stderr).strip().splitlines()
+    return _fail("⑬Release产物一致", detail[-10:] or ["产物清单校验失败"])
+
+
 def check_pages_consume_manifest() -> Result:
     """页面存在后，禁止把特性清单 / 路由清单硬编码进 JSX。
 
@@ -649,6 +696,7 @@ CHECKS = (
     check_openapi_sync,
     check_design_spec,
     check_screenshots_versioned,
+    check_releases_sync,
     check_pages_consume_manifest,
 )
 

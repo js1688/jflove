@@ -31,7 +31,7 @@ description: "官网工程师，维护 JFLove 官方宣传站 / 文档站 / 下�
 
 | 项 | 定型内容 |
 | --- | --- |
-| **骨架** | 固定 9 个路由：`/` `/features` `/docs` `/api` `/api-announcements` `/download` `/install` `/guide/{desktop,web,mobile}` `/security` |
+| **骨架** | 固定 8 个路由：`/` `/features` `/docs` `/api` `/api-announcements` `/download`（含安装） `/guide/{desktop,web,mobile}` `/security`；`/install` 仅重定向到 `/download` |
 | **导航** | 顶栏固定 4 项（产品/功能/文档/下载）+ 版本号 + 下载按钮；页脚固定 4 列 |
 | **首页布局** | Hero → 4 个产品场景 → 三端概览 → **资料入口只有 1 个区块** |
 
@@ -59,7 +59,7 @@ python scripts/check_ui_facts.py
 | README「功能特性」 | 自动进 manifest，页面自动渲染（无需改页面） |
 | 后端接口增删 | 同上（OpenAPI 管线自动） |
 | 版本号 | `sync_version.py` 自动同步 |
-| Release 产物 | **手动**改下载页体积与文件名（外部数据，门禁不校验） |
+| Release 产物 | `gen_releases.py` 自动取（文件名/体积/直链），**禁止手写**；门禁⑬会拦死链 |
 | 三端 UI 变化 | 先改事实清单，再改指引，再重截截图 |
 | 每版收尾 | 必产 `文档记录/官网记录/<版本>.md` |
 
@@ -74,12 +74,9 @@ python scripts/check_ui_facts.py
 **机制**：`website/scripts/stamp_screenshots.py` 为每张图登记 `version` + `sha256`
 → `content/screenshots.json`；每端须有**版本锚点图**（`settings`，图上直接显示版本号）。
 
-**三条铁律**：
-
-1. **截图前核验客户端版本**：APK `aapt dump badging | grep versionName`；Web/桌面
-   `grep -o '1\.10\.[0-9]*' dist/**/*.js`。不等于 `version.json` 就重建。
-2. **重截图后重跑台账**：`python website/scripts/stamp_screenshots.py`（不跑 ⇒ ⑫ 红）。
-3. **升版本后必须重拍**：⑫ **故意设计成会红** —— 强迫发版时重新取证，不许拿旧图凑。
+**三条铁律**：① 截图前核验客户端版本（APK `aapt dump badging`，产物 `grep 版本号`），
+不等于 `version.json` 就重建；② 重截图后跑 `stamp_screenshots.py`；③ 升版本必须重拍
+（⑫ **故意会红**，强迫发版重新取证）。细节见 `website/docs/SPEC.md` §9.1。
 
 ### 三端真实截图是硬性标准（不是可选项）
 
@@ -118,6 +115,23 @@ adb shell uiautomator dump /sdcard/ui.xml                # ⑤ 取真实坐标�
 >    修法：`XDG_DATA_HOME` 指向临时目录（`shoot-desktop.py` 已内置）。
 > ② 移动端按截图像素估坐标点了 5 次全没反应 —— 底部导航实际在 y≈2300 而非 1795，
 >    且每次截图文件大小几乎一样就是"没翻页"的信号，必须用 uiautomator 取真实 bounds。
+
+## 发布时序（用户既定流程，不可颠倒）
+
+> **先发产品，最后再更新官网。**
+
+```
+产品发版（devops：tag → CI → Release 产物就绪）
+        ↓
+官网更新（website 技能，人工触发）
+```
+
+**为什么不能反**：官网下载链接指向 GitHub Release 资产，Release 没产物时链接是死的；
+截图也必须来自已发布的当前版本。
+
+开工第一件事：确认四个资产都是 `state=uploaded`（命令见 `website/docs/SPEC.md` §11）。
+**资产缺失 ⇒ 停下等产品发完**，不要先把官网推上去（会出现死链）。
+下载链接由 `releases/download/v<版本>/<文件名>` 拼出，版本号取 `content/meta.json`。
 
 ## 开工前置（每次必做，缺一不可）
 
@@ -185,17 +199,17 @@ git status --porcelain   # 白名单外出现任何改动 → 立即清理并向
 
 | 功能点 | 桌面端 | Web 端 | 移动端 |
 | --- | --- | --- | --- |
-| 上传按钮 | `上传`（顶部） | `上传`（顶部） | **`上传文件`**（图标按钮，tooltip） |
-| 上传机制 | **Qt 原生对话框**，Python 侧分片 | 浏览器 `<input type=file>` | 系统文件选择器 |
-| 拖拽上传 | ✅ Python 侧拦截 `dropEvent` | ✅ 浏览器 drag | ❌ 无 |
-| 文件操作入口 | 行尾**三点菜单** | 行尾**三点菜单** | **长按 → 底部弹层** |
-| 无写权限 | 按钮**整组消失**，显示 `只读` 徽章 | 同左 | 按钮**保留但禁用**，tooltip `无写权限` |
-| 主导航 | 侧栏 **7 项** | 侧栏 **4 项** | 底部 **6 项** |
-| 云盘挂载 / 文本编辑器 / 远程连接 | ✅ | ❌ | ❌ |
-| 相册同步 | ❌ | ❌ | ✅ |
-| 安全状态 | 独立菜单 | 独立菜单 | **塞在设置页内** |
-| 设置分区数 | **8** | **6** | **5** |
+| 上传按钮 | `上传` | `上传` | **`上传文件`**（图标 tooltip） |
+| 文件操作 | 行尾三点菜单 | 行尾三点菜单 | **长按 → 底部弹层** |
+| 无写权限 | 按钮消失 + `只读` 徽章 | 同左 | 按钮禁用 + `无写权限` |
+| 主导航 | 侧栏 **7** | 侧栏 **4** | 底部 **6** |
+| 桌面专属 | 云盘挂载 / 文本编辑器 / 远程连接 | ❌ | ❌ |
+| 移动专属 | ❌ | ❌ | 相册同步 |
+| 安全状态 | 独立菜单 | 独立菜单 | **在设置页内** |
+| 设置分区 | **8** | **5**（PC） | **5** |
 | 「服务端」叫法 | 服务端 | 服务端 | **服务器** |
+
+> 完整版（含上传机制、拖拽、逐条证据）见 `website/docs/SPEC.md` §4.6 与 `ui-facts*.md`。
 
 ### 强制流程
 
@@ -275,7 +289,7 @@ python scripts/check_skills.py                     # 技能形态 + 体积（退
 python scripts/check_ui_facts.py                   # ⑧ 事实清单可溯源（退出码 0）
 ```
 
-> 主门禁现为 **12 条**（①~⑪，含 ②b）。其中三条是本轮新增、容易忘的：
+> 主门禁现为 **14 条**（①~⑬，含 ②b）。其中三条是本轮新增、容易忘的：
 > ⑨ Logo 必须与产品逐字节一致｜⑩ OpenAPI 必须新鲜且与正则抽取交叉一致｜
 > ⑪ 设计稿不得出现渐变/大圆角/外链/字母方块 Logo。
 
@@ -386,16 +400,7 @@ grep -nE "tags:|'v\*'" .github/workflows/website-deploy.yml || echo "OK：不监
 - 确认后的审美判据写入 `website/docs/design-spec.md`，后续每轮按它核对，**不靠"我觉得好看"**。
 
 ## 常见问题
-
-| 现象 | 原因 | 处置 |
-| --- | --- | --- |
-| 门禁①红「内容已过期」 | 项目改了但没重跑抽取器 | `python website/scripts/extract_sources.py` |
-| 门禁②b红「版本快照」 | 改了 `version.json` 却只跑了 sync_version | 补跑抽取器（两步顺序见第 3 步） |
-| 门禁③红「表 11 行 ≠ manifest 10 条」 | README 速览表与小节不同步 | 先修 README（`AGENTS.md §8.3` 要求两处同次改），再重抽 |
-| 门禁④红「声明 74 条 ≠ manifest 66 条」 | 抽取正则漏了某种路由写法（如空路径 `""`） | 修 `extract_sources.py` 的 `_ROUTE_RE`，**不要**放宽判据 |
-| 抽取器报「装饰器声明 N 条但只解析出 M 条」 | 项目出现新的路由写法（本项目 74 是当前基线） | 扩展正则并重跑，**不要**关闭该断言 |
-| 门禁⑤红「官网多出明文路径」 | 安全页写了实现里没有的路径 | 以 `_PLAIN_PATHS` 为准更正页面 |
-| `check_skills.py` 报超 420 行 | 技能膨胀 | 压缩叙述，细则下沉到 `website/README.md` |
+门禁红了怎么修 → 见 `website/docs/SPEC.md` §12。
 
 ## 安全宪法约束（不可绕过）
 

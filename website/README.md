@@ -24,6 +24,8 @@ website/
 │   ├── features.json         # 功能特性（README「功能特性」）
 │   ├── api-routes.json       # 路由（正则抽取 controllers）
 │   ├── api-openapi.json      # 接口文档（app.openapi() 生成）
+│   ├── releases.json         # 下载产物（GitHub Release 生成，禁止手写）
+│   ├── screenshots.json      # 截图版本台账（version + sha256）
 │   └── meta.json             # 版本号 / 明文白名单 / 来源
 ├── docs/                     # 事实与规范（构建期不打包，供人读 + 门禁核对）
 │   ├── ui-facts*.md          # 三端 UI 事实清单（1179 条，逐条带 文件:行）
@@ -51,12 +53,13 @@ website/
 ```bash
 PY=jflove-server/venv-linux/bin/python
 
-# 1. 从项目真身重新抽取（两条管线，互为交叉验证）
+# 1. 从项目真身重新抽取（三条管线，互为交叉验证）
 $PY website/scripts/extract_sources.py     # 特性 + 路由（正则）
 $PY website/scripts/gen_api_docs.py        # 接口文档（app.openapi()）
+$PY website/scripts/gen_releases.py        # 下载产物（GitHub Release）
 
 # 2. 门禁（退出码即判据）
-$PY scripts/check_website_sync.py          # 12 条
+$PY scripts/check_website_sync.py          # 14 条（①~⑬，含 ②b）
 $PY scripts/check_website_sync.py --self-test
 $PY scripts/check_ui_facts.py              # 1179 条文案溯源到源码
 ```
@@ -74,6 +77,16 @@ npm run test        # vitest（14 passed）
 npm run build       # 产出 dist/
 npm run preview     # 本地预览 http://127.0.0.1:4173
 ```
+
+**一条命令端到端验证**（构建镜像 + 起容器 + 8 项检查 + 双视口截图）：
+
+```bash
+bash website/scripts/verify-site.sh              # 全流程
+bash website/scripts/verify-site.sh --no-build   # 复用已有镜像
+```
+
+检查项：版本号 / 14 条门禁 / 镜像构建 / 11 条路由 / `/install` 重定向 /
+下载链接指向真实 Release / 面包屑可点 / 双视口截图。退出码 0 即全部通过。
 
 双视口实机截图（复用项目既有 CDP 截图器，不引入 Playwright）：
 
@@ -100,6 +113,8 @@ node ../scripts/verify/web_shot.mjs --url http://127.0.0.1:4173/ \
 | ⑨ | 官网 Logo 与产品逐字节一致 | 品牌标识漂移 |
 | ⑩ | OpenAPI 新鲜且与正则抽取交叉一致 | 接口文档落后 |
 | ⑪ | 设计稿无渐变/大圆角/外链/字母方块 Logo | 违反已确认的视觉规范 |
+| ⑫ | 截图绑定当前版本 + 每端有版本锚点图 | 旧版本截图被当指引发布 |
+| ⑬ | 下载产物体积/文件名与 Release 一致 | 下载按钮死链 |
 
 ## 部署
 

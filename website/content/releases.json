@@ -1,0 +1,41 @@
+{
+  "version": "1.10.21",
+  "tag": "v1.10.21",
+  "published_at": "2026-11-21T03:15:49Z",
+  "release_url": "https://github.com/js1688/jflove/releases/tag/v1.10.21",
+  "assets": [
+    {
+      "kind": "android-apk",
+      "name": "app-release.apk",
+      "size": 70124206,
+      "size_human": "66.9 MB",
+      "url": "https://github.com/js1688/jflove/releases/download/v1.10.21/app-release.apk",
+      "state": "uploaded"
+    },
+    {
+      "kind": "linux-rpm",
+      "name": "jflove-desktop-1.10.21-1.fc43.x86_64.rpm",
+      "size": 281246844,
+      "size_human": "268.2 MB",
+      "url": "https://github.com/js1688/jflove/releases/download/v1.10.21/jflove-desktop-1.10.21-1.fc43.x86_64.rpm",
+      "state": "uploaded"
+    },
+    {
+      "kind": "windows-portable",
+      "name": "JFLove-1.10.21-win64-portable.zip",
+      "size": 281193010,
+      "size_human": "268.2 MB",
+      "url": "https://github.com/js1688/jflove/releases/download/v1.10.21/JFLove-1.10.21-win64-portable.zip",
+      "state": "uploaded"
+    },
+    {
+      "kind": "windows-setup",
+      "name": "JFLove-1.10.21-win64-setup.exe",
+      "size": 186126142,
+      "size_human": "177.5 MB",
+      "url": "https://github.com/js1688/jflove/releases/download/v1.10.21/JFLove-1.10.21-win64-setup.exe",
+      "state": "uploaded"
+    }
+  ],
+  "ignored_assets": []
+}

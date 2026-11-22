@@ -1,7 +1,25 @@
-import type { ReactNode } from 'react';
-import { Link } from 'react-router';
+import type { ReactNode } from "react";
+import { Link } from "react-router";
 
-/** 通用页面标题区：面包屑 + 大标题 + 导语 */
+/**
+ * 通用页面标题区：面包屑 + 大标题 + 导语。
+ *
+ * 面包屑的每一项都可点击跳转（用户反馈：不应该是纯文本）。
+ * `crumb` 用 ` / ` 分段，段名映射到路由；未登记的段退化为纯文本（如「功能详情」这种当前页）。
+ */
+const CRUMB_ROUTES: Record<string, string> = {
+  产品: "/",
+  文档: "/docs",
+  文档中心: "/docs",
+  功能详情: "/features",
+  下载: "/download",
+  安装指引: "/download",
+  下载与安装: "/download",
+  安全说明: "/security",
+  "API 文档": "/api",
+  "API 公告": "/api-announcements",
+};
+
 export function PageHead({
   crumb,
   title,
@@ -13,11 +31,46 @@ export function PageHead({
   lede: string;
   aside?: ReactNode;
 }) {
+  const parts = crumb
+    .split(" / ")
+    .map((p) => p.trim())
+    .filter(Boolean);
+
   return (
     <section className="border-b border-line">
       <div className="mx-auto max-w-[1140px] px-7 pt-14 pb-10">
-        <div className="mb-3 text-[12.5px] text-ink-500">{crumb}</div>
-        <h1 className="mb-3 text-[32px] font-[680] tracking-[-0.02em]">{title}</h1>
+        <nav
+          id="breadcrumb"
+          aria-label="面包屑"
+          className="mb-3 flex flex-wrap items-center gap-1 text-[12.5px] text-ink-500"
+        >
+          {parts.map((part, i) => {
+            const isLast = i === parts.length - 1;
+            const to = CRUMB_ROUTES[part];
+            return (
+              <span key={part + i} className="flex items-center gap-1">
+                {to && !isLast ? (
+                  <Link
+                    to={to}
+                    className="transition-colors hover:text-brand-600 hover:underline"
+                  >
+                    {part}
+                  </Link>
+                ) : (
+                  <span className={isLast ? "text-ink-700" : ""}>{part}</span>
+                )}
+                {!isLast ? (
+                  <span aria-hidden className="text-ink-300">
+                    /
+                  </span>
+                ) : null}
+              </span>
+            );
+          })}
+        </nav>
+        <h1 className="mb-3 text-[32px] font-[680] tracking-[-0.02em]">
+          {title}
+        </h1>
         <p className="max-w-[680px] text-[14.5px] text-ink-700">{lede}</p>
         {aside}
       </div>
@@ -84,11 +137,16 @@ export function EntryCard({
           </span>
         ) : null}
       </div>
-      <p className="mb-3 flex-1 text-[12.8px] leading-relaxed text-ink-500">{desc}</p>
+      <p className="mb-3 flex-1 text-[12.8px] leading-relaxed text-ink-500">
+        {desc}
+      </p>
       {tags?.length ? (
         <div className="mb-3 flex flex-wrap gap-1.5">
           {tags.map((t) => (
-            <span key={t} className="rounded bg-canvas-soft px-1.5 py-0.5 text-[11px] text-ink-500">
+            <span
+              key={t}
+              className="rounded bg-canvas-soft px-1.5 py-0.5 text-[11px] text-ink-500"
+            >
               {t}
             </span>
           ))}
@@ -125,7 +183,7 @@ export function KVTable({ rows }: { rows: [string, ReactNode][] }) {
         <div
           key={k + i}
           className={`grid grid-cols-[180px_1fr] gap-3 px-4 py-2.5 text-[13px] ${
-            i > 0 ? 'border-t border-line' : ''
+            i > 0 ? "border-t border-line" : ""
           }`}
         >
           <span className="font-[560] text-ink-900">{k}</span>

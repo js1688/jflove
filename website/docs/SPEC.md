@@ -8,7 +8,7 @@
 
 ## 1. 站点骨架（定型，不再增减页面）
 
-固定 **9 个路由**，一个不多一个不少：
+固定 **8 个路由**（`/install` 为兼容性重定向）：
 
 | 路由 | 页面 | 定位 |
 | --- | --- | --- |
@@ -17,8 +17,8 @@
 | `/docs` | 文档中心 | 轻量入口页 |
 | `/api` | API 文档 | 五步调用流程 + 接口清单 |
 | `/api-announcements` | API 公告 | 接口层变更 |
-| `/download` | 下载 | 产物清单 |
-| `/install` | 安装指引 | 服务端 + 三端 |
+| `/download` | **下载与安装** | 产物直链 + 前置条件 + 参数说明 + 更新脚本（原 `/install` 已合并进来） |
+| `/install` | （重定向） | 客户端重定向到 `/download`，保留旧链接兼容 |
 | `/guide/{desktop,web,mobile}` | 三端操作指引 | 逐菜单逐按钮 |
 | `/security` | 安全说明 | 协议与边界 |
 
@@ -165,7 +165,7 @@ PageHead
 | 功能特性 | README「功能特性」有增删 | `website/scripts/extract_sources.py` |
 | 接口清单 | 后端接口有增删改 | `website/scripts/gen_api_docs.py` |
 | 版本号 | `version.json` 变了 | `scripts/sync_version.py` |
-| 下载产物 | Release 有新资产 | 手改 `DownloadPage`（体积需人工核对） |
+| 下载产物 | Release 有新资产 | `website/scripts/gen_releases.py`（自动取文件名/体积/直链） |
 | 操作指引 | 三端 UI 有变化 | 先更新事实清单，再改指引 |
 | 截图 | UI 有变化 | 重跑截图工具 |
 | 更新日志 | 每版必产 | `文档记录/官网记录/<版本>.md` |
@@ -199,18 +199,18 @@ PageHead
 | 明文白名单 | `main.py::_PLAIN_PATHS` | `content/meta.json` |
 | 版本号 | 根 `version.json` | `content/meta.json` |
 | UI 文案 | 三端源码 | `docs/ui-facts-*.md` |
-| 产物体积 | GitHub Release（人工核对） | 页面内直接写 |
+| 产物文件名/体积/直链 | GitHub Releases API | `content/releases.json` |
 
 **页面禁止硬编码上述任何一项**（判据⑥会拦）。
 
 ---
 
-## 8. 质量门禁标准（13 条，全绿才算完成）
+## 8. 质量门禁标准（14 条，全绿才算完成）
 
 ```
 ①内容新鲜度 ②版本号 ②b版本快照 ③特性 ④API ⑤明文白名单
 ⑥页面消费数据源 ⑦指引有据可查 ⑧事实清单可溯源
-⑨Logo一致性 ⑩OpenAPI一致性 ⑪设计规范 ⑫截图版本绑定
+⑨Logo一致性 ⑩OpenAPI一致性 ⑪设计规范 ⑫截图版本绑定 ⑬Release产物一致
 ```
 
 **外加必跑的独立校验**：
@@ -302,3 +302,78 @@ python scripts/check_website_sync.py                 # ⑫ 必须绿
 1. 本文件是**站点骨架的定型文档**：日常更新只改内容（§5），不改骨架（§1-3）。
 2. 要改骨架 / 导航 / 布局，必须先让用户确认，再同步改：本文件 → 页面 → 设计稿 → 截图。
 3. 能写成门禁的规则（Logo 一致、文案溯源、OpenAPI 新鲜、设计规范）**不要只写在文档里**。
+
+---
+
+## 11. 发布时序与 Release 资产核对（强制）
+
+**先发产品，最后更新官网。**
+
+```
+产品发版（tag → CI → Release 产物就绪）
+        ↓
+官网更新（website 技能，人工触发）
+```
+
+开工第一件事：
+
+```bash
+curl -s https://api.github.com/repos/js1688/jflove/releases/latest | \
+  python3 -c "import json,sys;[print(a['name'],a['state'],a['size']) for a in json.load(sys.stdin)['assets']]"
+```
+
+四个资产（`win64-setup.exe` / `win64-portable.zip` / `*.rpm` / `app-release.apk`）
+必须都是 `state=uploaded`。**缺失就停下等产品发完** —— 先把官网推上去会出现死链。
+
+下载链接由 `https://github.com/js1688/jflove/releases/download/v<版本>/<文件名>` 拼出，
+版本号取 `content/meta.json`，禁止硬编码。
+
+---
+
+## 12. 门禁红了怎么修
+
+| 现象 | 原因 | 处置 |
+| --- | --- | --- |
+| 门禁①红「内容已过期」 | 项目改了但没重跑抽取器 | `python website/scripts/extract_sources.py` |
+| 门禁②b红「版本快照」 | 改了 `version.json` 却只跑了 sync_version | 补跑抽取器 |
+| 门禁③红「表 11 行 ≠ manifest 10 条」 | README 速览表与小节不同步 | 先修 README（`AGENTS.md §8.3`），再重抽 |
+| 门禁④红「声明 74 条 ≠ manifest 66 条」 | 抽取正则漏了某种路由写法（如空路径 `""`） | 修 `extract_sources.py` 的 `_ROUTE_RE`，**不要**放宽判据 |
+| 抽取器报「声明 N 条但只解析出 M 条」 | 项目出现新的路由写法 | 扩展正则并重跑，**不要**关闭断言 |
+| 门禁⑤红「官网多出明文路径」 | 安全页写了实现里没有的路径 | 以 `_PLAIN_PATHS` 为准更正页面 |
+| 门禁⑧红「文案在源码中找不到」 | 事实清单写错或代码已改 | 回源码核实：存在则修清单，不存在则删除该条 |
+| 门禁⑫红「台账版本 ≠ 项目版本」 | 升版本后没重截图 | 重截图 → `stamp_screenshots.py` |
+| 门禁⑫红「内容已变化」 | 换了图但没更新台账 | 重跑 `stamp_screenshots.py` |
+| 门禁⑬红「与 Release 不一致」 | 发版后没重跑产物清单，或资产没传完 | `gen_releases.py`；资产缺失就等产品 CI |
+| `check_skills.py` 报超 420 行 | 技能膨胀 | 压缩叙述，细则下沉到本文件 |
+
+---
+
+## 13. 本地验证（一条命令，退出码即判据）
+
+```bash
+bash website/scripts/verify-site.sh              # 全流程：构建镜像 + 起容器 + 全部检查
+bash website/scripts/verify-site.sh --no-build   # 复用已有镜像（快）
+```
+
+固定 8 项检查，任一失败即非 0 退出：
+
+| # | 检查 | 判据 |
+| --- | --- | --- |
+| ① | 版本号一致性 | `sync_version.py --check` 退出码 0 |
+| ② | 内容门禁 | `check_website_sync.py` 14/14 |
+| ③ | 镜像构建 | `docker build` 成功 |
+| ④ | 路由可达 | 8 条路由 + 3 条指引全部 200 |
+| ⑤ | `/install` 重定向 | **浏览器内** `location.pathname == /download`（`<Navigate>` 是客户端行为，curl 看不到） |
+| ⑥ | 下载链接 | 每个「立即下载」都指向 `github.com/js1688/jflove/releases/download/` |
+| ⑦ | 面包屑 | `#breadcrumb` 内至少有 1 个带 href 的链接 |
+| ⑧ | 双视口截图 | 桌面 1440 / 移动 390 各产出非空 PNG |
+
+**为什么固化成脚本**：这套动作此前每次更新都要手工敲一遍，漏一步就等于没验。
+脚本化后 `bash website/scripts/verify-site.sh` 一条命令、看退出码即可。
+
+### 两条实测教训（写进断言，避免复发）
+
+1. **`web_shot.mjs --eval` 对数字返回不带引号**（`eval: -1`），字符串才带引号。
+   提取数字时不要按 `eval: "123"` 匹配。
+2. **含中文的 CSS selector 经 shell → CDP 传递不可靠**。
+   需要断言的元素加**稳定 id**（如面包屑 `#breadcrumb`），不要依赖 `aria-label="面包屑"`。

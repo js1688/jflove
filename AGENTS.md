@@ -796,15 +796,19 @@ Step 5：发布（devops）
 | 功能特性 | 根 `README.md` §「功能特性」（速览表 + 小节） | `website/content/features.json` |
 | API 路由 | `jflove-server/src/controllers/*.py` | `website/content/api-routes.json` |
 | 明文白名单 | `jflove-server/src/main.py::_PLAIN_PATHS` | `website/content/meta.json` |
-| 各端产物 | GitHub Releases（匿名可读） | 页面运行时拉取，不写死体积 / 文件名 |
+| 各端产物 | GitHub Releases（匿名可读） | `website/content/releases.json`（`gen_releases.py` 构建期生成），**页面禁止手写体积 / 文件名**（判据⑬） |
 
 ### 10.3 门禁（退出码即判据，全绿才算更新完成）
 
 ```bash
 python website/scripts/extract_sources.py          # 重新抽取（只读项目，只写 website/content/）
-python scripts/check_website_sync.py               # ①~⑥（含 ②b）内容一致性
+python website/scripts/gen_api_docs.py             # 接口清单（从 app.openapi()）
+python website/scripts/gen_releases.py             # 下载产物（从 GitHub Release）
+python scripts/check_website_sync.py               # ⑭ 条判据（①~⑬，含 ②b）
 python scripts/check_website_sync.py --self-test   # 门禁自证：喂坏数据必须被拦住
+python scripts/check_ui_facts.py                   # ⑧ 事实清单可溯源
 python scripts/check_skills.py                     # 技能形态 + 体积
+bash   website/scripts/verify-site.sh              # 本地端到端验证（8 项，退出码即判据）
 ```
 
 | 判据 | 拦住什么 |
@@ -816,6 +820,13 @@ python scripts/check_skills.py                     # 技能形态 + 体积
 | ④ API 无遗漏 | controller 里有接口没进官网 |
 | ⑤ 明文白名单 | 安全说明与 §9.1 实现漂移 |
 | ⑥ 页面消费数据源 | 页面硬编码特性 / 路由，绕过 manifest |
+| ⑦ 指引有据可查 | 操作指引里的 UI 文案在事实清单里找不到（臆造按钮） |
+| ⑧ 事实清单可溯源 | 事实清单里的文案在源码里不存在 |
+| ⑨ Logo 一致 | 官网 Logo 与产品 Logo 不一致 |
+| ⑩ OpenAPI 一致 | 接口文档数据陈旧 / 两条管线不一致 |
+| ⑪ 设计规范 | 设计稿出现渐变 / 大圆角 / 外链 / 字母方块 Logo |
+| ⑫ 截图版本绑定 | 截图不是当前版本，或图被换但台账没更新 |
+| ⑬ Release 产物一致 | 下载页文件名/体积与 Release 不符（**死链**） |
 
 > **门禁自身必须反向验证过**（`--self-test`）：喂坏数据仍绿 = 门禁不可信，先修门禁。
 
