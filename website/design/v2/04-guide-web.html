@@ -1,0 +1,954 @@
+<!--
+  04-guide-web.html · JFLove 官网「Web 端操作指引」静态设计稿 v2
+  ------------------------------------------------------------------
+  定位：最详细的一页 —— 左侧粘性目录（本页锚点）+ 右侧正文，
+        正文按侧栏菜单分节，每节写「在哪 → 做什么 → 点击什么」，并附「界面原文」对照。
+  约束：单文件、零外链、零构建、无 frontmatter。
+  依据：website/docs/ui-facts.md §2/§5~§9（从 jflove-web 源码逐条实测，含 文件:行 证据）。
+        所有按钮 / 菜单 / 弹窗 / 分区标题文案逐字使用，不增删不改写。
+  范围：Web 端 4 项主导航 + 2 项底部 + 管理面板 4 项。
+        Web 端没有云盘挂载 / 文本编辑器 / 远程连接（桌面端专属），本页不含这些入口。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JFLove · Web 端操作指引</title>
+<style>
+:root{
+  --tiffany:#0ABAB5;
+  --tiffany-deep:#0A8F8B;
+  --wash:#E6F7F6;
+  --ink:#12181C;
+  --ink2:#3A4650;
+  --ink3:#6B7883;
+  --line:#E4E9EC;
+  --paper:#FFFFFF;
+  --paper2:#F7F9FA;
+  --r:10px;
+  --maxw:1120px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,"Cascadia Code","Noto Sans Mono CJK SC",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.68;color:var(--ink);background:var(--paper);
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+code{font-family:var(--mono);font-size:.9em}
+svg{display:block}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+/* 顶栏 */
+.top{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.97);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:26px;height:58px}
+.brand{display:flex;align-items:center;gap:9px;font-size:15.5px;font-weight:680;letter-spacing:-.012em}
+.brand i{width:23px;height:23px;border-radius:6px;background:var(--tiffany);color:#fff;font-style:normal;
+  font-size:12px;font-weight:700;display:grid;place-items:center;letter-spacing:0}
+.nav{display:flex;gap:24px;font-size:13.5px;color:var(--ink2)}
+.nav a{padding:4px 0;border-bottom:1.5px solid transparent;transition:color .14s,border-color .14s}
+.nav a:hover{color:var(--tiffany-deep);border-bottom-color:var(--tiffany)}
+.nav a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--tiffany)}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.ver{font-size:12px;color:var(--ink3);border:1px solid var(--line);border-radius:5px;padding:2px 7px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:7px;
+  font-size:13px;font-weight:550;padding:8px 15px;white-space:nowrap;border:1px solid transparent;
+  transition:background-color .14s,color .14s,border-color .14s}
+.btn-primary{background:var(--tiffany);color:#fff}
+.btn-primary:hover{background:var(--tiffany-deep)}
+.btn-ghost{border-color:var(--line);color:var(--ink2);background:#fff}
+.btn-ghost:hover{border-color:var(--tiffany);color:var(--tiffany-deep)}
+.btn-sm{padding:6px 12px;font-size:12.5px;border-radius:6px}
+
+/* 页头 */
+.phead{border-bottom:1px solid var(--line);background:var(--paper2);padding:28px 0 24px}
+.crumb{font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:6px;margin-bottom:11px}
+.crumb a:hover{color:var(--tiffany-deep)}
+.crumb i{color:#C2CBD1;font-style:normal}
+.phead h1{font-size:27px;line-height:1.3;font-weight:680;letter-spacing:-.022em}
+.phead .lede{font-size:13.5px;color:var(--ink2);max-width:660px;margin-top:8px}
+.phead .lede b{color:var(--ink);font-weight:600}
+.pmeta{display:flex;align-items:center;gap:9px;margin-top:14px;flex-wrap:wrap;font-size:11.5px;
+  color:var(--ink3)}
+.pmeta span{white-space:nowrap}
+.pmeta i{width:1px;height:10px;background:#D8DFE3;display:inline-block}
+.pmeta b{color:var(--tiffany-deep);font-weight:600}
+
+/* 两栏：左侧粘性目录 + 右侧正文 */
+.gwrap{max-width:var(--maxw);margin:0 auto;padding:0 28px;display:grid;
+  grid-template-columns:200px minmax(0,1fr);gap:44px;align-items:start}
+.toc{position:sticky;top:58px;padding:26px 0 40px;max-height:calc(100vh - 58px);overflow:auto}
+.toc-t{font-size:11px;font-weight:650;color:var(--ink3);letter-spacing:.06em;margin-bottom:9px}
+.toc a{display:block;font-size:12.5px;color:var(--ink2);padding:4px 0 4px 11px;
+  border-left:2px solid var(--line);line-height:1.45;transition:color .14s,border-color .14s}
+.toc a:hover{color:var(--tiffany-deep);border-left-color:#BFE6E3}
+.toc a.on{color:var(--tiffany-deep);font-weight:600;border-left-color:var(--tiffany)}
+.toc a .n{font-family:var(--mono);font-size:10.5px;color:#B4BEC4;margin-right:5px;
+  font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--tiffany)}
+.toc-sep{height:1px;background:var(--line);margin:14px 0 12px}
+.toc-sub{font-size:11px;font-weight:650;color:var(--ink3);letter-spacing:.04em;margin-bottom:7px}
+.toc-na{font-size:11.5px;color:#A9B4BB;line-height:1.6;padding-left:11px}
+
+.doc{min-width:0;padding:24px 0 60px}
+
+/* 分节 */
+.dsec{padding:0 0 34px;margin-bottom:34px;border-bottom:1px solid var(--line);scroll-margin-top:72px}
+.dsec:last-child{border-bottom:0;margin-bottom:0}
+.dsec-hd{display:flex;align-items:center;gap:10px;margin-bottom:11px;flex-wrap:wrap}
+.dsec-hd .num{font-family:var(--mono);font-size:11px;color:var(--tiffany);background:var(--wash);
+  border-radius:4px;padding:1px 6px;font-weight:600;letter-spacing:.02em;flex:0 0 auto}
+.dsec-hd h2{font-size:19px;font-weight:665;letter-spacing:-.016em;line-height:1.4}
+.dsec-hd .where{font-size:10.5px;color:var(--ink3);border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;margin-left:auto;white-space:nowrap;flex:0 0 auto}
+.dsec-lede{font-size:13.5px;color:var(--ink2);margin-bottom:16px;max-width:620px}
+.dsec-lede b{color:var(--ink);font-weight:600}
+
+/* 在哪 / 做什么 / 点击什么 */
+.steps{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff;
+  margin-bottom:16px}
+.step{display:grid;grid-template-columns:74px minmax(0,1fr);gap:0;border-bottom:1px solid #F1F4F6}
+.step:last-child{border-bottom:0}
+.step .lbl{background:var(--paper2);border-right:1px solid var(--line);padding:9px 10px;
+  font-size:11.5px;font-weight:600;color:var(--ink3);display:flex;align-items:flex-start;
+  justify-content:flex-start;letter-spacing:.02em;line-height:1.55}
+.step .txt{padding:9px 13px;font-size:13px;color:var(--ink2);line-height:1.7;min-width:0}
+.step .txt b{color:var(--ink);font-weight:600}
+.step .txt ul{margin:3px 0 0;padding-left:15px}
+.step .txt li{margin:2px 0}
+
+/* 界面原文对照 */
+.uiblk{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff}
+.uiblk-hd{display:flex;align-items:center;gap:7px;padding:7px 13px;background:var(--paper2);
+  border-bottom:1px solid var(--line);font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.03em}
+.uiblk-hd .rt{margin-left:auto;font-weight:500;color:#A9B4BB;font-size:10.5px}
+.uiblk-body{padding:4px 13px 7px}
+.uitem{display:grid;grid-template-columns:132px minmax(0,1fr);gap:12px;align-items:baseline;
+  padding:6px 0;border-bottom:1px solid #F4F7F8;font-size:12.5px}
+.uitem:last-child{border-bottom:0}
+.uitem .k{color:var(--ink3);font-size:12px;white-space:nowrap}
+.uitem .v{color:var(--ink2);line-height:1.6;min-width:0}
+
+/* 界面原文 chip —— 逐字显示控件文案，形似真按钮 */
+.ui{display:inline-block;font-size:12px;line-height:1.5;padding:1px 7px;border-radius:4px;
+  border:1px solid var(--line);background:#fff;color:var(--ink);white-space:nowrap;
+  font-family:var(--mono);font-size:11.5px;vertical-align:.5px}
+.ui.pri{background:var(--tiffany);border-color:var(--tiffany);color:#fff;font-weight:600}
+.ui.warn{background:#FFF7ED;border-color:#F2D9B8;color:#8A5A16}
+.ui.tit{font-family:inherit;font-size:12.5px;font-weight:600;border-color:#CFE3E2;background:var(--wash);
+  color:var(--tiffany-deep)}
+.ui.gray{background:var(--paper2);color:var(--ink3)}
+
+/* 提示块 */
+.note{display:flex;gap:9px;padding:10px 13px;border-radius:8px;font-size:12.5px;line-height:1.65;
+  margin:14px 0;align-items:flex-start;background:var(--paper2);border:1px solid var(--line);
+  color:var(--ink2)}
+.note svg{width:14px;height:14px;flex:0 0 auto;margin-top:3px;stroke:var(--tiffany-deep);fill:none;
+  stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.note b{color:var(--ink);font-weight:600}
+.note.warn{background:#FFFCF7;border-color:#F2E4CE}
+.note.warn svg{stroke:#B07C2E}
+.note.tip{background:var(--wash);border-color:#CFE9E7}
+.note.tip svg{stroke:var(--tiffany-deep)}
+
+/* 侧栏结构图（纯 CSS） */
+.side-map{display:grid;grid-template-columns:200px minmax(0,1fr);gap:20px;border:1px solid var(--line);
+  border-radius:var(--r);overflow:hidden;background:#fff;margin-bottom:16px}
+.sm-side{background:var(--paper2);border-right:1px solid var(--line);padding:10px 9px}
+.sm-brand{display:flex;align-items:center;gap:7px;padding:0 5px 8px;margin-bottom:5px;
+  border-bottom:1px solid var(--line)}
+.sm-brand i{width:16px;height:16px;border-radius:4px;background:var(--tiffany);color:#fff;font-style:normal;
+  font-size:8.5px;font-weight:700;display:grid;place-items:center}
+.sm-brand b{font-size:12px;font-weight:650}
+.sm-i{display:flex;align-items:center;gap:7px;height:27px;padding:0 8px;border-radius:5px;
+  font-size:12px;color:var(--ink2)}
+.sm-i .no{font-family:var(--mono);font-size:10px;color:#B4BEC4;width:11px;flex:0 0 auto;
+  font-variant-numeric:tabular-nums}
+.sm-i.on{background:#fff;color:var(--tiffany-deep);font-weight:600;
+  box-shadow:inset 0 0 0 1px var(--line)}
+.sm-i.on .no{color:var(--tiffany)}
+.sm-sep{margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+.sm-adm{padding:7px 8px 3px;font-size:10px;color:#A9B4BB;letter-spacing:.04em}
+.sm-main{padding:14px 16px;display:flex;flex-direction:column;justify-content:center;gap:9px;
+  min-width:0}
+.sm-row{display:flex;align-items:baseline;gap:9px;font-size:12.5px}
+.sm-row .k{color:var(--ink3);width:52px;flex:0 0 auto;font-size:11.5px}
+.sm-row .v{color:var(--ink2);min-width:0;line-height:1.6}
+.sm-row .v b{color:var(--ink);font-weight:600}
+
+/* 设置分区顺序示意 */
+.seq{display:flex;align-items:center;gap:0;flex-wrap:wrap;margin:14px 0 16px;
+  border:1px solid var(--line);border-radius:8px;padding:12px 14px;background:var(--paper2)}
+.seq .s{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink2);
+  background:#fff;border:1px solid var(--line);border-radius:5px;padding:3px 9px;white-space:nowrap}
+.seq .s .i{font-family:var(--mono);font-size:10px;color:#B4BEC4;font-variant-numeric:tabular-nums}
+.seq .s.adm{border-color:#CFE3E2;background:var(--wash);color:var(--tiffany-deep);font-weight:600}
+.seq .s.adm .i{color:var(--tiffany)}
+.seq .ar{width:14px;height:1px;background:#CFD8DD;position:relative;flex:0 0 auto;margin:0 5px}
+.seq .ar::after{content:"";position:absolute;right:0;top:-2.5px;border-left:4px solid #CFD8DD;
+  border-top:2.5px solid transparent;border-bottom:2.5px solid transparent}
+
+/* 页脚 */
+.foot{padding:34px 0 24px;background:var(--paper2);border-top:1px solid var(--line)}
+.foot-bot{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--ink3);flex-wrap:wrap}
+.foot-bot .rt{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap}
+.foot-bot code{font-size:11px;color:var(--ink2)}
+.foot-links{display:flex;gap:16px;font-size:12px;color:var(--ink3);margin-bottom:16px;flex-wrap:wrap}
+.foot-links a:hover{color:var(--tiffany-deep)}
+
+@media (max-width:960px){
+  .gwrap{grid-template-columns:1fr;gap:0}
+  .toc{position:static;max-height:none;border-bottom:1px solid var(--line);padding:16px 0 14px}
+  .toc a{display:inline-block;border-left:0;border-bottom:2px solid var(--line);padding:3px 0;
+    margin:0 14px 4px 0}
+  .toc a.on{border-bottom-color:var(--tiffany)}
+  .toc-sep,.toc-sub,.toc-na{display:none}
+  .nav{display:none}
+  .side-map{grid-template-columns:1fr}
+  .sm-side{border-right:0;border-bottom:1px solid var(--line)}
+  .step{grid-template-columns:1fr}
+  .step .lbl{border-right:0;border-bottom:1px solid #F1F4F6;padding:6px 13px}
+  .uitem{grid-template-columns:1fr;gap:3px}
+}
+@media (max-width:640px){
+  .phead h1{font-size:22px}
+  .dsec-hd h2{font-size:17px}
+  .dsec-hd .where{margin-left:0}
+  .seq{padding:10px}
+}
+
+/* 品牌 Logo：使用产品真实橘猫标识（与三端逐字节一致），base64 内嵌保持单文件 */
+.brand img,.side-brand img,.sm-brand img{border-radius:5px;object-fit:cover;display:block;flex:none}
+.brand img{width:24px;height:24px}
+.side-brand img{width:16px;height:16px}
+.sm-brand img{width:14px;height:14px}
+
+/* 真实产品截图（当前版本实拍，非手绘） */
+.shot{margin:18px 0 6px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.shot img{display:block;width:100%;height:auto}
+.shot-cap{display:flex;align-items:center;gap:8px;padding:9px 13px;border-top:1px solid var(--line);
+  background:var(--bg-soft);font-size:12px;color:var(--ink-3)}
+.shot-cap b{color:var(--ink-2);font-weight:600}
+.shot-cap .live{margin-left:auto;display:inline-flex;align-items:center;gap:5px;color:var(--tiffany-deep);font-weight:560}
+.shot-cap .live::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--tiffany)}
+
+/* 登录页是居中卡片，上下留白大；裁成 16:7 只留卡片区域 */
+.shot.compact img{aspect-ratio:16/7;object-fit:cover;object-position:center}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="01-home.html"><img alt="JFLove" src="data:image/png;base64,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">JFLove</a>
+    <nav class="nav">
+      <a href="01-home.html">产品</a>
+      <a href="02-features.html">功能</a>
+      <a class="on" href="03-docs-hub.html">文档</a>
+      <a href="01-home.html#download">下载</a>
+    </nav>
+    <div class="top-right">
+      <span class="ver">v1.10.21</span>
+      <a class="btn btn-primary btn-sm" href="01-home.html#download">下载客户端</a>
+    </div>
+  </div>
+</header>
+
+<!-- 页头 -->
+<section class="phead">
+  <div class="wrap">
+    <div class="crumb"><a href="01-home.html">产品</a><i>/</i><a href="03-docs-hub.html">文档中心</a><i>/</i><span>Web 端操作指引</span></div>
+    <h1>Web 端操作指引</h1>
+    <p class="lede">
+      浏览器里能做的四件事：<b>文件管理</b>、<b>笔记管理</b>、<b>传输任务</b>、<b>离线下载</b>。
+      下面按侧栏顺序逐节说明「在哪 → 做什么 → 点击什么」。
+    </p>
+    <div class="pmeta">
+      <span>适用于 <b>v1.10.21</b></span><i></i>
+      <span>按真实界面编写，按钮文案逐字对齐</span><i></i>
+      <span>桌面 / 移动浏览器通用</span>
+    </div>
+  </div>
+</section>
+
+<!-- 两栏 -->
+<div class="gwrap">
+
+  <!-- 左侧粘性目录 -->
+  <aside class="toc">
+    <div class="toc-t">本页目录</div>
+    <a class="on" href="#start"><span class="n">01</span>开始之前</a>
+    <a href="#layout"><span class="n">02</span>界面结构总览</a>
+    <a href="#files"><span class="n">03</span>文件管理 · 选择磁盘</a>
+    <a href="#browser"><span class="n">04</span>文件管理 · 磁盘浏览</a>
+    <a href="#notes"><span class="n">05</span>笔记管理</a>
+    <a href="#transfer"><span class="n">06</span>传输任务</a>
+    <a href="#offline"><span class="n">07</span>离线下载</a>
+    <a href="#security"><span class="n">08</span>安全状态</a>
+    <a href="#settings"><span class="n">09</span>设置（PC 5 个分区）</a>
+    <a href="#admin"><span class="n">10</span>管理面板（仅管理员）</a>
+    <a href="#none"><span class="n">11</span>Web 端没有的功能</a>
+    <div class="toc-sep"></div>
+    <div class="toc-sub">其他端的指引</div>
+    <div class="toc-na">桌面端（7 项主导航）与移动端（6 项底部导航）指引另页提供，本页只写 Web 端。</div>
+  </aside>
+
+  <!-- 正文 -->
+  <main class="doc">
+
+    <!-- ═══ 01 开始之前 ═══ -->
+    <section class="dsec" id="start">
+      <div class="dsec-hd">
+        <span class="num">01</span>
+        <h2>开始之前：连服务器、登录</h2>
+      </div>
+      <p class="dsec-lede">
+        Web 端不需要安装，打开站点就能用。但得先让它知道<b>连哪台服务器</b>，再拿账号登录。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">首次打开站点就是登录页。如果部署在反代 / 子路径下，登录页的「服务器地址」输入框用于覆盖默认地址。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            服务器地址<b>留空即可</b> —— 留空表示使用当前站点，绝大多数部署都属于这种情况。
+            只有前后端分域部署时才需要填。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">填账号密码后点登录。登录成功后左侧出现 4 项主导航 —— 看到「文件管理」就算进对了。</div>
+        </div>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">登录页</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">服务器地址输入框</span><span class="v"><span class="ui">留空 = 使用当前站点（推荐）</span></span></div>
+          <div class="uitem"><span class="k">说明</span><span class="v">留空时全部请求打向当前域名；填了就在该地址上重新做一次密钥交换。</span></div>
+        </div>
+      </div>
+    
+      <figure class="shot compact">
+        <img src="screenshots/product/login.png" alt="登录页" loading="lazy">
+        <div class="shot-cap"><b>登录页 · 填服务端地址</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 02 界面结构 ═══ -->
+    <section class="dsec" id="layout">
+      <div class="dsec-hd">
+        <span class="num">02</span>
+        <h2>界面结构：4 + 2 + 4</h2>
+        <span class="where">左侧栏</span>
+      </div>
+      <p class="dsec-lede">
+        整个界面就一条左侧栏：上面 <b>4 项主导航</b>，底部固定 <b>2 项</b>，
+        管理员还会在第 4 项后面多出一组 <b>4 项管理面板</b>。顺序是固定的，照着找就行。
+      </p>
+
+      <div class="side-map">
+        <div class="sm-side">
+          <div class="sm-brand"><img alt="JFLove" src="data:image/png;base64,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"><b>JFLove</b></div>
+          <div class="sm-i on"><span class="no">1</span>文件管理</div>
+          <div class="sm-i"><span class="no">2</span>笔记管理</div>
+          <div class="sm-i"><span class="no">3</span>传输任务</div>
+          <div class="sm-i"><span class="no">4</span>离线下载</div>
+          <div class="sm-sep">
+            <div class="sm-i"><span class="no">·</span>安全状态</div>
+            <div class="sm-i"><span class="no">·</span>设置</div>
+            <div class="sm-adm">管理面板（仅管理员）</div>
+            <div class="sm-i"><span class="no">·</span>用户管理</div>
+            <div class="sm-i"><span class="no">·</span>磁盘管理</div>
+            <div class="sm-i"><span class="no">·</span>权限配置</div>
+            <div class="sm-i"><span class="no">·</span>系统设置</div>
+          </div>
+        </div>
+        <div class="sm-main">
+          <div class="sm-row"><span class="k">主导航</span><span class="v"><b>文件管理 → 笔记管理 → 传输任务 → 离线下载</b>（顺序固定）</span></div>
+          <div class="sm-row"><span class="k">底部</span><span class="v">安全状态、设置</span></div>
+          <div class="sm-row"><span class="k">管理面板</span><span class="v">用户管理、磁盘管理、权限配置、系统设置 —— <b>仅管理员可见</b>，普通账号整组都不显示</span></div>
+          <div class="sm-row"><span class="k">差异</span><span class="v">Web 端比桌面端少 3 项：文本编辑器、云盘挂载、远程连接，均为桌面端专属</span></div>
+        </div>
+      </div>
+
+      <div class="note tip">
+        <svg viewBox="0 0 16 16"><path d="M8 6.6v4.6M8 4.6v.1"/><circle cx="8" cy="8" r="5.9"/></svg>
+        <span>找不到某个菜单，先确认自己是不是管理员 —— 管理面板 4 项对普通账号<b>完全不渲染</b>，不是灰掉，是不出现。</span>
+      </div>
+    </section>
+
+    <!-- ═══ 03 文件管理 · 选择磁盘 ═══ -->
+    <section class="dsec" id="files">
+      <div class="dsec-hd">
+        <span class="num">03</span>
+        <h2>文件管理 · 选择磁盘</h2>
+        <span class="where">侧栏第 1 项</span>
+      </div>
+      <p class="dsec-lede">
+        点「文件管理」进来看到的第一屏不是文件，而是<b>磁盘列表</b>。
+        因为文件都挂在虚拟磁盘下面，得先选一块盘。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">左侧栏第 1 项「文件管理」。页面标题是 <span class="ui tit">文件管理</span>，副标题 <span class="ui gray">选择磁盘开始浏览</span>。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            在一排磁盘卡片里挑一块点进去。每张卡片显示两个信息：
+            <b>磁盘名称</b>（管理员起的名字）和 <b>服务器上的真实路径</b>。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">点<b>整张磁盘卡片</b>进入该盘的目录浏览页。</div>
+        </div>
+      </div>
+
+      <div class="note warn">
+        <svg viewBox="0 0 16 16"><path d="M8 3.4 14 13.4H2z"/><path d="M8 6.6v3.2M8 11.4v.1"/></svg>
+        <span>
+          <b>一块盘都没有</b>时，页面会显示 <span class="ui">暂无可用磁盘</span> 和
+          <span class="ui">请联系管理员为你分配磁盘权限</span>。
+          这不是页面坏了 —— 是账号还没被授权任何磁盘，找管理员在「权限配置」里给你开。
+        </span>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">文件管理首屏</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">页标题</span><span class="v"><span class="ui tit">文件管理</span></span></div>
+          <div class="uitem"><span class="k">副标题</span><span class="v"><span class="ui gray">选择磁盘开始浏览</span></span></div>
+          <div class="uitem"><span class="k">空态标题</span><span class="v"><span class="ui">暂无可用磁盘</span></span></div>
+          <div class="uitem"><span class="k">空态说明</span><span class="v"><span class="ui">请联系管理员为你分配磁盘权限</span></span></div>
+          <div class="uitem"><span class="k">底部提示</span><span class="v"><span class="ui gray">所有文件传输均走端到端加密</span></span></div>
+        </div>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/files-disks.png" alt="文件管理首屏 · 磁盘列表" loading="lazy">
+        <div class="shot-cap"><b>文件管理首屏 · 磁盘列表</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 04 磁盘浏览 ═══ -->
+    <section class="dsec" id="browser">
+      <div class="dsec-hd">
+        <span class="num">04</span>
+        <h2>文件管理 · 磁盘浏览</h2>
+        <span class="where">选盘之后</span>
+      </div>
+      <p class="dsec-lede">
+        这块才是真正干活的地方：上传、建目录、下载、预览、重命名、移动、删除，
+        以及损坏媒体的修复入口，全在同一个列表里。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">从上一屏点磁盘卡片进入。顶部会出现 <span class="ui pri">上传</span> 与 <span class="ui">新建目录</span> 两个按钮，右上角是 <span class="ui">排序</span>。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            <b>上传</b>：点「上传」选文件，或者直接把文件拖进列表区域 ——
+            拖拽时整块区域会提示 <span class="ui">松开以上传到当前目录</span>，松手即传到<b>当前目录</b>。
+            <br><b>建目录</b>：点「新建目录」，弹窗标题同样是 <span class="ui tit">新建目录</span>，填名字确认。
+            <br><b>排序</b>：点「排序」切换列表顺序。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">
+            每一行右侧有 6 个行内操作，按需点：
+            <ul>
+              <li><span class="ui">下载</span> —— 把文件下到本地</li>
+              <li><span class="ui">预览</span> —— 在浏览器里直接看（图片 / 视频 / 音频 / 文本 / Markdown）</li>
+              <li><span class="ui">修复损坏媒体</span> —— <b>只在媒体扩展名上出现</b>，普通文件没有这一项</li>
+              <li><span class="ui">重命名</span> —— 弹窗标题 <span class="ui tit">重命名</span></li>
+              <li><span class="ui">移动到…</span> —— 换到另一个目录</li>
+              <li><span class="ui">删除</span> —— 先弹确认，不会一键删掉</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="note warn">
+        <svg viewBox="0 0 16 16"><path d="M8 3.4 14 13.4H2z"/><path d="M8 6.6v3.2M8 11.4v.1"/></svg>
+        <span>
+          删除是<b>不可撤销</b>的。确认弹窗标题 <span class="ui tit">确认删除</span>，
+          正文原文是「<b>确定要删除「xxx」吗？此操作不可撤销。</b>」——
+          这里的「xxx」会被替换成你要删的那个文件名。看清楚再点确定。
+        </span>
+      </div>
+
+      <div class="note">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.9"/><path d="M8 6.6v4.6M8 4.6v.1"/></svg>
+        <span>空目录不是坏了：会显示 <span class="ui">此目录为空</span> 与 <span class="ui">可上传文件或新建目录</span>，照提示操作即可。</span>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">磁盘浏览页</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">顶部按钮</span><span class="v"><span class="ui pri">上传</span> <span class="ui">新建目录</span></span></div>
+          <div class="uitem"><span class="k">排序入口</span><span class="v"><span class="ui">排序</span></span></div>
+          <div class="uitem"><span class="k">空目录</span><span class="v"><span class="ui gray">此目录为空</span> · <span class="ui gray">可上传文件或新建目录</span></span></div>
+          <div class="uitem"><span class="k">拖拽中</span><span class="v"><span class="ui">松开以上传到当前目录</span></span></div>
+          <div class="uitem"><span class="k">行内操作</span><span class="v"><span class="ui">下载</span> <span class="ui">预览</span> <span class="ui">修复损坏媒体</span> <span class="ui">重命名</span> <span class="ui">移动到…</span> <span class="ui">删除</span></span></div>
+          <div class="uitem"><span class="k">删除确认标题</span><span class="v"><span class="ui tit">确认删除</span></span></div>
+          <div class="uitem"><span class="k">删除确认正文</span><span class="v">确定要删除「xxx」吗？此操作不可撤销。</span></div>
+          <div class="uitem"><span class="k">新建目录弹窗</span><span class="v"><span class="ui tit">新建目录</span></span></div>
+          <div class="uitem"><span class="k">重命名弹窗</span><span class="v"><span class="ui tit">重命名</span></span></div>
+        </div>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/files-browser.png" alt="磁盘浏览页 · 上传与行尾菜单" loading="lazy">
+        <div class="shot-cap"><b>磁盘浏览页 · 上传与行尾菜单</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 05 笔记管理 ═══ -->
+    <section class="dsec" id="notes">
+      <div class="dsec-hd">
+        <span class="num">05</span>
+        <h2>笔记管理</h2>
+        <span class="where">侧栏第 2 项</span>
+      </div>
+      <p class="dsec-lede">
+        笔记就是服务器上的 <code>.md</code> 文件。列表页管「有哪些笔记」，
+        编辑器管「这篇怎么写」，写的时候右边实时渲染。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">左侧栏第 2 项「笔记管理」。页标题 <span class="ui tit">笔记管理</span>，下面是笔记列表。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            <b>新建</b>：点新建，弹窗标题 <span class="ui tit">新建笔记</span>，起个名字就有了一篇空笔记。
+            <br><b>管理</b>：列表里每一行可以 <span class="ui">重命名</span> 或 <span class="ui">删除</span>。
+            <br><b>写</b>：点进一篇笔记进编辑器，副标题是 <span class="ui gray">笔记管理 / Markdown</span>。
+            左边写源码、右边看效果；代码块自动高亮。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">
+            要插图就点工具栏的 <span class="ui">插入 Mermaid 图表</span>，会插入一段 mermaid 代码块，右侧立刻渲染成矢量图。
+            <br>写完了记得保存 —— 有未保存内容时离开页面会被拦下来，提示 <span class="ui warn">未保存的修改</span>。
+          </div>
+        </div>
+      </div>
+
+      <div class="note tip">
+        <svg viewBox="0 0 16 16"><path d="M8 6.6v4.6M8 4.6v.1"/><circle cx="8" cy="8" r="5.9"/></svg>
+        <span>
+          默认视图有讲究：<b>已有内容</b>的笔记打开是预览模式，<b>空笔记</b>（刚新建的）直接进编辑模式。
+          你自己手动切换过视图之后，这一页就不会再自动改回去了。
+        </span>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">笔记列表 / 编辑器</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">页标题</span><span class="v"><span class="ui tit">笔记管理</span></span></div>
+          <div class="uitem"><span class="k">行内操作</span><span class="v"><span class="ui">重命名</span> <span class="ui">删除</span></span></div>
+          <div class="uitem"><span class="k">新建弹窗</span><span class="v"><span class="ui tit">新建笔记</span></span></div>
+          <div class="uitem"><span class="k">编辑器副标题</span><span class="v"><span class="ui gray">笔记管理 / Markdown</span></span></div>
+          <div class="uitem"><span class="k">工具栏</span><span class="v"><span class="ui">插入 Mermaid 图表</span></span></div>
+          <div class="uitem"><span class="k">离开提示</span><span class="v"><span class="ui warn">未保存的修改</span></span></div>
+        </div>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/notes.png" alt="笔记管理" loading="lazy">
+        <div class="shot-cap"><b>笔记管理</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 06 传输任务 ═══ -->
+    <section class="dsec" id="transfer">
+      <div class="dsec-hd">
+        <span class="num">06</span>
+        <h2>传输任务</h2>
+        <span class="where">侧栏第 3 项</span>
+      </div>
+      <p class="dsec-lede">
+        上传下载的进度都在这里看。同一个页面里还有第二个页签，管损坏媒体的修复任务。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">左侧栏第 3 项「传输任务」。页标题 <span class="ui tit">传输任务</span>，副标题 <span class="ui gray">上传与下载进度</span>。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            页面顶部有两个页签：<span class="ui">传输</span> 与 <span class="ui">修复</span>。
+            <br>「传输」看上传 / 下载队列与进度；切到「修复」页签，页标题变成 <span class="ui tit">修复中心</span>，
+            副标题 <span class="ui gray">共享修复任务与产物管理</span> —— 媒体修复任务在这里统一查看。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">
+            点页签切换视图。没有任何任务时显示 <span class="ui">暂无传输任务</span>，
+            这时从「文件管理」发起一次上传就会出现在这里。
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.9"/><path d="M8 6.6v4.6M8 4.6v.1"/></svg>
+        <span>
+          <b>没有独立的「修复中心」菜单。</b>修复任务挂在「传输任务」的第二个页签里 ——
+          三端的修复任务列表是共享的，在哪发起、在哪看都一样。
+        </span>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">传输任务页</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">页标题</span><span class="v"><span class="ui tit">传输任务</span></span></div>
+          <div class="uitem"><span class="k">副标题</span><span class="v"><span class="ui gray">上传与下载进度</span></span></div>
+          <div class="uitem"><span class="k">页签</span><span class="v"><span class="ui">传输</span> <span class="ui">修复</span></span></div>
+          <div class="uitem"><span class="k">修复页签标题</span><span class="v"><span class="ui tit">修复中心</span></span></div>
+          <div class="uitem"><span class="k">修复页签副标题</span><span class="v"><span class="ui gray">共享修复任务与产物管理</span></span></div>
+          <div class="uitem"><span class="k">空态</span><span class="v"><span class="ui gray">暂无传输任务</span></span></div>
+        </div>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/transfer.png" alt="传输任务" loading="lazy">
+        <div class="shot-cap"><b>传输任务</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 07 离线下载 ═══ -->
+    <section class="dsec" id="offline">
+      <div class="dsec-hd">
+        <span class="num">07</span>
+        <h2>离线下载</h2>
+        <span class="where">侧栏第 4 项</span>
+      </div>
+      <p class="dsec-lede">
+        贴一个网址，让服务器去解析和下载，产物直接进文件管理 —— 你不需要一直开着这个页面。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">左侧栏第 4 项「离线下载」。页标题 <span class="ui tit">离线下载</span>，副标题 <span class="ui gray">粘贴网址，抓取视频 / 音频 / 图片</span>。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            <b>新建</b>：把<b>无需登录就能访问</b>的网页地址贴进输入框，提交后服务端分析出可下载的清单。
+            <br><b>勾选</b>：清单里的每一项都能单独勾 / 取消，确认后开始下载到<b>你自己账号</b>的磁盘目录。
+            <br><b>看进度</b>：任务列表里能看到状态；想看最新情况就点 <span class="ui">刷新</span>。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">
+            列表右上角 <span class="ui">刷新</span> 重拉任务列表；
+            <br>删除一条任务记录时，确认弹窗标题是 <span class="ui tit">删除任务记录</span>；
+            <br>只读任务会带一个 <span class="ui gray">只读</span> 标记 —— 能看到，但改不了。
+          </div>
+        </div>
+      </div>
+
+      <div class="note warn">
+        <svg viewBox="0 0 16 16"><path d="M8 3.4 14 13.4H2z"/><path d="M8 6.6v3.2M8 11.4v.1"/></svg>
+        <span>
+          只接受<b>无需登录</b>即可访问的网页。需要登录态、Cookie、DRM 保护的流、以及直播，都不支持。
+          另外落点必须是<b>你自己有写权限</b>的磁盘目录 —— 没有可写磁盘时，这个账号用不了离线下载。
+        </span>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">离线下载页</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">页标题</span><span class="v"><span class="ui tit">离线下载</span></span></div>
+          <div class="uitem"><span class="k">副标题</span><span class="v"><span class="ui gray">粘贴网址，抓取视频 / 音频 / 图片</span></span></div>
+          <div class="uitem"><span class="k">按钮</span><span class="v"><span class="ui">刷新</span></span></div>
+          <div class="uitem"><span class="k">空态</span><span class="v"><span class="ui gray">暂无离线下载任务</span></span></div>
+          <div class="uitem"><span class="k">删除确认</span><span class="v"><span class="ui tit">删除任务记录</span></span></div>
+          <div class="uitem"><span class="k">只读标记</span><span class="v"><span class="ui gray">只读</span></span></div>
+        </div>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/offline.png" alt="离线下载" loading="lazy">
+        <div class="shot-cap"><b>离线下载</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 08 安全状态 ═══ -->
+    <section class="dsec" id="security">
+      <div class="dsec-hd">
+        <span class="num">08</span>
+        <h2>安全状态</h2>
+        <span class="where">侧栏底部</span>
+      </div>
+      <p class="dsec-lede">
+        想知道「现在这条连接到底加密了没有」，看这一页就够了。
+        它展示的是当前会话的真实协商结果，不是宣传文案。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">左侧栏底部「安全状态」。页标题 <span class="ui tit">安全状态</span>，副标题 <span class="ui gray">会话与加密通道</span>。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            逐行核对 6 个字段：<b>会话状态</b>、<b>Session ID</b>、<b>密钥交换时间</b>、
+            <b>当前用户</b>、<b>加密算法</b>、<b>前向保密</b>。
+            这几个值决定了你此刻的流量是否走端到端加密。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">
+            这一页<b>纯展示，没有操作按钮</b>。发现「会话状态」不对劲时，
+            去「设置」里重新登录（换服务器地址后也需要重新登录，见下一节）。
+          </div>
+        </div>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">安全状态页</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">页标题</span><span class="v"><span class="ui tit">安全状态</span></span></div>
+          <div class="uitem"><span class="k">副标题</span><span class="v"><span class="ui gray">会话与加密通道</span></span></div>
+          <div class="uitem"><span class="k">字段名</span><span class="v">会话状态 · Session ID · 密钥交换时间 · 当前用户 · 加密算法 · 前向保密</span></div>
+          <div class="uitem"><span class="k">加密算法（显示值）</span><span class="v"><code>X25519 ECDH + HKDF-SHA256</code></span></div>
+          <div class="uitem"><span class="k">前向保密（显示值）</span><span class="v">已启用（临时密钥、私钥用完即销毁）</span></div>
+        </div>
+      </div>
+
+      <div class="note tip">
+        <svg viewBox="0 0 16 16"><path d="M8 6.6v4.6M8 4.6v.1"/><circle cx="8" cy="8" r="5.9"/></svg>
+        <span>
+          「前向保密」显示<b>已启用</b>，意味着这次会话用的是临时密钥 ——
+          每次会话重新协商，私钥用完即销毁，历史流量不会被事后拿到的一把密钥解开。
+        </span>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/security.png" alt="安全状态" loading="lazy">
+        <div class="shot-cap"><b>安全状态</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 09 设置 ═══ -->
+    <section class="dsec" id="settings">
+      <div class="dsec-hd">
+        <span class="num">09</span>
+        <h2>设置:PC 浏览器 5 个分区</h2>
+        <span class="where">侧栏底部</span>
+      </div>
+      <p class="dsec-lede">
+        要改的东西几乎都在这一页。<b>PC 浏览器上从上到下一共 5 个</b>；
+        手机浏览器才会多出「管理面板」一节。
+      </p>
+
+      <div class="seq" aria-label="设置页分区顺序">
+        <span class="s"><span class="i">1</span>服务端</span>
+        <span class="ar"></span>
+        <span class="s"><span class="i">2</span>笔记目录</span>
+        <span class="ar"></span>
+        <span class="s"><span class="i">3</span>账号</span>
+        <span class="ar"></span>
+        <span class="s"><span class="i">4</span>外观</span>
+        <span class="ar"></span>
+        <span class="s"><span class="i">5</span>关于</span>
+        <span class="ar"></span>
+        <span class="s adm"><span class="i">+</span>管理面板（仅手机浏览器 + 管理员）</span>
+      </div>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">左侧栏底部「设置」。PC 浏览器上从上到下就是上面那 5 个分区。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            <b>1 服务端</b> —— 换连哪台服务器，用里面的 <span class="ui">修改服务器地址</span>。
+            <br><b>2 笔记目录</b> —— 选自己的笔记存哪个目录，需要时弹出磁盘选择弹窗 <span class="ui tit">选择磁盘</span>。
+            <br><b>3 账号</b> —— 当前账号信息与登录凭证。
+            <br><b>4 管理面板</b> —— 仅管理员，是管理四项功能的入口。
+            <br><b>5 外观</b> —— 主题 / 显示相关。
+            <br><b>6 关于</b> —— 版本号等。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">
+            改完逐项保存。要退出账号点页面底部的 <span class="ui">退出登录</span>。
+            <br><b>注意</b>：改了服务器地址等于换了一台后端，旧登录凭证对新服务端无效，
+            系统会清掉会话并要求你<b>重新登录</b> —— 这不是报错，是预期行为。
+          </div>
+        </div>
+      </div>
+
+      <div class="note tip">
+        <svg viewBox="0 0 16 16"><path d="M8 6.6v4.6M8 4.6v.1"/><circle cx="8" cy="8" r="5.9"/></svg>
+        <span>
+          笔记目录是<b>按人隔离</b>的：每个账号在「笔记目录」里选自己的存放位置，互相看不到对方的笔记。
+          这个配置存在服务端，换浏览器登录也还在。
+        </span>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">设置页</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">分区 1</span><span class="v"><span class="ui tit">服务端</span></span></div>
+          <div class="uitem"><span class="k">分区 2</span><span class="v"><span class="ui tit">笔记目录</span></span></div>
+          <div class="uitem"><span class="k">分区 3</span><span class="v"><span class="ui tit">账号</span></span></div>
+          <div class="uitem"><span class="k">分区 4</span><span class="v"><span class="ui tit">管理面板</span> <span class="ui gray">仅管理员</span></span></div>
+          <div class="uitem"><span class="k">分区 5</span><span class="v"><span class="ui tit">外观</span></span></div>
+          <div class="uitem"><span class="k">分区 6</span><span class="v"><span class="ui tit">关于</span></span></div>
+          <div class="uitem"><span class="k">页底按钮</span><span class="v"><span class="ui">退出登录</span></span></div>
+          <div class="uitem"><span class="k">服务端分区内</span><span class="v"><span class="ui">修改服务器地址</span></span></div>
+          <div class="uitem"><span class="k">磁盘选择弹窗</span><span class="v"><span class="ui tit">选择磁盘</span></span></div>
+        </div>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/settings.png" alt="设置（PC 浏览器 5 个分区）" loading="lazy">
+        <div class="shot-cap"><b>设置（PC 浏览器 5 个分区）</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 10 管理面板 ═══ -->
+    <section class="dsec" id="admin">
+      <div class="dsec-hd">
+        <span class="num">10</span>
+        <h2>管理面板（仅管理员）</h2>
+        <span class="where">侧栏中部</span>
+      </div>
+      <p class="dsec-lede">
+        管理员在侧栏会多出一组 4 项。普通账号<b>整组都不出现</b>，所以看不到也不需要担心点错。
+      </p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="lbl">在哪</span>
+          <div class="txt">左侧栏「离线下载」下面、底部「安全状态 / 设置」上面，有一组 <b>用户管理 · 磁盘管理 · 权限配置 · 系统设置</b>。</div>
+        </div>
+        <div class="step">
+          <span class="lbl">做什么</span>
+          <div class="txt">
+            <b>用户管理</b> —— 账号的增删改、启用 / 禁用。
+            <br><b>磁盘管理</b> —— 建虚拟磁盘，映射服务器上的真实目录。
+            <br><b>权限配置</b> —— 给每个账号配每块盘的读 / 写 / 删权限。
+            <br><b>系统设置</b> —— 全局参数，比如「存储与临时文件」的开关、期限与清理间隔。
+          </div>
+        </div>
+        <div class="step">
+          <span class="lbl">点击什么</span>
+          <div class="txt">
+            新建磁盘时可以用「浏览…」从<b>服务器真实目录树</b>里选路径，不用手打绝对路径。
+            <br>配完权限立刻生效 —— 对方刷新一下就能看到新磁盘，不用重启。
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.9"/><path d="M8 6.6v4.6M8 4.6v.1"/></svg>
+        <span>
+          权限是<b>磁盘级三开关</b>：读、写、删分开授。只给「读」的账号能浏览和下载，但改不了也删不了。
+          只读账号打开修复任务列表时，任务会带 <span class="ui gray">只读</span> 标记。
+        </span>
+      </div>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">界面原文<span class="rt">管理面板 4 项</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">管理面板</span><span class="v"><span class="ui">用户管理</span> <span class="ui">磁盘管理</span> <span class="ui">权限配置</span> <span class="ui">系统设置</span></span></div>
+          <div class="uitem"><span class="k">可见性</span><span class="v"><span class="ui gray">仅管理员</span></span></div>
+          <div class="uitem"><span class="k">系统设置内含</span><span class="v">存储与临时文件：开关 / 期限 / 间隔 / 立即清理 —— 配置存服务端，三端共享，立即生效</span></div>
+        </div>
+      </div>
+    
+      <figure class="shot">
+        <img src="screenshots/product/admin-users.png" alt="管理面板 · 用户管理" loading="lazy">
+        <div class="shot-cap"><b>管理面板 · 用户管理</b><span class="live">v1.10.21 实拍</span></div>
+      </figure>
+    </section>
+
+    <!-- ═══ 11 不适用项 ═══ -->
+    <section class="dsec" id="none">
+      <div class="dsec-hd">
+        <span class="num">11</span>
+        <h2>Web 端没有的功能</h2>
+        <span class="where">重要差异</span>
+      </div>
+      <p class="dsec-lede">
+        有三项能力是<b>桌面端专属</b>的，Web 端不提供入口 —— 不是没找到，是真的没有。
+        照着本页找了三遍还没有的菜单，大概率就在这三个里面。
+      </p>
+
+      <div class="uiblk">
+        <div class="uiblk-hd">Web 端不提供的入口<span class="rt">桌面端专属</span></div>
+        <div class="uiblk-body">
+          <div class="uitem"><span class="k">云盘挂载</span><span class="v">Web 端无此入口（该路由在较早版本已移除）；需要的话装桌面端。</span></div>
+          <div class="uitem"><span class="k">文本编辑器</span><span class="v">Web 端无此入口；多标签本地编辑器是桌面端能力。</span></div>
+          <div class="uitem"><span class="k">远程连接</span><span class="v">Web 端无此入口；SSH 终端 / SFTP / 本机终端都在桌面端。</span></div>
+        </div>
+      </div>
+
+      <div class="note">
+        <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.9"/><path d="M8 6.6v4.6M8 4.6v.1"/></svg>
+        <span>
+          桌面端侧栏是 <b>7 项</b>主导航，Web 端是 <b>4 项</b>，移动端是 <b>6 项</b>底部导航。
+          三端菜单对照表在 <a href="03-docs-hub.html" style="color:var(--tiffany-deep);font-weight:600">文档中心</a> 页底，一屏能看完差异。
+        </span>
+      </div>
+
+      <div class="note tip">
+        <svg viewBox="0 0 16 16"><path d="M8 6.6v4.6M8 4.6v.1"/><circle cx="8" cy="8" r="5.9"/></svg>
+        <span>想对照桌面端怎么操作？看 <b>桌面端操作指引</b>；手机上怎么用？看 <b>移动端操作指引</b>。都在文档中心里。</span>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-links">
+      <a href="01-home.html">产品概览</a>
+      <a href="02-features.html">功能详情</a>
+      <a href="03-docs-hub.html">文档中心</a>
+      <a href="04-guide-web.html">Web 端指引</a>
+      <a href="01-home.html#download">下载</a>
+    </div>
+    <div class="foot-bot">
+      <span>© 2026 JFLove · MIT License</span>
+      <code>v1.10.21</code>
+      <div class="rt"><span>Web 端 4 项主导航</span><span>6 个设置分区</span><span>按真实界面编写</span></div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

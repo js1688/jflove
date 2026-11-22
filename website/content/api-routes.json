@@ -1,0 +1,486 @@
+{
+  "source": "jflove-server/src/controllers/*.py",
+  "count": 74,
+  "controllers": [
+    {
+      "file": "jflove-server/src/controllers/auth_controller.py",
+      "prefix": "/api/v1/auth",
+      "tags": [
+        "认证"
+      ],
+      "count": 5,
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/key-exchange",
+          "summary": "密钥交换"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/init-admin",
+          "summary": "初始化管理员账号"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/admin-exists",
+          "summary": "检查管理员是否已存在"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "summary": "用户登录"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "summary": "刷新 JWT 令牌"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/config_controller.py",
+      "prefix": "/api/v1/config",
+      "tags": [
+        "系统配置"
+      ],
+      "count": 3,
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/v1/config",
+          "summary": "获取所有系统配置"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/config",
+          "summary": "更新系统配置项"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/config/cleanup",
+          "summary": "立即清理临时文件（v1.9.0；v1.9.1 手动清理不受总开关限制）"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/file_controller.py",
+      "prefix": "/api/v1/files",
+      "tags": [
+        "文件管理"
+      ],
+      "count": 17,
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/v1/files/disks",
+          "summary": "获取可访问磁盘列表"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/list",
+          "summary": "浏览目录"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/init",
+          "summary": "初始化分片上传"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/status",
+          "summary": "查询上传会话状态（v1.9.0）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/chunk",
+          "summary": "上传单个分片"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/complete",
+          "summary": "完成分片上传"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/progress",
+          "summary": "查询分片合并进度"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/files/upload/{upload_id}",
+          "summary": "取消上传"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/download",
+          "summary": "下载文件（端到端加密流，v1.9.0 支持断点续传）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/rename",
+          "summary": "重命名文件或目录（v1.1.3）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/move",
+          "summary": "移动文件或目录（v1.1.3）"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/files",
+          "summary": "删除文件或目录"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/mkdir",
+          "summary": "创建目录"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/preview",
+          "summary": "预览文件（端到端加密流）"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/stream",
+          "summary": "流式 Range 预览（v1.1.0，端到端加密；v1.4.2 移除实时修复）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/journal",
+          "summary": "拉取文件变更增量（v1.7.0）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/scan",
+          "summary": "全量对账扫描（v1.7.0）"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/note_controller.py",
+      "prefix": "/api/v1/notes",
+      "tags": [
+        "笔记"
+      ],
+      "count": 7,
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/list",
+          "summary": "获取笔记列表"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/read",
+          "summary": "读取笔记内容"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/notes/write",
+          "summary": "写入笔记内容"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/notes",
+          "summary": "删除笔记"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/notes/rename",
+          "summary": "重命名笔记"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/disk-config",
+          "summary": "获取当前用户的笔记磁盘配置"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/notes/disk-config",
+          "summary": "设置当前用户的笔记磁盘"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/offline_download_controller.py",
+      "prefix": "/api/v1/offline",
+      "tags": [
+        "离线下载"
+      ],
+      "count": 10,
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/analyze",
+          "summary": "创建离线下载分析任务"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/offline/tasks",
+          "summary": "离线下载任务列表（按账号隔离）"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/offline/detail",
+          "summary": "离线下载任务详情（含清单）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/select",
+          "summary": "勾选并开始下载"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/next-page",
+          "summary": "图片追加下一页"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/cancel",
+          "summary": "取消任务"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/retry",
+          "summary": "重试任务"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/delete-record",
+          "summary": "删除任务记录（不删文件）"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/offline/meta",
+          "summary": "离线下载初始化元信息"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/settings",
+          "summary": "保存/清除我的默认下载目录"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/permission_controller.py",
+      "prefix": "/api/v1/permissions",
+      "tags": [
+        "权限管理"
+      ],
+      "count": 3,
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/v1/permissions/users/{user_id}/disks",
+          "summary": "获取用户磁盘权限列表"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/permissions/users/{user_id}/disks/{disk_id}",
+          "summary": "设置用户磁盘权限"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/permissions/users/{user_id}/disks/{disk_id}",
+          "summary": "删除用户磁盘权限"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/repair_controller.py",
+      "prefix": "/api/v1/files/repair",
+      "tags": [
+        "媒体修复"
+      ],
+      "count": 6,
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/create",
+          "summary": "创建媒体修复任务（v1.4.2）"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/repair/tasks",
+          "summary": "修复任务列表（v1.4.2）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/cancel",
+          "summary": "取消修复任务（v1.4.2）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/override",
+          "summary": "覆盖原文件（v1.4.2）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/delete-artifact",
+          "summary": "删除修复产物（v1.4.2）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/delete-record",
+          "summary": "删除任务记录（v1.4.2）"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/ssh_controller.py",
+      "prefix": "/api/v1/ssh",
+      "tags": [
+        "远程连接"
+      ],
+      "count": 11,
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/list",
+          "summary": "列出连接分组"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/create",
+          "summary": "新建分组"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/update",
+          "summary": "更新分组"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/delete",
+          "summary": "删除分组"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/list",
+          "summary": "列出连接（不含凭据）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/get",
+          "summary": "读取连接详情（含凭据）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/create",
+          "summary": "新建连接"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/update",
+          "summary": "更新连接"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/delete",
+          "summary": "删除连接"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/duplicate",
+          "summary": "复制连接"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/touch",
+          "summary": "记录最近连接时间"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/sync_controller.py",
+      "prefix": "/api/v1/sync",
+      "tags": [
+        "同步"
+      ],
+      "count": 1,
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/api/v1/sync/snapshot",
+          "summary": "获取远端目录快照"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/user_controller.py",
+      "prefix": "/api/v1/users",
+      "tags": [
+        "用户管理"
+      ],
+      "count": 5,
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/v1/users",
+          "summary": "获取用户列表"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/users",
+          "summary": "创建普通用户"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/users/{user_id}",
+          "summary": "删除用户"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/users/{user_id}/password",
+          "summary": "修改用户密码"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/users/{user_id}/enabled",
+          "summary": "启用或禁用用户"
+        }
+      ]
+    },
+    {
+      "file": "jflove-server/src/controllers/virtual_disk_controller.py",
+      "prefix": "/api/v1/virtual-disks",
+      "tags": [
+        "虚拟磁盘"
+      ],
+      "count": 6,
+      "routes": [
+        {
+          "method": "GET",
+          "path": "/api/v1/virtual-disks",
+          "summary": "获取虚拟磁盘列表"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/virtual-disks/server-dirs",
+          "summary": "浏览服务器本机目录（管理员）"
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/virtual-disks",
+          "summary": "创建虚拟磁盘"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/virtual-disks/{disk_id}",
+          "summary": "更新虚拟磁盘"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/virtual-disks/{disk_id}",
+          "summary": "删除虚拟磁盘"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/virtual-disks/{disk_id}/browse",
+          "summary": "浏览磁盘内目录"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,839 @@
+{
+  "source": "jflove-server app.openapi()",
+  "openapi": "3.1.0",
+  "info": {
+    "title": "JFLove Server",
+    "version": "1.10.21"
+  },
+  "total": 75,
+  "groupCount": 12,
+  "groups": [
+    {
+      "tag": "文件管理",
+      "count": 17,
+      "operations": [
+        {
+          "method": "DELETE",
+          "path": "/api/v1/files",
+          "summary": "删除文件或目录",
+          "description": "删除指定路径的文件或目录（目录递归删除）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：文件或目录相对路径",
+          "tag": "文件管理",
+          "operationId": "delete_file_api_v1_files_delete",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/disks",
+          "summary": "获取可访问磁盘列表",
+          "description": "获取当前用户可访问的虚拟磁盘列表。\n\n管理员返回全部磁盘；普通用户仅返回拥有读权限的磁盘。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n\n响应体（加密后）字段：\n- `disks`：磁盘列表，每项含 `id`、`name`、`can_write`、`can_delete`\n  （v1.4.2 新增 `can_delete`：修复功能要求写+删权限并存，三端据此\n  禁用/隐藏「修复损坏媒体」入口）",
+          "tag": "文件管理",
+          "operationId": "list_accessible_disks_api_v1_files_disks_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/download",
+          "summary": "下载文件（端到端加密流，v1.9.0 支持断点续传）",
+          "description": "校验读取权限后，把文件按 64KB 明文切片，每片独立 ChaCha20-Poly1305 加密\n后以 [4B 长度][12B nonce][密文+认证标签] 帧格式流式返回。\n\nv1.9.0：支持 `range_start` 从指定字节偏移开始（断点续传）；响应头返回\n`X-Stream-Offset` / `X-Stream-Total` / `X-File-Version`，不保存服务端下载临时文件。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：文件相对路径\n- `range_start`：起始字节偏移（默认 0；越界返回 416）",
+          "tag": "文件管理",
+          "operationId": "download_file_api_v1_files_download_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/journal",
+          "summary": "拉取文件变更增量（v1.7.0）",
+          "description": "按磁盘 + 子目录前缀 + since_rev 返回变更列表，供挂载云盘做增量同步。\n只返回 `prefix` 范围内的变更，绝不回传其它子目录内容。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `prefix`：子目录前缀（空 = 磁盘根）\n- `since_rev`：上次拿到的最大 rev（首次传 0）\n- `limit`：单次最多返回条数（默认 500，最大 2000）\n\n响应体（加密后）字段：\n- `changes`：变更列表（`rev` / `path` / `op` / `is_dir` / `size` / `mtime` / `hash`）\n- `latest_rev`：本次最大 rev\n- `has_more`：是否还有更多（用 `latest_rev` 继续拉）\n- `reset_required`：为真时客户端应回退到全量对账",
+          "tag": "文件管理",
+          "operationId": "list_journal_api_v1_files_journal_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/list",
+          "summary": "浏览目录",
+          "description": "列出指定虚拟磁盘目录下的文件和子目录（目录在前，文件在后，均按名称排序）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：相对路径（默认为根目录 `\"\"`）\n\n响应体（加密后）字段：\n- `files`：文件/目录列表，每项含 `name`、`is_dir`、`size`、`modified_at`",
+          "tag": "文件管理",
+          "operationId": "list_files_api_v1_files_list_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/mkdir",
+          "summary": "创建目录",
+          "description": "在指定虚拟磁盘下创建目录，支持多级创建（等同于 `mkdir -p`）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：要创建的目录相对路径",
+          "tag": "文件管理",
+          "operationId": "make_dir_api_v1_files_mkdir_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/move",
+          "summary": "移动文件或目录（v1.1.3）",
+          "description": "将文件或目录移动到同一磁盘内的另一个目录。服务端原地执行 OS rename，\n不产生文件内容重复读写，大文件也可即时完成。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `src_path`：被移动的文件/目录相对路径（例如 `\"docs/file.txt\"`）\n- `dst_dir_path`：目标目录的相对路径（空字符串 `\"\"` 表示磁盘根目录）\n\n响应体（加密后）字段：\n- `message`：操作结果描述\n\n安全说明：服务端防止路径穿越（_safe_join）、防循环嵌套（目标不能是源目录的子目录）、检查目标位置同名冲突（409）。",
+          "tag": "文件管理",
+          "operationId": "move_file_api_v1_files_move_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/preview",
+          "summary": "预览文件（端到端加密流）",
+          "description": "校验读取权限后，把文件以与 /download 完全相同的加密流格式返回。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：文件相对路径",
+          "tag": "文件管理",
+          "operationId": "preview_file_api_v1_files_preview_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/rename",
+          "summary": "重命名文件或目录（v1.1.3）",
+          "description": "在当前目录内对文件或目录进行重命名，不改变其所在目录位置。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：目标文件/目录当前相对路径（含名称，例如 `\"docs/old.txt\"`）\n- `new_name`：新名称（纯名称，不含路径分隔符）\n\n响应体（加密后）字段：\n- `message`：操作结果描述\n\n安全说明：服务端对 new_name 做合法性校验（非空、不含路径分隔符、不为 `.` 或 `..`），并检查目标名称是否已存在（409）。",
+          "tag": "文件管理",
+          "operationId": "rename_file_api_v1_files_rename_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/scan",
+          "summary": "全量对账扫描（v1.7.0）",
+          "description": "只 stat 不读内容，分页返回子目录下的文件清单，用于发现绕过 API 直接写入磁盘目录的\"API 外变更\"。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `prefix`：子目录前缀（空 = 磁盘根）\n- `cursor`：上一页最后一个 path（空 = 首页）\n- `limit`：每页条数（默认 2000，最大 5000）\n\n响应体（加密后）字段：\n- `entries`：文件清单（`path` / `is_dir` / `size` / `mtime`）\n- `next_cursor`：下一页游标\n- `has_more`：是否还有更多\n- `latest_rev`：当前最大 rev，供客户端对齐游标",
+          "tag": "文件管理",
+          "operationId": "scan_files_api_v1_files_scan_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/stream",
+          "summary": "流式 Range 预览（v1.1.0，端到端加密；v1.4.2 移除实时修复）",
+          "description": "校验读取权限后，按请求的字节范围（range_start / range_end）流式返回\n加密帧序列，供客户端边下边播，**不写入本地磁盘**。\n\n响应协议版本 `X-Encrypted-Stream: v2`，帧格式与 v1 相同，\n但增加了第 0 帧（元数据帧，含 file_size / content_type 等）。\n\nv1.4.2 行为：\n- 健康文件：原文件字节 range 直读（meta 帧 stream_mode=byte）\n- 携带 `repair_task_id`：流式返回该修复任务产物（验证播放，仅 success 任务）\n- 播放门禁（按客户端能力区分）：\n  - `mse_only=1`（Web 端）：仅可流式格式放行（fMP4/WebM/简单音频），\n    其余 415，detail 以 `[MEDIA_NEEDS_REPAIR]` 开头，客户端应弹「立即修复」\n  - 未声明（桌面/移动端）：仅真损坏文件 415 + `[MEDIA_NEEDS_REPAIR]`\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：文件所在目录（磁盘内相对路径）\n- `filename`：文件名\n- `range_start`：字节起点（0=开头；负数=从末尾倒数）\n- `range_end`：字节终点，不含（-1=文件结尾）\n- `repair_task_id`：（v1.4.2，可选）修复任务 ID，验证播放产物用\n- `mse_only`：（v1.4.2 hotfix，可选）1=仅返回 Web MSE 可流式格式",
+          "tag": "文件管理",
+          "operationId": "stream_file_api_v1_files_stream_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/chunk",
+          "summary": "上传单个分片",
+          "description": "上传文件的某一个分片数据，可乱序上传，支持断点续传（已上传分片重传会覆盖）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `upload_id`：上传会话 ID\n- `chunk_index`：分片索引（从 0 开始）\n- `chunk_data`：分片数据（Base64 编码）",
+          "tag": "文件管理",
+          "operationId": "upload_chunk_api_v1_files_upload_chunk_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/complete",
+          "summary": "完成分片上传",
+          "description": "合并所有已上传分片，校验 SHA256 哈希，写入目标路径，清理临时文件。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `upload_id`：上传会话 ID\n\n响应体（加密后）字段：\n- `message`：操作结果描述\n- `path`：服务端最终文件绝对路径",
+          "tag": "文件管理",
+          "operationId": "complete_upload_api_v1_files_upload_complete_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/init",
+          "summary": "初始化分片上传",
+          "description": "创建分片上传会话，返回 `upload_id` 供后续分片上传使用。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：目标虚拟磁盘 ID\n- `path`：目标目录相对路径\n- `filename`：文件名\n- `file_size`：文件总大小（字节）\n- `total_chunks`：总分片数\n- `file_hash`：文件 SHA256 哈希值（用于完整性校验）\n- `mtime`：可选，源文件的修改时间（Unix 时间戳，浮点秒）。若提供，服务端会在合并完成后还原文件 mtime，避免目录同步时反复重传同一文件\n\n响应体（加密后）字段：\n- `upload_id`：上传会话 ID（UUID）",
+          "tag": "文件管理",
+          "operationId": "init_upload_api_v1_files_upload_init_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/progress",
+          "summary": "查询分片合并进度",
+          "description": "大文件合并（`upload/complete`）可能持续数分钟，客户端用本接口轮询显示进度，避免用户误以为卡死。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `upload_id`：上传会话 ID\n\n响应体（加密后）字段：\n- `state`：`queued` / `merging` / `done` / `failed` / `unknown`\n- `processed` / `total`：已处理分片数 / 总分片数\n- `percent`：0-100（按字节算）\n- `elapsed_seconds`：当前阶段已耗时\n- `file_size`：文件总字节数",
+          "tag": "文件管理",
+          "operationId": "upload_progress_api_v1_files_upload_progress_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/upload/status",
+          "summary": "查询上传会话状态（v1.9.0）",
+          "description": "返回会话是否存在、已收/缺失分片、过期时间；客户端据此只补缺失分片。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `upload_id`：上传会话 ID",
+          "tag": "文件管理",
+          "operationId": "upload_status_api_v1_files_upload_status_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/files/upload/{upload_id}",
+          "summary": "取消上传",
+          "description": "取消指定上传会话，清理服务端临时分片文件。\n\n路径参数：\n- `upload_id`：上传会话 ID\n\n请求体（加密后）字段：\n- `token`：JWT 令牌",
+          "tag": "文件管理",
+          "operationId": "cancel_upload_api_v1_files_upload__upload_id__delete",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "远程连接",
+      "count": 11,
+      "operations": [
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/create",
+          "summary": "新建连接",
+          "description": "新建连接；保存时校验跳板链路无环",
+          "tag": "远程连接",
+          "operationId": "connections_create_api_v1_ssh_connections_create_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/delete",
+          "summary": "删除连接",
+          "description": "删除连接；被跳板引用时返回 409",
+          "tag": "远程连接",
+          "operationId": "connections_delete_api_v1_ssh_connections_delete_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/duplicate",
+          "summary": "复制连接",
+          "description": "复制一条连接（名称追加「副本」）",
+          "tag": "远程连接",
+          "operationId": "connections_duplicate_api_v1_ssh_connections_duplicate_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/get",
+          "summary": "读取连接详情（含凭据）",
+          "description": "读取单条连接全量字段，供客户端直连使用",
+          "tag": "远程连接",
+          "operationId": "connections_get_api_v1_ssh_connections_get_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/list",
+          "summary": "列出连接（不含凭据）",
+          "description": "列出当前账号的连接摘要，支持名称/主机/用户名模糊搜索",
+          "tag": "远程连接",
+          "operationId": "connections_list_api_v1_ssh_connections_list_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/touch",
+          "summary": "记录最近连接时间",
+          "description": "客户端连接成功后回写最近连接时间",
+          "tag": "远程连接",
+          "operationId": "connections_touch_api_v1_ssh_connections_touch_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/connections/update",
+          "summary": "更新连接",
+          "description": "更新连接；凭据留空表示不修改",
+          "tag": "远程连接",
+          "operationId": "connections_update_api_v1_ssh_connections_update_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/create",
+          "summary": "新建分组",
+          "description": "新建分组；同账号活跃分组不可重名",
+          "tag": "远程连接",
+          "operationId": "groups_create_api_v1_ssh_groups_create_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/delete",
+          "summary": "删除分组",
+          "description": "删除分组，组内连接落回未分组（不删连接）",
+          "tag": "远程连接",
+          "operationId": "groups_delete_api_v1_ssh_groups_delete_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/list",
+          "summary": "列出连接分组",
+          "description": "列出当前账号的连接分组（含连接数）",
+          "tag": "远程连接",
+          "operationId": "groups_list_api_v1_ssh_groups_list_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/ssh/groups/update",
+          "summary": "更新分组",
+          "description": "重命名或调整分组排序",
+          "tag": "远程连接",
+          "operationId": "groups_update_api_v1_ssh_groups_update_post",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "离线下载",
+      "count": 10,
+      "operations": [
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/analyze",
+          "summary": "创建离线下载分析任务",
+          "description": "粘贴一个无需登录的网页地址，服务端异步分析出视频/音频/图片清单。\n\n请求体（加密后）：`token`、`url`。\n响应：`task_id`、`status`、`source_domain`、`page_title`。",
+          "tag": "离线下载",
+          "operationId": "analyze_api_v1_offline_analyze_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/cancel",
+          "summary": "取消任务",
+          "description": "取消排队/分析/下载中的任务。",
+          "tag": "离线下载",
+          "operationId": "cancel_api_v1_offline_cancel_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/delete-record",
+          "summary": "删除任务记录（不删文件）",
+          "description": "软删除任务记录。",
+          "tag": "离线下载",
+          "operationId": "delete_record_api_v1_offline_delete_record_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/offline/detail",
+          "summary": "离线下载任务详情（含清单）",
+          "description": "他人任务一律 404（不泄露存在性）。GET 请求使用 query 加密信封。",
+          "tag": "离线下载",
+          "operationId": "detail_api_v1_offline_detail_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/offline/meta",
+          "summary": "离线下载初始化元信息",
+          "description": "返回**自己的**默认目录、可写磁盘、全局策略；GET 请求使用 query 加密信封。",
+          "tag": "离线下载",
+          "operationId": "meta_api_v1_offline_meta_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/next-page",
+          "summary": "图片追加下一页",
+          "description": "继续抓下一页图片。",
+          "tag": "离线下载",
+          "operationId": "next_page_api_v1_offline_next_page_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/retry",
+          "summary": "重试任务",
+          "description": "重试失败/取消任务（DRM / 需登录等不可重试）。",
+          "tag": "离线下载",
+          "operationId": "retry_api_v1_offline_retry_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/select",
+          "summary": "勾选并开始下载",
+          "description": "校验清单/目标目录/磁盘写权限/余量/体积上限后进入下载队列。",
+          "tag": "离线下载",
+          "operationId": "select_api_v1_offline_select_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/offline/settings",
+          "summary": "保存/清除我的默认下载目录",
+          "description": "`disk_id=0` 表示清除。只操作**自己**那一行；`user_id` 只来自 token。目标磁盘必须当前账号有 write 权限，路径必须是磁盘内相对路径。",
+          "tag": "离线下载",
+          "operationId": "settings_api_v1_offline_settings_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/offline/tasks",
+          "summary": "离线下载任务列表（按账号隔离）",
+          "description": "只返回当前账号自己的任务；GET 请求使用 query 加密信封。",
+          "tag": "离线下载",
+          "operationId": "list_tasks_api_v1_offline_tasks_get",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "笔记",
+      "count": 7,
+      "operations": [
+        {
+          "method": "DELETE",
+          "path": "/api/v1/notes",
+          "summary": "删除笔记",
+          "description": "物理删除指定笔记文件。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `filename`：笔记文件名（须以 `.md` 结尾）",
+          "tag": "笔记",
+          "operationId": "delete_note_api_v1_notes_delete",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/disk-config",
+          "summary": "获取当前用户的笔记磁盘配置",
+          "description": "返回当前用户配置的笔记存储磁盘 ID 及可选磁盘列表。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n\n响应体（加密后）字段：\n- `disk_id`：当前配置的磁盘 ID（未配置时为 null）\n- `disks`：可选磁盘列表，每项含 `id`、`name`",
+          "tag": "笔记",
+          "operationId": "get_disk_config_api_v1_notes_disk_config_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/notes/disk-config",
+          "summary": "设置当前用户的笔记磁盘",
+          "description": "将当前用户的笔记存储磁盘更新为指定磁盘。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：目标磁盘 ID（传 null 表示清除配置）",
+          "tag": "笔记",
+          "operationId": "set_disk_config_api_v1_notes_disk_config_put",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/list",
+          "summary": "获取笔记列表",
+          "description": "列出笔记目录下所有 `.md` 文件，按文件名排序。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n\n响应体（加密后）字段：\n- `notes`：笔记列表，每项含 `filename`、`size`、`modified_at`",
+          "tag": "笔记",
+          "operationId": "list_notes_api_v1_notes_list_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/read",
+          "summary": "读取笔记内容",
+          "description": "读取指定笔记文件的文本内容（UTF-8 编码）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `filename`：笔记文件名（须以 `.md` 结尾）\n\n响应体（加密后）字段：\n- `filename`：文件名\n- `content`：笔记文本内容",
+          "tag": "笔记",
+          "operationId": "read_note_api_v1_notes_read_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/notes/rename",
+          "summary": "重命名笔记",
+          "description": "将笔记文件重命名为新文件名（源文件和目标文件均须在笔记目录内）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `old_name`：原文件名\n- `new_name`：新文件名（须以 `.md` 结尾）",
+          "tag": "笔记",
+          "operationId": "rename_note_api_v1_notes_rename_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/notes/write",
+          "summary": "写入笔记内容",
+          "description": "新建或覆盖指定笔记文件的内容。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `filename`：笔记文件名（须以 `.md` 结尾）\n- `content`：笔记文本内容",
+          "tag": "笔记",
+          "operationId": "write_note_api_v1_notes_write_post",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "媒体修复",
+      "count": 6,
+      "operations": [
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/cancel",
+          "summary": "取消修复任务（v1.4.2）",
+          "description": "取消排队中/执行中的任务；执行中取消会终止 ffmpeg 并清理半成品。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `task_id`：任务 ID\n\n错误：403 无写+删权限；404 任务不存在（含他人任务）；400 状态不可取消",
+          "tag": "媒体修复",
+          "operationId": "cancel_task_api_v1_files_repair_cancel_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/create",
+          "summary": "创建媒体修复任务（v1.4.2）",
+          "description": "对损坏/非流式媒体文件发起异步离线修复。健康文件拒绝（无需修复）；\n同文件存在未完成任务拒绝（重复修复拦截）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `path`：文件所在目录（磁盘内相对路径）\n- `filename`：文件名（含扩展名）\n\n响应体（加密后）字段：\n- `task_id`：新任务 ID\n- `message`：结果描述（已加入修复队列）\n\n错误：403 无写+删权限；400 健康无需修复 / 无法修复 / 已有任务 / 文件不存在",
+          "tag": "媒体修复",
+          "operationId": "create_task_api_v1_files_repair_create_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/delete-artifact",
+          "summary": "删除修复产物（v1.4.2）",
+          "description": "删除修复成功但尚未覆盖的产物；隐藏目录为空时顺带清理目录。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `task_id`：任务 ID",
+          "tag": "媒体修复",
+          "operationId": "delete_artifact_api_v1_files_repair_delete_artifact_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/delete-record",
+          "summary": "删除任务记录（v1.4.2）",
+          "description": "软删除终态任务记录（列表不再展示；不影响磁盘上产物，产物经 delete-artifact 单独删除）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `task_id`：任务 ID\n\n错误：400 任务不存在/未结束不可删",
+          "tag": "媒体修复",
+          "operationId": "delete_record_api_v1_files_repair_delete_record_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/files/repair/override",
+          "summary": "覆盖原文件（v1.4.2）",
+          "description": "把修复成功的产物原子替换到原文件位置：**原损坏文件被直接删除，不留备份、不可恢复**。客户端必须先经用户重点二次确认。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `task_id`：任务 ID\n\n错误：403 无写+删权限；400 任务非成功状态/产物缺失/原文件不存在",
+          "tag": "媒体修复",
+          "operationId": "override_origin_api_v1_files_repair_override_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/files/repair/tasks",
+          "summary": "修复任务列表（v1.4.2）",
+          "description": "分页查询**当前账号自己的**修复任务（D10：记录按账号隔离）。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `page`：页码（默认 1）\n- `page_size`：每页条数（默认 50，上限 100）\n\n响应体（加密后）字段：\n- `total`：总条数\n- `tasks`：任务列表，每项含 `id`、`username`、`disk_id`、`filename`、`status`（pending/running/verifying/success/failed/canceled/overridden）、`progress`（0~100）、`error_message`、`source_size`、`output_name`、`created_at`、`started_at`、`finished_at`",
+          "tag": "媒体修复",
+          "operationId": "list_tasks_api_v1_files_repair_tasks_get",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "虚拟磁盘",
+      "count": 6,
+      "operations": [
+        {
+          "method": "GET",
+          "path": "/api/v1/virtual-disks",
+          "summary": "获取虚拟磁盘列表",
+          "description": "获取系统中所有虚拟磁盘的信息。\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n\n响应体（加密后）字段：\n- `disks`：磁盘列表，每项含 `id`、`name`、`real_path`、`created_by`、`created_at`",
+          "tag": "虚拟磁盘",
+          "operationId": "list_disks_api_v1_virtual_disks_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/virtual-disks",
+          "summary": "创建虚拟磁盘",
+          "description": "注册一个新的虚拟磁盘，服务端指定目录路径须已存在。\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n- `name`：磁盘展示名称\n- `real_path`：服务端真实目录绝对路径\n\n响应体（加密后）字段：\n- `id`：新磁盘主键 ID\n- `message`：操作结果描述",
+          "tag": "虚拟磁盘",
+          "operationId": "create_disk_api_v1_virtual_disks_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/virtual-disks/server-dirs",
+          "summary": "浏览服务器本机目录（管理员）",
+          "description": "列出服务端某个绝对路径下的子目录，用于添加/编辑虚拟磁盘时选择真实路径。\n\n**只返回目录，不返回文件名、文件内容或文件大小**；仅管理员可调用。\n\n请求体（加密后 / GET 使用 query 信封）字段：\n- `token`：管理员 JWT 令牌\n- `path`：绝对路径；留空表示从 roots 第一项开始\n\n响应体（加密后）字段：\n- `path`：当前绝对路径\n- `parent`：上一级绝对路径（根目录为 null）\n- `dirs`：子目录列表，每项含 `name`、`path`\n- `roots`：常见起始目录，每项含 `name`、`path`\n- `truncated`：目录数超过上限时为 true\n- `limit`：单层目录数量上限（v1.8.2，客户端据此渲染提示文案）",
+          "tag": "虚拟磁盘",
+          "operationId": "browse_server_dirs_api_v1_virtual_disks_server_dirs_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/virtual-disks/{disk_id}",
+          "summary": "删除虚拟磁盘",
+          "description": "软删除虚拟磁盘记录，不删除服务端真实文件。\n\n路径参数：\n- `disk_id`：目标磁盘 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌",
+          "tag": "虚拟磁盘",
+          "operationId": "delete_disk_api_v1_virtual_disks__disk_id__delete",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/virtual-disks/{disk_id}",
+          "summary": "更新虚拟磁盘",
+          "description": "修改虚拟磁盘的展示名称和服务端路径，新路径须已存在。\n\n路径参数：\n- `disk_id`：目标磁盘 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n- `name`：新展示名称\n- `real_path`：新服务端真实路径",
+          "tag": "虚拟磁盘",
+          "operationId": "update_disk_api_v1_virtual_disks__disk_id__put",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/virtual-disks/{disk_id}/browse",
+          "summary": "浏览磁盘内目录",
+          "description": "列出指定虚拟磁盘内某路径下的所有子目录，用于笔记目录选择。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `path`：相对路径（空字符串表示根目录）\n\n响应体（加密后）字段：\n- `dirs`：子目录列表，每项含 `name`、`path`（相对磁盘根的路径）",
+          "tag": "虚拟磁盘",
+          "operationId": "browse_disk_dirs_api_v1_virtual_disks__disk_id__browse_get",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "用户管理",
+      "count": 5,
+      "operations": [
+        {
+          "method": "GET",
+          "path": "/api/v1/users",
+          "summary": "获取用户列表",
+          "description": "获取系统中所有用户的信息（不含密码哈希）。\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n\n响应体（加密后）字段：\n- `users`：用户列表，每项含 `id`、`username`、`role`、`enabled`、`created_at`",
+          "tag": "用户管理",
+          "operationId": "list_users_api_v1_users_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/users",
+          "summary": "创建普通用户",
+          "description": "创建一个新的普通用户账号，密码使用 bcrypt 哈希存储。\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n- `username`：用户名（系统唯一；含已软删除的历史行，见删除接口说明）\n- `password`：初始密码\n\n响应体（加密后）字段：\n- `id`：新用户的主键 ID\n- `message`：操作结果描述\n\n注：重名（含同名已删除账号）返回 400 与明确文案，不会暴露数据库原始错误。",
+          "tag": "用户管理",
+          "operationId": "create_user_api_v1_users_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/users/{user_id}",
+          "summary": "删除用户",
+          "description": "软删除指定用户账号（管理员账号不可删除）。\n\n注：`users.username` 是全局唯一约束且不区分是否删除，因此被软删除的\n用户名仍被历史行占用，无法再次创建同名账号 —— 这一点在创建接口会返回\n明确的 400 文案说明（而不是数据库原始错误）。\n\n路径参数：\n- `user_id`：目标用户 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌",
+          "tag": "用户管理",
+          "operationId": "delete_user_api_v1_users__user_id__delete",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/users/{user_id}/enabled",
+          "summary": "启用或禁用用户",
+          "description": "切换指定用户账号的启用状态（管理员账号不可操作）。\n\n路径参数：\n- `user_id`：目标用户 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n- `enabled`：`true` 启用，`false` 禁用",
+          "tag": "用户管理",
+          "operationId": "set_enabled_api_v1_users__user_id__enabled_put",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/users/{user_id}/password",
+          "summary": "修改用户密码",
+          "description": "重置指定用户的密码，新密码使用 bcrypt 重新哈希存储。\n\n路径参数：\n- `user_id`：目标用户 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n- `password`：新密码",
+          "tag": "用户管理",
+          "operationId": "update_password_api_v1_users__user_id__password_put",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "认证",
+      "count": 5,
+      "operations": [
+        {
+          "method": "GET",
+          "path": "/api/v1/auth/admin-exists",
+          "summary": "检查管理员是否已存在",
+          "description": "客户端启动时调用，判断是否需要引导用户完成初始化流程。\n\n**此接口为明文接口，不含敏感信息。**",
+          "tag": "认证",
+          "operationId": "admin_exists_api_v1_auth_admin_exists_get",
+          "plain": true,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/init-admin",
+          "summary": "初始化管理员账号",
+          "description": "系统首次使用时创建管理员账号。若管理员已存在则返回 400。\n\n请求体（加密后）字段：\n- `username`：管理员用户名\n- `password`：管理员密码",
+          "tag": "认证",
+          "operationId": "init_admin_api_v1_auth_init_admin_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/key-exchange",
+          "summary": "密钥交换",
+          "description": "客户端与服务端进行 X25519 ECDH 密钥交换，派生 ChaCha20-Poly1305 会话密钥。\n\n- 首次交换：不携带 `X-Session-ID`，`refresh` 传 `false`。\n- 密钥刷新：携带旧 `X-Session-ID`，`refresh` 传 `true`。\n- **此接口为唯一明文接口，请求/响应均不加密。**",
+          "tag": "认证",
+          "operationId": "key_exchange_api_v1_auth_key_exchange_post",
+          "plain": true,
+          "hasRequestBody": true
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/login",
+          "summary": "用户登录",
+          "description": "使用用户名和密码进行登录，验证通过后返回 JWT 令牌。\n\n请求体（加密后）字段：\n- `username`：用户名\n- `password`：密码\n- `requested_ttl_seconds`（v1.1.2 新增，可选）：客户端请求的 JWT 有效期（秒）。服务端会 clamp 到 [JWT_EXPIRE_MIN_SECONDS, JWT_EXPIRE_MAX_SECONDS] 范围内；缺失或非法值则使用默认值 JWT_EXPIRE_DEFAULT_SECONDS（1 小时）。\n\n响应体（加密后）字段：\n- `token`：JWT 访问令牌\n- `expires_in`：本次签发的实际有效期（秒，clamp 后的真实值）",
+          "tag": "认证",
+          "operationId": "login_api_v1_auth_login_post",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/auth/refresh",
+          "summary": "刷新 JWT 令牌",
+          "description": "使用有效的旧令牌换取新令牌，延长登录有效期。\n\n请求体（加密后）字段：\n- `token`：当前有效的 JWT 令牌\n\n响应体（加密后）字段：\n- `token`：新 JWT 令牌\n- `expires_in`：新令牌有效期（秒）",
+          "tag": "认证",
+          "operationId": "refresh_token_api_v1_auth_refresh_post",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "权限管理",
+      "count": 3,
+      "operations": [
+        {
+          "method": "GET",
+          "path": "/api/v1/permissions/users/{user_id}/disks",
+          "summary": "获取用户磁盘权限列表",
+          "description": "查询指定用户对所有虚拟磁盘的权限配置。\n\n路径参数：\n- `user_id`：目标用户 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n\n响应体（加密后）字段：\n- `permissions`：权限列表，每项含 `virtual_disk_id`、`can_read`、`can_write`、`can_delete`",
+          "tag": "权限管理",
+          "operationId": "get_disk_permissions_api_v1_permissions_users__user_id__disks_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/v1/permissions/users/{user_id}/disks/{disk_id}",
+          "summary": "删除用户磁盘权限",
+          "description": "删除指定用户对某个虚拟磁盘的权限配置，操作后用户将失去该磁盘的所有权限。\n\n路径参数：\n- `user_id`：目标用户 ID\n- `disk_id`：目标虚拟磁盘 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌",
+          "tag": "权限管理",
+          "operationId": "delete_disk_permission_api_v1_permissions_users__user_id__disks__disk_id__delete",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/permissions/users/{user_id}/disks/{disk_id}",
+          "summary": "设置用户磁盘权限",
+          "description": "为指定用户配置对某个虚拟磁盘的读/写/删除权限（已有配置则覆盖）。\n\n路径参数：\n- `user_id`：目标用户 ID\n- `disk_id`：目标虚拟磁盘 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n- `can_read`：是否允许读取（布尔值）\n- `can_write`：是否允许写入（布尔值）\n- `can_delete`：是否允许删除（布尔值）",
+          "tag": "权限管理",
+          "operationId": "set_disk_permission_api_v1_permissions_users__user_id__disks__disk_id__post",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "系统配置",
+      "count": 3,
+      "operations": [
+        {
+          "method": "GET",
+          "path": "/api/v1/config",
+          "summary": "获取所有系统配置",
+          "description": "获取系统中所有配置项。\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n\n响应体（加密后）字段：\n- `config`：配置项键值对映射（`{key: value}`），键为配置项名称、值为其字符串值（实现见 `config_service.get_all`）",
+          "tag": "系统配置",
+          "operationId": "get_config_api_v1_config_get",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "PUT",
+          "path": "/api/v1/config",
+          "summary": "更新系统配置项",
+          "description": "新增或更新指定配置项的值（键不存在时自动创建，upsert）。\n\n常用配置键：\n- `notes_disk_id`：笔记目录对应的虚拟磁盘 ID\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n- `key`：配置项键名（不可为空）\n- `value`：配置项值（字符串，原样保存）\n\n响应体（加密后）字段：\n- `message`：操作结果描述",
+          "tag": "系统配置",
+          "operationId": "update_config_api_v1_config_put",
+          "plain": false,
+          "hasRequestBody": false
+        },
+        {
+          "method": "POST",
+          "path": "/api/v1/config/cleanup",
+          "summary": "立即清理临时文件（v1.9.0；v1.9.1 手动清理不受总开关限制）",
+          "description": "管理员触发一次与定时任务同规则的安全清理；只清理程序自产、固定命名的临时文件。\nv1.9.1 起：自动清理总开关只约束定时任务，手动「立即清理」始终执行。\n\n请求体（加密后）字段：\n- `token`：管理员 JWT 令牌\n\n响应体（加密后）字段：\n- `removed_sessions` / `removed_dirs` / `removed_parts` / `skipped`：清理统计\n- `enabled`：本次清理是否执行（手动入口恒为 true）",
+          "tag": "系统配置",
+          "operationId": "run_cleanup_api_v1_config_cleanup_post",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "同步",
+      "count": 1,
+      "operations": [
+        {
+          "method": "POST",
+          "path": "/api/v1/sync/snapshot",
+          "summary": "获取远端目录快照",
+          "description": "递归扫描指定虚拟磁盘下的子目录，返回文件清单。\n客户端使用此快照与本地目录扫描结果做 diff，决定上传/下载哪些文件。\n\n请求体（加密后）字段：\n- `token`：JWT 令牌\n- `disk_id`：虚拟磁盘 ID\n- `remote_path`：磁盘内子目录相对路径（留空表示根目录）\n\n响应体（加密后）字段：\n- `files`：文件清单，每项含 `path`（相对路径）、`size`（字节）、`modified_at`（Unix 时间戳浮点秒）",
+          "tag": "同步",
+          "operationId": "get_snapshot_api_v1_sync_snapshot_post",
+          "plain": false,
+          "hasRequestBody": false
+        }
+      ]
+    },
+    {
+      "tag": "未分组",
+      "count": 1,
+      "operations": [
+        {
+          "method": "GET",
+          "path": "/health",
+          "summary": "Health",
+          "description": "",
+          "tag": "未分组",
+          "operationId": "health_health_get",
+          "plain": true,
+          "hasRequestBody": false
+        }
+      ]
+    }
+  ],
+  "plainPaths": [
+    "/health",
+    "/api/v1/auth/key-exchange",
+    "/api/v1/auth/admin-exists"
+  ]
+}

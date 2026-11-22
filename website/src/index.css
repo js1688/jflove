@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+
+/* ============================================================
+   设计令牌（口径见 website/docs/design-spec.md，改前必须问用户）
+   ------------------------------------------------------------
+   主色 = 蒂芙尼蓝。产品内部使用紫色主题，但**官网不跟随**
+   （design-spec §1 明确禁止 #6366f1 出现在官网）。
+   ============================================================ */
+@theme {
+  --color-brand-50: #e6f7f6;
+  --color-brand-100: #ccf0ee;
+  --color-brand-300: #6fdcd7;
+  --color-brand-500: #0abab5;
+  --color-brand-600: #0a8f8b;
+  --color-brand-700: #087a76;
+
+  --color-ink-900: #12181c;
+  --color-ink-700: #3a4650;
+  --color-ink-500: #6b7883;
+  --color-ink-300: #9aa5ad;
+
+  --color-line: #e4e9ec;
+  --color-canvas: #ffffff;
+  --color-canvas-soft: #f7f9fa;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--color-ink-900);
+  background: var(--color-canvas);
+}
+
+/* 数字一律等宽，版本号 / 体积 / 统计不跳动（design-spec §3） */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 代码块 */
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, 'Cascadia Code', monospace;
+}
+
+/* 统一焦点环，键盘可访问 */
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

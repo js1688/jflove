@@ -10,6 +10,9 @@ JFLove 版本号分发器（单一来源 version.json）
   - web:      package.json(version) + src/config/constants.ts(APP_VERSION)
   - app:      pubspec.yaml(version: X.Y.Z+code，code 由版本号派生)
                + lib/pages/settings/settings_page.dart(「关于」页显示，带 v 前缀)
+  - website:  package.json(version) + src/config/constants.ts(APP_VERSION)
+              （官网版本号必须与项目版本号一致 —— 官网是对外宣传/下载站，
+                镜像 tag 也用同一个版本号，见 .agents/skills/website/SKILL.md）
 
 移动端 versionCode 派生规则：major*1000000 + minor*1000 + patch
   - 1.4.2  -> 1004002
@@ -47,7 +50,7 @@ ROOT = SCRIPT_DIR.parent
 VERSION_FILE = ROOT / "version.json"
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
-SCOPES = ("server", "desktop", "web", "app")
+SCOPES = ("server", "desktop", "web", "app", "website")
 
 
 def load_version() -> str:
@@ -145,6 +148,17 @@ POSITIONS = [
     ("app", "jflove-app/lib/pages/settings/settings_page.dart",
      lambda p: _extract_re(p, r"_InfoRow\(label: '版本', value: 'v([0-9.]+)'"),
      lambda p, v: _replace_re(p, r"(value: 'v)[0-9.]+", rf"\g<1>{v}"),
+     False),
+    # 官网（独立模块，不参与产品版本流水线，但版本号必须与项目一致）：
+    # 两处都是用户可见的版本来源 —— package.json 供镜像 tag / 构建元信息，
+    # constants.ts 供页脚与下载页展示。缺一处就会「页面显示旧版本」。
+    ("website", "website/package.json",
+     _extract_pkg,
+     _replace_pkg,
+     False),
+    ("website", "website/src/config/constants.ts",
+     lambda p: _extract_re(p, r"APP_VERSION\s*=\s*'([^']+)'"),
+     lambda p, v: _replace_re(p, r"APP_VERSION\s*=\s*'[^']+'", f"APP_VERSION = '{v}'"),
      False),
 ]
 

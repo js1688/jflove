@@ -49,7 +49,7 @@ docker run -d --name jflove-web -p 8080:80 --restart=always \
 
 ### AI 代理角色
 
-项目采用 **多代理协作架构**，通过 `.agents/skills/` 目录下的技能文件（DSH 原生技能格式）驱动 10 个 AI 角色协同工作：
+项目采用 **多代理协作架构**，通过 `.agents/skills/` 目录下的技能文件（DSH 原生技能格式）驱动 11 个 AI 角色协同工作：
 
 | 角色 | 职责 |
 |------|------|
@@ -63,8 +63,9 @@ docker run -d --name jflove-web -p 8080:80 --restart=always \
 | **Testing** | 自动化测试用例编写与执行 |
 | **PMO** | 项目管理、任务跟踪、版本控制 |
 | **DevOps** | 构建、打包、部署、发布 |
+| **Website** | 官网维护（宣传站 / 文档站 / 下载站，独立模块 `website/`）：**人工触发**，不参与产品版本流水线；内容从项目真身自动抽取并由门禁交叉验证，版本号与项目强制一致，独立 CI 构建 Docker 镜像 |
 
-> 详细角色规范与工作流程见 [`AGENTS.md`](AGENTS.md)。
+> 详细角色规范与工作流程见 [`AGENTS.md`](AGENTS.md)（官网单独见 §10）。
 
 ### AI 技能自成长（克隆后需在本机配置一次）
 
@@ -105,6 +106,7 @@ docker run -d --name jflove-web -p 8080:80 --restart=always \
 | **jflove-desktop** | [`jflove-desktop/`](jflove-desktop/) | 跨平台桌面客户端（PySide6 原生外壳 + **Web UI**：React + TypeScript 渲染于 QtWebEngine） | ✅ 在研 |
 | **jflove-app** | [`jflove-app/`](jflove-app/) | 跨平台移动端 App（Flutter + Dart），首版 Android-only，iOS/鸿蒙预留 | ✅ 在研 |
 | **jflove-web** | [`jflove-web/`](jflove-web/) | 浏览器 Web 端（React + TypeScript），支持 PC 端与移动端浏览器双布局 | ✅ 在研 |
+| **website** | [`website/`](website/) | 官网（宣传站 / 文档站 / 下载站），Docker 镜像部署；内容从项目真身自动抽取并由门禁交叉验证 | 🚧 在建 |
 
 > **模块边界**：各模块独立开发，互不越界。详细代码规范与工作手册见 [`AGENTS.md`](AGENTS.md)。
 

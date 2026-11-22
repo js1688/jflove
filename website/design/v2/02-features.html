@@ -1,0 +1,769 @@
+<!--
+  02-features.html · JFLove 官网「功能详情」静态设计稿 v2
+  ------------------------------------------------------------------
+  定位：11 项能力逐条展开 —— 图标 + 名称 + 三端支持徽章 + 详细摘要 + 实现要点；
+        左右交替布局避免单调。首页负责「展示」，本页负责「说清楚」。
+  约束：单文件、零外链、零构建、无 frontmatter。
+  数据：version.json = 1.10.21；11 项能力与三端支持取自 README.md §功能特性
+        （经 website/content/features.json 抽取），实现要点取自 README 各小节，非臆造。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JFLove · 功能详情</title>
+<style>
+:root{
+  --tiffany:#0ABAB5;
+  --tiffany-deep:#0A8F8B;
+  --wash:#E6F7F6;
+  --ink:#12181C;
+  --ink2:#3A4650;
+  --ink3:#6B7883;
+  --line:#E4E9EC;
+  --paper:#FFFFFF;
+  --paper2:#F7F9FA;
+  --r:10px;
+  --maxw:1120px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,"Cascadia Code","Noto Sans Mono CJK SC",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.62;color:var(--ink);background:var(--paper);
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+code{font-family:var(--mono);font-size:.92em}
+svg{display:block}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+/* 顶栏 */
+.top{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:26px;height:58px}
+.brand{display:flex;align-items:center;gap:9px;font-size:15.5px;font-weight:680;letter-spacing:-.012em}
+.brand i{width:23px;height:23px;border-radius:6px;background:var(--tiffany);color:#fff;font-style:normal;
+  font-size:12px;font-weight:700;display:grid;place-items:center;letter-spacing:0}
+.nav{display:flex;gap:24px;font-size:13.5px;color:var(--ink2)}
+.nav a{padding:4px 0;border-bottom:1.5px solid transparent;transition:color .14s,border-color .14s}
+.nav a:hover{color:var(--tiffany-deep);border-bottom-color:var(--tiffany)}
+.nav a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--tiffany)}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.ver{font-size:12px;color:var(--ink3);border:1px solid var(--line);border-radius:5px;padding:2px 7px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:7px;
+  font-size:13px;font-weight:550;padding:8px 15px;white-space:nowrap;border:1px solid transparent;
+  transition:background-color .14s,color .14s,border-color .14s}
+.btn-primary{background:var(--tiffany);color:#fff}
+.btn-primary:hover{background:var(--tiffany-deep)}
+.btn-ghost{border-color:var(--line);color:var(--ink2);background:#fff}
+.btn-ghost:hover{border-color:var(--tiffany);color:var(--tiffany-deep)}
+.btn-sm{padding:6px 12px;font-size:12.5px;border-radius:6px}
+
+/* 页头 */
+.phead{padding:46px 0 30px;border-bottom:1px solid var(--line)}
+.crumb{font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:6px;margin-bottom:14px}
+.crumb a:hover{color:var(--tiffany-deep)}
+.crumb i{color:#C2CBD1;font-style:normal}
+.phead h1{font-size:32px;line-height:1.3;font-weight:680;letter-spacing:-.024em}
+.phead h1 .hl{color:var(--tiffany-deep)}
+.phead p{font-size:14.5px;color:var(--ink2);max-width:620px;margin-top:11px}
+.phead p b{color:var(--ink);font-weight:600}
+
+/* 支持矩阵 */
+.matrix{margin-top:26px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff}
+.mx-row{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,84px);align-items:center;
+  padding:0 16px;border-bottom:1px solid #F1F4F6;font-size:12.5px}
+.mx-row:last-child{border-bottom:0}
+.mx-row.hd{background:var(--paper2);border-bottom:1px solid var(--line);font-weight:600;
+  font-size:11.5px;color:var(--ink3);height:32px}
+.mx-row span{padding:7px 0;text-align:center}
+.mx-row .nm{text-align:left;color:var(--ink2);display:flex;align-items:center;gap:7px;min-width:0}
+.mx-row .nm em{font-style:normal;font-size:13px;flex:0 0 auto}
+.mx-row .nm b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-row .yes{color:var(--tiffany-deep);font-weight:600;font-size:11.5px}
+.mx-row .no{color:#BFC8CE;font-size:11.5px}
+.mx-note{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink3);margin-top:10px;
+  flex-wrap:wrap}
+.mx-note i{width:1px;height:10px;background:var(--line);display:inline-block}
+.mx-note b{color:var(--tiffany-deep);font-weight:600}
+
+/* 能力条目 */
+.flist{padding:8px 0 0}
+.frow{padding:48px 0;border-bottom:1px solid var(--line)}
+.frow:last-child{border-bottom:0}
+.frow .wrap{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,.88fr);gap:44px;align-items:start}
+.frow.rev .wrap{grid-template-columns:minmax(0,.88fr) minmax(0,1.12fr)}
+.frow.rev .f-main{order:2}
+.frow.rev .f-side{order:1}
+.f-main{min-width:0}
+.f-num{font-family:var(--mono);font-size:11.5px;color:#AEB9C0;letter-spacing:.06em;
+  font-variant-numeric:tabular-nums}
+.f-title{display:flex;align-items:center;gap:10px;margin:8px 0 10px;flex-wrap:wrap}
+.f-ico{width:32px;height:32px;border-radius:8px;background:var(--wash);display:grid;place-items:center;
+  flex:0 0 auto}
+.f-ico svg{width:17px;height:17px;stroke:var(--tiffany-deep);fill:none;stroke-width:1.45;
+  stroke-linecap:round;stroke-linejoin:round}
+.f-title h2{font-size:21px;font-weight:660;letter-spacing:-.018em;line-height:1.35}
+.f-title .only{font-size:11px;color:var(--ink3);border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;font-weight:500;white-space:nowrap}
+.f-badges{display:flex;gap:6px;margin-bottom:13px;flex-wrap:wrap}
+.bdg{display:inline-flex;align-items:center;gap:4px;font-size:11px;border-radius:4px;padding:2px 7px;
+  border:1px solid var(--line);color:#AEB9C0;white-space:nowrap}
+.bdg.on{background:var(--wash);border-color:#BFE6E3;color:var(--tiffany-deep);font-weight:600}
+.bdg .d{width:4px;height:4px;border-radius:50%;background:currentColor;display:block}
+.f-sum{font-size:14px;color:var(--ink2);line-height:1.72}
+.f-sum b{color:var(--ink);font-weight:600}
+.f-points{list-style:none;display:flex;flex-direction:column;gap:8px;margin-top:15px}
+.f-points li{position:relative;padding-left:14px;font-size:13px;color:var(--ink2);line-height:1.65}
+.f-points li::before{content:"";position:absolute;left:3px;top:.62em;width:4px;height:4px;
+  border-radius:50%;background:#BFE6E3}
+.f-points li b{color:var(--ink);font-weight:600}
+
+/* 右侧实现要点卡 */
+.f-side{min-width:0}
+.spec{border:1px solid var(--line);border-radius:var(--r);background:var(--paper2);overflow:hidden}
+.spec-hd{display:flex;align-items:center;gap:7px;padding:9px 14px;border-bottom:1px solid var(--line);
+  font-size:11px;font-weight:600;color:var(--ink3);letter-spacing:.03em;background:#fff}
+.spec-hd svg{width:12px;height:12px;stroke:var(--tiffany-deep);fill:none;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round}
+.spec-body{padding:5px 14px 11px;background:#fff}
+.spec-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;align-items:baseline;
+  padding:8px 0;border-bottom:1px solid #F1F4F6;font-size:12px}
+.spec-row:last-child{border-bottom:0}
+.spec-row .k{color:var(--ink3);white-space:nowrap}
+.spec-row .v{color:var(--ink2);line-height:1.6}
+.spec-row .v code{background:var(--paper2);border:1px solid var(--line);border-radius:3px;
+  padding:0 4px;font-size:11px;color:var(--ink)}
+.spec-row .v b{color:var(--ink);font-weight:600}
+
+/* 页尾 CTA */
+.cta{padding:46px 0;background:var(--paper2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.cta .wrap{display:flex;align-items:center;justify-content:space-between;gap:28px;flex-wrap:wrap}
+.cta h3{font-size:19px;font-weight:660;letter-spacing:-.015em}
+.cta p{font-size:13px;color:var(--ink3);margin-top:5px}
+.cta-btns{display:flex;gap:10px;flex-wrap:wrap}
+
+/* 页脚 */
+.foot{padding:32px 0 24px;background:#fff}
+.foot-bot{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--ink3);flex-wrap:wrap}
+.foot-bot .rt{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap}
+.foot-bot code{font-size:11px;color:var(--ink2)}
+.foot-links{display:flex;gap:16px;font-size:12px;color:var(--ink3);margin-bottom:16px;flex-wrap:wrap}
+.foot-links a:hover{color:var(--tiffany-deep)}
+
+@media (max-width:960px){
+  .frow .wrap,.frow.rev .wrap{grid-template-columns:1fr;gap:26px}
+  .frow.rev .f-main{order:1}
+  .frow.rev .f-side{order:2}
+  .nav{display:none}
+  .mx-row{grid-template-columns:minmax(0,1fr) repeat(3,56px)}
+  .mx-row.hd span{font-size:10.5px}
+}
+@media (max-width:640px){
+  .phead h1{font-size:26px}
+  .f-title h2{font-size:18.5px}
+  .spec-row{grid-template-columns:1fr;gap:2px}
+}
+
+/* 品牌 Logo：使用产品真实橘猫标识（与三端逐字节一致），base64 内嵌保持单文件 */
+.brand img,.side-brand img,.sm-brand img{border-radius:5px;object-fit:cover;display:block;flex:none}
+.brand img{width:24px;height:24px}
+.side-brand img{width:16px;height:16px}
+.sm-brand img{width:14px;height:14px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="01-home.html"><img alt="JFLove" src="data:image/png;base64,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">JFLove</a>
+    <nav class="nav">
+      <a href="01-home.html">产品</a>
+      <a class="on" href="02-features.html">功能</a>
+      <a href="03-docs-hub.html">文档</a>
+      <a href="01-home.html#download">下载</a>
+    </nav>
+    <div class="top-right">
+      <span class="ver">v1.10.21</span>
+      <a class="btn btn-primary btn-sm" href="01-home.html#download">下载客户端</a>
+    </div>
+  </div>
+</header>
+
+<!-- 页头 -->
+<section class="phead">
+  <div class="wrap">
+    <div class="crumb"><a href="01-home.html">产品</a><i>/</i><span>功能详情</span></div>
+    <h1>11 项能力，<span class="hl">逐条说清楚</span></h1>
+    <p>
+      每一项都标注了<b>哪几端真的支持</b>。写「—」的地方就是没做 —— 不做跨端功能承诺，
+      也不让不支持的入口出现在界面上。
+    </p>
+
+    <!-- 三端支持矩阵 -->
+    <div class="matrix" role="table" aria-label="11 项能力的桌面 / 移动 / Web 三端支持矩阵">
+      <div class="mx-row hd" role="row">
+        <span class="nm" role="columnheader" style="text-align:left">能力</span>
+        <span role="columnheader">桌面</span>
+        <span role="columnheader">移动</span>
+        <span role="columnheader">Web</span>
+      </div>
+      <div class="mx-row" role="row"><span class="nm"><em>📁</em><b>文档管理</b></span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>📝</em><b>笔记本管理</b></span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>✏️</em><b>文本编辑器</b></span><span class="yes">✅</span><span class="no">—</span><span class="no">—</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>👤</em><b>用户与权限管理</b></span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>☁️</em><b>云盘挂载</b></span><span class="yes">✅</span><span class="no">—</span><span class="no">—</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>📷</em><b>相册自动备份</b></span><span class="no">—</span><span class="yes">✅</span><span class="no">—</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>🛠</em><b>媒体修复中心</b></span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>📥</em><b>离线下载</b></span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>🧹</em><b>存储与临时文件治理</b></span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>🔌</em><b>远程连接</b></span><span class="yes">✅</span><span class="no">—</span><span class="no">—</span></div>
+      <div class="mx-row" role="row"><span class="nm"><em>🔐</em><b>安全通信</b></span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+    </div>
+    <div class="mx-note">
+      <span>全端覆盖 <b>8</b> 项</span><i></i>
+      <span>桌面端专属 3 项</span><i></i>
+      <span>移动端专属 1 项</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 11 项能力 ═══ -->
+<div class="flist">
+
+  <!-- 01 文档管理 -->
+  <section class="frow">
+    <div class="wrap">
+      <div class="f-main">
+        <div class="f-num">01 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M2.2 5.2a1 1 0 0 1 1-1h3.6l1.4 1.7h6.6a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H3.2a1 1 0 0 1-1-1z"/></svg>
+          </span>
+          <h2>文档管理</h2>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg on"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          虚拟磁盘把服务器上的真实目录映射成一块盘，<b>完全依赖文件系统结构</b>，
+          数据库里不存一份文件目录信息 —— 你在服务器上直接建目录，客户端马上就看得见。
+          大文件上传 / 下载都支持断点续传，图片、视频、音频、文本、Markdown 都能直接预览。
+        </p>
+        <ul class="f-points">
+          <li><b>断点续传跨重启</b>：服务端会话持久化，只有用户主动取消才清理已传分片</li>
+          <li><b>合并异步化</b>：后台合并 + 进度轮询，大文件不再因合并耗时长被判失败</li>
+          <li><b>流式预览</b>：视频 / 音频零缓存播放，文本逐帧加载不写本地临时文件</li>
+          <li><b>隐藏项过滤</b>：<code>.</code> 开头的条目不出现在列表里，程序临时目录不可通过接口访问</li>
+        </ul>
+      </div>
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">上传分片</span><span class="v">默认 <code>512KB</code> / 片，服务端硬上限 <code>1MB</code></span></div>
+            <div class="spec-row"><span class="k">加密</span><span class="v">分片数据嵌入加密信封，ChaCha20-Poly1305</span></div>
+            <div class="spec-row"><span class="k">并发</span><span class="v">按端配置；服务端合并 / 分片使用保守默认值</span></div>
+            <div class="spec-row"><span class="k">续传判据</span><span class="v">远端文件变化或偏移越界 → 自动从头下载</span></div>
+            <div class="spec-row"><span class="k">预览格式</span><span class="v">图片 8 类、视频 13 类、音频 9 类、文本与代码流式加载</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 02 笔记本管理 -->
+  <section class="frow rev">
+    <div class="wrap">
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">存放</span><span class="v">直接操作服务端 <code>.md</code> 文件，不做私有格式封装</span></div>
+            <div class="spec-row"><span class="k">目录隔离</span><span class="v">每个账号在设置页选自己的笔记目录，互相不可见</span></div>
+            <div class="spec-row"><span class="k">默认视图</span><span class="v">有内容 → 预览；空笔记 → 编辑；手动切换后本页不再自动改写</span></div>
+            <div class="spec-row"><span class="k">大纲</span><span class="v">按标题层级解析，右侧可折叠竖栏，预览 / 分屏均可用</span></div>
+            <div class="spec-row"><span class="k">主题</span><span class="v">跟随系统 <code>prefers-color-scheme</code> 的暗黑模式</span></div>
+          </div>
+        </div>
+      </aside>
+      <div class="f-main">
+        <div class="f-num">02 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M4 2h6l3.6 3.6V16H4z"/><path d="M10 2v3.6h3.6"/><path d="M6.2 9.6h5M6.2 12.2h3.2"/></svg>
+          </span>
+          <h2>笔记本管理</h2>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg on"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          左边写 Markdown，右边实时成形。代码块有语法高亮，Mermaid 图表渲染成矢量图，
+          笔记本身就是服务器上的普通 <b>.md</b> 文件 —— 拿走就能用别的工具继续写。
+        </p>
+        <ul class="f-points">
+          <li><b>实时预览</b>：GitHub 风格 CSS，表格、代码块、引用都按标准渲染</li>
+          <li><b>Mermaid 图表</b>：与桌面文本编辑器同一渲染栈，语法错误给中文提示且不白屏</li>
+          <li><b>搜索 / 标签 / 收藏</b>：按文件名或内容检索，长笔记库也找得到</li>
+          <li><b>新建 / 编辑 / 保存 / 删除</b>：全程直接写服务端文件，没有同步延迟</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 文本编辑器 -->
+  <section class="frow">
+    <div class="wrap">
+      <div class="f-main">
+        <div class="f-num">03 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M6.2 5.6 2.6 9l3.6 3.4M11.8 5.6 15.4 9l-3.6 3.4"/></svg>
+          </span>
+          <h2>文本编辑器</h2>
+          <span class="only">仅桌面端</span>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg"><span class="d"></span>移动</span>
+          <span class="bdg"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          一个<b>纯本地</b>的多标签编辑器：打开和保存都针对本机文件，编辑器与远端零交互。
+          登录后断网、服务端没启动也照常可用 —— 它只是借用了这个客户端的窗口。
+        </p>
+        <ul class="f-points">
+          <li><b>12 项工具箱</b>：查找替换、行操作、大小写、转义、Base64、JSON、Markdown、CSV、SQL、XML、对比、字号与行号</li>
+          <li><b>29 项快捷键</b>：每项都配有快捷键，且只在编辑面板聚焦时生效（焦点在别处既不生效也不被吞）</li>
+          <li><b>跨标签查找替换</b>：范围可切到「所有已打开的标签页」，结果按标签页分组，点一条即跳过去选中</li>
+          <li><b>多标签状态保持</b>：切换标签保留各自光标、滚动位置与视图模式（编辑 / 预览 / 分屏 / 表格 / 树形）</li>
+        </ul>
+      </div>
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">准入</span><span class="v">登录后入口可见；未登录时<b>入口零存在</b>、快捷键不响应</span></div>
+            <div class="spec-row"><span class="k">保存</span><span class="v">按扩展名识别语言，类型校验先行，标准原子写</span></div>
+            <div class="spec-row"><span class="k">状态栏</span><span class="v">编码 / 换行符 / 语言 / 行列与字符数</span></div>
+            <div class="spec-row"><span class="k">右击菜单</span><span class="v">中文标准编辑菜单，无英文项与浏览器导航项</span></div>
+            <div class="spec-row"><span class="k">本地性</span><span class="v">与远端零交互，不依赖服务端可用性</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 04 用户与权限 -->
+  <section class="frow rev">
+    <div class="wrap">
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">用户管理</span><span class="v">添加 / 删除普通用户、修改密码、启用 / 禁用账号</span></div>
+            <div class="spec-row"><span class="k">磁盘管理</span><span class="v">添加 / 编辑 / 删除虚拟磁盘，映射服务端真实路径</span></div>
+            <div class="spec-row"><span class="k">选路径</span><span class="v">三端均可「浏览…」从服务器目录树选择（管理员只读接口，只列目录）</span></div>
+            <div class="spec-row"><span class="k">鉴权</span><span class="v">JWT(ES256) 走加密 body；每条带路径参数的路由都校验归属</span></div>
+          </div>
+        </div>
+      </aside>
+      <div class="f-main">
+        <div class="f-num">04 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><circle cx="7.2" cy="6.6" r="2.6"/><path d="M2.8 14.6c0-2.3 2-3.8 4.4-3.8s4.4 1.5 4.4 3.8"/><path d="M12 4.8a2.6 2.6 0 0 1 0 5.1M15.2 14.6c0-1.8-1.1-3-2.7-3.5"/></svg>
+          </span>
+          <h2>用户与权限管理</h2>
+          <span class="only">管理员功能</span>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg on"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          多账号 + 虚拟磁盘，权限落在<b>磁盘级</b>：读、写、删除三个开关分别授予。
+          权限不到位的磁盘，用户登录后根本看不到，也就点不进去。
+        </p>
+        <ul class="f-points">
+          <li><b>四件事</b>：用户管理、磁盘管理、权限配置、系统设置，三端的管理面板都是这四项</li>
+          <li><b>磁盘级授权</b>：读 / 写 / 删分开控制，只读账号也能看，但改不了</li>
+          <li><b>目录树选路径</b>：管理员从服务器真实目录树里点，不用手打绝对路径</li>
+          <li><b>接口全加密</b>：不暴露任何明文凭据，JWT 通过加密 body 传递</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 云盘挂载 -->
+  <section class="frow">
+    <div class="wrap">
+      <div class="f-main">
+        <div class="f-num">05 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M5 13.2a3.2 3.2 0 0 1 .4-6.4 4.1 4.1 0 0 1 7.8 1 2.7 2.7 0 0 1-.5 5.4z"/></svg>
+          </span>
+          <h2>云盘挂载</h2>
+          <span class="only">仅桌面端</span>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg"><span class="d"></span>移动</span>
+          <span class="bdg"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          把远端的一个子目录挂成本地的一个挂载点，文件按需下载 —— 用到的才落盘。
+          多个挂载点之间<b>互不暴露</b>，一个挂载点看不到另一个的内容。
+        </p>
+        <ul class="f-points">
+          <li><b>目录级挂载</b>：一个挂载点 = 一个远端子目录，可以同时挂多个</li>
+          <li><b>文件级状态</b>：<code>已缓存</code> / <code>仅在线</code>，随时释放空间（只删本地缓存）</li>
+          <li><b>增量同步</b>：服务端变更日志（<code>rev</code>）为主，全量对账兜底「绕过 API 的直接写入」</li>
+          <li><b>永不自动删除远端文件</b>：本地怎么折腾都不会反噬服务器</li>
+        </ul>
+      </div>
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">默认态</span><span class="v">挂载点<b>默认关闭</b>，需手动开启</span></div>
+            <div class="spec-row"><span class="k">配置存放</span><span class="v">只存客户端本地；旧同步配置自动迁移</span></div>
+            <div class="spec-row"><span class="k">冲突策略</span><span class="v">远端优先，本地缓存可随时重新拉取</span></div>
+            <div class="spec-row"><span class="k">跨端</span><span class="v">桌面端专属；Web 端 v1.7.0 起已移除该路由</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 06 相册自动备份 -->
+  <section class="frow rev">
+    <div class="wrap">
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">默认</span><span class="v">设置页开关，<b>默认关闭</b></span></div>
+            <div class="spec-row"><span class="k">分层</span><span class="v">按 <code>年/月</code> 存放；图片与视频可选</span></div>
+            <div class="spec-row"><span class="k">去重</span><span class="v">先建本地持久化远端索引再上传，命中直接跳过（不读本地文件流）</span></div>
+            <div class="spec-row"><span class="k">补传</span><span class="v">远端文件被删除 → 自动补传</span></div>
+            <div class="spec-row"><span class="k">校验</span><span class="v">SHA256 完整性校验，带百分比、可取消，按「路径+大小+修改时间」缓存</span></div>
+          </div>
+        </div>
+      </aside>
+      <div class="f-main">
+        <div class="f-num">06 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><rect x="2.2" y="4.6" width="13.6" height="9.6" rx="1.2"/><circle cx="6.4" cy="8.4" r="1.1"/><path d="m3.4 12.6 3.8-3.4 2.7 2.2 2.1-1.8 2.6 2.8"/></svg>
+          </span>
+          <h2>相册自动备份</h2>
+          <span class="only">仅移动端</span>
+        </div>
+        <div class="f-badges">
+          <span class="bdg"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          手机相册自动往服务器上备份。可以只在 <b>Wi-Fi</b> 下传、只在<b>充电</b>时传，
+          并且<b>永远不删远端文件</b> —— 手机上删照片，服务器上的备份还在。
+        </p>
+        <ul class="f-points">
+          <li><b>先核对再上传</b>：先建好远端索引，索引命中的文件直接跳过，连本地文件都不读</li>
+          <li><b>完整性校验</b>：上传前算 SHA256，服务端合并分片时比对，同一文件重试不重算</li>
+          <li><b>进度可见</b>：带百分比、可取消；校验与上一个文件的上传可以重叠</li>
+          <li><b>不拉爆机器</b>：未开始传输的任务超过 10 个时本轮不再提交，留到下一轮</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 媒体修复中心 -->
+  <section class="frow">
+    <div class="wrap">
+      <div class="f-main">
+        <div class="f-num">07 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M11.4 2.6a4.2 4.2 0 0 0-5.3 5.2l-4 4a1.6 1.6 0 0 0 2.3 2.3l4-4a4.2 4.2 0 0 0 5.2-5.3L11.2 6.9 9.5 6.8 9.4 5.1z"/></svg>
+          </span>
+          <h2>媒体修复中心</h2>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg on"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          损坏或不完整的视频在播放时会被拒绝，这时可以手动发起一次<b>离线修复</b>：
+          ffmpeg 无损重封装（不重新编码），产物验证能播之后才覆盖原文件。
+        </p>
+        <ul class="f-points">
+          <li><b>不重编码</b>：只重封装容器，画质与音质一字节不损失</li>
+          <li><b>状态可追</b>：<code>pending → running → verifying → success</code>，三端任务列表共享</li>
+          <li><b>产物先隔离</b>：落在原文件同目录的隐藏目录 <code>.jflove-repair/</code>，验证通过才二次确认覆盖</li>
+          <li><b>权限如实</b>：发起 / 覆盖要求该磁盘的写 + 删权限，只读账号可看不可操作</li>
+        </ul>
+      </div>
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">触发</span><span class="v">播放路径不跑 ffmpeg，只在用户手动发起时执行</span></div>
+            <div class="spec-row"><span class="k">并发</span><span class="v">管理员可配 <code>media_repair_max_concurrent</code>，默认按 CPU 核数推导，硬上限 <code>8</code></span></div>
+            <div class="spec-row"><span class="k">覆盖</span><span class="v">验证能播后二次确认，原子替换，不留备份</span></div>
+            <div class="spec-row"><span class="k">入口</span><span class="v">文件行内「修复损坏媒体」，仅媒体扩展名可用</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 08 离线下载 -->
+  <section class="frow rev">
+    <div class="wrap">
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">输入限制</span><span class="v">仅接受<b>无需登录</b>即可访问的网页；不支持登录态 / Cookie / DRM 流 / 直播</span></div>
+            <div class="spec-row"><span class="k">解析</span><span class="v">三级降级：站点解析 → 静态抓取 → 无头浏览器兜底（末级可全局关闭）</span></div>
+            <div class="spec-row"><span class="k">产物</span><span class="v">视频合并为带音轨 <code>.mp4</code>；音频保留原格式不转码；多图落同名子目录</span></div>
+            <div class="spec-row"><span class="k">落点</span><span class="v">该账号配置的默认目录（必须有写权限），完成后直接出现在「文档管理」</span></div>
+            <div class="spec-row"><span class="k">出站安全</span><span class="v">服务端唯一主动出站通道，逐跳禁内网 / 禁回环</span></div>
+          </div>
+        </div>
+      </aside>
+      <div class="f-main">
+        <div class="f-num">08 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M9 2.6v9.2M5.4 8.4 9 12l3.6-3.6"/><path d="M2.8 14v1.6h12.4V14"/></svg>
+          </span>
+          <h2>离线下载</h2>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg on"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          贴一个网址，服务端把里面的视频 / 音频 / 图片列成可勾选的清单，
+          选中后下载到<b>你自己账号的磁盘目录</b>，完事就在文件管理里。
+          音视频分离的站点会自动把音轨合回去。
+        </p>
+        <ul class="f-points">
+          <li><b>勾选式</b>：先看清清单再决定下什么，不盲目整站拖</li>
+          <li><b>自动补音轨</b>：合并失败会明确报错并可重试，绝不产出无声文件</li>
+          <li><b>多协议</b>：直链 / HLS / DASH / 批量图片；图片还可以「继续抓下一页」逐页追加</li>
+          <li><b>三端可管</b>：新建、勾选、取消、重试、删除，以及配置账号级默认目录</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 09 存储与临时文件治理 -->
+  <section class="frow">
+    <div class="wrap">
+      <div class="f-main">
+        <div class="f-num">09 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M4.6 3.4h8.8l.9 11.2H3.7z"/><path d="M7 6.4v5.2M11 6.4v5.2"/></svg>
+          </span>
+          <h2>存储与临时文件治理</h2>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg on"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          断点续传的分片、离线下载的半成品、修复任务的中间文件 —— 都收进统一的隐藏临时根，
+          用一个期限统一保护，到期安全清理。清理只针对<b>程序自产的、固定命名的</b>文件。
+        </p>
+        <ul class="f-points">
+          <li><b>统一临时根</b>：进程级临时目录收拢到 <code>build/tmp</code>；每块磁盘根下只有一个 <code>.jflove-tmp/</code></li>
+          <li><b>一个期限</b>：默认 24 小时，管理员可配 1 小时 ~ 7 天，同时决定续传过期与残留清理</li>
+          <li><b>不会误删</b>：只删允许根内、程序自产、固定命名的临时文件，正常文件不碰</li>
+          <li><b>三端共享</b>：App / 桌面 / Web 的「系统设置」都有「存储与临时文件」卡片，改完立即生效</li>
+        </ul>
+      </div>
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">迁移</span><span class="v">旧 <code>.jflove-download</code> / <code>.jflove-repair</code> 启动时自动迁移</span></div>
+            <div class="spec-row"><span class="k">自动清理</span><span class="v">开关与周期可配；关闭只停定时任务，「立即清理」仍可手动执行</span></div>
+            <div class="spec-row"><span class="k">过期行为</span><span class="v">客户端从头上传，<b>不报错</b></span></div>
+            <div class="spec-row"><span class="k">升级要求</span><span class="v">合并协议强制异步，服务端与三端须同批次升级</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 10 远程连接 -->
+  <section class="frow rev">
+    <div class="wrap">
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">配置位置</span><span class="v">主机 / 端口 / 账号 / 密码 / 私钥 / 跳板 / 分组 / 连接后执行命令，按账号隔离存服务端</span></div>
+            <div class="spec-row"><span class="k">认证</span><span class="v">密码 / 密钥 / 密码+密钥（双因素）/ 密码+OTP</span></div>
+            <div class="spec-row"><span class="k">认证推进</span><span class="v">严格按 SSH 返回的 authlist 走，不猜方法、不发多余探测</span></div>
+            <div class="spec-row"><span class="k">多步认证</span><span class="v">整次认证只开一次 <code>ssh-userauth</code>，后续步骤同会话内推进</span></div>
+            <div class="spec-row"><span class="k">连接路径</span><span class="v">SSH / SFTP 由客户端直连目标主机，<b>不经过服务端</b></span></div>
+          </div>
+        </div>
+      </aside>
+      <div class="f-main">
+        <div class="f-num">10 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><rect x="2.2" y="3.4" width="13.6" height="11.2" rx="1.2"/><path d="m5.6 7.4 2.2 2-2.2 2M9.6 11.6h3"/></svg>
+          </span>
+          <h2>远程连接</h2>
+          <span class="only">仅桌面端</span>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg"><span class="d"></span>移动</span>
+          <span class="bdg"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          内嵌的 SSH 终端与 SFTP，任意级跳板、密钥、OTP 都能配，配置存在服务端、按账号隔离 ——
+          换台机器也带着走。另有一个只连本机的终端。
+        </p>
+        <ul class="f-points">
+          <li><b>任意级跳板</b>：逐跳状态可见，主机指纹首次确认，连接后自动执行命令</li>
+          <li><b>凭据状态如实</b>：私钥口令是否设置由服务端布尔标记决定，没设过就显示「未设置」</li>
+          <li><b>SFTP 同一条连接</b>：与终端共用，浏览 / 上传 / 下载 / 删除 / 新建目录，传输队列可取消</li>
+          <li><b>旧服务器兼容</b>：仅当服务器只提供旧算法时启用 <code>ssh-rsa</code> / RSA-SHA1 与 SHA-1 KEX</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 安全通信 -->
+  <section class="frow">
+    <div class="wrap">
+      <div class="f-main">
+        <div class="f-num">11 / 11</div>
+        <div class="f-title">
+          <span class="f-ico">
+            <svg viewBox="0 0 18 18"><path d="M9 2.2 3.4 4.4v4.8c0 2.9 2.4 5.2 5.6 6.8 3.2-1.6 5.6-3.9 5.6-6.8V4.4z"/><path d="m6.8 9 1.7 1.7 2.7-2.9"/></svg>
+          </span>
+          <h2>安全通信</h2>
+        </div>
+        <div class="f-badges">
+          <span class="bdg on"><span class="d"></span>桌面</span>
+          <span class="bdg on"><span class="d"></span>移动</span>
+          <span class="bdg on"><span class="d"></span>Web</span>
+        </div>
+        <p class="f-sum">
+          除三个明文白名单接口外，所有请求、成功响应、错误响应都装进 ChaCha20-Poly1305 信封。
+          每次会话临时协商密钥，会话密钥<b>只存内存</b>，私钥用完即销毁。
+        </p>
+        <ul class="f-points">
+          <li><b>前向保密</b>：X25519 ECDH + HKDF-SHA256（盐 <code>jflove-v1</code>，32B），不落盘</li>
+          <li><b>文件流也加密</b>：下载 / 预览按 64KB 分片独立加密，篡改任意一帧都会认证失败</li>
+          <li><b>错误响应同样加密</b>：全局异常处理器统一包裹，连 404 与 422 也不漏</li>
+          <li><b>URL 不带明文参数</b>：业务参数只在加密 body 里；Web 端只读接口 query 中仅含密文</li>
+        </ul>
+      </div>
+      <aside class="f-side">
+        <div class="spec">
+          <div class="spec-hd">
+            <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.4l2 1.2"/></svg>
+            实现要点
+          </div>
+          <div class="spec-body">
+            <div class="spec-row"><span class="k">明文白名单</span><span class="v"><code>GET /health</code>、<code>POST /auth/key-exchange</code>、<code>GET /auth/admin-exists</code></span></div>
+            <div class="spec-row"><span class="k">鉴权</span><span class="v">JWT(ES256)，只从加密 body 的 <code>token</code> 字段读取</span></div>
+            <div class="spec-row"><span class="k">帧结构</span><span class="v"><code>[4B 大端长度][12B nonce][密文 + 16B tag]</code></span></div>
+            <div class="spec-row"><span class="k">三端统一</span><span class="v">同一套协议：桌面 / 移动 / Web 均可互通</span></div>
+            <div class="spec-row"><span class="k">接口规模</span><span class="v">74 个 API，按 11 个 controller 分组</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+</div>
+
+<!-- 页尾 CTA -->
+<section class="cta">
+  <div class="wrap">
+    <div>
+      <h3>看完能力，去下载一个试试</h3>
+      <p>四类产物：Windows setup.exe 177.5MB · portable.zip 268.2MB · Fedora RPM 268.2MB · Android APK 66.9MB</p>
+    </div>
+    <div class="cta-btns">
+      <a class="btn btn-primary" href="01-home.html#download">下载客户端</a>
+      <a class="btn btn-ghost" href="03-docs-hub.html">查看文档</a>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-links">
+      <a href="01-home.html">产品概览</a>
+      <a href="02-features.html">功能详情</a>
+      <a href="03-docs-hub.html">文档中心</a>
+      <a href="04-guide-web.html">Web 端指引</a>
+      <a href="01-home.html#download">下载</a>
+    </div>
+    <div class="foot-bot">
+      <span>© 2026 JFLove · MIT License</span>
+      <code>v1.10.21</code>
+      <div class="rt"><span>11 项能力</span><span>74 个 API</span><span>3 种客户端形态</span></div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

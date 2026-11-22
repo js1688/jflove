@@ -1,0 +1,137 @@
+name: Build Website Image (GHCR)
+
+# JFLove 官网镜像构建（独立于产品 CI）
+#
+# ⚠ 与产品 5 条 workflow 的**刻意差异**（AGENTS.md §10.5 要求可证）：
+#   · 本 workflow **不含 `push: tags`** —— 打产品 tag 时官网 CI 不触发；
+#   · 只用 `workflow_dispatch`（人工触发）+ `push: branches: [main] paths: [website/**]`；
+#   · 改产品代码不会触发本 workflow（paths 不匹配）。
+# 隔离性自证见 AGENTS.md §10.5：
+#   取 on: 块检查：不得出现任何 tag 触发器（脚本或人工断言均可）
+#
+# 产物：ghcr.io/<owner>/jflove-website:<version> 与 :latest
+# 版本号单一来源：仓库根 version.json（官网两处版本号由 sync_version.py 派生）
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'website/**'
+      - '.github/workflows/website-deploy.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: website-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 版本号必须与项目一致；官网没有独立版本号
+      - name: 提取并校验版本号
+        shell: bash
+        run: |
+          VERSION=$(python -c "import json; print(json.load(open('version.json', encoding='utf-8'))['version'])")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          python scripts/sync_version.py --check
+          echo "构建版本：$VERSION"
+
+      # 内容管线：不做这一步会「拿旧内容构建新镜像」
+      - name: 重新抽取内容（特性 / 路由）
+        run: python website/scripts/extract_sources.py
+
+      - name: 生成接口文档数据（OpenAPI）
+        run: |
+          python -m pip install --upgrade pip
+          # 只装生成 openapi 所需的最小依赖（不装整个后端）
+          pip install fastapi pydantic
+          python website/scripts/gen_api_docs.py
+
+      # 内容一致性门禁：内容陈旧 / 版本漂移 / Logo 不一致都在这拦住
+      - name: 内容一致性门禁
+        run: |
+          python scripts/check_website_sync.py
+          python scripts/check_website_sync.py --self-test
+
+      - name: 安装官网依赖
+        run: |
+          cd website
+          npm ci --no-audit --no-fund
+
+      - name: 类型检查 + Lint + 测试 + 构建
+        run: |
+          cd website
+          npx tsc -b
+          npm run lint
+          npm run test
+          npm run build
+
+      - name: 断言构建产物完整
+        run: |
+          test -f website/dist/index.html || { echo "::error::缺少 dist/index.html"; exit 1; }
+          test -d website/dist/assets || { echo "::error::缺少 dist/assets"; exit 1; }
+          echo "产物大小：$(du -sh website/dist | cut -f1)"
+
+      # Docker 层面：镜像必须在仓库根构建（Dockerfile 里 COPY website/...）
+      - name: Build image
+        run: |
+          docker build -f website/Dockerfile -t "jflove-website:${VERSION}" .
+
+      - name: Smoke test（容器内起一次，验证能返回首页）
+        run: |
+          docker run -d --rm --name jf-site-smoke -p 18080:80 "jflove-website:${VERSION}"
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/ || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          echo "首页 HTTP: $code"
+          [ "$code" = "200" ] || { docker logs jf-site-smoke; exit 1; }
+          # 深链必须能打开（SPA fallback）
+          deep=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/guide/web)
+          echo "深链 /guide/web HTTP: $deep"
+          [ "$deep" = "200" ] || exit 1
+          docker stop jf-site-smoke
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image to GHCR
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE="ghcr.io/${OWNER}/jflove-website"
+          docker tag "jflove-website:${VERSION}" "${IMAGE}:${VERSION}"
+          docker tag "jflove-website:${VERSION}" "${IMAGE}:latest"
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:latest"
+          echo "pushed: ${IMAGE}:${VERSION} / ${IMAGE}:latest"
+
+      - name: 上传构建产物（便于下载排查）
+        uses: actions/upload-artifact@v4
+        with:
+          name: jflove-website-dist
+          path: website/dist/
+          if-no-files-found: error

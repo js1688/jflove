@@ -1,0 +1,574 @@
+<!--
+  方案 C · 效率优先 / 上手优先（JFLove 官网首页 静态设计稿）
+  单文件、零构建依赖、零外链：不引 CDN / 字体文件 / 图片，双击 file:// 即可正常渲染。
+  数据取自 website/content/*.json 与 version.json（版本 1.10.21），非臆造。
+  结构：窄顶栏 → 左右各半 Hero（右侧三步开始）→ 统计条 → 双栏能力清单 →
+        API 一览（分组 + 明文白名单）→ 下载表格 → 三列页脚。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JFLove · 方案 C 效率优先</title>
+<style>
+  :root{
+    --tiffany:#0ABAB5;
+    --tiffany-deep:#0A8F8B;
+    --wash:#E6F7F6;
+    --ink:#12181C;
+    --ink2:#3A4650;
+    --ink3:#6B7883;
+    --line:#E4E9EC;
+    --paper:#FFFFFF;
+    --paper2:#F7F9FA;
+    --r:10px;
+    --maxw:1120px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,"Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.6;color:var(--ink);background:var(--paper);
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none}
+  code{font-family:var(--mono)}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+  /* ── 顶栏（56px，比 A/B 更窄） ── */
+  .top{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.95);border-bottom:1px solid var(--line)}
+  .top .wrap{display:flex;align-items:center;gap:26px;height:56px}
+  .brand{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:650;letter-spacing:-.01em}
+  .brand i{width:22px;height:22px;border-radius:6px;background:var(--tiffany);color:#fff;font-style:normal;
+    font-size:12px;font-weight:700;display:grid;place-items:center}
+  .nav{display:flex;gap:22px;font-size:13.5px;color:var(--ink2)}
+  .nav a{padding:3px 0;border-bottom:1.5px solid transparent;transition:color .14s,border-color .14s}
+  .nav a:hover{color:var(--tiffany-deep);border-bottom-color:var(--tiffany)}
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
+  .ver{font-size:12px;color:var(--ink3);border:1px solid var(--line);border-radius:5px;padding:2px 7px;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .btn{display:inline-flex;align-items:center;gap:5px;border-radius:7px;font-size:13px;font-weight:520;
+    padding:7px 14px;white-space:nowrap;transition:background-color .14s,color .14s,border-color .14s}
+  .btn-primary{background:var(--tiffany);color:#fff}
+  .btn-primary:hover{background:var(--tiffany-deep)}
+  .btn-ghost{border:1px solid var(--line);color:var(--ink2)}
+  .btn-ghost:hover{border-color:var(--tiffany);color:var(--tiffany-deep)}
+
+  /* ── Hero：矮、左右各半，首屏就是可执行动作 ── */
+  .hero{padding:26px 0 22px;border-bottom:1px solid var(--line)}
+  .hero .wrap{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+  .hero-l,.hero-r{min-width:0}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:500;color:var(--tiffany-deep);
+    background:var(--wash);border-radius:5px;padding:3px 9px;white-space:nowrap}
+  h1{font-size:30px;line-height:1.3;font-weight:680;letter-spacing:-.022em;margin:13px 0 9px}
+  h1 .hl{color:var(--tiffany-deep)}
+  .sub{font-size:14px;color:var(--ink2);max-width:400px}
+
+  /* 三步开始卡 */
+  .steps{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff}
+  .steps-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:9px 13px;background:var(--paper2);border-bottom:1px solid var(--line)}
+  .steps-head b{font-size:13px;font-weight:600;letter-spacing:-.01em}
+  .steps-head span{font-size:11.5px;color:var(--ink3)}
+  .step{padding:10px 13px;border-bottom:1px solid var(--line)}
+  .step:last-child{border-bottom:0}
+  .step-top{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+  .num{width:17px;height:17px;border-radius:50%;background:var(--wash);color:var(--tiffany-deep);
+    font-size:10.5px;font-weight:650;display:grid;place-items:center;flex:0 0 auto;
+    font-variant-numeric:tabular-nums}
+  .step-title{font-size:13px;font-weight:560}
+  .step-meta{margin-left:auto;font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .cmd{display:flex;align-items:center;gap:7px;background:var(--paper2);border:1px solid var(--line);
+    border-radius:7px;padding:0 5px 0 9px;min-width:0}
+  .cmd code{flex:1 1 auto;min-width:0;font-size:11px;line-height:1.55;color:var(--ink2);
+    padding:7px 0;overflow-wrap:break-word}
+  .copy{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:10.5px;
+    line-height:1;color:var(--ink3);background:#fff;border:1px solid var(--line);border-radius:5px;
+    padding:4px 6px;cursor:pointer;transition:color .14s,border-color .14s;text-decoration:none}
+  .copy:hover{color:var(--tiffany-deep);border-color:var(--tiffany)}
+  .copy i{position:relative;width:9px;height:9px;display:block;flex:0 0 auto}
+  .copy i::before,.copy i::after{content:"";position:absolute;width:6px;height:6px;
+    border:1.2px solid currentColor;border-radius:1.5px}
+  .copy i::before{left:0;top:0}
+  .copy i::after{right:0;bottom:0;background:#fff}
+  .steps-foot{padding:8px 13px;background:var(--paper2);border-top:1px solid var(--line);
+    font-size:11px;color:var(--ink3);line-height:1.55}
+  .steps-foot code{color:var(--ink2)}
+
+  /* ── 统计条 ── */
+  .rail{border-bottom:1px solid var(--line);background:var(--paper2)}
+  .rail .wrap{display:flex;flex-wrap:wrap;align-items:center;height:44px}
+  .rail-item{display:flex;align-items:baseline;gap:6px;font-size:12.5px;color:var(--ink3);
+    padding-right:24px;margin-right:24px;border-right:1px solid var(--line);white-space:nowrap}
+  .rail-item:last-child{border-right:0;margin-right:0;padding-right:0}
+  .rail-item b{font-size:15px;font-weight:660;color:var(--tiffany-deep);letter-spacing:-.01em;
+    font-variant-numeric:tabular-nums}
+
+  /* ── 通用区块头 ── */
+  section{padding:36px 0 40px}
+  .sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+    flex-wrap:wrap;margin-bottom:14px}
+  .sec-head h2{font-size:20px;font-weight:660;letter-spacing:-.018em}
+  .sec-head .meta{font-size:11.5px;color:var(--ink3);display:inline-flex;align-items:center;gap:6px}
+  .sec-head .meta .d{margin:0}
+  .sec-head .meta .d + .d{margin-left:-2px}
+
+  /* ── 能力清单：双栏紧凑列表 ── */
+  .caps{display:grid;grid-template-columns:1fr 1fr;column-gap:34px;border-top:1px solid var(--line)}
+  .cap{display:grid;grid-template-columns:26px 1fr auto;gap:9px;padding:10px 0;
+    border-bottom:1px solid var(--line);align-items:start;min-width:0}
+  .cap-ico{width:26px;height:26px;border-radius:6px;background:var(--wash);display:grid;place-items:center;
+    font-size:13px;line-height:1;flex:0 0 auto}
+  .cap-main{min-width:0}
+  .cap-name{font-size:13.5px;font-weight:560;line-height:1.42;letter-spacing:-.01em}
+  .cap-desc{font-size:12px;color:var(--ink3);line-height:1.5;margin-top:1px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .dots{display:flex;gap:4px;padding-top:6px;flex:0 0 auto}
+  .d{display:block;width:6px;height:6px;border-radius:50%;background:var(--tiffany);flex:0 0 auto}
+  .d.off{background:transparent;border:1.2px solid #D3DBE1}
+  .cap-more{display:flex;align-items:center;gap:9px;padding:10px 0;border-bottom:1px solid var(--line);
+    font-size:12.5px;color:var(--ink3);min-width:0}
+  .cap-more a{color:var(--ink2);border-bottom:1px solid var(--line);transition:color .14s,border-color .14s}
+  .cap-more a:hover{color:var(--tiffany-deep);border-bottom-color:var(--tiffany)}
+
+  /* ── API 一览 ── */
+  .api{background:var(--paper2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .api-grid{display:grid;grid-template-columns:.92fr 1.08fr;gap:40px;align-items:start}
+  .api-intro{min-width:0}
+  .api-intro h2{font-size:20px;font-weight:660;letter-spacing:-.018em;margin-bottom:6px}
+  .api-intro p{font-size:12.5px;color:var(--ink2);line-height:1.6;max-width:36ch;margin-bottom:14px}
+  .api-intro p b{color:var(--tiffany-deep);font-weight:650;font-variant-numeric:tabular-nums}
+  .wl{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+  .wl-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:7px 11px;border-bottom:1px solid var(--line);background:var(--paper);font-size:11.5px;
+    color:var(--ink2);font-weight:540}
+  .wl-head b{font-size:11px;font-weight:650;color:var(--tiffany-deep);background:var(--wash);
+    border-radius:4px;padding:1px 6px;font-variant-numeric:tabular-nums}
+  .wl-row{display:flex;align-items:center;gap:9px;padding:6px 11px;border-bottom:1px solid var(--line);min-width:0}
+  .wl-row:last-child{border-bottom:0}
+  .wl-row .m{font-size:10px;font-weight:650;color:var(--ink3);letter-spacing:.04em;width:30px;flex:0 0 auto}
+  .wl-row code{font-size:11.5px;color:var(--ink2);overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+  .wl-row code::-webkit-scrollbar{display:none}
+  .wl-foot{padding:6px 11px;font-size:11px;color:var(--ink3);background:var(--paper2);line-height:1.5}
+
+  .groups{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;border-top:1px solid var(--line)}
+  .grp{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+    padding:8px 0;border-bottom:1px solid var(--line);min-width:0}
+  .grp code{font-size:11.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    min-width:0;letter-spacing:-.01em}
+  .grp b{font-size:12.5px;font-weight:600;color:var(--ink);flex:0 0 auto;font-variant-numeric:tabular-nums}
+  .grp b span{font-size:10.5px;font-weight:400;color:var(--ink3);margin-left:2px}
+
+  /* ── 下载表格 ── */
+  .dl-note{font-size:11.5px;color:var(--ink3);margin-top:10px;line-height:1.6}
+  .dl-note code{font-size:11px;color:var(--ink2);background:var(--paper2);border:1px solid var(--line);
+    border-radius:4px;padding:1px 5px}
+  .table-wrap{width:100%;overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  .c-plat{width:96px}
+  .c-size{width:86px}
+  .c-act{width:70px;text-align:right}
+  thead th{font-size:11px;font-weight:560;color:var(--ink3);text-align:left;letter-spacing:.03em;
+    padding:0 10px 7px;border-bottom:1px solid var(--line);white-space:nowrap}
+  tbody td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  tbody tr:hover{background:var(--paper2)}
+  .plat{font-size:13px;font-weight:540;white-space:nowrap}
+  .plat small{display:block;font-size:10.5px;font-weight:400;color:var(--ink3);line-height:1.4}
+  .file{font-family:var(--mono);font-size:11.5px;color:var(--ink2);word-break:break-all;line-height:1.45}
+  .size{font-size:12.5px;color:var(--ink2);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .act{text-align:right}
+  .dl-link{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink2);
+    border:1px solid var(--line);border-radius:5px;padding:3px 9px;white-space:nowrap;
+    transition:color .14s,border-color .14s,background-color .14s}
+  .dl-link:hover{color:#fff;background:var(--tiffany);border-color:var(--tiffany)}
+
+  /* ── 页脚 ── */
+  footer{border-top:1px solid var(--line);background:var(--paper2);padding:28px 0 20px;
+    font-size:12.5px;color:var(--ink3)}
+  .foot-grid{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:26px}
+  .foot-brand{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:620;color:var(--ink);
+    margin-bottom:7px}
+  .foot-brand i{width:20px;height:20px;border-radius:5px;background:var(--tiffany);color:#fff;
+    font-style:normal;font-size:11px;font-weight:700;display:grid;place-items:center}
+  footer h4{font-size:11.5px;font-weight:600;color:var(--ink);margin-bottom:7px;letter-spacing:.02em}
+  footer a{display:block;padding:1.5px 0;transition:color .14s}
+  footer a:hover{color:var(--tiffany-deep)}
+  .foot-bottom{margin-top:20px;padding-top:12px;border-top:1px solid var(--line);
+    display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:11.5px}
+  .foot-bottom span{color:var(--ink3)}
+
+  /* ── 响应式：980 / 520 两档 ── */
+  @media (max-width:980px){
+    .hero{padding:26px 0 24px}
+    .hero .wrap{grid-template-columns:1fr;gap:22px}
+    h1{font-size:26px;margin:11px 0 8px}
+    .sub{max-width:none}
+    .api-grid{grid-template-columns:1fr;gap:22px}
+    .api-intro p{max-width:none}
+    .sec-head{margin-bottom:12px}
+    section{padding:30px 0 32px}
+    .foot-grid{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:520px){
+    .wrap{padding:0 16px}
+    .top .wrap{height:52px;gap:10px}
+    .nav{display:none}
+    .brand{font-size:14px}
+    .btn{padding:6px 10px;font-size:12.5px}
+    h1{font-size:23px;line-height:1.34}
+    .sub{font-size:13.5px}
+    .hero{padding:22px 0 20px}
+    .rail .wrap{height:auto;padding-top:10px;padding-bottom:10px;gap:7px 0}
+    .rail-item{font-size:12px;padding-right:13px;margin-right:13px}
+    .rail-item b{font-size:14px}
+    .step{padding:9px 11px}
+    .step-meta{display:none}
+    .cmd code{white-space:nowrap;overflow-x:auto;overflow-wrap:normal;padding:9px 0;
+      scrollbar-width:none}
+    .cmd code::-webkit-scrollbar{display:none}
+    .steps-foot{font-size:10.5px}
+    .caps{grid-template-columns:1fr;column-gap:0}
+    .cap{padding:9px 0}
+    .grp code{font-size:11px}
+    .groups{grid-template-columns:1fr}
+    .c-plat{width:74px}
+    .c-size{width:64px}
+    .c-act{width:56px}
+    thead th{padding:0 6px 7px}
+    tbody td{padding:9px 6px}
+    .plat{font-size:12.5px}
+    .file{font-size:10.5px}
+    .size{font-size:11.5px}
+    .dl-link{padding:3px 7px;font-size:11.5px}
+    .foot-grid{grid-template-columns:1fr;gap:18px}
+    .foot-bottom{margin-top:16px}
+  }
+</style>
+</head>
+<body>
+
+<!-- 顶栏：更窄的一条，导航压到最短 -->
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#start"><i>J</i>JFLove</a>
+    <nav class="nav">
+      <a href="#start">快速开始</a>
+      <a href="#caps">能力</a>
+      <a href="#api">API</a>
+      <a href="#download">下载</a>
+    </nav>
+    <div class="top-right">
+      <span class="ver">v1.10.21</span>
+      <a class="btn btn-primary" href="#download">下载客户端</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- Hero：左边只有三行字，右边直接就是「怎么跑起来」 -->
+  <section class="hero" id="start">
+    <div class="wrap">
+      <div class="hero-l">
+        <span class="chip">自托管 · 端到端加密 · MIT 许可</span>
+        <h1>自己的私有云，<span class="hl">两分钟</span>跑起来</h1>
+        <p class="sub">文档、笔记、离线下载、SSH 与相册备份，桌面 / 移动 / 浏览器三端共用一套加密协议。</p>
+      </div>
+
+      <div class="hero-r">
+        <div class="steps">
+          <div class="steps-head"><b>三步开始</b><span>约 2 分钟</span></div>
+
+          <div class="step">
+            <div class="step-top">
+              <span class="num">1</span>
+              <span class="step-title">起服务端</span>
+              <span class="step-meta">端口 8989</span>
+            </div>
+            <div class="cmd">
+              <code>docker run -d --name jflove-server -p 8989:8989 -v ~/jflove/data:/data -v /mnt:/storage ghcr.io/js1688/jflove-server:1.10.21</code>
+              <button class="copy" type="button" aria-label="复制命令"><i></i>复制</button>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-top">
+              <span class="num">2</span>
+              <span class="step-title">起 Web 端</span>
+              <span class="step-meta">端口 18080</span>
+            </div>
+            <div class="cmd">
+              <code>docker run -d --name jflove-web -p 18080:80 ghcr.io/js1688/jflove-web:1.10.21</code>
+              <button class="copy" type="button" aria-label="复制命令"><i></i>复制</button>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-top">
+              <span class="num">3</span>
+              <span class="step-title">打开浏览器</span>
+              <span class="step-meta">首次访问初始化管理员</span>
+            </div>
+            <div class="cmd">
+              <code>http://localhost:18080</code>
+              <a class="copy" href="#download">打开 ↗</a>
+            </div>
+          </div>
+
+          <div class="steps-foot">
+            数据落在 <code>~/jflove/data</code>，宿主 <code>/mnt</code> 映射为服务端 <code>/storage</code>；桌面端与移动端在客户端里填同一个服务地址。
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 统计条：真实数字，只放六个字的信息 -->
+  <div class="rail">
+    <div class="wrap">
+      <div class="rail-item"><b>11</b>项能力</div>
+      <div class="rail-item"><b>74</b>个 API 接口</div>
+      <div class="rail-item"><b>3</b>种客户端形态</div>
+      <div class="rail-item"><b>MIT</b>开源许可</div>
+    </div>
+  </div>
+
+  <!-- 能力清单：双栏紧凑列表，一屏读完 11 项 -->
+  <section id="caps">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>能力清单</h2>
+        <span class="meta">
+          <i class="d"></i><i class="d"></i><i class="d"></i>
+          依次为 桌面 / 移动 / Web，实心为支持
+        </span>
+      </div>
+
+      <div class="caps">
+        <div class="cap">
+          <span class="cap-ico">📁</span>
+          <div class="cap-main">
+            <div class="cap-name">文档管理</div>
+            <div class="cap-desc">虚拟磁盘映射真实目录、树形浏览、大文件断点续传、多格式预览与流式播放</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d" title="移动 支持"></i><i class="d" title="Web 支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">📝</span>
+          <div class="cap-main">
+            <div class="cap-name">笔记本管理</div>
+            <div class="cap-desc">Markdown 编辑 + 实时预览、代码高亮、Mermaid、搜索 / 标签 / 收藏</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d" title="移动 支持"></i><i class="d" title="Web 支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">✏️</span>
+          <div class="cap-main">
+            <div class="cap-name">文本编辑器</div>
+            <div class="cap-desc">纯本地多标签编辑器、12 项工具箱、29 项快捷键</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d off" title="移动 不支持"></i><i class="d off" title="Web 不支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">👤</span>
+          <div class="cap-main">
+            <div class="cap-name">用户与权限管理</div>
+            <div class="cap-desc">多账号、虚拟磁盘管理、磁盘级读 / 写 / 删权限</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d" title="移动 支持"></i><i class="d" title="Web 支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">☁️</span>
+          <div class="cap-main">
+            <div class="cap-name">云盘挂载</div>
+            <div class="cap-desc">目录级挂载、按需缓存、增量同步（永不自动删远端）</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d off" title="移动 不支持"></i><i class="d off" title="Web 不支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">📷</span>
+          <div class="cap-main">
+            <div class="cap-name">相册自动备份</div>
+            <div class="cap-desc">仅 Wi-Fi / 仅充电、按年月分层、先核对再上传、远端删除自动补传</div>
+          </div>
+          <span class="dots"><i class="d off" title="桌面 不支持"></i><i class="d" title="移动 支持"></i><i class="d off" title="Web 不支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">🛠</span>
+          <div class="cap-main">
+            <div class="cap-name">媒体修复中心</div>
+            <div class="cap-desc">损坏媒体离线无损重封装、任务列表三端共享</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d" title="移动 支持"></i><i class="d" title="Web 支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">📥</span>
+          <div class="cap-main">
+            <div class="cap-name">离线下载</div>
+            <div class="cap-desc">贴地址 → 分析清单 → 勾选下载到自己的磁盘目录；音视频分离站点自动合并音轨</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d" title="移动 支持"></i><i class="d" title="Web 支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">🧹</span>
+          <div class="cap-main">
+            <div class="cap-name">存储与临时文件治理</div>
+            <div class="cap-desc">续传有效期与清理可配置、临时文件统一隐藏根</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d" title="移动 支持"></i><i class="d" title="Web 支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">🔌</span>
+          <div class="cap-main">
+            <div class="cap-name">远程连接</div>
+            <div class="cap-desc">SSH 终端（跳板 / 密钥 / OTP）、网关键盘交互第二因子、SFTP、本机终端</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d off" title="移动 不支持"></i><i class="d off" title="Web 不支持"></i></span>
+        </div>
+
+        <div class="cap">
+          <span class="cap-ico">🔐</span>
+          <div class="cap-main">
+            <div class="cap-name">安全通信</div>
+            <div class="cap-desc">端到端信封加密、前向保密、JWT(ES256)、错误响应同样加密</div>
+          </div>
+          <span class="dots"><i class="d" title="桌面 支持"></i><i class="d" title="移动 支持"></i><i class="d" title="Web 支持"></i></span>
+        </div>
+
+        <div class="cap-more">
+          <span class="cap-ico">📄</span>
+          <a href="#api">完整功能说明与逐项细节，见文档 →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- API 一览：本方案独有区块 -->
+  <section class="api" id="api">
+    <div class="wrap api-grid">
+      <div class="api-intro">
+        <h2>API 一览</h2>
+        <p>共 <b>74</b> 个接口，分 <b>11</b> 组。除以下三条明文白名单外，请求体、成功响应、错误响应一律走 ChaCha20-Poly1305 加密信封。</p>
+
+        <div class="wl">
+          <div class="wl-head"><span>明文白名单</span><b>仅 3 条</b></div>
+          <div class="wl-row"><span class="m">GET</span><code>/health</code></div>
+          <div class="wl-row"><span class="m">POST</span><code>/api/v1/auth/key-exchange</code></div>
+          <div class="wl-row"><span class="m">GET</span><code>/api/v1/auth/admin-exists</code></div>
+          <div class="wl-foot">JWT 只走加密 body 的 <code>token</code> 字段，URL 上不携带任何业务参数值。</div>
+        </div>
+      </div>
+
+      <div class="groups">
+        <div class="grp"><code>/api/v1/files</code><b>17<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/ssh</code><b>11<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/offline</code><b>10<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/notes</code><b>7<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/files/repair</code><b>6<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/virtual-disks</code><b>6<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/auth</code><b>5<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/users</code><b>5<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/config</code><b>3<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/permissions</code><b>3<span>条</span></b></div>
+        <div class="grp"><code>/api/v1/sync</code><b>1<span>条</span></b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 下载：紧凑表格，比卡片省地方 -->
+  <section id="download">
+    <div class="wrap">
+      <div class="sec-head">
+        <h2>下载 v1.10.21</h2>
+        <span class="meta">体积为发布产物实测</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="c-plat">平台</th>
+              <th>产物</th>
+              <th class="c-size">体积</th>
+              <th class="c-act">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="plat">Windows<small>Win 10 / 11 x64</small></td>
+              <td class="file">JFLove-1.10.21-win64-setup.exe</td>
+              <td class="size">177.5 MB</td>
+              <td class="act"><a class="dl-link" href="#download">下载 ↓</a></td>
+            </tr>
+            <tr>
+              <td class="plat">Windows<small>免安装</small></td>
+              <td class="file">JFLove-1.10.21-win64-portable.zip</td>
+              <td class="size">268.2 MB</td>
+              <td class="act"><a class="dl-link" href="#download">下载 ↓</a></td>
+            </tr>
+            <tr>
+              <td class="plat">Fedora 43<small>x86_64</small></td>
+              <td class="file">jflove-desktop-1.10.21-1.fc43.x86_64.rpm</td>
+              <td class="size">268.2 MB</td>
+              <td class="act"><a class="dl-link" href="#download">下载 ↓</a></td>
+            </tr>
+            <tr>
+              <td class="plat">Android<small>首版，iOS 预留</small></td>
+              <td class="file">app-release.apk</td>
+              <td class="size">66.9 MB</td>
+              <td class="act"><a class="dl-link" href="#download">下载 ↓</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="dl-note">
+        浏览器端无需安装：
+        <code>ghcr.io/js1688/jflove-server:1.10.21</code>
+        <code>ghcr.io/js1688/jflove-web:1.10.21</code>
+      </p>
+    </div>
+  </section>
+</main>
+
+<!-- 页脚：三列，最简 -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="foot-brand"><i>J</i>JFLove</div>
+        <div>开源自托管的私人数字工作台，数据只存在你自己的磁盘里。</div>
+      </div>
+      <div>
+        <h4>快速开始</h4>
+        <a href="#start">三步跑起来</a>
+        <a href="#caps">能力清单</a>
+        <a href="#api">API 一览</a>
+        <a href="#download">下载 v1.10.21</a>
+      </div>
+      <div>
+        <h4>说明</h4>
+        <a href="#api">加密与明文白名单</a>
+        <a href="#caps">三端支持矩阵</a>
+        <a href="#download">安装包与镜像</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>MIT License · 端到端加密 · 数据自持</span>
+      <span>JFLove v1.10.21</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

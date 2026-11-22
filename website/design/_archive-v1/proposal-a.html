@@ -1,0 +1,383 @@
+<!--
+  方案 A · 文档优先（Tiffany 蓝 · 简约）
+  单文件静态稿，零构建依赖，双击即可在浏览器打开。
+  数据取自 website/content/*.json（真实项目内容），非臆造。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JFLove · 方案 A 文档优先</title>
+<style>
+  :root{
+    --tiffany:#0ABAB5;
+    --tiffany-deep:#0A8F8B;
+    --tiffany-wash:#E6F7F6;
+    --ink:#12181C;
+    --ink-2:#3A4650;
+    --ink-3:#6B7883;
+    --line:#E4E9EC;
+    --paper:#FFFFFF;
+    --paper-2:#F7F9FA;
+    --radius:10px;
+    --maxw:1140px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-font-smoothing:antialiased}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink);background:var(--paper);line-height:1.65;
+    font-size:15px;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+  /* ── 顶栏 ── */
+  header{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);z-index:10}
+  .nav{display:flex;align-items:center;gap:36px;height:62px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:16px;letter-spacing:-.01em}
+  .brand .dot{width:24px;height:24px;border-radius:7px;background:var(--tiffany);display:grid;place-items:center;color:#fff;font-size:13px;font-weight:700}
+  .nav-links{display:flex;gap:26px;font-size:14px;color:var(--ink-2)}
+  .nav-links a:hover{color:var(--tiffany-deep)}
+  .nav-right{margin-left:auto;display:flex;align-items:center;gap:14px;font-size:13.5px}
+  .ver{font-variant-numeric:tabular-nums;color:var(--ink-3);font-size:12.5px;border:1px solid var(--line);padding:3px 8px;border-radius:5px}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:7px;font-size:13.5px;font-weight:520;transition:.15s}
+  .btn-primary{background:var(--tiffany);color:#fff}
+  .btn-primary:hover{background:var(--tiffany-deep)}
+  .btn-ghost{border:1px solid var(--line);color:var(--ink-2)}
+  .btn-ghost:hover{border-color:var(--tiffany);color:var(--tiffany-deep)}
+
+  /* ── Hero ── */
+  .hero{padding:78px 0 66px;border-bottom:1px solid var(--line)}
+  .hero-grid{display:grid;grid-template-columns:1fr 460px;gap:64px;align-items:center}
+  .eyebrow{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:560;color:var(--tiffany-deep);background:var(--tiffany-wash);padding:5px 11px;border-radius:20px;margin-bottom:20px}
+  h1{font-size:40px;line-height:1.24;letter-spacing:-.022em;font-weight:680;margin-bottom:18px}
+  h1 em{font-style:normal;color:var(--tiffany-deep)}
+  .lede{font-size:16px;color:var(--ink-2);max-width:520px;margin-bottom:28px}
+  .cta{display:flex;gap:12px;flex-wrap:wrap}
+  .facts{display:flex;gap:30px;margin-top:34px;padding-top:26px;border-top:1px solid var(--line)}
+  .fact b{display:block;font-size:20px;font-weight:660;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .fact span{font-size:12.5px;color:var(--ink-3)}
+
+  /* 终端演示卡 */
+  .term{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--paper-2);box-shadow:0 1px 2px rgba(16,24,32,.04)}
+  .term-bar{display:flex;align-items:center;gap:6px;padding:10px 13px;border-bottom:1px solid var(--line);background:#fff}
+  .term-bar i{width:9px;height:9px;border-radius:50%;display:block}
+  .term-bar i:nth-child(1){background:#F0B3AE}
+  .term-bar i:nth-child(2){background:#EAD9A8}
+  .term-bar i:nth-child(3){background:#AEDCC8}
+  .term-bar span{margin-left:6px;font-size:11.5px;color:var(--ink-3);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .term pre{padding:16px 17px;font-family:ui-monospace,SFMono-Regular,Menlo,"Cascadia Code",monospace;font-size:12.3px;line-height:1.85;color:var(--ink-2);overflow-x:auto}
+  .term .c{color:var(--ink-3)}
+  .term .k{color:var(--tiffany-deep);font-weight:600}
+  .term .ok{color:#0E9F6E}
+
+  /* ── 通用区块 ── */
+  section{padding:62px 0}
+  .sec-head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:34px}
+  .sec-head h2{font-size:24px;font-weight:660;letter-spacing:-.018em}
+  .sec-head p{font-size:13.5px;color:var(--ink-3);margin-top:6px}
+  .sec-head a{font-size:13.5px;color:var(--tiffany-deep);font-weight:540;white-space:nowrap}
+
+  /* 三端矩阵 */
+  .matrix{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:20px;background:#fff;transition:.16s}
+  .card:hover{border-color:#BFE3E1;box-shadow:0 3px 14px rgba(10,186,181,.08)}
+  .card h3{font-size:15px;font-weight:620;margin-bottom:7px;display:flex;align-items:center;gap:8px}
+  .card p{font-size:13px;color:var(--ink-3);line-height:1.62}
+  .tag{font-size:11px;font-weight:560;padding:2px 7px;border-radius:4px;background:var(--tiffany-wash);color:var(--tiffany-deep);letter-spacing:.01em}
+
+  /* 特性列表 */
+  .feat{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .feat-item{background:#fff;padding:22px 22px 24px;transition:.15s}
+  .feat-item:hover{background:var(--paper-2)}
+  .feat-item h3{font-size:14.5px;font-weight:620;margin-bottom:8px}
+  .feat-item p{font-size:13px;color:var(--ink-3);line-height:1.66}
+  .supports{display:flex;gap:6px;margin-top:12px}
+  .pill{font-size:11px;padding:2px 7px;border-radius:4px;background:var(--paper-2);color:var(--ink-3);border:1px solid var(--line)}
+  .pill.on{background:var(--tiffany-wash);color:var(--tiffany-deep);border-color:#CDEAE8}
+  .pill.off{opacity:.42}
+
+  /* 下载 */
+  .dl{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .dl-item{display:flex;align-items:center;gap:14px;border:1px solid var(--line);border-radius:var(--radius);padding:17px 19px;background:#fff;transition:.16s}
+  .dl-item:hover{border-color:#BFE3E1;background:#FCFEFE}
+  .dl-ico{width:38px;height:38px;border-radius:9px;background:var(--tiffany-wash);display:grid;place-items:center;font-size:17px;flex:none}
+  .dl-meta{flex:1;min-width:0}
+  .dl-meta b{display:block;font-size:13.8px;font-weight:600;margin-bottom:2px}
+  .dl-meta span{font-size:12px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .dl-arrow{color:var(--ink-3);font-size:13px}
+
+  /* 安全 */
+  .sec-list{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:#fff}
+  .sec-row{display:flex;gap:14px;padding:17px 20px;border-bottom:1px solid var(--line)}
+  .sec-row:last-child{border-bottom:0}
+  .sec-row .n{font-size:12px;font-weight:640;color:var(--tiffany-deep);min-width:22px;padding-top:1px;font-variant-numeric:tabular-nums}
+  .sec-row b{display:block;font-size:13.8px;font-weight:600;margin-bottom:3px}
+  .sec-row p{font-size:12.8px;color:var(--ink-3);line-height:1.6}
+
+  /* 页脚 */
+  footer{border-top:1px solid var(--line);padding:40px 0 46px;background:var(--paper-2)}
+  .foot{display:flex;justify-content:space-between;gap:36px;flex-wrap:wrap;font-size:12.8px;color:var(--ink-3)}
+  .foot-col b{display:block;color:var(--ink);font-size:12.8px;font-weight:600;margin-bottom:9px}
+  .foot-col a{display:block;margin-bottom:6px}
+  .foot-col a:hover{color:var(--tiffany-deep)}
+  .foot-bottom{margin-top:30px;padding-top:20px;border-top:1px solid var(--line);display:flex;justify-content:space-between;font-size:12px;color:var(--ink-3);flex-wrap:wrap;gap:10px}
+
+  @media (max-width:980px){
+    .hero-grid{grid-template-columns:1fr;gap:36px}
+    .hero{padding:52px 0 46px}
+    h1{font-size:31px}
+    .matrix,.dl{grid-template-columns:1fr}
+    .nav-links{display:none}
+    section{padding:46px 0}
+  }
+  @media (max-width:520px){
+    .wrap{padding:0 18px}
+    h1{font-size:27px}
+    .facts{gap:20px}
+    .foot{flex-direction:column;gap:22px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="dot">J</span>JFLove</div>
+    <nav class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#docs">文档</a>
+      <a href="#api">API</a>
+      <a href="#download">下载</a>
+      <a href="#security">安全</a>
+    </nav>
+    <div class="nav-right">
+      <span class="ver">v1.10.21</span>
+      <a class="btn btn-primary" href="#download">开始使用</a>
+    </div>
+  </div>
+</header>
+
+<!-- Hero：左侧说清是什么，右侧直接给「怎么跑起来」—— 用户最先要看的是这个 -->
+<div class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow">端到端加密 · 自托管</span>
+      <h1>你的私人数字工作台<br><em>数据只存在你自己的磁盘里</em></h1>
+      <p class="lede">
+        文档管理、Markdown 笔记、离线下载、SSH 终端与相册备份，
+        全部走端到端加密通道。桌面、移动、浏览器三端同一套协议，服务端跑在你自己的机器上。
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#download">下载客户端</a>
+        <a class="btn btn-ghost" href="#docs">阅读文档 →</a>
+      </div>
+      <div class="facts">
+        <div class="fact"><b>11</b><span>核心能力</span></div>
+        <div class="fact"><b>74</b><span>API 接口</span></div>
+        <div class="fact"><b>3</b><span>客户端形态</span></div>
+        <div class="fact"><b>MIT</b><span>开源许可</span></div>
+      </div>
+    </div>
+
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>终端</span></div>
+<pre><span class="c"># 1) 服务端（8989 端口）</span>
+<span class="k">docker</span> run -d --name jflove-server \
+  -p 8989:8989 \
+  -v ~/jflove/data:/data \
+  -v /mnt:/storage \
+  ghcr.io/js1688/jflove-server:1.10.21
+
+<span class="c"># 2) Web 端（18080 端口）</span>
+<span class="k">docker</span> run -d --name jflove-web \
+  -p 18080:80 \
+  ghcr.io/js1688/jflove-web:1.10.21
+
+<span class="ok">✓</span> 打开 http://localhost:18080</pre>
+    </div>
+  </div>
+</div>
+
+<!-- 三端 -->
+<section id="download">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <h2>三种形态，一套数据</h2>
+        <p>同一账号在任意一端登录，看到的是同一台服务端上的同一批文件</p>
+      </div>
+    </div>
+    <div class="matrix">
+      <div class="card">
+        <h3>桌面端 <span class="tag">Windows / Linux</span></h3>
+        <p>安装包形态，含云盘挂载、本地多标签文本编辑器与 SSH 终端。启动后直接连你的服务端。</p>
+        <div class="supports" style="margin-top:14px">
+          <span class="pill on">setup.exe 177.5 MB</span>
+          <span class="pill on">RPM 268.2 MB</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>移动端 <span class="tag">Android</span></h3>
+        <p>相册自动备份（仅 Wi-Fi / 仅充电）、按年月分层、上传前完整性校验。iOS 与鸿蒙预留。</p>
+        <div class="supports" style="margin-top:14px">
+          <span class="pill on">APK 66.9 MB</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>浏览器 <span class="tag">Docker</span></h3>
+        <p>无需安装，浏览器直接打开。支持 PC 与移动端双布局，与桌面端共用加密协议。</p>
+        <div class="supports" style="margin-top:14px">
+          <span class="pill on">ghcr.io 镜像</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 功能 -->
+<section id="features" style="background:var(--paper-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <h2>功能特性</h2>
+        <p>共 11 项能力，标注了每一端是否支持</p>
+      </div>
+      <a href="#docs">完整文档 →</a>
+    </div>
+    <div class="feat">
+      <div class="feat-item">
+        <h3>📁 文档管理</h3>
+        <p>虚拟磁盘映射真实目录、树形浏览、大文件断点续传、多格式预览与流式播放</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill on">移动</span><span class="pill on">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>📝 笔记本管理</h3>
+        <p>Markdown 编辑 + 实时预览、代码高亮、Mermaid、搜索 / 标签 / 收藏</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill on">移动</span><span class="pill on">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>✏️ 文本编辑器</h3>
+        <p>纯本地多标签编辑器、12 项工具箱、29 项快捷键、跨标签查找替换</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill off">移动</span><span class="pill off">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>👤 用户与权限</h3>
+        <p>多账号、虚拟磁盘管理、磁盘级读 / 写 / 删权限</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill on">移动</span><span class="pill on">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>☁️ 云盘挂载</h3>
+        <p>目录级挂载、按需缓存、增量同步（永不自动删远端）</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill off">移动</span><span class="pill off">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>📷 相册自动备份</h3>
+        <p>仅 Wi-Fi / 仅充电、按年月分层、先核对再上传、同名跳过、远端删除自动补传</p>
+        <div class="supports"><span class="pill off">桌面</span><span class="pill on">移动</span><span class="pill off">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>🛠 媒体修复中心</h3>
+        <p>损坏媒体离线无损重封装、任务列表三端共享</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill on">移动</span><span class="pill on">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>📥 离线下载</h3>
+        <p>贴地址 → 分析清单 → 勾选下载到自己的磁盘目录；音视频分离站点自动合并音轨</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill on">移动</span><span class="pill on">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>🧹 存储与临时文件</h3>
+        <p>续传有效期与临时文件清理可配置、临时文件统一隐藏根</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill on">移动</span><span class="pill on">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>🔌 远程连接</h3>
+        <p>SSH 终端（跳板 / 密钥 / OTP）、网关键盘交互第二因子、SFTP、本机终端</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill off">移动</span><span class="pill off">Web</span></div>
+      </div>
+      <div class="feat-item">
+        <h3>🔐 安全通信</h3>
+        <p>端到端信封加密、前向保密、JWT(ES256)、错误响应同样加密、URL 不带明文参数</p>
+        <div class="supports"><span class="pill on">桌面</span><span class="pill on">移动</span><span class="pill on">Web</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 安全 -->
+<section id="security">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <h2>默认就是加密的</h2>
+        <p>除 3 条明文白名单外，所有接口的请求体、成功响应、错误响应一律加密</p>
+      </div>
+      <a href="#docs">安全说明 →</a>
+    </div>
+    <div class="sec-list">
+      <div class="sec-row"><span class="n">01</span><div><b>X25519 ECDH + ChaCha20-Poly1305</b><p>每次会话生成临时密钥对，session_key 只存内存，私钥用完即销毁 —— 具备前向保密</p></div></div>
+      <div class="sec-row"><span class="n">02</span><div><b>文件传输同样端到端加密</b><p>下载按 64KB 分片，每片独立加密成帧，不使用裸文件流直返</p></div></div>
+      <div class="sec-row"><span class="n">03</span><div><b>JWT 只走加密 body</b><p>令牌放在加密请求体内，不从 Authorization 头读取；URL 上不携带任何业务参数值</p></div></div>
+      <div class="sec-row"><span class="n">04</span><div><b>三条明文接口</b><p>仅 /health、/api/v1/auth/key-exchange、/api/v1/auth/admin-exists 为明文</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 下载 -->
+<section style="background:var(--paper-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="sec-head">
+      <div>
+        <h2>下载 v1.10.21</h2>
+        <p>体积为 GitHub Release 上的真实大小</p>
+      </div>
+      <a href="#">全部版本 →</a>
+    </div>
+    <div class="dl">
+      <a class="dl-item" href="#"><span class="dl-ico">🪟</span><div class="dl-meta"><b>Windows 安装版</b><span>setup.exe · 177.5 MB</span></div><span class="dl-arrow">↓</span></a>
+      <a class="dl-item" href="#"><span class="dl-ico">📦</span><div class="dl-meta"><b>Windows 免安装</b><span>portable.zip · 268.2 MB</span></div><span class="dl-arrow">↓</span></a>
+      <a class="dl-item" href="#"><span class="dl-ico">🐧</span><div class="dl-meta"><b>Fedora / RHEL</b><span>x86_64.rpm · 268.2 MB</span></div><span class="dl-arrow">↓</span></a>
+      <a class="dl-item" href="#"><span class="dl-ico">🤖</span><div class="dl-meta"><b>Android</b><span>app-release.apk · 66.9 MB</span></div><span class="dl-arrow">↓</span></a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="foot-col">
+        <b>JFLove</b>
+        <span>端到端加密的个人数字工作台</span>
+        <div style="margin-top:9px">MIT License · 数据留在你自己的磁盘</div>
+      </div>
+      <div class="foot-col">
+        <b>产品</b>
+        <a href="#features">功能特性</a>
+        <a href="#download">下载</a>
+        <a href="#">安装指引</a>
+      </div>
+      <div class="foot-col">
+        <b>文档</b>
+        <a href="#docs">官方文档</a>
+        <a href="#api">API 参考</a>
+        <a href="#">API 公告</a>
+      </div>
+      <div class="foot-col">
+        <b>项目</b>
+        <a href="#">GitHub</a>
+        <a href="#">版本发布记录</a>
+        <a href="#security">安全说明</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 JFLove · 本站版本 v1.10.21（与项目版本一致）</span>
+      <span>ghcr.io/js1688/jflove-website:1.10.21</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

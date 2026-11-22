@@ -53,6 +53,7 @@ REQUIRED_NAMES = (
     "testing",
     "pmo",
     "devops",
+    "website",
     "lessons",
     "subagent-delegation",
     "skills-self-growth",

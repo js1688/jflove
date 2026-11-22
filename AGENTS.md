@@ -10,6 +10,7 @@
 | jflove-desktop | `jflove-desktop/` | 跨平台桌面应用（PySide6 外壳）；界面为 **Web UI**（React + TS 渲染于 QtWebEngine，Python 侧仅原生外壳） | 在研 |
 | jflove-web | `jflove-web/` | 浏览器 Web 端（React + TypeScript），支持 PC 端与移动端浏览器双布局 | 在研 |
 | jflove-app | `jflove-app/` | 移动端（Flutter + Dart）首版 Android-only，iOS/鸿蒙预留 | 在研 |
+| website | `website/` | 官方宣传站 / 文档站 / 下载站（独立模块，**不参与 §7 版本流水线**，人工触发更新，见 §10） | 在建 |
 
 **模块边界（强制）**：
 
@@ -223,6 +224,7 @@
 | testing | `.agents/skills/testing/SKILL.md` | 跨模块测试 | `文档记录/测试报告/` |
 | pmo | `.agents/skills/pmo/SKILL.md` | 项目管理 | `文档记录/项目管理记录/` |
 | devops | `.agents/skills/devops/SKILL.md` | 构建发布 | `文档记录/版本发布记录/`（根 `README.md` 只维护「功能特性」= 速览表 + 小节，**不再维护版本历史**，见 §8） |
+| website | `.agents/skills/website/SKILL.md` | 官网（`website/`，独立于四端） | `文档记录/官网记录/`（见 §10） |
 
 **调度原则**：
 
@@ -641,7 +643,7 @@ Step 5：发布（devops）
 - **唯一真相 = 仓库根 `version.json`**；其余位置**全部由 `python scripts/sync_version.py` 派生/同步**，
   **各角色禁止手动改任何模块内的版本号字段**。改版本只有一个动作：
   `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`。
-- **完整位置清单以 `scripts/sync_version.py::POSITIONS` 为准**（当前 9 处，按 scope 归属）：
+- **完整位置清单以 `scripts/sync_version.py::POSITIONS` 为准**（当前 11 处，按 scope 归属）：
 
   | scope | 位置 | 数量 |
   | --- | --- | --- |
@@ -649,6 +651,7 @@ Step 5：发布（devops）
   | desktop | `src/config/settings.py`、**`ui/src/config/constants.ts`**（用户可见：登录页页脚 / 设置-关于）、`ui/package.json` | 3 |
   | web | `package.json`、`src/config/constants.ts`（设置页-关于显示） | 2 |
   | app | `pubspec.yaml`（`version: x.y.z+<code>`）、`lib/pages/settings/settings_page.dart`（关于页显示） | 2 |
+  | website | `package.json`、`src/config/constants.ts`（页脚 / 下载页显示；镜像 tag 同版本，见 §10） | 2 |
 
   > 移动端 versionCode `+<code>` **由版本号派生**：`major*1e6 + minor*1e3 + patch`，不允许单独维护。
 - **校验**：`python scripts/sync_version.py --check`（不一致非 0 退出）；server / desktop / web 三个模块
@@ -769,3 +772,79 @@ Step 5：发布（devops）
 - [ ] 响应头是否含敏感元数据（filename、用户名等）？必须移除
 - [ ] 是否在日志中明文记录了用户内容？必须截断或哈希
 - [ ] 是否新增长期密钥 / 静态盐 / 写死对称密钥？严禁，除非用户明确批准
+
+## 10. 官网（website，独立模块）
+
+> 官网 = 官方宣传站 / 文档站 / 下载站，真身目录 `website/`，执行体 `.agents/skills/website/SKILL.md`。
+> **它不是产品的一部分**：不参与 §7 流水线，不被 tag / 产品发布触发，**必须人工触发更新**。
+
+### 10.1 与产品流水线的关系（强制）
+
+| | 官网 |
+| --- | --- |
+| 触发 | **只有**用户明确说「更新官网 / 官网发布 / 官网改版」；技能内**禁止**注册自动化 / 定时任务 |
+| 与 tag 的关系 | **无关**。产品打 tag 不触发官网 CI，官网更新也不打 tag |
+| 与 devops 的关系 | 官网**不进入** Phase 8；devops 发布产品时不碰 `website/` |
+| 与版本号的关系 | **强制一致**：官网两处版本号（`website/package.json`、`website/src/config/constants.ts`）由 `sync_version.py --scope website` 派生，镜像 tag 同版本 |
+
+### 10.2 内容唯一真相（禁止手抄）
+
+官网不得自建一份"文档副本"，内容一律现场解析项目真身，**漏更新必须能被门禁抓住**：
+
+| 内容 | 真身 | 官网消费方式 |
+| --- | --- | --- |
+| 功能特性 | 根 `README.md` §「功能特性」（速览表 + 小节） | `website/content/features.json` |
+| API 路由 | `jflove-server/src/controllers/*.py` | `website/content/api-routes.json` |
+| 明文白名单 | `jflove-server/src/main.py::_PLAIN_PATHS` | `website/content/meta.json` |
+| 各端产物 | GitHub Releases（匿名可读） | 页面运行时拉取，不写死体积 / 文件名 |
+
+### 10.3 门禁（退出码即判据，全绿才算更新完成）
+
+```bash
+python website/scripts/extract_sources.py          # 重新抽取（只读项目，只写 website/content/）
+python scripts/check_website_sync.py               # ①~⑥（含 ②b）内容一致性
+python scripts/check_website_sync.py --self-test   # 门禁自证：喂坏数据必须被拦住
+python scripts/check_skills.py                     # 技能形态 + 体积
+```
+
+| 判据 | 拦住什么 |
+| --- | --- |
+| ① 内容新鲜度 | 项目改了、官网没跟上 |
+| ② 版本号一致性 | 官网版本号与 `version.json` 漂移 |
+| ②b 版本快照 | 改了版本但没重跑抽取器（`meta.json` 仍是旧版本） |
+| ③ 特性无遗漏 | 速览表 / 小节 / manifest 三方不一致 |
+| ④ API 无遗漏 | controller 里有接口没进官网 |
+| ⑤ 明文白名单 | 安全说明与 §9.1 实现漂移 |
+| ⑥ 页面消费数据源 | 页面硬编码特性 / 路由，绕过 manifest |
+
+> **门禁自身必须反向验证过**（`--self-test`）：喂坏数据仍绿 = 门禁不可信，先修门禁。
+
+### 10.4 写盘边界（硬边界）
+
+- **允许**：`website/**`、`.agents/skills/website/**`、`文档记录/官网记录/<版本号>.md`、
+  `scripts/check_website_sync.py`、`website-deploy` 相关那一条 workflow。
+- **禁止**：产品四端源码、`jflove-db/`、`文档记录/`（除官网记录）、其它技能、`.git/`、`.gitignore`。
+- 收尾必须 `git status --porcelain` 自证白名单外为空。
+
+### 10.5 CI 隔离（强制）
+
+| | 产品 CI（5 条） | 官网 CI（`website-deploy.yml`） |
+| --- | --- | --- |
+| 触发 | `push: tags: v*` | `workflow_dispatch` + `push: branches:[main] paths:[website/**]` |
+| 打 tag | 全部触发 | **不触发**（`branches` 不匹配 tag 事件） |
+| 改产品代码 | — | **不触发**（`paths` 不匹配） |
+
+改动该 workflow 后必须自证：`grep -nE "tags:|'v\*'" .github/workflows/website-deploy.yml` **无输出**。
+
+### 10.6 发布与回验（与 §7.3 Phase 8 第 0/7 步同口径）
+
+1. 更新完成 → **主动询问用户是否触发官网 CICD**；用户不同意就停在工作区（本地已验证）。
+2. 用户同意 → commit + push（**git 写操作必须用户逐次同意**，见 §6.5 E）→ 触发 `website-deploy`。
+3. 等 CI 绿 → **拉回产物验证**：`docker pull ghcr.io/<owner>/jflove-website:<版本>` → `docker run` →
+   逐路由状态码 + 双视口截图。**"CI 绿了"不等于完成**。
+4. 每轮产出 `文档记录/官网记录/<版本号>.md`（项目变化 → 官网改动 → 判据，30 秒可核完）。
+
+### 10.7 部署（域名 / HTTPS 后置）
+
+官网镜像只暴露 `:80`；TLS、域名、反向代理由部署侧决定，**不写进镜像**。
+`docker-compose.yml` 示例随 Step 3 交付，不引入额外依赖。

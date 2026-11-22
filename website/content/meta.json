@@ -1,0 +1,16 @@
+{
+  "product": "JFLove",
+  "version": "1.10.21",
+  "plain_paths": [
+    "/health",
+    "/api/v1/auth/key-exchange",
+    "/api/v1/auth/admin-exists"
+  ],
+  "sources": [
+    "README.md#功能特性",
+    "jflove-server/src/controllers/*.py",
+    "jflove-server/src/main.py#_PLAIN_PATHS",
+    "version.json"
+  ],
+  "generated_at": "2026-11-21T08:02:15+00:00"
+}

@@ -1,0 +1,320 @@
+<!--
+  03-docs-hub.html · JFLove 官网「文档与指引入口」静态设计稿 v2
+  ------------------------------------------------------------------
+  定位：轻量入口页。首页与功能页负责介绍产品，本页只做「带路」：
+        5 张入口卡（安装指引 / 操作指引 / API 文档 / API 公告 / 安全说明）+ 三端菜单差异表。
+  约束：单文件、零外链、零构建、无 frontmatter。
+  数据：v1.10.21；三端菜单差异取自 website/docs/ui-facts.md §4（代码实测），
+        明文白名单取自 jflove-server/src/main.py::_PLAIN_PATHS，非臆造。
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JFLove · 文档中心</title>
+<style>
+:root{
+  --tiffany:#0ABAB5;
+  --tiffany-deep:#0A8F8B;
+  --wash:#E6F7F6;
+  --ink:#12181C;
+  --ink2:#3A4650;
+  --ink3:#6B7883;
+  --line:#E4E9EC;
+  --paper:#FFFFFF;
+  --paper2:#F7F9FA;
+  --r:10px;
+  --maxw:1120px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,"Cascadia Code","Noto Sans Mono CJK SC",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.62;color:var(--ink);background:var(--paper);
+  -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+code{font-family:var(--mono);font-size:.92em}
+svg{display:block}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+
+/* 顶栏 */
+.top{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.96);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:26px;height:58px}
+.brand{display:flex;align-items:center;gap:9px;font-size:15.5px;font-weight:680;letter-spacing:-.012em}
+.brand i{width:23px;height:23px;border-radius:6px;background:var(--tiffany);color:#fff;font-style:normal;
+  font-size:12px;font-weight:700;display:grid;place-items:center;letter-spacing:0}
+.nav{display:flex;gap:24px;font-size:13.5px;color:var(--ink2)}
+.nav a{padding:4px 0;border-bottom:1.5px solid transparent;transition:color .14s,border-color .14s}
+.nav a:hover{color:var(--tiffany-deep);border-bottom-color:var(--tiffany)}
+.nav a.on{color:var(--ink);font-weight:600;border-bottom-color:var(--tiffany)}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:12px;flex-shrink:0}
+.ver{font-size:12px;color:var(--ink3);border:1px solid var(--line);border-radius:5px;padding:2px 7px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:7px;
+  font-size:13px;font-weight:550;padding:8px 15px;white-space:nowrap;border:1px solid transparent;
+  transition:background-color .14s,color .14s,border-color .14s}
+.btn-primary{background:var(--tiffany);color:#fff}
+.btn-primary:hover{background:var(--tiffany-deep)}
+.btn-ghost{border-color:var(--line);color:var(--ink2);background:#fff}
+.btn-ghost:hover{border-color:var(--tiffany);color:var(--tiffany-deep)}
+.btn-sm{padding:6px 12px;font-size:12.5px;border-radius:6px}
+
+/* 页头 */
+.phead{padding:44px 0 26px}
+.crumb{font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:6px;margin-bottom:14px}
+.crumb a:hover{color:var(--tiffany-deep)}
+.crumb i{color:#C2CBD1;font-style:normal}
+.phead h1{font-size:30px;line-height:1.3;font-weight:680;letter-spacing:-.024em}
+.phead .lede{font-size:14px;color:var(--ink2);max-width:600px;margin-top:10px}
+
+/* 版本提示条 —— 顶部一条说明 */
+.notice{display:flex;align-items:center;gap:10px;border:1px solid #BFE6E3;background:var(--wash);
+  border-radius:8px;padding:10px 14px;margin-top:20px;font-size:12.5px;color:var(--tiffany-deep);
+  line-height:1.55}
+.notice svg{width:14px;height:14px;flex:0 0 auto;stroke:currentColor;fill:none;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round}
+.notice b{font-weight:650}
+.notice .sep{margin-left:auto;color:#7FC9C5;font-size:11.5px;white-space:nowrap;flex:0 0 auto}
+
+/* 入口卡片 */
+.hub{padding:8px 0 12px}
+.hub-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.hub-grid.two{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:16px}
+.card{border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:17px 18px 15px;
+  display:flex;flex-direction:column;gap:8px;transition:border-color .14s,box-shadow .14s;min-width:0}
+.card:hover{border-color:#BFE6E3;box-shadow:0 2px 12px -8px rgba(10,186,181,.55)}
+.card-hd{display:flex;align-items:center;gap:9px}
+.card-ic{width:30px;height:30px;border-radius:7px;background:var(--wash);display:grid;place-items:center;
+  flex:0 0 auto}
+.card-ic svg{width:15px;height:15px;stroke:var(--tiffany-deep);fill:none;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round}
+.card-hd h2{font-size:14.5px;font-weight:650;letter-spacing:-.008em}
+.card-hd .cnt{margin-left:auto;font-size:10.5px;color:var(--ink3);border:1px solid var(--line);
+  border-radius:4px;padding:1px 6px;white-space:nowrap;flex:0 0 auto}
+.card p{font-size:12.5px;color:var(--ink3);line-height:1.62}
+.card-go{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:3px;
+  padding-top:9px;border-top:1px solid #F1F4F6}
+.card-go .lk{font-size:12px;font-weight:600;color:var(--tiffany-deep);white-space:nowrap}
+.card-go .tags{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.card-go .tags span{font-size:10.5px;color:var(--ink3);border:1px solid var(--line);border-radius:3px;
+  padding:0 5px;white-space:nowrap}
+
+/* 区块标题 */
+.sec-hd{display:flex;align-items:baseline;gap:12px;margin:34px 0 14px;flex-wrap:wrap}
+.sec-hd h2{font-size:17px;font-weight:660;letter-spacing:-.012em}
+.sec-hd span{font-size:12.5px;color:var(--ink3)}
+
+/* 三端菜单差异表 */
+.diff{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff;margin-bottom:34px}
+.drow{display:grid;grid-template-columns:minmax(0,1fr) repeat(3,88px);align-items:center;
+  padding:0 16px;border-bottom:1px solid #F1F4F6;font-size:12.5px}
+.drow:last-child{border-bottom:0}
+.drow.hd{background:var(--paper2);height:32px;font-size:11.5px;font-weight:600;color:var(--ink3);
+  border-bottom:1px solid var(--line)}
+.drow span{padding:7px 0;text-align:center}
+.drow .nm{text-align:left;color:var(--ink2)}
+.drow .yes{color:var(--tiffany-deep);font-weight:600;font-size:11.5px}
+.drow .no{color:#C2CBD1;font-size:11.5px}
+.drow .diffnote{color:#A9B4BB;font-size:11px}
+.diff-foot{padding:10px 16px;background:var(--paper2);border-top:1px solid var(--line);font-size:11.5px;
+  color:var(--ink3);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.diff-foot b{color:var(--tiffany-deep);font-weight:600}
+.diff-foot i{width:1px;height:10px;background:var(--line);display:inline-block}
+
+/* 页脚 */
+.foot{padding:44px 0 24px;background:var(--paper2);border-top:1px solid var(--line)}
+.foot-bot{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--ink3);flex-wrap:wrap}
+.foot-bot .rt{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap}
+.foot-bot code{font-size:11px;color:var(--ink2)}
+.foot-links{display:flex;gap:16px;font-size:12px;color:var(--ink3);margin-bottom:16px;flex-wrap:wrap}
+.foot-links a:hover{color:var(--tiffany-deep)}
+
+@media (max-width:960px){
+  .hub-grid,.hub-grid.two{grid-template-columns:1fr 1fr}
+  .nav{display:none}
+  .drow{grid-template-columns:minmax(0,1fr) repeat(3,60px)}
+  .notice .sep{display:none}
+}
+@media (max-width:640px){
+  .hub-grid,.hub-grid.two{grid-template-columns:1fr}
+  .phead h1{font-size:24px}
+}
+
+/* 品牌 Logo：使用产品真实橘猫标识（与三端逐字节一致），base64 内嵌保持单文件 */
+.brand img,.side-brand img,.sm-brand img{border-radius:5px;object-fit:cover;display:block;flex:none}
+.brand img{width:24px;height:24px}
+.side-brand img{width:16px;height:16px}
+.sm-brand img{width:14px;height:14px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="01-home.html"><img alt="JFLove" src="data:image/png;base64,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">JFLove</a>
+    <nav class="nav">
+      <a href="01-home.html">产品</a>
+      <a href="02-features.html">功能</a>
+      <a class="on" href="03-docs-hub.html">文档</a>
+      <a href="01-home.html#download">下载</a>
+    </nav>
+    <div class="top-right">
+      <span class="ver">v1.10.21</span>
+      <a class="btn btn-primary btn-sm" href="01-home.html#download">下载客户端</a>
+    </div>
+  </div>
+</header>
+
+<section class="phead">
+  <div class="wrap">
+    <div class="crumb"><a href="01-home.html">产品</a><i>/</i><span>文档中心</span></div>
+    <h1>文档与指引</h1>
+    <p class="lede">安装、操作、接口、安全 —— 五份资料，各自一页。想直接上手的话，从「操作指引」进去最快。</p>
+
+    <div class="notice">
+      <svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><path d="M8 7.2v4M8 5.1v.1"/></svg>
+      <span>所有指引均按当前版本 <b>v1.10.21</b> 的真实界面编写，按钮文案与菜单顺序逐字对齐客户端。</span>
+      <span class="sep">三端菜单有差异，见页底对照表</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 5 张入口卡 ═══ -->
+<section class="hub">
+  <div class="wrap">
+    <div class="hub-grid">
+      <!-- 1 安装指引 -->
+      <a class="card" href="03-docs-hub.html">
+        <div class="card-hd">
+          <span class="card-ic">
+            <svg viewBox="0 0 16 16"><path d="M8 2.4v8.4M4.6 7.4 8 10.8l3.4-3.4"/><path d="M2.4 12.4v1.4h11.2v-1.4"/></svg>
+          </span>
+          <h2>安装指引</h2>
+          <span class="cnt">4 类产物</span>
+        </div>
+        <p>Windows 安装包与便携版、Fedora RPM、Android APK。含服务端需要开放哪些明文接口、各端怎么填服务器地址。</p>
+        <div class="card-go">
+          <span class="lk">按端查看 →</span>
+          <span class="tags"><span>Windows</span><span>Fedora</span><span>Android</span><span>服务端</span></span>
+        </div>
+      </a>
+
+      <!-- 2 操作指引 -->
+      <a class="card" href="04-guide-web.html">
+        <div class="card-hd">
+          <span class="card-ic">
+            <svg viewBox="0 0 16 16"><path d="M3 2.6h6.2L12.6 6v7.4H3z"/><path d="M9.2 2.6V6h3.4"/><path d="M5.2 8.6h5M5.2 10.9h3.2"/></svg>
+          </span>
+          <h2>操作指引</h2>
+          <span class="cnt">3 端</span>
+        </div>
+        <p>逐菜单、逐按钮的实操说明：文件传哪里、笔记怎么建、离线下载怎么勾、设置改哪一项。先看 Web 端那份。</p>
+        <div class="card-go">
+          <span class="lk">Web 端指引 →</span>
+          <span class="tags"><span>桌面（7 项）</span><span>Web（4 项）</span><span>移动（6 项）</span></span>
+        </div>
+      </a>
+
+      <!-- 3 API 文档 -->
+      <a class="card" href="03-docs-hub.html">
+        <div class="card-hd">
+          <span class="card-ic">
+            <svg viewBox="0 0 16 16"><path d="M5.4 5.2 2.4 8l3 2.8M10.6 5.2 13.6 8l-3 2.8"/><path d="M9.2 2.6 6.8 13.4"/></svg>
+          </span>
+          <h2>API 文档</h2>
+          <span class="cnt">74 个接口</span>
+        </div>
+        <p>按 11 个 controller 分区，逐个列出方法、路径与摘要，并标出哪些走加密信封、哪些在明文白名单里。</p>
+        <div class="card-go">
+          <span class="lk">看接口清单 →</span>
+          <span class="tags"><span>auth</span><span>file</span><span>note</span><span>ssh</span></span>
+        </div>
+      </a>
+    </div>
+
+    <div class="hub-grid two">
+      <!-- 4 API 公告 -->
+      <a class="card" href="03-docs-hub.html">
+        <div class="card-hd">
+          <span class="card-ic">
+            <svg viewBox="0 0 16 16"><path d="M3 8.4V5.2l8.4-3v11.6L3 10.8z"/><path d="M3 8.4h-.6a1 1 0 0 0-1 1v1.4a1 1 0 0 0 1 1H3"/></svg>
+          </span>
+          <h2>API 公告</h2>
+          <span class="cnt">1 条</span>
+        </div>
+        <p>接口层的不兼容变更与升级要求。本版最重要的一条：文件合并协议为强制异步，服务端与三端必须同批次升级，旧客户端会被明确提示升级，不会静默失败。</p>
+        <div class="card-go">
+          <span class="lk">看公告 →</span>
+          <span class="tags"><span>合并协议</span><span>强制异步</span><span>v1.10.21</span></span>
+        </div>
+      </a>
+
+      <!-- 5 安全说明 -->
+      <a class="card" href="03-docs-hub.html">
+        <div class="card-hd">
+          <span class="card-ic">
+            <svg viewBox="0 0 16 16"><path d="M8 2 3.2 3.8v4.4c0 2.6 2.1 4.7 4.8 6 2.7-1.3 4.8-3.4 4.8-6V3.8z"/><path d="m6 8 1.5 1.5 2.5-2.7"/></svg>
+          </span>
+          <h2>安全说明</h2>
+          <span class="cnt">3 个明文接口</span>
+        </div>
+        <p>加密协议、密钥交换、鉴权方式与「不做什么」的边界。含三个明文白名单接口、文件流帧结构，以及本版明确不引入长期密钥的原因。</p>
+        <div class="card-go">
+          <span class="lk">看安全说明 →</span>
+          <span class="tags"><span>X25519</span><span>HKDF-SHA256</span><span>ChaCha20</span></span>
+        </div>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 三端菜单差异 ═══ -->
+<div class="wrap">
+  <div class="sec-hd">
+    <h2>三端菜单差异对照</h2>
+    <span>菜单项按端裁剪，不支持的入口不会出现 —— 找功能前先确认自己在哪一端</span>
+  </div>
+  <div class="diff">
+    <div class="drow hd"><span class="nm" style="text-align:left">菜单</span><span>桌面</span><span>Web</span><span>移动</span></div>
+    <div class="drow"><span class="nm">文件管理</span><span class="yes">✅</span><span class="yes">✅</span><span class="diffnote">✅ 叫「文件」</span></div>
+    <div class="drow"><span class="nm">笔记管理</span><span class="yes">✅</span><span class="yes">✅</span><span class="diffnote">✅ 叫「笔记」</span></div>
+    <div class="drow"><span class="nm">文本编辑器</span><span class="yes">✅</span><span class="no">—</span><span class="no">—</span></div>
+    <div class="drow"><span class="nm">云盘挂载</span><span class="yes">✅</span><span class="no">—</span><span class="no">—</span></div>
+    <div class="drow"><span class="nm">传输任务</span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+    <div class="drow"><span class="nm">离线下载</span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+    <div class="drow"><span class="nm">远程连接</span><span class="yes">✅</span><span class="no">—</span><span class="no">—</span></div>
+    <div class="drow"><span class="nm">相册同步</span><span class="no">—</span><span class="no">—</span><span class="yes">✅</span></div>
+    <div class="drow"><span class="nm">安全状态</span><span class="yes">✅</span><span class="yes">✅</span><span class="diffnote">在设置内</span></div>
+    <div class="drow"><span class="nm">设置</span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+    <div class="drow"><span class="nm">用户管理 · 磁盘管理 · 权限配置 · 系统设置（管理员）</span><span class="yes">✅</span><span class="yes">✅</span><span class="yes">✅</span></div>
+    <div class="diff-foot">
+      <span>定位一句话：</span>
+      <span><b>桌面</b> 7 项主导航，全功能</span><i></i>
+      <span><b>Web</b> 4 项主导航，免安装</span><i></i>
+      <span><b>移动</b> 6 项底部导航，随手用</span>
+    </div>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-links">
+      <a href="01-home.html">产品概览</a>
+      <a href="02-features.html">功能详情</a>
+      <a href="03-docs-hub.html">文档中心</a>
+      <a href="04-guide-web.html">Web 端指引</a>
+      <a href="01-home.html#download">下载</a>
+    </div>
+    <div class="foot-bot">
+      <span>© 2026 JFLove · MIT License</span>
+      <code>v1.10.21</code>
+      <div class="rt"><span>指引按真实界面编写</span><span>74 个 API</span><span>3 个明文接口</span></div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
