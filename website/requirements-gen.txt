@@ -1,0 +1,24 @@
+# 生成官网接口文档所需的最小依赖（不是后端运行依赖）
+#
+# 为什么单独一份：
+#   `website/scripts/gen_api_docs.py` 需要 `import src.main` 才能取到 `app.openapi()`，
+#   而 `main.py` 在模块级就 import 了数据库/加密/文件等模块 ——
+#   所以必须装上这些包才能导入成功，**但不需要** uvicorn / yt-dlp / playwright /
+#   imageio-ffmpeg 这些运行时重依赖。
+#
+# 为什么不在 CI 里逐个试错（实测踩过）：
+#   第一次只装 fastapi+pydantic → ModuleNotFoundError: aiosqlite
+#   补上后 → bcrypt → aiofiles → httpx …每补一个才暴露下一个。
+#   把最小集合显式声明，CI 一次装完，本地也能一条命令复现。
+#
+# 判据：`pip install -r website/requirements-gen.txt` 后
+#       `python website/scripts/gen_api_docs.py --check` 退出码 0。
+
+fastapi>=0.115
+pydantic>=2.0
+aiosqlite>=0.21.0
+bcrypt>=4.3.0
+pyjwt[crypto]>=2.10.1
+cryptography>=44.0.3
+aiofiles>=24.1.0
+httpx>=0.28.1
