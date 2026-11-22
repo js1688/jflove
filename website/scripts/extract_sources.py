@@ -319,8 +319,9 @@ def main() -> int:
     status = 0
     for filename, data in payload.items():
         target = CONTENT_DIR / filename
-        if filename == META_FILE:
-            data = {**data, "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        # 不写 generated_at：时间戳每次运行都不同，会让 `content/meta.json`
+        # 产生无意义的 diff（实测 CI 里 `extract_sources.py` 跑完就脏一个文件）。
+        # 版本快照（version 字段）才是需要绑定的东西，时间戳对官网没有用途。
 
         if args.check:
             if not target.is_file():

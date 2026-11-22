@@ -11,6 +11,5 @@
     "jflove-server/src/controllers/*.py",
     "jflove-server/src/main.py#_PLAIN_PATHS",
     "version.json"
-  ],
-  "generated_at": "2026-11-21T08:02:15+00:00"
+  ]
 }
