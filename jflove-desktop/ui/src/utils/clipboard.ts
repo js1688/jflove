@@ -74,11 +74,16 @@ async function writeThroughBridge(text: string): Promise<boolean> {
  */
 export async function copyText(text: string): Promise<boolean> {
   if (!text) return false;
-  if (await writeThroughBridge(text)) return true;
+  // 与 `readClipboardText` 同构：桥就绪 ⇒ 先且只用桥。
+  // 旧实现"先写桥、失败再试浏览器 API"在 QtWebEngine 上留了一条必然白等
+  // `CLIPBOARD_TIMEOUT_MS` 的死路径（该宿主的浏览器剪贴板 API 是永久 pending 的）。
+  const bridgeReady = isBridgeReady();
+  if (bridgeReady && (await writeThroughBridge(text))) return true;
+  // 桥不可用（或罕见地写失败）才试浏览器 API；`=== true` 保证 TIMEOUT / null 继续兜底
   const api = navigator.clipboard?.writeText?.(text);
   if (api) {
     const result = await withTimeout(api.then(() => true), CLIPBOARD_TIMEOUT_MS);
-    if (result === true) return true; // 只有真的写成功才算：TIMEOUT / null 都继续兜底
+    if (result === true) return true;
   }
   try {
     const area = document.createElement('textarea');

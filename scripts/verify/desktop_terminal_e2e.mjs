@@ -842,6 +842,64 @@ async function caseInputLatency() {
   };
 }
 
+/**
+ * 自适应字号的方向性（v1.10.23 新增）
+ *
+ * 单看"有没有出现「自适应」"无法判断对错 —— 能不能用舒适行高取决于**窗口高度**：
+ * 实测 `lineHeight 1.25` 的行高是 25.63px，容纳 24 行需要终端区 ≥ 615px。
+ * 所以本用例验证**两个方向**：
+ *   ① 很高的窗口 ⇒ 必须能回舒适档（不显示「自适应」）；
+ *   ② 正常窗口 ⇒ 若舒适档放不下 24 行，则**应当**压缩，且压缩后行数 ≥ 24。
+ * 这样才既拦住"该恢复不恢复"，也拦住"矮窗口也硬用大行高"。
+ */
+async function caseMinRowsDirection() {
+  await go('#/remote/local');
+  await sleep(700);
+  await openLocalTerminalCard();
+  await waitFor(`location.hash === '#/remote/session'`, 10000, '进入会话页');
+  await waitFor(`(${visibleHostsJs}) > 0`, 10000, '终端渲染');
+  await focusTerminal();
+
+  const statusJs = `(() => {
+    const texts = [...document.querySelectorAll('span,div')].map((el) => (el.innerText || '').trim());
+    const dims = texts.find((t) => /^\\d+×\\d+$/.test(t)) || '';
+    const font = texts.find((t) => t.startsWith('⌥ 字号')) || '';
+    const host = [...document.querySelectorAll('[data-testid=terminal-host]')].find((h) => h.offsetParent !== null);
+    return JSON.stringify({
+      dims, font,
+      autoShrunk: /自适应/.test(font),
+      rows: Number((dims.split('×')[1] || '0').trim()),
+      hostH: host ? Math.round(host.getBoundingClientRect().height) : 0,
+    });
+  })()`;
+
+  // ① 超高窗口：终端区足够大 ⇒ 必须回舒适档
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 1200, height: 1100, deviceScaleFactor: 1, mobile: false,
+  });
+  await sleep(2000);
+  const tall = JSON.parse(await cdp.eval(statusJs));
+  if (tall.rows < 24) throw new Error(`超高窗口行数仍不足：${JSON.stringify(tall)}`);
+  if (tall.autoShrunk) {
+    throw new Error(`超大窗口（终端区 ${tall.hostH}px）仍停在压缩档：${JSON.stringify(tall)}`);
+  }
+  await shot('25-minrows-tall');
+
+  // ② 压到偏矮：必须保住 ≥24 行（允许压缩）
+  await cdp.send('Emulation.setDeviceMetricsOverride', {
+    width: 900, height: 620, deviceScaleFactor: 1, mobile: false,
+  });
+  await sleep(2000);
+  const short = JSON.parse(await cdp.eval(statusJs));
+  if (short.rows < 24) throw new Error(`偏矮窗口未保住 24 行：${JSON.stringify(short)}`);
+  await shot('26-minrows-short');
+
+  return {
+    detail: `超高（终端区 ${tall.hostH}px）回舒适档；偏矮压至 ${short.dims} 仍 ≥24 行`,
+    extra: `tall=${tall.font} short=${short.font}`,
+  };
+}
+
 async function caseSignalInterrupt() {
   // copyPasteMode=smart 时 Ctrl+C 无选区 ⇒ 发 0x03（SIGINT）
   await cdp.eval(
@@ -863,6 +921,12 @@ async function caseSignalInterrupt() {
 }
 
 async function caseResize() {
+  // 自带前置：`--only resize` 时前面没有任何用例开过终端，状态栏会是空的
+  await ensureTerminal();
+  // **先回到自然尺寸**：前一条用例可能留下 deviceMetricsOverride（实测 v1.10.23
+  // 就是这样把本用例压成"100×24 → 100×24 未变化"的假失败）。
+  await cdp.send('Emulation.clearDeviceMetricsOverride');
+  await sleep(1200);
   const dimsJs = `(() => {
     const bar = [...document.querySelectorAll('span')].find((el) => /^\\d+×\\d+$/.test((el.innerText || '').trim()));
     return bar ? bar.innerText.trim() : '';
@@ -870,8 +934,8 @@ async function caseResize() {
   const before = await cdp.eval(dimsJs);
   // 用设备度量模拟窗口变窄：QtWebEngine 与 Chromium 一样会走 resize → ResizeObserver
   await cdp.send('Emulation.setDeviceMetricsOverride', {
-    width: 900,
-    height: 620,
+    width: 820,
+    height: 560,
     deviceScaleFactor: 1,
     mobile: false,
   });
@@ -954,17 +1018,29 @@ async function caseMinRows() {
   if (!tooSmall.warn) throw new Error(`极端矮窗口未显示提示：${JSON.stringify(tooSmall)}`);
   await shot('17-min-rows-warning');
 
-  // ④ 恢复窗口：字号回到用户设定，行数 ≥24
+  // ④ 恢复窗口：**行数必须回到 ≥24**。
+  //
+  // ⚠ 这里**不能**断言"字号必须回到用户设定（不出现「自适应」）"：
+  // 能不能用舒适行高取决于**窗口高度够不够 24 行**，而不是"恢复成大窗口"。
+  // 实测（1180×760 窗口、终端区 894×552）：
+  //   lineHeight 1.25 → 行高 25.63px → 只有 20 行（< 24，不够）
+  //   lineHeight 1.00 → 行高 20.50px → 26 行（够）
+  // 所以在这个尺寸下**选紧凑档是产品按设计的正确行为**，
+  // 旧断言把它当成 bug，是**用例的假设错了**（v1.10.23 查明并修正）。
   await cdp.send('Emulation.clearDeviceMetricsOverride');
   await sleep(1800);
   const restored = JSON.parse(await cdp.eval(statusJs));
   const restoredRows = Number((restored.dims.split('×')[1] || '0').trim());
-  if (restoredRows < 24 || /自适应/.test(restored.font)) {
-    throw new Error(`恢复窗口后未回到用户字号：${JSON.stringify(restored)}`);
+  if (restoredRows < 24) {
+    throw new Error(`恢复窗口后行数不足：${JSON.stringify(restored)}`);
+  }
+  // 恢复后行数不得比"偏矮档"更差（否则才是回归）
+  if (restoredRows < shrunkRows) {
+    throw new Error(`恢复窗口后行数反而减少：${shrunkRows} → ${restoredRows}`);
   }
   await shot('18-min-rows-restored');
   return {
-    detail: `偏矮窗口自动 ${shrunk.font} → 恢复后 ${restored.font}；行数 ${shrunkRows}→${restoredRows}`,
+    detail: `偏矮 ${shrunk.font}（${shrunkRows} 行）→ 恢复 ${restored.font}（${restoredRows} 行，≥24 达标）`,
   };
 }
 
@@ -1083,6 +1159,7 @@ const CASES = [
   ['tab-switch', '多标签切换内容保留', caseTabSwitch],
   ['dsh-tui', 'dsh TUI 键盘输入', caseDshTui],
   ['min-rows', '窗口偏矮时自动保证 TUI 行数（v1.10.9）', caseMinRows],
+  ['min-rows-direction', '自适应字号方向性：大窗恢复 / 矮窗保底（v1.10.23）', caseMinRowsDirection],
   ['session-auto-close', '会话 exit 后标签自动关闭（v1.10.10）', caseSessionAutoClose],
   ['session-tree', '左侧「会话」节点计数/进入/关闭（v1.10.10）', caseSessionTree],
   ['session-exit-away', '停留其它页面时会话结束也自动关标签（v1.10.10）', caseExitWhileAway],
