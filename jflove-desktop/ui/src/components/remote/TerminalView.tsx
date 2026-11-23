@@ -25,6 +25,7 @@ import '@xterm/xterm/css/xterm.css';
 import { readTerminalShortcuts } from '../../utils/terminal-shortcuts';
 import { installDecrqmCompat } from '../../utils/xterm-decrqm';
 import { copyText, readClipboardText } from '../../utils/clipboard';
+import { scheduleFlush } from '../../utils/terminal-schedule';
 import { FONT_MIN, TUI_MIN_ROWS, readAutoFitRows } from '../../utils/terminal-prefs';
 import { COMFORT_LINE_HEIGHT, buildFitCandidates, pickFitForMinRows } from '../../utils/terminal-fit';
 import { useRemoteStore } from '../../stores/remote-store';
@@ -164,6 +165,14 @@ interface SessionRuntime {
   resizeTimer: number;
   /** 上一次上报状态的时间（光标移动会高频触发，必须节流） */
   lastStatusAt: number;
+  /**
+   * 上一次 applyFit 生效的「容器尺寸 + 用户字号 + 自适应开关」指纹。
+   *
+   * 为什么要它：applyFit 内部要对候选阶梯逐档 `fit.fit()` 实测行数，
+   * 每次都是同步布局；而它被 ResizeObserver / 切标签 / 改字号多处调用，
+   * 尺寸没变时重跑一遍纯属浪费（typing 期间的抖动会放大成可见卡顿）。
+   */
+  lastFitKey: string;
   /** WS 重连次数（本地通道偶发断开时自愈） */
   reconnectAttempts: number;
   disposed: boolean;
@@ -217,6 +226,12 @@ const applyFit = (runtime: SessionRuntime) => {
 
   const userSize = Math.min(22, Math.max(FONT_MIN, Math.round(runtime.userFontSize)));
   const auto = readAutoFitRows();
+
+  // 幂等：容器尺寸 / 用户字号 / 自适应开关都没变 ⇒ 结果必然相同，直接跳过。
+  // （测量过程会改 options 再 fit，重复跑会无谓触发同步布局与 SIGWINCH）
+  const fitKey = `${runtime.wrapper.clientWidth}x${runtime.wrapper.clientHeight}|${userSize}|${auto ? 1 : 0}`;
+  if (fitKey === runtime.lastFitKey) return;
+  runtime.lastFitKey = fitKey;
   const candidates = auto
     ? buildFitCandidates(userSize, FONT_MIN)
     : [{ fontSize: userSize, lineHeight: COMFORT_LINE_HEIGHT }];
@@ -252,7 +267,8 @@ const flushPending = (runtime: SessionRuntime) => {
   if (runtime.pending.length === 0 || runtime.disposed) return;
   if (!runtime.term) {
     // 终端还没挂载（容器未进 DOM）：先攒着，挂载后由 mountTerminal 触发刷新
-    runtime.frame = window.requestAnimationFrame(() => flushPending(runtime));
+    runtime.frame = 1;
+    scheduleFlush(() => flushPending(runtime));
     return;
   }
   const total = runtime.pending.reduce((sum, item) => sum + item.length, 0);
@@ -290,14 +306,16 @@ const enqueueOutput = (runtime: SessionRuntime, data: Uint8Array) => {
     runtime.pendingBytes -= dropped?.length ?? 0;
     console.warn('[terminal] 输出积压超过上限，丢弃最旧的一段：', dropped?.length, '字节');
   }
-  if (runtime.frame === 0) runtime.frame = window.requestAnimationFrame(() => flushPending(runtime));
+  if (runtime.frame === 0) {
+    runtime.frame = 1; // 仅作"已排队"标记：真正的合帧由调度器负责
+    scheduleFlush(() => flushPending(runtime));
+  }
 };
 
 const clearQueue = (runtime: SessionRuntime) => {
   runtime.pending = [];
   runtime.pendingBytes = 0;
   if (runtime.frame) {
-    window.cancelAnimationFrame(runtime.frame);
     runtime.frame = 0;
   }
 };
@@ -365,22 +383,33 @@ const mountTerminal = (runtime: SessionRuntime) => {
   ].forEach((sub) => runtime.disposal.push(() => sub.dispose()));
 
   // 复制 / 粘贴：模式来自设置页（默认 Ctrl+C / Ctrl+V）。
-  // 注意 `attachCustomKeyEventHandler` 返回 void（xterm 在 dispose 时自行清理），
-  // 不要塞进 disposal 数组。
+  //
+  // ⚠ **命中自定义分支必须 `preventDefault()`**（v1.10.22 修复「粘贴两次」）：
+  // `attachCustomKeyEventHandler` 返回 `false` 只拦得住 xterm 自己的 `_keyDown`
+  // —— 它是 `keydown` 监听器的返回值，Chromium 的**默认动作（粘贴）照样执行**。
+  // 于是同一次 Ctrl+V 会走两条路：
+  //   ① 本处理器 `readClipboardText()` → `term.paste()`；
+  //   ② 浏览器默认粘贴 → xterm 在 `element`/`textarea` 上注册的 `paste` 监听
+  //      → 再 `triggerDataEvent` 一次。
+  // 两条都往 PTY 写了同样的内容，用户看到的就是「按一次贴两遍」。
+  // 这里显式 `preventDefault()` 掐掉 ②，只保留我们这条可控路径。
   term.attachCustomKeyEventHandler((event) => {
     if (event.type !== 'keydown' || !event.ctrlKey) return true;
     const mode = readTerminalShortcuts().copyPasteMode;
     const withShift = event.shiftKey;
     if (event.code === 'KeyC') {
       if (mode === 'ctrlShift' && withShift) {
+        event.preventDefault();
         void copySelection();
         return false;
       }
       if (mode === 'ctrl') {
+        event.preventDefault();
         void copySelection();
         return false;
       }
       if (mode === 'smart' && term.hasSelection()) {
+        event.preventDefault();
         void copySelection();
         return false;
       }
@@ -388,6 +417,7 @@ const mountTerminal = (runtime: SessionRuntime) => {
     }
     if (event.code === 'KeyV') {
       if (mode === 'ctrlShift' && !withShift) return true;
+      event.preventDefault();
       void pasteClipboard();
       return false;
     }
@@ -477,6 +507,7 @@ const ensureRuntime = (sessionId: string, port: number, token: string): SessionR
     resizeObserver: null as ResizeObserver | null,
     resizeTimer: 0,
     lastStatusAt: 0,
+    lastFitKey: '',
     reconnectAttempts: 0,
     disposed: false,
   } as SessionRuntime;
@@ -570,7 +601,8 @@ export function disposeTerminalSession(sessionId: string): void {
   runtime.disposed = true;
   window.clearInterval(runtime.watchdog);
   window.clearTimeout(runtime.resizeTimer);
-  if (runtime.frame) window.cancelAnimationFrame(runtime.frame);
+  // 运行时的 disposed 标记已让排队的 flush 变成空操作，这里只需清掉"已排队"标记
+  runtime.frame = 0;
   runtime.resizeObserver?.disconnect();
   try {
     runtime.ws?.close();

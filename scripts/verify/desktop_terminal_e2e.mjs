@@ -73,7 +73,12 @@ class CDP {
       awaitPromise: true,
     });
     if (result.exceptionDetails) {
-      throw new Error(result.exceptionDetails.text || 'JS 执行异常');
+      // 把真正的异常描述也带出来：只报 "Uncaught" 时无法定位是哪一行 JS 坏了
+      const detail =
+        result.exceptionDetails.exception?.description ||
+        result.exceptionDetails.text ||
+        'JS 执行异常';
+      throw new Error(detail);
     }
     return result.result.value;
   }
@@ -473,6 +478,36 @@ async function ensureTerminal() {
   return true;
 }
 
+/**
+ * 让当前终端回到「干净的交互 shell」状态（用例之间互不影响）。
+ *
+ * 为什么需要：用例是有状态的 —— `vim` 会停在插入模式、`dsh-tui` 会进备用屏、
+ * `sigint` 会留下被中断的命令行。下一条用例直接敲键就会被 TUI 吃掉，
+ * 表现为「凭空失败」，而且失败点会随后续用例顺序漂移（实测踩过多次）。
+ *
+ * 做法：先发 Esc 退出可能的插入/备用屏，再连敲 Ctrl+C 与 Ctrl+D 归还提示符，
+ * 最后清屏。这些都是终端层面无害的"逃逸"动作，不依赖具体程序。
+ */
+async function settleShell(attempts = 3) {
+  await focusTerminal();
+  for (let i = 0; i < attempts; i += 1) {
+    await pressKey('Escape');
+    await sleep(150);
+  }
+  // vim / less 一类：先 `:q!` 再 Ctrl+C，双保险
+  await typeText(':q!');
+  await pressKey('Enter');
+  await sleep(300);
+  for (let i = 0; i < attempts; i += 1) {
+    await pressKey('ctrl+c');
+    await sleep(200);
+  }
+  await sleep(300);
+  await clickLabel('清屏（保留会话）');
+  await sleep(400);
+  await focusTerminal();
+}
+
 async function caseDshTui() {
   await ensureTerminal();
   await typeText('TERM=xterm-256color dsh cli');
@@ -496,6 +531,8 @@ async function caseDshTui() {
 }
 
 async function caseLargeOutput() {
+  await ensureTerminal();
+  await settleShell();
   // 先退出 TUI：TUI 不占 stdin 的退出键不固定，直接 Ctrl+C（copyPasteMode=ctrl 会只复制），
   // 所以用工具条的「断开会话」重开一个干净终端来做大输出测试。
   await typeText('seq 1 2000');
@@ -563,6 +600,7 @@ async function caseTabSwitch() {
 
 async function caseClipboard() {
   await ensureTerminal();
+  await settleShell();
   await typeText('echo SELECT_ME_中文');
   await pressKey('Enter');
   await waitFor(
@@ -605,6 +643,159 @@ async function caseClipboard() {
   return {
     detail: `三击选中 + 复制 + 粘贴成功（textarea=${selection}）`,
     extra: pasted.split('\n').filter((line) => line.includes('SELECT_ME')).slice(-2).join(' | '),
+  };
+}
+
+/**
+ * 粘贴只发一次（v1.10.22 回归）
+ *
+ * 事故：`attachCustomKeyEventHandler` 返回 false 只拦得住 xterm 自己的 keydown，
+ * 浏览器默认粘贴照样执行 ⇒ 一次 Ctrl+V 往 PTY 写两份。
+ * 判据：单次 Ctrl+V 触发的 `type: 'input'` 上行消息**恰好 1 条**。
+ */
+async function casePasteOnce() {
+  await ensureTerminal();
+  // 先回到干净 shell 再清屏：本用例靠"新增独立一行"判定，
+  // 若上一条用例把终端留在 TUI 里，敲的 echo 根本不会被执行（实测踩过）
+  await settleShell();
+  // 记录 WS 上行 input 帧
+  await cdp.eval(`(() => {
+    if (window.__pasteOnceProbe) return 'has';
+    window.__pasteOnceProbe = { inputs: [] };
+    const original = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (payload) {
+      try {
+        const msg = JSON.parse(payload);
+        if (msg.type === 'input') window.__pasteOnceProbe.inputs.push(String(msg.data));
+      } catch {
+        /* 非 JSON 忽略 */
+      }
+      return original.call(this, payload);
+    };
+    return 'installed';
+  })()`);
+  // 先用终端自己的「复制选中内容」把已知文本放进系统剪贴板 ——
+  // 这样不依赖外部 xclip，也不受 X11 剪贴板所有权影响。
+  const marker = `ONCE${Date.now().toString().slice(-7)}`;
+  // 先记下当前终端行数，等"新增一行输出"而不是"文本里出现过 marker" ——
+  // 后者会被命令行本身（`echo ONCE...`）提前满足，导致判定失效（实测踩过）
+  const beforeLines = await cdp.eval(`(() => {
+    const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null);
+    return (hosts[0]?.innerText||'').split(String.fromCharCode(10)).length;
+  })()`);
+  await typeText(`echo ${marker}`);
+  await pressKey('Enter');
+  await waitFor(
+    `(() => {
+      const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null);
+      const lines=(hosts[0]?.innerText||'').split(String.fromCharCode(10));
+      return lines.length > ${beforeLines} && lines.some((line, i) => i > 0 && line.trim() === ${JSON.stringify(marker)});
+    })()`,
+    8000,
+    '标记文本作为独立一行出现',
+  );
+  // 三击选中该行 → 点工具条「复制选中内容」
+  const pos = await cdp.eval(`(() => {
+    const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null);
+    const rows=[...hosts[0].querySelectorAll('.xterm-rows > div')];
+    const idx=rows.findIndex((row)=>row.textContent.includes(${JSON.stringify(marker)}));
+    if (idx < 0) return null;
+    const rect=rows[idx].getBoundingClientRect();
+    return { x: rect.left + 40, y: rect.top + rect.height / 2 };
+  })()`);
+  if (!pos) throw new Error('找不到含标记的行');
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos.x, y: pos.y });
+  for (let count = 1; count <= 3; count += 1) {
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pos.x, y: pos.y, button: 'left', clickCount: count });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pos.x, y: pos.y, button: 'left', clickCount: count });
+  }
+  await sleep(300);
+  await clickLabel('复制选中内容');
+  await sleep(400);
+  await focusTerminal();
+  await pressKey('Enter');
+  await cdp.eval(`window.__pasteOnceProbe.inputs = []`);
+  // 单次真实 Ctrl+V（modifiers=2 表示 Ctrl）
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown', key: 'v', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers: 2,
+  });
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp', key: 'v', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers: 2,
+  });
+  await sleep(1200);
+  const inputs = await cdp.eval(`window.__pasteOnceProbe.inputs`);
+  await shot('23-paste-once');
+  if (inputs.length !== 1) {
+    throw new Error(`单次 Ctrl+V 产生了 ${inputs.length} 条 input 帧（应恰好 1 条）：${JSON.stringify(inputs)}`);
+  }
+  return {
+    detail: '单次 Ctrl+V 只产生 1 条 input 帧（修复前为 2 条）',
+    extra: inputs[0],
+  };
+}
+
+/**
+ * 输入回显时延（v1.10.22 回归）
+ *
+ * 事故：输出写屏绑在 `requestAnimationFrame` 上，页面被判隐藏/被限流时
+ * 写入排队，按键到画面出现可达 2~4 秒。
+ * 判据：连续 12 个字符，每次 keydown → xterm 行文本变化 < 200ms。
+ */
+async function caseInputLatency() {
+  await ensureTerminal();
+  await focusTerminal();
+  await cdp.eval(`(() => {
+    window.__latProbe = { lat: [], keyAt: 0 };
+    const attach = () => {
+      const area = [...document.querySelectorAll('.xterm-helper-textarea')]
+        .filter((el) => el.offsetParent !== null)[0];
+      if (area && !area.__latHooked) {
+        area.__latHooked = true;
+        area.addEventListener('keydown', () => { window.__latProbe.keyAt = performance.now(); }, true);
+      }
+      const host = [...document.querySelectorAll('[data-testid=terminal-host]')]
+        .find((el) => el.offsetParent !== null);
+      const rows = host?.querySelector('.xterm-rows');
+      if (rows && !rows.__latHooked) {
+        rows.__latHooked = true;
+        new MutationObserver(() => {
+          if (window.__latProbe.keyAt) {
+            window.__latProbe.lat.push(+(performance.now() - window.__latProbe.keyAt).toFixed(1));
+            window.__latProbe.keyAt = 0;
+          }
+        }).observe(rows, { childList: true, subtree: true, characterData: true });
+      }
+    };
+    attach();
+    setInterval(attach, 400);
+    return 'armed';
+  })()`);
+  await cdp.eval(`window.__latProbe.lat = []`);
+  for (const ch of 'latencycheck') {
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'rawKeyDown', key: ch, code: `Key${ch.toUpperCase()}`, windowsVirtualKeyCode: ch.toUpperCase().charCodeAt(0),
+      text: ch, unmodifiedText: ch,
+    });
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'char', text: ch, unmodifiedText: ch, key: ch, code: `Key${ch.toUpperCase()}`,
+      windowsVirtualKeyCode: ch.toUpperCase().charCodeAt(0),
+    });
+    await cdp.send('Input.dispatchKeyEvent', {
+      type: 'keyUp', key: ch, code: `Key${ch.toUpperCase()}`, windowsVirtualKeyCode: ch.toUpperCase().charCodeAt(0),
+    });
+    await sleep(40);
+  }
+  await sleep(1200);
+  const lat = await cdp.eval(`window.__latProbe.lat`);
+  await shot('24-input-latency');
+  if (lat.length === 0) throw new Error('未能测到任何按键回显时延（探针未命中）');
+  const worst = Math.max(...lat);
+  if (worst > 200) {
+    throw new Error(`按键回显最慢 ${worst}ms（阈值 200ms）：${JSON.stringify(lat)}`);
+  }
+  return {
+    detail: `12 键回显最慢 ${worst}ms（阈值 200ms）`,
+    extra: `latencies=${JSON.stringify(lat)}`,
   };
 }
 
@@ -842,6 +1033,8 @@ const CASES = [
   ['vim', '全屏编辑器 vim（插入/保存/退出）', caseVim],
   ['large-output', '大输出 seq 1 2000', caseLargeOutput],
   ['clipboard', '选中复制 + 粘贴', caseClipboard],
+  ['paste-once', '单次 Ctrl+V 只粘贴一次（v1.10.22）', casePasteOnce],
+  ['input-latency', '按键回显时延 < 200ms（v1.10.22）', caseInputLatency],
   ['sigint', 'Ctrl+C 中断前台进程', caseSignalInterrupt],
   ['resize', '窗口尺寸变化后行列数更新', caseResize],
   ['tab-switch', '多标签切换内容保留', caseTabSwitch],

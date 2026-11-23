@@ -1,6 +1,6 @@
 {
   "name": "jflove-website",
-  "version": "1.10.21",
+  "version": "1.10.22",
   "private": true,
   "type": "module",
   "description": "JFLove 官方宣传站与文档站（独立模块，内容由 scripts/check_website_sync.py 交叉验证）",

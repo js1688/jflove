@@ -43,6 +43,28 @@ EXTRA_WINDOWS_SWITCHES = (
     "--disable-renderer-backgrounding",
 )
 
+#: **所有平台**都要关闭的后台限流开关（v1.10.22）
+#:
+#: ## 为什么 Linux 也必须关
+#:
+#: Chromium 判定「页面不可见 ⇒ 停止出帧」是跨平台行为，与 Windows 的 native
+#: occlusion 只是触发方式不同。本项目的终端（xterm.js）把**输出写屏**和
+#: **输入回显**都挂在页面上，页面一旦被判后台化，终端就是"打字没反应"。
+#:
+#: 实测（Linux/Fedora，Xvfb 一类无合成器的 X 服务器更容易复现）：
+#:
+#: - 页面 `document.visibilityState === 'hidden'` 时 rAF **1 秒内 0 帧**，
+#:   同一时刻 `MessageChannel` 在 2.5 秒里执行了 295747 次 ⇒ 停的正是出帧链路；
+#: - 无合成器的 X 服务器上，页面上只要有 xterm 在持续 `write()`，rAF 就从
+#:   60fps 掉到 1.5fps，按键到画面出现实测 2~4 秒；把 xterm 从 DOM 摘掉立刻恢复 60fps。
+#:
+#: 这些都是"渲染进程被当成后台"的典型表现，因此 Linux 一并注入。
+BACKGROUND_THROTTLE_SWITCHES = (
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+)
+
 #: 需要注入该特性的平台（sys.platform 取值）
 WINDOWS_PLATFORM = "win32"
 
@@ -61,20 +83,29 @@ def build_chromium_flags(
     platform: str | None = None,
 ) -> str:
     """
-    在已有 flags 上合并「关闭 Windows 原生遮挡节流」。
+    在已有 flags 上合并「关闭后台化节流」。
+
+    ## 两个平台的合并口径不同
+
+    - **所有平台**：都必须并入 `BACKGROUND_THROTTLE_SWITCHES`（三个反后台化开关），
+      原因见该常量的注释：页面被判后台化时 rAF 直接停摆，终端表现为"打字没反应"。
+    - **仅 Windows**：额外关掉 `CalculateNativeWinOcclusion` 特性 —— 那是 Windows
+      特有的遮挡判定，其它平台没有这个特性名，注入它没有意义。
 
     :param existing: 当前 `QTWEBENGINE_CHROMIUM_FLAGS` 的值（可为 None/空）
     :param platform: 平台标识，默认 `sys.platform`（便于单测注入）
-    :returns: 合并后的 flags（空格分隔）；非 Windows 原样返回
+    :returns: 合并后的 flags（空格分隔）
     """
     base = (existing or "").strip()
     if os.environ.get(SOFTWARE_GPU_ENV):
-        return _with_switches(base, SOFTWARE_GPU_SWITCHES)
+        # 排障开关优先：软件合成 + 反后台化一起上，且不再叠加遮挡特性
+        return _with_switches(base, BACKGROUND_THROTTLE_SWITCHES + SOFTWARE_GPU_SWITCHES)
     if (platform or sys.platform) != WINDOWS_PLATFORM:
-        return base
+        # 非 Windows：只补反后台化开关，不碰 occlusion 特性
+        return _with_switches(base, BACKGROUND_THROTTLE_SWITCHES)
     if OCCLUSION_FEATURE in base:
         # 已包含（无论是 disable 还是 enable，尊重既有配置，不重复注入）
-        return base
+        return _with_switches(base, BACKGROUND_THROTTLE_SWITCHES)
 
     tokens = base.split()
     merged = False
@@ -90,7 +121,7 @@ def build_chromium_flags(
     if not merged:
         tokens.append(f"--disable-features={OCCLUSION_FEATURE}")
 
-    return _with_switches(" ".join(tokens), EXTRA_WINDOWS_SWITCHES)
+    return _with_switches(" ".join(tokens), BACKGROUND_THROTTLE_SWITCHES)
 
 
 def _with_switches(flags: str, switches: tuple[str, ...]) -> str:

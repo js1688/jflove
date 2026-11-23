@@ -426,14 +426,24 @@ class TestWebengineFlags:
         twice = webengine_flags.build_chromium_flags(once, platform="win32")
         assert once == twice
 
-    def test_非_windows_不改动(self):
-        assert webengine_flags.build_chromium_flags("--foo", platform="linux") == "--foo"
-        assert webengine_flags.build_chromium_flags(None, platform="darwin") == ""
+    def test_非_windows_只注入反后台化开关_不碰遮挡特性(self):
+        # v1.10.22：Linux 也必须反后台化 —— 页面被判隐藏时 rAF 直接停摆
+        # （实测 1 秒 0 帧），终端表现为"打字没反应"；
+        # 但 CalculateNativeWinOcclusion 是 Windows 独有特性，其它平台注入无意义。
+        merged = webengine_flags.build_chromium_flags("--foo", platform="linux")
+        assert "--foo" in merged, "用户既有参数被吞掉"
+        assert webengine_flags.OCCLUSION_FEATURE not in merged
+        for switch in webengine_flags.BACKGROUND_THROTTLE_SWITCHES:
+            assert switch in merged, f"Linux 缺少反后台化开关 {switch}"
+        darwin = webengine_flags.build_chromium_flags(None, platform="darwin")
+        assert webengine_flags.OCCLUSION_FEATURE not in darwin
+        for switch in webengine_flags.BACKGROUND_THROTTLE_SWITCHES:
+            assert switch in darwin
 
     def test_空值容错(self):
         merged = webengine_flags.build_chromium_flags(None, platform="win32")
         assert merged.startswith(f"--disable-features={webengine_flags.OCCLUSION_FEATURE}")
-        for switch in webengine_flags.EXTRA_WINDOWS_SWITCHES:
+        for switch in webengine_flags.BACKGROUND_THROTTLE_SWITCHES:
             assert switch in merged, f"缺少后台化开关 {switch}"
 
     def test_逃生开关切到软件合成(self, monkeypatch):
@@ -441,6 +451,8 @@ class TestWebengineFlags:
         merged = webengine_flags.build_chromium_flags("", platform="win32")
         for switch in webengine_flags.SOFTWARE_GPU_SWITCHES:
             assert switch in merged
+        for switch in webengine_flags.BACKGROUND_THROTTLE_SWITCHES:
+            assert switch in merged, "软件合成路径也必须反后台化"
         # 软件合成同样幂等
         assert webengine_flags.build_chromium_flags(merged, platform="win32") == merged
 
@@ -448,5 +460,10 @@ class TestWebengineFlags:
         once = webengine_flags.build_chromium_flags("", platform="win32")
         twice = webengine_flags.build_chromium_flags(once, platform="win32")
         assert once == twice
-        for switch in webengine_flags.EXTRA_WINDOWS_SWITCHES:
+        for switch in webengine_flags.BACKGROUND_THROTTLE_SWITCHES:
             assert twice.count(switch) == 1
+
+    def test_linux_幂等(self):
+        once = webengine_flags.build_chromium_flags("", platform="linux")
+        twice = webengine_flags.build_chromium_flags(once, platform="linux")
+        assert once == twice
