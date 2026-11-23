@@ -632,12 +632,24 @@ async function caseClipboard() {
   await sleep(300);
   await focusTerminal();
   await pressKey('Enter'); // 新起一行，便于观察粘贴结果
+  const beforePaste = await cdp.eval(`(() => {
+    const t=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null)[0]?.innerText||'';
+    return (t.match(/SELECT_ME_中文/g)||[]).length;
+  })()`);
   await clickLabel('粘贴');
   await sleep(500);
+  // 判据要**对折行健壮**：粘贴的长行可能在终端宽度处折成两行，
+  // 于是 `SELECT_ME_中` / `文 ` 被拆开，直接正则匹配会漏。这里先去掉换行再比对。
   const pasted = await waitFor(
-    `(() => { const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null); const t=hosts[0]?.innerText||''; const hits=(t.match(/SELECT_ME_中文/g)||[]).length; return hits >= 3 ? t : null; })()`,
+    `(() => {
+      const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null);
+      const raw=hosts[0]?.innerText||'';
+      const flat=raw.split(String.fromCharCode(10)).join('');
+      const hits=(flat.match(/SELECT_ME_中文/g)||[]).length;
+      return hits > ${beforePaste} ? raw : null;
+    })()`,
     6000,
-    '粘贴后出现第三份 SELECT_ME_中文（命令行）',
+    '粘贴后出现新的一份 SELECT_ME_中文（命令行）',
   );
   await shot('14-clipboard');
   return {
