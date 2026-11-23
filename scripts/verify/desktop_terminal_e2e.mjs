@@ -21,7 +21,8 @@ const arg = (name, fallback) => {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 };
 const has = (name) => process.argv.includes(`--${name}`);
-const HOST = '127.0.0.1';
+// 默认本机；验证客机（如 Windows VM 的 CDP 端口转发）时用 --host 指定
+const HOST = arg('host', '127.0.0.1');
 const PORT = Number(arg('port', '9222'));
 const OUT = arg('out', '/tmp/jf-term-e2e');
 const ONLY = arg('only', '')
@@ -164,21 +165,37 @@ async function clickText(text) {
 
 /** 点开本地终端配置卡片（React 的 onDoubleClick 需要真实双击） */
 async function openLocalTerminalCard() {
-  const pos = await waitFor(
+  // 先等配置卡片出现；**全新安装**（如 Windows 客机）没有任何本机配置，
+  // 页面只给「新建本机配置」/「打开默认终端」入口 —— 此时直接走默认终端，
+  // 否则用例会在"等卡片"上超时，看起来像功能坏了（实测踩过）。
+  const found = await waitFor(
     `(() => {
       const card = [...document.querySelectorAll('div')].find(
         (el) => typeof el.className === 'string'
           && el.className.includes('rounded-xl')
           && el.className.includes('p-3.5'),
       );
-      if (!card) return null;
-      const r = card.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + 20 };
+      if (card) {
+        const r = card.getBoundingClientRect();
+        return { kind: 'card', x: r.left + r.width / 2, y: r.top + 20 };
+      }
+      const fallback = [...document.querySelectorAll('button')].find(
+        (el) => /打开默认终端|新建本机配置/.test((el.innerText || '').trim()),
+      );
+      if (fallback) {
+        const r = fallback.getBoundingClientRect();
+        return { kind: 'default', x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }
+      return null;
     })()`,
     15000,
-    '本机终端配置卡片',
+    '本机终端配置卡片或默认终端入口',
   );
-  await clickAt(pos.x, pos.y, 2);
+  if (found.kind === 'card') {
+    await clickAt(found.x, found.y, 2);
+    return;
+  }
+  await clickAt(found.x, found.y, 1);
 }
 
 /** 等某个终端宿主可见，并返回其数量 */
@@ -400,14 +417,28 @@ async function caseShellBasics() {
   await waitFor(`(${visibleHostsJs}) > 0`, 10000, '终端渲染');
   await focusTerminal();
 
-  await typeText('export JF_TERM_E2E=OK; echo "MARK_$JF_TERM_E2E"');
+  // 本用例要同时适用于 POSIX shell 与 Windows PowerShell ——
+  // 早先写死 `export VAR=...; echo "$VAR"`，在 Windows 上 PowerShell 不认，
+  // 会表现成"echo 回显超时"，看着像终端坏了（实测踩过）。
+  // 这里用两个 shell 都支持的**纯 echo 回显**做断言，不依赖变量语法。
+  const marker = `SHELLBASICS_${Date.now().toString().slice(-6)}`;
+  const before = await cdp.eval(`(() => {
+    const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null);
+    return (hosts[0]?.innerText||'').split(String.fromCharCode(10)).length;
+  })()`);
+  await typeText(`echo ${marker}`);
   await pressKey('Enter');
   const text = await waitFor(
-    `(() => { const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null); const t=hosts[0]?.innerText||''; return t.includes('MARK_OK') ? t : null; })()`,
+    `(() => {
+      const hosts=[...document.querySelectorAll('[data-testid=terminal-host]')].filter(h=>h.offsetParent!==null);
+      const t=hosts[0]?.innerText||'';
+      const lines=t.split(String.fromCharCode(10));
+      return lines.length > ${before} && lines.some((line) => line.trim() === ${JSON.stringify(marker)}) ? t : null;
+    })()`,
     10000,
-    'echo 回显 MARK_OK',
+    'echo 回显标记行',
   );
-  return { shot: await shot('01-shell-basics'), detail: 'export + echo 回显正确', extra: text.slice(-120) };
+  return { shot: await shot('01-shell-basics'), detail: 'echo 回显作为独立行出现', extra: text.slice(-120) };
 }
 
 async function caseChineseOutput() {

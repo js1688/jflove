@@ -384,15 +384,23 @@ scripts/verify/windows_vm_e2e.sh --keep
 
   > **不要**因为 tag 推送失败就把发布降级成「仅本地构建」——这与 `AGENTS.md §7.3 Phase 8` 第 0 步冲突。
 - **`draft: true` 是既定流程，不是失败**：`release.yml` / `build-desktop.yml` / `build-app.yml`
-  都用 `draft: true` 建**草稿**并往里挂产物 ⇒ **公开 Release 页看不到构建产物是正常的**，
-  直链探测会返回 404。不要据此判定"产物没上传成功"。
-  正确判据是：带 Token 查 `GET /releases`（草稿也在列表里，`draft=true` + `assets=N`），
-  回验完再 `PATCH /releases/:id {"draft": false}` 转正式。
-- **回验必须用 CI 产物，不能用本地构建替代**（`AGENTS.md §7.3 Phase 8` 第 7 步）：
-  - 无 sudo 时装不了 `*.rpm` 时，用 `rpm2cpio <pkg> | cpio -idm` 解包，
-    **直接运行包内二进制**（`./usr/lib/jflove/JFLove`）同样构成产物回验；
-  - 启动后先确认日志出现 `桌面应用已启动（v<版本>，Web UI）`，再跑该端 e2e；
-  - **只看文件大小/哈希不算回验**，必须真的启动并跑可判定用例。
+  都建**草稿**并往里挂产物 ⇒ 公开页看不到产物、直链 404 是正常的。判据是带 Token 查
+  `GET /releases`（`draft=true` + `assets=N`），回验完 `PATCH /releases/:id {"draft": false}`。
+- **回验必须用 CI 产物**（Phase 8 第 7 步）：无 sudo 时装不了 `*.rpm` 就
+  `rpm2cpio <pkg> | cpio -idm` 解包后**直接运行包内二进制**；确认日志有
+  `桌面应用已启动（v<版本>，Web UI）` 再跑 e2e。**只看大小/哈希不算回验**。
+- **虚拟机"关闭"≠"不可用"，不许据此跳过真机验证**：`probe.sh` 的
+  `windows_vm=关闭` / `android=no-device` 只是**当前状态**。自己起起来：
+  - `virsh -c qemu:///system list --all`（默认 `qemu:///session` 看不到域）→ `scripts/verify/vm-win.sh up`
+  - `"$ANDROID_HOME/emulator/emulator" -avd <avd> -gpu host -no-audio -no-boot-anim &`
+  - 用完必须关：`vm-win.sh down` / `adb emu kill`，并确认 `pgrep -c qemu-system-x86_64` → 0。
+- **客机内多半上不了外网**（VPN 只在宿主机）：别在客机 `curl github.com`，
+  改为宿主机 `python3 -m http.server 8899` 托管**同一份 CI 产物**，客机从
+  `http://<virbr0>:8899/...` 拉取；客机侧独立核对 `Length` + `VersionInfo.ProductVersion`。
+- **跨平台用例不得写死某一端的 shell/工具**：`export VAR=...`（PowerShell 不认）、
+  `vim` / `dsh`（Windows 客机没有）会让用例超时并**伪装成产品缺陷**。
+  判据用两端都支持的写法（纯 `echo` 回显），或显式标注"未覆盖（缺工具）"。
+
 - **产物回验会暴露"只在源码上过"的测试脆弱点**：实测 v1.10.22 在 CI 产物上首跑
   `clipboard` 用例假失败，根因是产物工作目录更长导致终端折行、把断言里的中文标记拆成两行。
   ⇒ 端到端判据不要依赖"某一整串文本连续在同一行"，要先 `split(换行).join('')` 再比对，
