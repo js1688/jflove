@@ -1,5 +1,5 @@
 {
-  "version": "1.10.21",
+  "version": "1.10.23",
   "note": "每张截图的版本绑定台账。截图工具重跑后必须重新生成，否则 sha256 对不上，门禁⑫会红。",
   "anchors": {
     "web": "settings",
@@ -13,85 +13,85 @@
       "shots": {
         "admin-disks": {
           "file": "desktop/admin-disks.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "9e692cc9b1ecd08c",
           "size": "1440x900"
         },
         "admin-permissions": {
           "file": "desktop/admin-permissions.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "a7a70c1b7772c209",
           "size": "1440x900"
         },
         "admin-system": {
           "file": "desktop/admin-system.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "867381d2a73e488b",
           "size": "1440x900"
         },
         "admin-users": {
           "file": "desktop/admin-users.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "59774d43d353e80d",
           "size": "1440x900"
         },
         "editor": {
           "file": "desktop/editor.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "3bf6697c06ff4193",
           "size": "1440x900"
         },
         "files-disks": {
           "file": "desktop/files-disks.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "0f6fcfc002921018",
           "size": "1440x900"
         },
         "login": {
           "file": "desktop/login.png",
-          "version": "1.10.21",
-          "sha256": "7d1ea5a05fdb137d",
+          "version": "1.10.23",
+          "sha256": "0f6fcfc002921018",
           "size": "1440x900"
         },
         "notes": {
           "file": "desktop/notes.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "9ca217ffd03769c7",
           "size": "1440x900"
         },
         "offline": {
           "file": "desktop/offline.png",
-          "version": "1.10.21",
-          "sha256": "bb9c790ff90576f1",
+          "version": "1.10.23",
+          "sha256": "02809ff9417ccb0b",
           "size": "1440x900"
         },
         "remote": {
           "file": "desktop/remote.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "5a1df8a0f6a5466b",
           "size": "1440x900"
         },
         "security": {
           "file": "desktop/security.png",
-          "version": "1.10.21",
-          "sha256": "a9b3ec70a57a103f",
+          "version": "1.10.23",
+          "sha256": "4e422843e32daa2e",
           "size": "1440x900"
         },
         "settings": {
           "file": "desktop/settings.png",
-          "version": "1.10.21",
-          "sha256": "14964bc23252a340",
+          "version": "1.10.23",
+          "sha256": "9f65578128f23106",
           "size": "1440x900"
         },
         "sync": {
           "file": "desktop/sync.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "32f1277eb8beb07e",
           "size": "1440x900"
         },
         "transfer": {
           "file": "desktop/transfer.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "94c1fe15f44ced07",
           "size": "1440x900"
         }
@@ -103,44 +103,44 @@
       "shots": {
         "album": {
           "file": "mobile/album.png",
-          "version": "1.10.21",
-          "sha256": "fc7f4fe3838dd12e",
+          "version": "1.10.23",
+          "sha256": "991e06bd00e1e674",
           "size": "1080x2400"
         },
         "files": {
           "file": "mobile/files.png",
-          "version": "1.10.21",
-          "sha256": "7e4a20b6dda0fa40",
+          "version": "1.10.23",
+          "sha256": "9caae498a4db78e2",
           "size": "1080x2400"
         },
         "login": {
           "file": "mobile/login.png",
-          "version": "1.10.21",
-          "sha256": "48d57e8ae716184d",
+          "version": "1.10.23",
+          "sha256": "e4ae8e652a9a9c98",
           "size": "1080x2400"
         },
         "notes": {
           "file": "mobile/notes.png",
-          "version": "1.10.21",
-          "sha256": "326457ea39ff979f",
+          "version": "1.10.23",
+          "sha256": "db4a3112b3a89685",
           "size": "1080x2400"
         },
         "offline": {
           "file": "mobile/offline.png",
-          "version": "1.10.21",
-          "sha256": "b8ff681c2917688a",
+          "version": "1.10.23",
+          "sha256": "54ead2343a62c07f",
           "size": "1080x2400"
         },
         "settings": {
           "file": "mobile/settings.png",
-          "version": "1.10.21",
-          "sha256": "a4923f28857b8392",
+          "version": "1.10.23",
+          "sha256": "ba60e8d86633722c",
           "size": "1080x2400"
         },
         "transfer": {
           "file": "mobile/transfer.png",
-          "version": "1.10.21",
-          "sha256": "262c81d7cafb2ebe",
+          "version": "1.10.23",
+          "sha256": "56e5b5202b92be73",
           "size": "1080x2400"
         }
       }
@@ -151,73 +151,73 @@
       "shots": {
         "admin-disks": {
           "file": "web/admin-disks.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "b310609b775cad55",
           "size": "1440x900"
         },
         "admin-permissions": {
           "file": "web/admin-permissions.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "9df116454352e587",
           "size": "1440x900"
         },
         "admin-system": {
           "file": "web/admin-system.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "763f34cdba2131f3",
           "size": "1440x900"
         },
         "admin-users": {
           "file": "web/admin-users.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "7bee5bbedea45677",
           "size": "1440x900"
         },
         "files-browser": {
           "file": "web/files-browser.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "e28f6269109c1fb1",
           "size": "1440x900"
         },
         "files-disks": {
           "file": "web/files-disks.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "91283bb222048fcb",
           "size": "1440x900"
         },
         "login": {
           "file": "web/login.png",
-          "version": "1.10.21",
-          "sha256": "40603da01ba625c7",
+          "version": "1.10.23",
+          "sha256": "5b39807295086f40",
           "size": "1440x900"
         },
         "notes": {
           "file": "web/notes.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "1c4d1a246cd5c274",
           "size": "1440x900"
         },
         "offline": {
           "file": "web/offline.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "55d07652010c6be1",
           "size": "1440x900"
         },
         "security": {
           "file": "web/security.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "f8033b802e25fa11",
           "size": "1440x900"
         },
         "settings": {
           "file": "web/settings.png",
-          "version": "1.10.21",
-          "sha256": "3d49dd7c30ce1d29",
+          "version": "1.10.23",
+          "sha256": "9591a1ebd297f29c",
           "size": "1440x900"
         },
         "transfer": {
           "file": "web/transfer.png",
-          "version": "1.10.21",
+          "version": "1.10.23",
           "sha256": "02a5b6eff2566881",
           "size": "1440x900"
         }

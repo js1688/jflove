@@ -124,7 +124,7 @@
 | 管理面板入口 3 | 权限配置 | settings_page.dart:186 |
 | 管理面板入口 4 | 系统设置 | settings_page.dart:192 |
 | 分区标题 | 关于 | settings_page.dart:203 |
-| 信息行（版本；该字面量由 sync_version.py 随 version.json 同步） | v1.10.21 | settings_page.dart:208 |
+| 信息行（版本；该字面量由 sync_version.py 随 version.json 同步） | v1.10.23 | settings_page.dart:208 |
 | 关于副文 | 私有文档 & 笔记管理系统 | settings_page.dart:211 |
 | 关于小字 | X25519 ECDH + ChaCha20-Poly1305 + ES256 JWT | settings_page.dart:216 |
 | 弹窗标题 | 修改服务器地址 | settings_page.dart:239 |

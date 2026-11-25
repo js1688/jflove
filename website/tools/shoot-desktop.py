@@ -50,7 +50,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # （实测：~/.local/share/JFLove/storage 里留着 vmtest 的旧 JWT，
 #   渲染层拿它发请求 → 401「令牌无效或已过期」→ 截到的全是错误页）。
 # Linux 的数据目录由 XDG_DATA_HOME 决定，改它即可完全隔离，且不动真实用户数据。
-_CLEAN_DATA_HOME = Path(args.out).resolve().parent / "_xdg"
+# 目录必须放 /tmp：早先放在截图输出目录旁（`<out>/../_xdg`），会在
+# `website/public/screenshots/` 下留下临时目录被打进站点。
+import tempfile  # noqa: E402
+
+_CLEAN_DATA_HOME = Path(tempfile.mkdtemp(prefix="jf-shoot-xdg-"))
 (_CLEAN_DATA_HOME / "JFLove").mkdir(parents=True, exist_ok=True)
 os.environ["XDG_DATA_HOME"] = str(_CLEAN_DATA_HOME)
 
@@ -194,10 +198,31 @@ def main() -> int:
         print(f"[shoot-desktop] 截第 {idx + 1}/{len(PAGES)} 页：{name} ({route})")
         shell.view.page().runJavaScript(f"location.hash = {route!r}; 0")
 
-        def do_shot() -> None:
-            shot(name)
+        def after_shot() -> None:
             state["page"] += 1
             QTimer.singleShot(600, capture_next)
+
+        def do_shot() -> None:
+            if name == "settings":
+                # 滚到底再拍：让「关于」分区里的版本号出现在图上。
+                # SPEC §9.1 要求每端 settings 图是**版本锚点**；顶部视角看不到「关于」，
+                # 图上没有版本号就自证不了版本（旧版图正因此无法自证）。
+                # 注意：桌面 Web UI 的滚动容器是 <main class="overflow-auto">，
+                # window.scrollTo 对它是无效的（实测拍出来仍是顶部）。
+                shell.view.page().runJavaScript(
+                    "(() => {"
+                    "  const m = document.querySelector('main');"
+                    "  if (m && m.scrollHeight > m.clientHeight) {"
+                    "    m.scrollTop = m.scrollHeight; return true;"
+                    "  }"
+                    "  window.scrollTo(0, document.body.scrollHeight);"
+                    "  return false;"
+                    "})()"
+                )
+                QTimer.singleShot(500, lambda: (shot(name), after_shot()))
+                return
+            shot(name)
+            after_shot()
 
         QTimer.singleShot(args.wait, do_shot)
 

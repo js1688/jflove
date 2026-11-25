@@ -102,7 +102,23 @@ try {
         width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false,
     });
 
+    // 截图前等页面内图片解码完成：Logo 曾因「图还没 decode 就截」被拍成破图，
+    // 而图本身存在且 HTTP 200，属渲染竞态，不是资源缺失。
+    const waitForImages = async () => {
+        for (let i = 0; i < 20; i++) {
+            const done = await evaluate(
+                'Array.from(document.images).every((img) => img.complete && img.naturalWidth > 0)',
+            );
+            if (done) return true;
+            await sleep(150);
+        }
+        return false;
+    };
+
     const shoot = async (name) => {
+        const imagesReady = await waitForImages();
+        if (!imagesReady) console.log(`  ⚠ ${name}: 仍有图片未加载完成`);
+        await sleep(300);
         const shot = await send('Page.captureScreenshot', { format: 'png' });
         if (!shot.result?.data) throw new Error(`截图失败：${name}`);
         const file = path.join(OUT, `${name}.png`);

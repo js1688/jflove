@@ -3,7 +3,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "JFLove Server",
-    "version": "1.10.21"
+    "version": "1.10.23"
   },
   "total": 75,
   "groupCount": 12,
