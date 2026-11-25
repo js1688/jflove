@@ -83,10 +83,28 @@ jobs:
           python scripts/check_website_sync.py
           python scripts/check_website_sync.py --self-test
 
+      # registry.npmjs.org 偶发 ECONNRESET（2026-11-25 实测把本次构建打断在第一步）：
+      # 先按默认源重试，仍失败再切国内镜像（与 Dockerfile 的 NPM_REGISTRY 一致）。
       - name: 安装官网依赖
+        env:
+          npm_config_fetch_retries: '5'
+          npm_config_fetch_retry_mintimeout: '20000'
+          npm_config_fetch_retry_maxtimeout: '60000'
         run: |
           cd website
-          npm ci --no-audit --no-fund
+          for attempt in 1 2 3; do
+            if [ "$attempt" = "3" ]; then
+              echo "::warning::前两次 npm ci 失败，改用 npmmirror 镜像源重试"
+              export npm_config_registry=https://registry.npmmirror.com
+            fi
+            if npm ci --no-audit --no-fund; then
+              exit 0
+            fi
+            echo "::warning::npm ci 第 $attempt 次失败，20 秒后重试"
+            sleep 20
+          done
+          echo "::error::npm ci 连续 3 次失败"
+          exit 1
 
       - name: 类型检查 + Lint + 测试 + 构建
         run: |

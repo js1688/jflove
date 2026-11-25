@@ -10,7 +10,8 @@ JFLove 版本号分发器（单一来源 version.json）
   - web:      package.json(version) + src/config/constants.ts(APP_VERSION)
   - app:      pubspec.yaml(version: X.Y.Z+code，code 由版本号派生)
                + lib/pages/settings/settings_page.dart(「关于」页显示，带 v 前缀)
-  - website:  package.json(version) + src/config/constants.ts(APP_VERSION)
+  - website:  package.json(version) + package-lock.json(version，npm ci 一致性校验)
+              + src/config/constants.ts(APP_VERSION)
               （官网版本号必须与项目版本号一致 —— 官网是对外宣传/下载站，
                 镜像 tag 也用同一个版本号，见 .agents/skills/website/SKILL.md）
 
@@ -91,6 +92,23 @@ def _replace_pkg(path: Path, version: str) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
+# package-lock.json 有两处版本：顶层 `version` 与 `packages[""] .version`，
+# 只改顶层会让 `npm ci` 报「lock 与 package.json 不一致」。两个都要同步。
+def _extract_pkg_lock(path: Path) -> str:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    root = data.get("packages", {}).get("", {})
+    return root.get("version") or data.get("version", "")
+
+
+def _replace_pkg_lock(path: Path, version: str) -> str:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["version"] = version
+    root = data.get("packages", {}).get("")
+    if isinstance(root, dict):
+        root["version"] = version
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
 def _replace_pubspec(path: Path, version: str) -> str:
     code = version_code(version)
     text = path.read_text(encoding="utf-8")
@@ -155,6 +173,12 @@ POSITIONS = [
     ("website", "website/package.json",
      _extract_pkg,
      _replace_pkg,
+     False),
+    # package-lock.json 的根版本也必须跟随：`npm ci` 会校验 lock 与 package.json
+    # 是否一致，漏掉它会让官网 CI 在「安装依赖」这一步直接失败。
+    ("website", "website/package-lock.json",
+     _extract_pkg_lock,
+     _replace_pkg_lock,
      False),
     ("website", "website/src/config/constants.ts",
      lambda p: _extract_re(p, r"APP_VERSION\s*=\s*'([^']+)'"),
