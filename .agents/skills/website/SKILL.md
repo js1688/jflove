@@ -263,7 +263,7 @@ node website/tools/shoot-product.mjs --base http://127.0.0.1:8099 \
 ### 1. 对齐版本
 
 ```bash
-python scripts/sync_version.py --scope website     # 官网两处版本号跟随 version.json
+python scripts/sync_version.py --scope website     # 官网三处版本号跟随 version.json
 python scripts/sync_version.py --check             # 全部位置必须一致
 ```
 
@@ -296,7 +296,7 @@ python scripts/check_ui_facts.py                   # ⑧ 事实清单可溯源�
 **改了版本号时，两步都要做**（否则 ②b 会红）：
 
 ```bash
-python scripts/sync_version.py                     # 同步官网两处版本号
+python scripts/sync_version.py                     # 同步官网三处版本号
 python website/scripts/extract_sources.py          # meta.json 的版本快照也要跟着重抽
 ```
 
@@ -371,9 +371,9 @@ node scripts/verify/web_shot.mjs --url http://127.0.0.1:18081/ --out /tmp/ci-sit
 ## 版本号一致性（强制）
 
 - 唯一真相 = 仓库根 `version.json`；官网**没有独立版本号**。
-- 两处同步位置：`website/package.json`（`version`）、`website/src/config/constants.ts`（`APP_VERSION`）。
+- 三处同步位置：`website/package.json`（`version`）、`website/package-lock.json`（`version`，含 `packages[""].version`）、`website/src/config/constants.ts`（`APP_VERSION`）。
 - 镜像 tag 与 Release 版本一致：`ghcr.io/js1688/jflove-website:<version>`。
-- 禁止手改这两处；改版本只能 `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`。
+- 禁止手改这三处；改版本只能 `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`。
 
 ## CI/CD 与产品 CI 的隔离（强制）
 

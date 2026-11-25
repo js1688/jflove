@@ -643,7 +643,7 @@ Step 5：发布（devops）
 - **唯一真相 = 仓库根 `version.json`**；其余位置**全部由 `python scripts/sync_version.py` 派生/同步**，
   **各角色禁止手动改任何模块内的版本号字段**。改版本只有一个动作：
   `echo '{"version":"x.y.z"}' > version.json && python scripts/sync_version.py`。
-- **完整位置清单以 `scripts/sync_version.py::POSITIONS` 为准**（当前 11 处，按 scope 归属）：
+- **完整位置清单以 `scripts/sync_version.py::POSITIONS` 为准**（当前 12 处，按 scope 归属）：
 
   | scope | 位置 | 数量 |
   | --- | --- | --- |
@@ -651,7 +651,7 @@ Step 5：发布（devops）
   | desktop | `src/config/settings.py`、**`ui/src/config/constants.ts`**（用户可见：登录页页脚 / 设置-关于）、`ui/package.json` | 3 |
   | web | `package.json`、`src/config/constants.ts`（设置页-关于显示） | 2 |
   | app | `pubspec.yaml`（`version: x.y.z+<code>`）、`lib/pages/settings/settings_page.dart`（关于页显示） | 2 |
-  | website | `package.json`、`src/config/constants.ts`（页脚 / 下载页显示；镜像 tag 同版本，见 §10） | 2 |
+  | website | `package.json`、`package-lock.json`（`npm ci` 一致性校验）、`src/config/constants.ts`（页脚 / 下载页显示；镜像 tag 同版本，见 §10） | 3 |
 
   > 移动端 versionCode `+<code>` **由版本号派生**：`major*1e6 + minor*1e3 + patch`，不允许单独维护。
 - **校验**：`python scripts/sync_version.py --check`（不一致非 0 退出）；server / desktop / web 三个模块
@@ -785,7 +785,7 @@ Step 5：发布（devops）
 | 触发 | **只有**用户明确说「更新官网 / 官网发布 / 官网改版」；技能内**禁止**注册自动化 / 定时任务 |
 | 与 tag 的关系 | **无关**。产品打 tag 不触发官网 CI，官网更新也不打 tag |
 | 与 devops 的关系 | 官网**不进入** Phase 8；devops 发布产品时不碰 `website/` |
-| 与版本号的关系 | **强制一致**：官网两处版本号（`website/package.json`、`website/src/config/constants.ts`）由 `sync_version.py --scope website` 派生，镜像 tag 同版本 |
+| 与版本号的关系 | **强制一致**：官网三处版本号（`website/package.json`、`website/package-lock.json`、`website/src/config/constants.ts`）由 `sync_version.py --scope website` 派生，镜像 tag 同版本 |
 
 ### 10.2 内容唯一真相（禁止手抄）
 
