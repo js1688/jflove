@@ -12,6 +12,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
@@ -41,6 +42,18 @@ _sftp_locks: dict[str, threading.RLock] = {}
 #: 传输专用 SFTP client（每笔上传/下载一条独立 subsystem 通道，不与会话级 client 共用）。
 #: 取消/断开时统一关闭，避免「传大文件时目录刷不出来」。
 _sftp_transfer_clients: dict[str, set[Any]] = {}
+
+#: 正在使用**会话级 client** 的共享传输计数。
+#:
+#: 受限服务器会让传输回退到会话级 client；此时「取消目录加载」（`sftp_abort`）**不能**
+#: 关闭该 client，否则会误伤正在进行的下载/上传（v1.10.13 的语义必须保住）。
+_sftp_shared_transfers: dict[str, int] = {}
+
+#: 每个会话的「取消传输」代次。
+#:
+#: 通道建立已移到后台线程：用户可能在「开通道」或「排队等锁」阶段点取消。
+#: 传输线程在关键节点比较代次，变化即中止，避免取消后仍继续下载/上传。
+_sftp_cancel_generations: dict[str, int] = {}
 
 #: 主机指纹确认等待
 _hostkey_events: dict[str, threading.Event] = {}
@@ -413,6 +426,8 @@ def _h_session_close(params: dict) -> dict:
         except Exception:  # noqa: BLE001
             pass
     _sftp_locks.pop(session_id, None)
+    _sftp_shared_transfers.pop(session_id, None)
+    _sftp_cancel_generations.pop(session_id, None)
     _close_transfer_clients(session_id)
     session = _sessions.pop(session_id, None)
     if session is not None:
@@ -458,6 +473,9 @@ def _friendly_sftp_error(exc: Exception) -> str:
         "timed out": "远端 SFTP 响应超时（服务器长时间无响应，请重试或检查网络）",
         "timeout opening channel": "远端未响应（打开 SFTP 通道超时）",
         "server connection dropped": "远端 SFTP 连接已断开，请刷新重试",
+        # 受限服务器（MaxSessions / 堡垒机）拒绝第二条 subsystem 通道
+        "connect failed": "服务器拒绝打开新的 SFTP 通道（可能限制了并发会话数）",
+        "channel open failed": "服务器拒绝打开新的 SFTP 通道（可能限制了并发会话数）",
     }
     lowered = text.lower()
     for key, value in mapping.items():
@@ -473,6 +491,32 @@ def _sftp_lock(session_id: str) -> threading.RLock:
         lock = threading.RLock()
         _sftp_locks[session_id] = lock
     return lock
+
+
+def _transfer_cancelled(session_id: str, generation: int) -> bool:
+    """该传输是否已被 `sftp_cancel` 取消（代次变化）"""
+    return _sftp_cancel_generations.get(session_id, 0) != generation
+
+
+class _TransferCancelled(Exception):
+    """内部信号：传输在开通道 / 等锁阶段被用户取消"""
+
+
+@contextmanager
+def _sftp_guard(session_id: str):
+    """
+    元操作（列目录 / 新建 / 改名 / 删除）的 SFTP 锁。
+
+    受限服务器上传输会长时间持有该锁；这里用**有上限的等待**，避免 UI
+    「刷新」永远卡在锁上（45s 后给出可读原因，可稍后重试）。
+    """
+    lock = _sftp_lock(session_id)
+    if not lock.acquire(timeout=float(ssh_session_module.SFTP_OP_TIMEOUT)):
+        raise RuntimeError("有文件正在传输，暂不能加载或修改目录；请等传输结束后重试")
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def _close_transfer_clients(session_id: str) -> None:
@@ -531,7 +575,7 @@ def _h_sftp_list(params: dict) -> dict:
     session_id = str(params.get("session_id") or "")
     path = str(params.get("path") or ".")
     entries: list[dict] = []
-    with _sftp_lock(session_id):
+    with _sftp_guard(session_id):
         sftp = _sftp(session_id)
         started = time.monotonic()
         try:
@@ -562,7 +606,7 @@ def _h_sftp_list(params: dict) -> dict:
 
 def _h_sftp_mkdir(params: dict) -> dict:
     session_id = str(params["session_id"])
-    with _sftp_lock(session_id):
+    with _sftp_guard(session_id):
         try:
             _sftp(session_id).mkdir(str(params["path"]))
         except Exception as exc:  # noqa: BLE001
@@ -573,7 +617,7 @@ def _h_sftp_mkdir(params: dict) -> dict:
 
 def _h_sftp_rename(params: dict) -> dict:
     session_id = str(params["session_id"])
-    with _sftp_lock(session_id):
+    with _sftp_guard(session_id):
         try:
             _sftp(session_id).rename(str(params["old"]), str(params["new"]))
         except Exception as exc:  # noqa: BLE001
@@ -585,7 +629,7 @@ def _h_sftp_rename(params: dict) -> dict:
 def _h_sftp_delete(params: dict) -> dict:
     session_id = str(params["session_id"])
     path = str(params["path"])
-    with _sftp_lock(session_id):
+    with _sftp_guard(session_id):
         sftp = _sftp(session_id)
         try:
             if params.get("is_dir"):
@@ -598,18 +642,76 @@ def _h_sftp_delete(params: dict) -> dict:
     return {"ok": True}
 
 
-def _open_transfer_sftp(session_id: str) -> Any:
-    """为一次传输开独立 SFTP client，并登记到该会话（取消时统一关闭）"""
+def _open_transfer_sftp(
+    session_id: str,
+) -> tuple[Any, bool, threading.RLock | None]:
+    """
+    为一次传输取 SFTP client。
+
+    优先开**独立 subsystem 通道**（传输不占目录浏览的 client）；但部分服务器 /
+    堡垒机限制单连接并发会话（OpenSSH `MaxSessions 1` 即此行为），第二条通道会被
+    拒绝（`ChannelException(2, 'Connect failed')`）。此时退回**复用会话级 client**，
+    并由调用方在整笔传输期间持有 `_sftp_lock`（paramiko 的 client 不支持并发同步请求）。
+
+    :returns: `(client, shared, lock)`；`shared=True` 时调用方必须释放传入的锁，
+              且**不得关闭**该 client（它属于会话缓存）。
+    """
     session = _sessions.get(session_id)
     if session is None or not hasattr(session, "open_sftp"):
         raise RuntimeError("会话不存在或不是 SSH 会话（可能已断开，请重新打开标签）")
-    client = session.open_sftp(cached=False)
+    try:
+        client = session.open_sftp(cached=False)
+    except Exception as exc:  # noqa: BLE001 - 失败要回退，不静默
+        # 只记异常类型：异常文本可能带远端路径（AGENTS §9.14 日志不记用户内容）
+        logger.warning(
+            "传输专用 SFTP 通道打开失败（%s），退回复用会话级 client",
+            type(exc).__name__,
+        )
+        lock = _sftp_lock(session_id)
+        lock.acquire()
+        # 计数在**打开之前**加：打开期间用户点「取消加载」也不能关掉它
+        _sftp_shared_transfers[session_id] = (
+            _sftp_shared_transfers.get(session_id, 0) + 1
+        )
+        try:
+            client = _sftp(session_id)
+        except Exception:
+            remaining = _sftp_shared_transfers.get(session_id, 0) - 1
+            if remaining > 0:
+                _sftp_shared_transfers[session_id] = remaining
+            else:
+                _sftp_shared_transfers.pop(session_id, None)
+            lock.release()
+            raise
+        return client, True, lock
     _sftp_transfer_clients.setdefault(session_id, set()).add(client)
-    return client
+    return client, False, None
 
 
-def _finish_transfer_sftp(session_id: str, client: Any) -> None:
-    """传输结束：注销并关闭专用 client"""
+def _finish_transfer_sftp(
+    session_id: str,
+    client: Any,
+    shared: bool = False,
+    lock: threading.RLock | None = None,
+) -> None:
+    """
+    传输结束：共享 client 只释放锁（**不关闭**，否则目录浏览会一起坏掉）；
+    专用 client 注销并关闭。
+    """
+    if shared:
+        # 先减计数再放锁：保证 abort 看到 0 时传输已结束，不会误关正在用的 client
+        remaining = _sftp_shared_transfers.get(session_id, 0) - 1
+        if remaining > 0:
+            _sftp_shared_transfers[session_id] = remaining
+        else:
+            _sftp_shared_transfers.pop(session_id, None)
+    if lock is not None:
+        try:
+            lock.release()
+        except Exception:  # noqa: BLE001 - 释放失败不应掩盖传输结果
+            pass
+    if shared or client is None:
+        return
     clients = _sftp_transfer_clients.get(session_id)
     if clients is not None:
         clients.discard(client)
@@ -628,15 +730,25 @@ def _finish_transfer_sftp(session_id: str, client: Any) -> None:
 
 
 def _h_sftp_download(params: dict) -> dict:
-    """后台下载（进度经 `remote.sftp_progress` 推送）"""
+    """
+    后台下载（进度经 `remote.sftp_progress` 推送）。
+
+    传输通道在**后台线程**里建立：受限服务器拒绝第二条 SFTP 通道时会回退复用
+    会话级 client；两条路都失败也会发 `remote.sftp_failed`（带文件名），
+    不会再出现「点了下载什么都没有」的静默失败。
+    """
     session_id = str(params["session_id"])
-    sftp = _open_transfer_sftp(session_id)
     remote_path = str(params["remote_path"])
     local_path = str(params["local_path"])
+    name = remote_path.replace("\\", "/").rsplit("/", 1)[-1]
+    bytes_total = max(0, int(params.get("bytes_total") or 0))
+    generation = _sftp_cancel_generations.get(session_id, 0)
     transfer_id = uuid.uuid4().hex
     last = {"value": 0}
 
     def progress(done: int, total: int) -> None:
+        nonlocal bytes_total
+        bytes_total = max(bytes_total, int(total))
         if done - last["value"] < 256 * 1024 and done != total:
             return
         last["value"] = done
@@ -644,41 +756,69 @@ def _h_sftp_download(params: dict) -> dict:
             "remote.sftp_progress",
             {
                 "transfer_id": transfer_id,
+                "session_id": session_id,
                 "bytes_done": int(done),
                 "bytes_total": int(total),
+                "name": name,
                 "direction": "download",
             },
         )
 
     def run() -> None:
+        sftp: Any = None
+        shared = False
+        lock: threading.RLock | None = None
+        ok = False
+        message = ""
         try:
+            if _transfer_cancelled(session_id, generation):
+                raise _TransferCancelled()
+            sftp, shared, lock = _open_transfer_sftp(session_id)
+            if _transfer_cancelled(session_id, generation):
+                raise _TransferCancelled()
             sftp.get(remote_path, local_path, callback=progress)
-            _publish(
-                "remote.sftp_done",
-                {"transfer_id": transfer_id, "local_path": local_path},
-            )
+            ok = True
+        except _TransferCancelled:
+            message = "已取消传输"
         except Exception as exc:  # noqa: BLE001
-            _publish(
-                "remote.sftp_failed",
-                {"transfer_id": transfer_id, "message": _friendly_sftp_error(exc)},
+            message = (
+                "已取消传输"
+                if _transfer_cancelled(session_id, generation)
+                else _friendly_sftp_error(exc)
             )
         finally:
-            _finish_transfer_sftp(session_id, sftp)
+            _finish_transfer_sftp(session_id, sftp, shared, lock)
+
+        payload = {
+            "transfer_id": transfer_id,
+            "session_id": session_id,
+            "name": name,
+            "direction": "download",
+            "bytes_total": bytes_total,
+        }
+        if ok:
+            _publish("remote.sftp_done", {**payload, "local_path": local_path})
+        else:
+            _publish("remote.sftp_failed", {**payload, "message": message})
 
     threading.Thread(target=run, name="sftp-download", daemon=True).start()
     return {"transfer_id": transfer_id}
 
 
 def _h_sftp_upload(params: dict) -> dict:
-    """后台上传（进度经 `remote.sftp_progress` 推送）"""
+    """后台上传（进度经 `remote.sftp_progress` 推送；通道建立同样在后台线程）"""
     session_id = str(params["session_id"])
-    sftp = _open_transfer_sftp(session_id)
     local_path = str(params["local_path"])
     remote_path = str(params["remote_path"])
+    name = local_path.replace("\\", "/").rsplit("/", 1)[-1]
+    bytes_total = max(0, int(params.get("bytes_total") or 0))
+    generation = _sftp_cancel_generations.get(session_id, 0)
     transfer_id = uuid.uuid4().hex
     last = {"value": 0}
 
     def progress(done: int, total: int) -> None:
+        nonlocal bytes_total
+        bytes_total = max(bytes_total, int(total))
         if done - last["value"] < 256 * 1024 and done != total:
             return
         last["value"] = done
@@ -686,26 +826,50 @@ def _h_sftp_upload(params: dict) -> dict:
             "remote.sftp_progress",
             {
                 "transfer_id": transfer_id,
+                "session_id": session_id,
                 "bytes_done": int(done),
                 "bytes_total": int(total),
+                "name": name,
                 "direction": "upload",
             },
         )
 
     def run() -> None:
+        sftp: Any = None
+        shared = False
+        lock: threading.RLock | None = None
+        ok = False
+        message = ""
         try:
+            if _transfer_cancelled(session_id, generation):
+                raise _TransferCancelled()
+            sftp, shared, lock = _open_transfer_sftp(session_id)
+            if _transfer_cancelled(session_id, generation):
+                raise _TransferCancelled()
             sftp.put(local_path, remote_path, callback=progress)
-            _publish(
-                "remote.sftp_done",
-                {"transfer_id": transfer_id, "remote_path": remote_path},
-            )
+            ok = True
+        except _TransferCancelled:
+            message = "已取消传输"
         except Exception as exc:  # noqa: BLE001
-            _publish(
-                "remote.sftp_failed",
-                {"transfer_id": transfer_id, "message": _friendly_sftp_error(exc)},
+            message = (
+                "已取消传输"
+                if _transfer_cancelled(session_id, generation)
+                else _friendly_sftp_error(exc)
             )
         finally:
-            _finish_transfer_sftp(session_id, sftp)
+            _finish_transfer_sftp(session_id, sftp, shared, lock)
+
+        payload = {
+            "transfer_id": transfer_id,
+            "session_id": session_id,
+            "name": name,
+            "direction": "upload",
+            "bytes_total": bytes_total,
+        }
+        if ok:
+            _publish("remote.sftp_done", {**payload, "remote_path": remote_path})
+        else:
+            _publish("remote.sftp_failed", {**payload, "message": message})
 
     threading.Thread(target=run, name="sftp-upload", daemon=True).start()
     return {"transfer_id": transfer_id}
@@ -717,8 +881,14 @@ def _h_sftp_abort(params: dict) -> dict:
 
     与 `sftp_cancel` 分开：后者是「取消传输」，会把传输专用 client 也关掉；
     在目录加载中点取消不应误伤同时进行的上传/下载。
+
+    受限服务器上传输会回退到**会话级 client**（`_sftp_shared_transfers` 计数 > 0），
+    此时关闭它会直接打断传输 —— 必须跳过，等传输结束再说。
     """
     session_id = str(params.get("session_id") or "")
+    if _sftp_shared_transfers.get(session_id, 0) > 0:
+        logger.info("取消目录加载跳过：该会话有共享 client 传输进行中，关闭会误伤传输")
+        return {"ok": False}
     client = _sftp_clients.pop(session_id, None)
     closed_any = client is not None
     if client is not None:
@@ -738,12 +908,18 @@ def _h_sftp_abort(params: dict) -> dict:
 
 def _h_sftp_cancel(params: dict) -> dict:
     """
-    取消传输：关闭会话级 client + 全部传输专用 client。
+    取消传输：关闭会话级 client + 全部传输专用 client，并推进取消代次。
+
+    代次用于覆盖「通道还在后台打开 / 传输排在共享锁后」的窗口：仅关闭已有 client
+    挡不住尚未开始的传输；传输线程在开通道前后、真正读写前都会比较代次。
 
     同时让 `SshSession` 清缓存，否则下一次 `open_sftp()` 会返回已关闭的同一个 client。
     只取消目录加载请用 `sftp_abort`（不会误伤正在进行的上传/下载）。
     """
     session_id = str(params.get("session_id") or "")
+    _sftp_cancel_generations[session_id] = (
+        _sftp_cancel_generations.get(session_id, 0) + 1
+    )
     client = _sftp_clients.pop(session_id, None)
     closed_any = client is not None
     if client is not None:

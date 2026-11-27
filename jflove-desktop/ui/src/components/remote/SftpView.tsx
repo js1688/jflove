@@ -67,6 +67,31 @@ function formatSpeed(bytesPerSecond: number): string {
   return `${formatBytes(bytesPerSecond)}/s`;
 }
 
+/** 造一条传输行（进度 / 完成 / 失败事件都可能先于 `sftp_download` 响应到达） */
+function buildTransferItem(
+  id: string,
+  name: string,
+  total: number,
+  direction: 'upload' | 'download',
+  status: 'running' | 'done' | 'failed',
+  message?: string,
+): TransferItem {
+  const now = performance.now();
+  return {
+    id,
+    name,
+    done: status === 'done' ? total : 0,
+    total,
+    direction,
+    status,
+    message,
+    startedAt: now,
+    lastAt: now,
+    lastBytes: 0,
+    speed: 0,
+  };
+}
+
 export function SftpView({ sessionId }: SftpViewProps) {
   const [path, setPath] = useState('.');
   const [entries, setEntries] = useState<SftpEntry[]>([]);
@@ -74,6 +99,8 @@ export function SftpView({ sessionId }: SftpViewProps) {
   /** 当前一次目录加载已用秒数（远端慢时让用户分得清「慢」与「卡死」） */
   const [loadingSeconds, setLoadingSeconds] = useState(0);
   const [error, setError] = useState('');
+  /** 批量下载汇总 / 操作级错误（目录加载错误走 `error`，不要混用） */
+  const [batchError, setBatchError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [transfers, setTransfers] = useState<TransferItem[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<SftpEntry | null>(null);
@@ -162,11 +189,16 @@ export function SftpView({ sessionId }: SftpViewProps) {
   const cancelLoad = async () => {
     // 先给即时反馈：关闭 client 后阻塞中的 listdir 会失败，但可能需要一点时间传播
     setLoading(false);
-    setError('已取消加载，可点「重试」重新拉取目录');
     try {
-      await remoteService.sftpAbort(sessionId);
+      const result = await remoteService.sftpAbort(sessionId);
+      // 受限服务器上传输可能正共用会话级 client：桥会拒绝关闭，避免误伤传输
+      setError(
+        result && !result.ok
+          ? '有文件正在传输，暂不能取消目录加载（传输结束后会自动刷新）'
+          : '已取消加载，可点「重试」重新拉取目录',
+      );
     } catch {
-      // 取消本身失败不覆盖真正的加载错误
+      setError('已取消加载，可点「重试」重新拉取目录');
     }
   };
 
@@ -219,44 +251,107 @@ export function SftpView({ sessionId }: SftpViewProps) {
     const offs = [
       onBridgeEvent('remote.sftp_progress', (payload) => {
         const data = asRecord(payload);
+        // 所有标签的 SftpView 常驻挂载、事件是全局广播：必须按会话过滤，
+        // 否则别的会话传输会在本标签里建行/触发目录刷新（v1.10.24 审查 M1）
+        const sid = String(data.session_id || '');
+        if (sid && sid !== sessionId) return;
         const id = String(data.transfer_id || '');
         if (!id) return;
         const done = Number(data.bytes_done || 0);
         const total = Number(data.bytes_total || 0);
+        const direction = data.direction === 'upload' ? 'upload' : 'download';
         const now = performance.now();
-        setTransfers((prev) =>
-          prev.map((item) => {
-            if (item.id !== id) return item;
-            const elapsed = Math.max(0.001, (now - item.lastAt) / 1000);
-            const delta = Math.max(0, done - item.lastBytes);
-            return {
-              ...item,
-              done,
-              total: total || item.total,
-              lastAt: now,
-              lastBytes: done,
-              speed: delta / elapsed,
-            };
-          }),
-        );
+        setTransfers((prev) => {
+          const item = prev.find((entry) => entry.id === id);
+          if (!item) {
+            // 进度先于 `sftp_download` 响应到达：先建行，避免「传输在跑但界面没有」
+            return [
+              ...prev,
+              {
+                ...buildTransferItem(
+                  id,
+                  String(data.name || ''),
+                  total,
+                  direction,
+                  'running',
+                ),
+                done,
+                lastBytes: done,
+              },
+            ];
+          }
+          const elapsed = Math.max(0.001, (now - item.lastAt) / 1000);
+          const delta = Math.max(0, done - item.lastBytes);
+          return prev.map((entry) =>
+            entry.id === id
+              ? {
+                  ...entry,
+                  done,
+                  total: total || entry.total,
+                  lastAt: now,
+                  lastBytes: done,
+                  speed: delta / elapsed,
+                }
+              : entry,
+          );
+        });
       }),
       onBridgeEvent('remote.sftp_done', (payload) => {
-        const id = String(asRecord(payload).transfer_id || '');
-        setTransfers((prev) =>
-          prev.map((item) => (item.id === id ? { ...item, status: 'done', speed: 0 } : item)),
-        );
+        const data = asRecord(payload);
+        const sid = String(data.session_id || '');
+        if (sid && sid !== sessionId) return;
+        const id = String(data.transfer_id || '');
+        const total = Number(data.bytes_total || 0);
+        const direction = data.direction === 'upload' ? 'upload' : 'download';
+        if (id) {
+          setTransfers((prev) =>
+            prev.some((item) => item.id === id)
+              ? prev.map((item) =>
+                  item.id === id
+                    ? {
+                        ...item,
+                        done: item.total || total,
+                        status: 'done',
+                        speed: 0,
+                        message: undefined,
+                      }
+                    : item,
+                )
+              : [
+                  ...prev,
+                  buildTransferItem(id, String(data.name || ''), total, direction, 'done'),
+                ],
+          );
+        }
         scheduleReload();
       }),
       onBridgeEvent('remote.sftp_failed', (payload) => {
         const data = asRecord(payload);
+        const sid = String(data.session_id || '');
+        if (sid && sid !== sessionId) return;
         const id = String(data.transfer_id || '');
-        setTransfers((prev) =>
-          prev.map((item) =>
-            item.id === id
-              ? { ...item, status: 'failed', message: String(data.message || '传输失败'), speed: 0 }
-              : item,
-          ),
-        );
+        const total = Number(data.bytes_total || 0);
+        const direction = data.direction === 'upload' ? 'upload' : 'download';
+        const message = String(data.message || '传输失败');
+        if (id) {
+          setTransfers((prev) =>
+            prev.some((item) => item.id === id)
+              ? prev.map((item) =>
+                  item.id === id ? { ...item, status: 'failed', message, speed: 0 } : item,
+                )
+              : [
+                  ...prev,
+                  buildTransferItem(
+                    id,
+                    String(data.name || ''),
+                    total,
+                    direction,
+                    'failed',
+                    message,
+                  ),
+                ],
+          );
+        }
         scheduleReload();
       }),
     ];
@@ -264,7 +359,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
       offs.forEach((off) => off());
       if (reloadTimer.current !== null) window.clearTimeout(reloadTimer.current);
     };
-  }, [scheduleReload]);
+  }, [scheduleReload, sessionId]);
 
   const trackTransfer = (
     transferId: string,
@@ -272,63 +367,126 @@ export function SftpView({ sessionId }: SftpViewProps) {
     total: number,
     direction: 'upload' | 'download',
   ) => {
-    const now = performance.now();
+    setTransfers((prev) =>
+      prev.some((item) => item.id === transferId)
+        ? prev
+        : [...prev, buildTransferItem(transferId, name, total, direction, 'running')],
+    );
+  };
+
+  /**
+   * 建一条失败行。
+   *
+   * 桥调用本身失败（保存对话框报错 / 会话已断开 / 参数错误）时不会有后台
+   * `remote.sftp_failed` 事件；旧实现只 `void downloadOne(...)`，Promise 拒绝无人处理，
+   * 界面表现为「点了下载什么都没有」。失败必须在传输队列里可见。
+   */
+  const addFailedTransfer = (
+    name: string,
+    total: number,
+    direction: 'upload' | 'download',
+    message: string,
+  ) => {
+    const id = `failed-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setTransfers((prev) => [
       ...prev,
-      {
-        id: transferId,
-        name,
-        done: 0,
-        total,
-        direction,
-        status: 'running',
-        startedAt: now,
-        lastAt: now,
-        lastBytes: 0,
-        speed: 0,
-      },
+      buildTransferItem(id, name, total, direction, 'failed', message),
     ]);
   };
 
   const handleUpload = async () => {
-    const picked = await callBridge<{ files: Array<{ path: string; name: string; size: number }> }>(
-      'dialogs',
-      'open_files',
-    );
+    let picked: { files?: Array<{ path: string; name: string; size: number }> };
+    try {
+      picked = await callBridge<{ files: Array<{ path: string; name: string; size: number }> }>(
+        'dialogs',
+        'open_files',
+      );
+    } catch (err) {
+      addFailedTransfer(
+        '选择上传文件',
+        0,
+        'upload',
+        err instanceof Error ? err.message : String(err),
+      );
+      return;
+    }
     for (const file of picked.files || []) {
-      const transfer = await remoteService.sftpUpload(sessionId, file.path, joinPath(path, file.name));
-      trackTransfer(transfer.transfer_id, file.name, file.size || 0, 'upload');
+      try {
+        const transfer = await remoteService.sftpUpload(
+          sessionId,
+          file.path,
+          joinPath(path, file.name),
+          file.size || 0,
+        );
+        trackTransfer(transfer.transfer_id, file.name, file.size || 0, 'upload');
+      } catch (err) {
+        addFailedTransfer(
+          file.name,
+          file.size || 0,
+          'upload',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   };
 
-  const downloadOne = async (entry: SftpEntry, targetDir?: string) => {
+  const downloadOne = async (entry: SftpEntry, targetDir?: string): Promise<boolean> => {
     let localPath = '';
-    if (targetDir) {
-      localPath = `${targetDir.replace(/[\\/]+$/, '')}/${entry.name}`;
-    } else {
-      const target = await callBridge<{ path: string }>('dialogs', 'save_file', {
-        default_name: entry.name,
-      });
-      localPath = target.path;
+    try {
+      if (targetDir) {
+        localPath = `${targetDir.replace(/[\\/]+$/, '')}/${entry.name}`;
+      } else {
+        const target = await callBridge<{ path: string }>('dialogs', 'save_file', {
+          default_name: entry.name,
+        });
+        localPath = target.path;
+      }
+      if (!localPath) return false; // 用户取消保存：不是失败
+      const transfer = await remoteService.sftpDownload(
+        sessionId,
+        joinPath(path, entry.name),
+        localPath,
+        entry.size,
+      );
+      trackTransfer(transfer.transfer_id, entry.name, entry.size, 'download');
+      return true;
+    } catch (err) {
+      addFailedTransfer(
+        entry.name,
+        entry.size,
+        'download',
+        err instanceof Error ? err.message : String(err),
+      );
+      return false;
     }
-    if (!localPath) return;
-    const transfer = await remoteService.sftpDownload(
-      sessionId,
-      joinPath(path, entry.name),
-      localPath,
-    );
-    trackTransfer(transfer.transfer_id, entry.name, entry.size, 'download');
   };
 
   const handleDownloadSelected = async () => {
     const files = entries.filter((entry) => selected.has(entry.name) && !entry.is_dir);
-    if (files.length === 0) return;
-    const dir = await callBridge<{ path: string }>('dialogs', 'select_directory', {
-      title: '选择下载目录',
-    });
+    if (files.length === 0) {
+      setBatchError('请先勾选要下载的文件（复选框在本行最左侧）');
+      return;
+    }
+    let dir: { path: string };
+    try {
+      dir = await callBridge<{ path: string }>('dialogs', 'select_directory', {
+        title: '选择下载目录',
+      });
+    } catch (err) {
+      setBatchError(err instanceof Error ? err.message : String(err));
+      return;
+    }
     if (!dir.path) return;
+    setBatchError('');
+    let failed = 0;
+    // 逐文件继续：单个失败不能中断整批
     for (const file of files) {
-      await downloadOne(file, dir.path);
+      if (!(await downloadOne(file, dir.path))) failed += 1;
+    }
+    if (failed > 0) {
+      setBatchError(
+        `批量下载：已发起 ${files.length} 个，${failed} 个启动失败（最终结果见传输队列）`,
+      );
     }
   };
 
@@ -432,6 +590,19 @@ export function SftpView({ sessionId }: SftpViewProps) {
         </Button>
       </div>
 
+      {batchError && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-danger-50 bg-danger-50 px-3 py-1.5 text-xs text-danger-700">
+          <span className="min-w-0 flex-1">{batchError}</span>
+          <button
+            type="button"
+            className="shrink-0 text-[11px] underline decoration-dotted underline-offset-2"
+            onClick={() => setBatchError('')}
+          >
+            关闭
+          </button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b border-line-subtle px-3 py-1 text-[11px] text-muted">
           <input
@@ -462,7 +633,7 @@ export function SftpView({ sessionId }: SftpViewProps) {
             <div className="p-6 text-center text-sm text-muted">
               <div>加载中…（已用 {loadingSeconds} 秒）</div>
               <div className="mt-1 text-[11px] text-subtle">
-                远端目录或网络较慢；超过 45 秒会自动失败并给出原因
+                远端目录或网络较慢；最长等待 45 秒，超时会给出原因
               </div>
               <button
                 type="button"

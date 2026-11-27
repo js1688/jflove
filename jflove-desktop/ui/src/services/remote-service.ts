@@ -159,22 +159,24 @@ export const remoteService = {
       path,
       is_dir: isDir,
     }),
-  sftpDownload: (sessionId: string, remotePath: string, localPath: string) =>
+  sftpDownload: (sessionId: string, remotePath: string, localPath: string, bytesTotal = 0) =>
     callBridge<{ transfer_id: string }>('remote', 'sftp_download', {
       session_id: sessionId,
       remote_path: remotePath,
       local_path: localPath,
+      bytes_total: bytesTotal,
     }),
   sftpCancel: (sessionId: string) =>
     callBridge<{ ok: boolean }>('remote', 'sftp_cancel', { session_id: sessionId }),
   /** 只取消目录加载（不误伤同时进行的传输） */
   sftpAbort: (sessionId: string) =>
     callBridge<{ ok: boolean }>('remote', 'sftp_abort', { session_id: sessionId }),
-  sftpUpload: (sessionId: string, localPath: string, remotePath: string) =>
+  sftpUpload: (sessionId: string, localPath: string, remotePath: string, bytesTotal = 0) =>
     callBridge<{ transfer_id: string }>('remote', 'sftp_upload', {
       session_id: sessionId,
       local_path: localPath,
       remote_path: remotePath,
+      bytes_total: bytesTotal,
     }),
 };
 
