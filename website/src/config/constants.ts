@@ -6,7 +6,7 @@
 //
 // 使用位置：页脚 / 下载页 / `<meta name="generator">` —— 用户可见处必须显示真实版本。
 
-export const APP_VERSION = '1.10.24';
+export const APP_VERSION = '1.10.25';
 
 /** 官网对外展示的产品名 */
 export const PRODUCT_NAME = 'JFLove';
