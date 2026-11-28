@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useFileStore } from '../stores/file-store';
 import { PageHeader } from '../components/PageHeader';
+import { DiskCapacityLine } from '../components/DiskCapacity';
 import { Badge, EmptyState, ErrorState, Icon, ListSkeleton } from '../components/ui';
 
 /**
@@ -59,6 +60,8 @@ export function FileListPage() {
                   <span className="mt-0.5 block truncate text-[11.5px] text-subtle">
                     {disk.path || '/'}
                   </span>
+                  {/* v1.10.26（R1）：最大/已用/可用/类型 四项 */}
+                  <DiskCapacityLine disk={disk} />
                 </span>
                 <Icon name="next" size="sm" className="shrink-0 text-subtle" />
               </button>

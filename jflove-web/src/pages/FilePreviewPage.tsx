@@ -177,10 +177,19 @@ export function FilePreviewPage() {
       } catch (e) {
         if (!cancelled) {
           // v1.4.2：损坏文件（服务端 415 [MEDIA_NEEDS_REPAIR]）→ 修复引导
+          // v1.10.26（R1/P3）：服务端 415 有两种语义，**不能一律说"已损坏"** ——
+          //   ① `[MEDIA_NEEDS_REPAIR] 该文件无法在线边下边播` → 文件是好的，只是容器/封装
+          //      不适合 Web MSE 边下边播（普通 MP4 / faststart MP4 / MKV / AVI 都属此类）；
+          //      桌面与移动端用原生播放器能直接播，说成"已损坏"会让用户以为文件坏了。
+          //   ② `[MEDIA_NEEDS_REPAIR] 该文件已损坏` → ffmpeg 探测到致命错误，是真损坏。
           const msg = e instanceof Error ? e.message : '预览加载失败';
           if (msg.includes('[MEDIA_NEEDS_REPAIR]')) {
             setNeedsRepair(true);
-            setError('该文件已损坏，无法在线播放');
+            setError(
+              msg.includes('已损坏')
+                ? '该文件已损坏，无法在线播放'
+                : '该格式不支持网页边下边播，可修复为 MP4 后在线播放（桌面端 / 手机端可直接播放）',
+            );
           } else {
             setError(msg);
           }

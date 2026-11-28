@@ -5,6 +5,7 @@ import '../../config/design_tokens.dart';
 import '../../models/virtual_disk.dart';
 import '../../providers/admin_provider.dart';
 import '../../providers/file_provider.dart';
+import '../../utils/size_format.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/error_state.dart';
@@ -109,6 +110,15 @@ class AdminDisksPage extends ConsumerWidget {
                     fontFamily: 'monospace',
                     color: t.fgSubtle,
                   ),
+                ),
+                SizedBox(height: t.s1),
+                // v1.10.26（R1）：最大空间 / 已用空间 / 可用空间 / 磁盘类型
+                Text(
+                  '最大 ${formatSize(disk.totalSize)} · 已用 ${formatSize(disk.usedSize)}'
+                  ' · 可用 ${formatSize(disk.freeSize)} · ${orDash(disk.diskType)}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: t.fgSubtle),
                 ),
               ],
             ),

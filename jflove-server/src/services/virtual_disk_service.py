@@ -10,6 +10,7 @@ import sys
 import aiosqlite
 
 from src.repositories import virtual_disk_repository
+from src.utils import disk_info
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -120,20 +121,32 @@ async def list_disks(db: aiosqlite.Connection) -> list[dict]:
     """
     获取所有虚拟磁盘列表。
 
+    v1.10.26（R1）：在原有 5 个字段之外补上容量与类型四项 ——
+    `total_size`（最大空间）/ `used_size`（已用）/ `free_size`（可用）/ `disk_type`（文件系统类型）。
+    容量是**实时**探测（`shutil.disk_usage`），不落库；路径不可读时为 None，
+    客户端渲染成 `—`，接口本身不失败。
+
     :param db: 数据库连接
     :returns: 磁盘信息列表，每项含 id、name、real_path、created_by、created_at
+              + total_size、used_size、free_size、disk_type
     """
     rows = await virtual_disk_repository.list_all(db)
-    return [
-        {
+    usages = disk_info.get_usage_for_disks([r["real_path"] for r in rows])
+    result = []
+    for r in rows:
+        usage = usages.get(r["real_path"]) or {}
+        result.append({
             "id": r["id"],
             "name": r["name"],
             "real_path": r["real_path"],
             "created_by": r["created_by"],
             "created_at": r["created_at"],
-        }
-        for r in rows
-    ]
+            "total_size": usage.get("total_size"),
+            "used_size": usage.get("used_size"),
+            "free_size": usage.get("free_size"),
+            "disk_type": usage.get("disk_type"),
+        })
+    return result
 
 
 async def create_disk(

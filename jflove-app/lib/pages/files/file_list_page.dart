@@ -8,6 +8,7 @@ import '../../models/virtual_disk.dart';
 import '../../providers/file_provider.dart';
 import '../../widgets/app_card.dart';
 import '../../widgets/empty_state.dart';
+import '../../utils/size_format.dart';
 import '../../widgets/error_state.dart';
 
 /// 虚拟磁盘列表页（文件管理入口）
@@ -109,6 +110,9 @@ class _DiskCard extends StatelessWidget {
                     style: TextStyle(fontSize: 11.5, color: t.fgMuted),
                   ),
                 ],
+                // v1.10.26（R1）：最大/已用/可用 + 磁盘类型（取不到渲染 —）
+                SizedBox(height: t.s1),
+                _DiskCapacityLine(disk: disk),
               ],
             ),
           ),
@@ -122,6 +126,47 @@ class _DiskCard extends StatelessWidget {
           Icon(Icons.chevron_right, size: 18, color: t.fgSubtle),
         ],
       ),
+    );
+  }
+}
+
+/// 磁盘容量与类型一行（v1.10.26，R1）
+///
+/// 展示「最大空间 / 已用空间 / 可用空间 / 磁盘类型」。
+/// 服务端取不到时统一渲染 [kDash]，不显示 0 B（那会误导成"真的没空间"）。
+class _DiskCapacityLine extends StatelessWidget {
+  const _DiskCapacityLine({required this.disk});
+
+  final VirtualDisk disk;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final ratio = disk.usedRatio;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '最大 ${formatSize(disk.totalSize)} · 已用 ${formatSize(disk.usedSize)}'
+          ' · 可用 ${formatSize(disk.freeSize)} · ${orDash(disk.diskType)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11, color: t.fgSubtle),
+        ),
+        if (ratio != null) ...[
+          SizedBox(height: t.s1),
+          // 容量进度条：只在拿到总容量时画（否则无从计算）
+          ClipRRect(
+            borderRadius: BorderRadius.circular(t.rSm),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 3,
+              backgroundColor: t.bgSunken,
+              valueColor: const AlwaysStoppedAnimation(AppTokens.brand600),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

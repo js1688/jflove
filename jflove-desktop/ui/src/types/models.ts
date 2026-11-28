@@ -49,6 +49,15 @@ export interface VirtualDisk {
   /** v1.4.2：删除权限（修复功能要求写+删并存） */
   can_delete: boolean;
   created_at: string;
+  /**
+   * v1.10.26（R1）：容量与类型四项。
+   * 服务端实时探测（`shutil.disk_usage`），路径不可读时为 null → 渲染 `—`。
+   * `files/disks` 与 `virtual-disks` 两个接口都会下发。
+   */
+  total_size?: number | null;
+  used_size?: number | null;
+  free_size?: number | null;
+  disk_type?: string | null;
 }
 
 export interface DiskDir {

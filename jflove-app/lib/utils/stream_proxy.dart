@@ -64,6 +64,29 @@ class StreamProxy {
   // v1.4.2：最近一次拉流错误（供预览页识别「需修复」错误码弹修复引导）
   String lastError = '';
 
+  /// 服务端返回的错误详情（已解密，可能含 `[MEDIA_NEEDS_REPAIR]` 错误码）
+  ///
+  /// v1.10.26（P4）：与 [lastError] 分开保存 —— `lastError` 是给日志看的技术字符串，
+  /// 本字段只放**服务端 detail 原文**，页面据此判断是否需要「立即修复」入口。
+  String lastServiceDetail = '';
+
+  /// 错误信号：一旦代理在服务端拿到 4xx/5xx，立即 complete。
+  ///
+  /// 为什么需要它：`_server.listen` 里的 `_handleRequest` 是**不 await** 的
+  /// （见 `start()`），而 ExoPlayer 收到代理回的 500 后会**立刻**抛
+  /// `PlatformException(VideoError…)`。此时代理协程可能还没把 detail 写进
+  /// [lastServiceDetail]，页面 `catch` 里读到的就是空串 —— 于是「立即修复」
+  /// 入口永远不出现（v1.10.26 实测踩到）。页面改为 `await` 本信号（带超时）
+  /// 再读 detail，消除这个竞态。
+  final Completer<void> serviceError = Completer<void>();
+
+  /// 标记服务端错误（只记第一次，后续覆盖没有意义）
+  void _markServiceError(String detail) {
+    lastError = detail;
+    if (detail.isNotEmpty) lastServiceDetail = detail;
+    if (!serviceError.isCompleted) serviceError.complete();
+  }
+
   StreamProxy({
     required this.diskId,
     required this.path,
@@ -142,7 +165,7 @@ class StreamProxy {
       resp.headers.set('Connection', 'close');
       await resp.close();
     } catch (e) {
-      lastError = e.toString();
+      if (lastServiceDetail.isEmpty) lastError = e.toString();
       _sendError(request.response, 500, e.toString());
     }
   }
@@ -153,7 +176,7 @@ class StreamProxy {
     try {
       await _ensureMeta();
     } catch (e) {
-      lastError = e.toString();
+      if (lastServiceDetail.isEmpty) lastError = e.toString();
       _sendError(request.response, 500, e.toString());
       return;
     }
@@ -293,10 +316,26 @@ class StreamProxy {
 
     if (resp.statusCode != null && resp.statusCode! >= 400) {
       // 尝试从加密信封解出 detail（含 [MEDIA_NEEDS_REPAIR] 错误码）
+      //
+      // ⚠ v1.10.26（P4）关键修复：本请求用了 `ResponseType.stream`，
+      // 所以 `resp.data` 是 **`ResponseBody`（字节流）**，不是 `Map`/`String`。
+      // 原实现按 Map 判断 → 永远不成立 → detail 恒为 "服务端返回错误: 415"，
+      // 页面因此识别不出 `[MEDIA_NEEDS_REPAIR]`，「立即修复」入口一直不出现。
+      // 正确做法：把错误响应的流**读完**再解析（错误体很小，一次性读无风险）。
       String detail = '服务端返回错误: ${resp.statusCode}';
       try {
         final raw = resp.data;
-        final body = raw is String ? jsonDecode(raw) : raw;
+        String text;
+        if (raw is ResponseBody) {
+          final chunks = await raw.stream.toList();
+          final bytes = chunks.expand((c) => c).toList();
+          text = utf8.decode(bytes, allowMalformed: true);
+        } else if (raw is List<int>) {
+          text = utf8.decode(raw, allowMalformed: true);
+        } else {
+          text = raw is String ? raw : jsonEncode(raw);
+        }
+        final body = jsonDecode(text);
         if (body is Map<String, dynamic> &&
             body['nonce'] != null &&
             body['ciphertext'] != null) {
@@ -309,6 +348,7 @@ class StreamProxy {
           detail = obj['detail']?.toString() ?? detail;
         }
       } catch (_) {}
+      _markServiceError(detail);
       throw Exception(detail);
     }
 

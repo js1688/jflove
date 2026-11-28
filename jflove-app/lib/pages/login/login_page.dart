@@ -271,14 +271,38 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
+  /// 归一化服务器地址（v1.10.26，P5）
+  ///
+  /// 用户常直接填 `127.0.0.1:8989` 或 `server.example.com:8989`（漏了协议）。
+  /// 原实现直接把它交给 Dio，Dio 抛 `FormatException: Scheme not starting with
+  /// alphabetic character`，界面上就是一坨英文堆栈 —— 普通用户根本不知道
+  /// 要补 `http://`。这里**自动补协议**，并把结果回写到输入框让用户看见。
+  ///
+  /// 规则：
+  ///   - 已带 `http://` / `https://`（大小写不敏感）→ 原样返回
+  ///   - 其它（含 `ftp://` 之类非 HTTP 协议）→ 统一补 `http://`
+  ///     （本产品只支持 HTTP(S)，保留用户原样的非法协议没有意义）
+  static String normalizeServerUrl(String raw) {
+    final v = raw.trim();
+    if (v.isEmpty) return v;
+    final lower = v.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) return v;
+    // 去掉用户可能误填的前导斜杠，再补协议
+    return 'http://${v.replaceFirst(RegExp(r'^/+'), '')}';
+  }
+
   Future<void> _handleLogin() async {
-    final serverUrl = _serverController.text.trim();
+    final serverUrl = normalizeServerUrl(_serverController.text);
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
 
     if (serverUrl.isEmpty) {
       setState(() => _errorMsg = '请输入服务器地址');
       return;
+    }
+    // 把归一化结果回写，让用户看到实际用于连接的地址（避免"我明明填了"的困惑）
+    if (_serverController.text != serverUrl) {
+      _serverController.text = serverUrl;
     }
     if (username.isEmpty || password.isEmpty) {
       setState(() => _errorMsg = '请输入用户名和密码');

@@ -336,20 +336,45 @@ class _MediaPreviewState extends ConsumerState<_MediaPreview> {
       }
       controller.play();
     } catch (e) {
-      // 损坏文件（服务端 415 [MEDIA_NEEDS_REPAIR]）→ 修复引导而非普通错误
-      final msg = e.toString();
-      if (msg.contains('[MEDIA_NEEDS_REPAIR]') ||
-          (_proxy?.lastError.contains('[MEDIA_NEEDS_REPAIR]') ?? false)) {
+      // v1.4.2：损坏文件（服务端 415 [MEDIA_NEEDS_REPAIR]）→ 修复引导而非普通错误。
+      //
+      // v1.10.26（P4）修复两个问题：
+      //  ① **标记来源**：ExoPlayer 抛的是 `PlatformException(VideoError…)`，
+      //     里面**不带**服务端的 `[MEDIA_NEEDS_REPAIR]` 文案 —— 真正的 detail 在
+      //     `_proxy.lastError` 里。原来只看 `e.toString()`，导致永远匹配不到，
+      //     用户看到的是原始英文堆栈且**没有「立即修复」入口**。
+      //  ② **两种 415 语义要区分**（与 Web 端同一口径）：
+      //       -「无法在线边下边播」→ 文件是好的，只是容器不适合流式（可在桌面播）；
+      //       -「已损坏」          → ffmpeg 探测到致命错误，真损坏。
+      final rawMsg = e.toString();
+      // v1.10.26（P4）：等代理把服务端 detail 记下来再读 —— ExoPlayer 收到代理
+      // 的 500 会**立刻**抛异常，而代理协程那时可能还没写完 detail（竞态）。
+      // 给 1.5s 上限，正常情况 signal 早已完成，不会真的等。
+      final proxyRef = _proxy;
+      if (proxyRef != null &&
+          proxyRef.lastServiceDetail.isEmpty &&
+          !proxyRef.serviceError.isCompleted) {
+        await proxyRef.serviceError.future
+            .timeout(const Duration(milliseconds: 1500),
+                onTimeout: () {});
+      }
+      final detail = proxyRef?.lastServiceDetail ?? '';
+      final combined = '$rawMsg $detail';
+      final isNeedsRepair = combined.contains('[MEDIA_NEEDS_REPAIR]');
+      if (isNeedsRepair) {
         _needsRepair = true;
+        // 展示给用户的中文文案（不把 Dart 异常原文直接抛给用户）
+        _errorMessage = detail.contains('已损坏')
+            ? '该文件已损坏，无法在线播放'
+            : '该格式不支持在线播放，可修复为 MP4 后重试（桌面端可直接播放）';
+      } else {
+        _errorMessage = _humanizeMediaError(rawMsg);
       }
       // 出错时清理 proxy
       _proxy?.close();
       _proxy = null;
       if (mounted) {
-        setState(() {
-          _hasError = true;
-          _errorMessage = msg;
-        });
+        setState(() => _hasError = true);
       }
     }
   }
@@ -866,4 +891,28 @@ class _TextPreviewState extends ConsumerState<_TextPreview> {
       ],
     );
   }
+}
+
+/// 把播放器抛出的技术异常转成用户能看懂的中文（v1.10.26，P4）
+///
+/// 移动端此前把 `PlatformException(VideoError, Video play failed...)` 原样显示在
+/// 界面上，普通用户完全无法理解。这里做统一收敛：
+///   - 明确是解码/格式问题 → 提示换格式或修复
+///   - 其它 → 通用中文提示 + 保留简短原因
+String _humanizeMediaError(String raw) {
+  final low = raw.toLowerCase();
+  if (low.contains('videoplayer') ||
+      low.contains('videoerror') ||
+      low.contains('platformexception') ||
+      low.contains('exoplayer') ||
+      low.contains('decode')) {
+    return '播放器无法解码该文件，可能是格式不兼容或文件已损坏';
+  }
+  if (low.contains('connection refused') || low.contains('socketexception')) {
+    return '无法连接服务器，请检查网络后重试';
+  }
+  if (low.contains('会话密钥未就绪')) return '会话已失效，请重新登录';
+  // 兜底：截断技术细节，避免整屏英文堆栈
+  final brief = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return brief.length > 120 ? '${brief.substring(0, 120)}…' : brief;
 }

@@ -38,6 +38,7 @@ from src.config.settings import (
 from src.repositories import virtual_disk_repository, permission_repository
 from src.services import file_journal_service
 from src.services.permission_service import check_disk_permission
+from src.utils import disk_info
 from src.utils.logger import get_logger
 from src.utils.path_safety import safe_join as _safe_join_impl
 from src.utils.path_safety import validate_filename
@@ -348,30 +349,54 @@ async def list_accessible_disks(
       （v1.4.2 新增 can_delete：修复功能要求写+删权限并存，三端据此
       禁用/隐藏「修复损坏媒体」入口）
 
+    v1.10.26（R1）：补上 `total_size` / `used_size` / `free_size` / `disk_type`
+    四项。容量实时探测（不落库），路径不可读时为 None，客户端渲染成 `—`。
+
     :param db: 数据库连接
     :param user_id: 当前用户 ID
     :param role: 用户角色（admin / user）
     :returns: 磁盘列表，每项含 id、name、can_write、can_delete
+              + total_size、used_size、free_size、disk_type
     """
     all_disks = await virtual_disk_repository.list_all(db)
+
+    def _with_usage(entry: dict, real_path: str, usage: dict) -> dict:
+        """把容量四项并进磁盘条目（R1）"""
+        entry.update({
+            "total_size": usage.get("total_size"),
+            "used_size": usage.get("used_size"),
+            "free_size": usage.get("free_size"),
+            "disk_type": usage.get("disk_type"),
+        })
+        return entry
+
     if role == "admin":
-        return [
-            {"id": d["id"], "name": d["name"], "can_write": True, "can_delete": True}
-            for d in all_disks
-        ]
+        usages = disk_info.get_usage_for_disks([d["real_path"] for d in all_disks])
+        result = []
+        for d in all_disks:
+            entry = {"id": d["id"], "name": d["name"],
+                     "can_write": True, "can_delete": True}
+            result.append(
+                _with_usage(entry, d["real_path"], usages.get(d["real_path"]) or {})
+            )
+        return result
     perms = await permission_repository.get_disk_permissions(db, user_id)
     # sqlite3.Row 不支持 .get()，转为 dict 后再操作
     perm_map = {p["virtual_disk_id"]: dict(p) for p in perms}
+    visible = [d for d in all_disks if (perm_map.get(d["id"]) or {}).get("can_read")]
+    usages = disk_info.get_usage_for_disks([d["real_path"] for d in visible])
     result = []
-    for d in all_disks:
-        p = perm_map.get(d["id"])
-        if p and p.get("can_read"):
-            result.append({
-                "id": d["id"],
-                "name": d["name"],
-                "can_write": bool(p.get("can_write", False)),
-                "can_delete": bool(p.get("can_delete", False)),
-            })
+    for d in visible:
+        p = perm_map[d["id"]]
+        entry = {
+            "id": d["id"],
+            "name": d["name"],
+            "can_write": bool(p.get("can_write", False)),
+            "can_delete": bool(p.get("can_delete", False)),
+        }
+        result.append(
+            _with_usage(entry, d["real_path"], usages.get(d["real_path"]) or {})
+        )
     return result
 
 

@@ -33,6 +33,46 @@ function baseUrl(): string {
   return getServerUrl();
 }
 
+// ── 网络异常 → 中文文案（v1.10.26，P7） ──
+
+/**
+ * 把浏览器 `fetch` 抛出的技术异常转成用户能看懂的中文。
+ *
+ * 背景（v1.10.26 P7）：`fetch` 在网络不通/跨域被拒时抛的是
+ * `TypeError: Failed to fetch`，原实现直接拼成
+ * `网络错误：Failed to fetch` —— 中文里夹一段英文，普通用户读不懂，
+ * 也无从判断是"地址填错""服务端没起"还是"跨域被拦"。
+ *
+ * 这里按常见成因给出可操作的中文提示；识别不出的保留原文（截断），
+ * 便于排查时仍有线索，但不至于刷屏。
+ *
+ * ⚠ 不要在这里暴露 URL 里的业务参数（安全宪法 §9.4）。
+ */
+function humanizeNetworkError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e ?? '');
+  const low = raw.toLowerCase();
+
+  // fetch 在连接被拒 / DNS 失败 / CORS 预检失败时统一报这两个
+  if (low.includes('failed to fetch') || low.includes('networkerror')) {
+    return '无法连接服务器，请检查服务端地址是否正确、服务是否已启动，'
+      + '以及是否允许当前站点的跨域访问';
+  }
+  if (low.includes('load failed')) {
+    return '无法连接服务器，请检查服务端地址与网络连接';
+  }
+  if (low.includes('timeout') || low.includes('timed out')) {
+    return '请求超时，请检查网络后重试';
+  }
+  if (low.includes('cors') || low.includes('cross-origin')) {
+    return '请求被浏览器的跨域策略拦截，请确认服务端已允许当前站点访问';
+  }
+  if (low.includes('ssl') || low.includes('certificate')) {
+    return 'HTTPS 证书校验失败，请检查服务端证书配置';
+  }
+  const brief = raw.replace(/\s+/g, ' ').trim();
+  return brief.length > 120 ? `${brief.substring(0, 120)}…` : brief;
+}
+
 // ── 响应信封判定与解密（BL-3） ──
 
 /**
@@ -144,7 +184,7 @@ async function encryptedRequest<T>(
     if (e instanceof DOMException && e.name === 'AbortError') {
       throw new ApiError(0, '请求超时');
     }
-    throw new ApiError(0, `网络错误：${e instanceof Error ? e.message : String(e)}`);
+    throw new ApiError(0, humanizeNetworkError(e));
   }
 }
 
@@ -213,7 +253,7 @@ async function getQueryEncrypted<T>(
     if (e instanceof DOMException && e.name === 'AbortError') {
       throw new ApiError(0, '请求超时');
     }
-    throw new ApiError(0, `网络错误：${e instanceof Error ? e.message : String(e)}`);
+    throw new ApiError(0, humanizeNetworkError(e));
   }
 }
 
@@ -349,7 +389,7 @@ async function plainRequest<T>(
   } catch (e) {
     clearTimeout(timeoutId);
     if (e instanceof ApiError) throw e;
-    throw new ApiError(0, `网络错误：${e instanceof Error ? e.message : String(e)}`);
+    throw new ApiError(0, humanizeNetworkError(e));
   }
 }
 
@@ -490,7 +530,7 @@ async function downloadStream(
     if (e instanceof DOMException && e.name === 'AbortError') {
       throw new ApiError(0, '流式请求超时');
     }
-    throw new ApiError(0, `流式网络错误：${e instanceof Error ? e.message : String(e)}`);
+    throw new ApiError(0, humanizeNetworkError(e));
   } finally {
     options.signal?.removeEventListener('abort', onUserAbort);
   }

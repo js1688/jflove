@@ -126,9 +126,16 @@ export function DiskBrowserPage() {
     }
   }, [diskId, path]);
 
-  // 排序
+  // v1.10.26（P6）：目录内按名称过滤（大目录下快速定位）。
+  // 只做**客户端**过滤 —— 目录内容已在本地，无需再打服务端。
+  const [nameFilter, setNameFilter] = useState('');
+
+  // 排序（先按 filter 收窄，再排序）
   const sortedFiles = useMemo(() => {
-    const files = [...store.currentFiles];
+    const keyword = nameFilter.trim().toLowerCase();
+    const files = keyword
+      ? store.currentFiles.filter(f => f.name.toLowerCase().includes(keyword))
+      : [...store.currentFiles];
     files.sort((a, b) => {
       // 目录始终排前面
       if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
@@ -141,7 +148,7 @@ export function DiskBrowserPage() {
       return store.sortAsc ? cmp : -cmp;
     });
     return files;
-  }, [store.currentFiles, store.sortBy, store.sortAsc]);
+  }, [store.currentFiles, store.sortBy, store.sortAsc, nameFilter]);
 
   // 导航
   const handleNavigate = (newPath: string) => setPath(newPath);
@@ -324,6 +331,27 @@ export function DiskBrowserPage() {
             </button>
           );
         })}
+        {/* v1.10.26（P6）：目录内名称过滤（大列表可搜索，对齐笔记页的「搜索笔记…」） */}
+        <span className="ml-auto flex items-center gap-1.5">
+          <input
+            type="search"
+            value={nameFilter}
+            onChange={e => setNameFilter(e.target.value)}
+            placeholder="搜索本目录…"
+            aria-label="搜索本目录文件名"
+            className="h-7 w-40 rounded-md border border-line bg-surface px-2 text-[12px] outline-none focus:border-brand"
+          />
+          {nameFilter && (
+            <button
+              type="button"
+              onClick={() => setNameFilter('')}
+              className="tb !w-auto px-1.5 text-[11.5px]"
+              title="清除搜索"
+            >
+              清除
+            </button>
+          )}
+        </span>
       </div>
 
       {/* 新建目录弹窗 */}
@@ -390,7 +418,15 @@ export function DiskBrowserPage() {
         {store.filesLoading && <ListSkeleton rows={6} />}
 
         {!store.filesLoading && sortedFiles.length === 0 && (
-          <EmptyState icon="files" title="此目录为空" description="可上传文件或新建目录" />
+          nameFilter.trim() ? (
+            <EmptyState
+              icon="files"
+              title="没有匹配的文件"
+              description={`本目录下没有名称包含「${nameFilter.trim()}」的条目`}
+            />
+          ) : (
+            <EmptyState icon="files" title="此目录为空" description="可上传文件或新建目录" />
+          )
         )}
 
         {!store.filesLoading &&

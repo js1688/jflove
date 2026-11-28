@@ -55,7 +55,7 @@ _CREATE_SESSIONS = """
 CREATE TABLE IF NOT EXISTS sessions (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id        INTEGER NOT NULL,
-    session_id     TEXT    NOT NULL UNIQUE,
+    session_id     TEXT    NOT NULL,
     jwt_token_hash TEXT    NOT NULL,
     expires_at     TEXT    NOT NULL,
     created_at     TEXT    NOT NULL,
@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     deleted_at     TEXT
 )
 """
+# v1.10.26：去掉 `session_id` 的列级 UNIQUE，改由部分唯一索引只约束活跃行。
+# 原因：软删除保留历史行，而列级 UNIQUE 不区分是否删除 —— 同一会话二次登录
+# 或 `auth/refresh` 续期时，`revoke()` 只置 `deleted_at`（行仍在），紧接着
+# `create()` 用同一 session_id 插入就会撞唯一约束 → 500。
+# 详见 AGENTS.md §5.2「软删除 + 唯一约束会互相打架」与 lessons L15。
+_CREATE_SESSIONS_ACTIVE_UIDX = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS sessions_session_active_uidx"
+    " ON sessions(session_id) WHERE deleted_at IS NULL"
+)
 
 _CREATE_CONFIG = """
 CREATE TABLE IF NOT EXISTS config (
@@ -254,6 +263,9 @@ _INDEXES = [
     "CREATE UNIQUE INDEX IF NOT EXISTS users_username_active_uidx"
     " ON users(username) WHERE deleted_at IS NULL",
     "CREATE INDEX IF NOT EXISTS sessions_session_id_idx ON sessions(session_id)",
+    # v1.10.26：**活跃**会话的 session_id 仍需唯一（与 users 同一套口径）。
+    # 列级 UNIQUE 已去掉，否则同一会话二次登录 / refresh 续期会撞约束 → 500。
+    _CREATE_SESSIONS_ACTIVE_UIDX,
     "CREATE INDEX IF NOT EXISTS user_permissions_user_id_idx ON user_permissions(user_id)",
     "CREATE INDEX IF NOT EXISTS user_permissions_disk_id_idx ON user_permissions(virtual_disk_id)",
     "CREATE INDEX IF NOT EXISTS media_repair_tasks_user_id_idx ON media_repair_tasks(user_id)",
@@ -439,6 +451,86 @@ async def _rebuild_users_table(db: aiosqlite.Connection, columns_sql: str) -> No
         logger.error("重建 users 表失败（数据未改动）：%s", e)
 
 
+#: sessions 表的列定义（与上方 `_CREATE_SESSIONS` 保持一致，去掉 UNIQUE）。
+#: 供 `_rebuild_sessions_table` 使用。
+_SESSIONS_COLUMNS_SQL = (
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "user_id INTEGER NOT NULL, "
+    "session_id TEXT NOT NULL, "
+    "jwt_token_hash TEXT NOT NULL, "
+    "expires_at TEXT NOT NULL, "
+    "created_at TEXT NOT NULL, "
+    "updated_at TEXT NOT NULL, "
+    "deleted_at TEXT"
+)
+
+
+async def _migrate_sessions_drop_session_id_unique(db: aiosqlite.Connection) -> None:
+    """
+    去掉 `sessions.session_id` 的列级 UNIQUE 约束（v1.10.26 修复）。
+
+    **为什么必须去掉**：`sessions` 是软删除表（AGENTS.md §5.2 要求 `deleted_at`），
+    而列级 UNIQUE 不区分是否删除。`auth_service.login()` 与 `refresh_token()` 的
+    流程都是「先 `revoke()`（只置 deleted_at，行仍在）→ 再 `create()` 用同一
+    session_id 插入」⇒ 必然撞约束，表现为：
+
+      - 同一会话第二次登录 → 500 `UNIQUE constraint failed: sessions.session_id`
+      - `POST /api/v1/auth/refresh` 续期 → 恒定 500（token 续期彻底不可用）
+
+    去掉之后，"活跃会话不重 session_id" 由部分唯一索引
+    `sessions_session_active_uidx ... WHERE deleted_at IS NULL` 保证，
+    业务语义不变（`find_by_session_id` 本来就只查活跃行）。
+
+    与 `_migrate_users_drop_username_unique` 同一套做法：SQLite 不支持
+    DROP CONSTRAINT，只能重建表；**不用** `PRAGMA writable_schema`（会留下
+    悬空自动索引，见该函数注释中的事故记录）。
+    """
+    async with db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'"
+    ) as cur:
+        row = await cur.fetchone()
+    if not row or not row[0]:
+        return
+    create_sql = row[0]
+    # 幂等：新结构里 session_id 已无 UNIQUE，直接返回。
+    # 必须先剥注释再判断（建表语句里可能带说明文字）。
+    if not re.search(
+        r"session_id\s+TEXT\s+NOT\s+NULL\s+UNIQUE",
+        _strip_sql_comments(create_sql),
+        re.IGNORECASE,
+    ):
+        return
+    logger.info("检测到 sessions.session_id 仍有 UNIQUE 列约束，开始重建表迁移")
+    await _rebuild_sessions_table(db)
+
+
+async def _rebuild_sessions_table(db: aiosqlite.Connection) -> None:
+    """
+    重建 sessions 表（保数据）：建 `sessions_new` → 拷贝 → 替换。
+
+    主键 id 原样拷贝；任何失败整体回滚，保证会话数据不动。
+    """
+    try:
+        await db.execute("BEGIN")
+        await db.execute("DROP INDEX IF EXISTS sessions_session_id_idx")
+        await db.execute(f"CREATE TABLE sessions_new ({_SESSIONS_COLUMNS_SQL})")
+        await db.execute(
+            "INSERT INTO sessions_new (id, user_id, session_id, jwt_token_hash,"
+            " expires_at, created_at, updated_at, deleted_at)"
+            " SELECT id, user_id, session_id, jwt_token_hash,"
+            " expires_at, created_at, updated_at, deleted_at FROM sessions"
+        )
+        await db.execute("DROP TABLE sessions")
+        await db.execute("ALTER TABLE sessions_new RENAME TO sessions")
+        await db.commit()
+        logger.info(
+            "运行时迁移：已重建 sessions 表并移除 session_id UNIQUE 约束（v1.10.26）"
+        )
+    except Exception as e:  # noqa: BLE001
+        await db.rollback()
+        logger.error("重建 sessions 表失败（数据未改动）：%s", e)
+
+
 async def _dedupe_active_usernames(db: aiosqlite.Connection) -> None:
     """
     把"活跃行重名"收敛掉，保证部分唯一索引能建立。
@@ -524,6 +616,11 @@ async def init_db() -> None:
 
         # 去重保护：部分唯一索引要求"活跃行"用户名唯一，先把历史脏数据收敛掉
         await _dedupe_active_usernames(db)
+
+        # ── 运行时迁移：去掉 sessions.session_id 的 UNIQUE 列约束（v1.10.26）──
+        # 必须建索引之前执行。原因：软删除 + 列级 UNIQUE 互相打架 ——
+        # 同一会话二次登录 / refresh 续期都会撞 sessions.session_id 唯一约束。
+        await _migrate_sessions_drop_session_id_unique(db)
 
         for idx in _INDEXES:
             await db.execute(idx)

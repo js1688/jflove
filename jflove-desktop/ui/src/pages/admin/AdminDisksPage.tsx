@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { diskService } from '../../services/disk-service';
+import { DiskCapacityCells, DiskCapacityHeaders } from '../../components/DiskCapacity';
 import { PageHeader } from '../../components/PageHeader';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { ServerDirPickerModal } from '../../components/ServerDirPickerModal';
@@ -147,6 +148,8 @@ export function AdminDisksPage() {
                       <th className="px-4 py-2.5 font-semibold">ID</th>
                       <th className="px-4 py-2.5 font-semibold">名称</th>
                       <th className="px-4 py-2.5 font-semibold">路径</th>
+                      {/* v1.10.26（R1）：最大空间 / 已用空间 / 可用空间 / 磁盘类型 */}
+                      <DiskCapacityHeaders />
                       <th className="px-4 py-2.5 font-semibold">创建时间</th>
                       <th className="px-4 py-2.5 font-semibold">操作</th>
                     </tr>
@@ -162,6 +165,7 @@ export function AdminDisksPage() {
                         <td className="max-w-[220px] truncate px-4 py-3 font-mono text-[11.5px] text-muted">
                           {diskPathOf(disk)}
                         </td>
+                        <DiskCapacityCells disk={disk} />
                         <td className="tabular px-4 py-3 text-[11.5px] text-subtle">
                           {disk.created_at ? new Date(disk.created_at).toLocaleString('zh-CN') : '-'}
                         </td>
