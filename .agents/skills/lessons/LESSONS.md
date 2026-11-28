@@ -93,14 +93,16 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
      | --- | --- | --- |
      | 静态分析 | `dart analyze lib/` / `python -m flake8 src/` / `npm run lint` | 退出码 0 |
      | 单元 / Widget 测试 | `flutter test` / `pytest` / `npm run test` | 退出码 0 |
-     | Android 设备 | `adb devices` | 存在 `device` 行；`emulator-` 前缀 = 模拟器 |
+     | Android 设备 | `bash scripts/verify/android_emulator.sh probe` | AVD 存在 + `/dev/kvm` 可写 ⇒ **可以自己起**，见 L59 |
      | Android 构建 | `flutter build apk --debug` | 需 Android SDK + `adb` |
      | Linux 桌面 GUI | `command -v Xvnc kwin_x11` | 有 Xvnc 即可验（**会话锁屏不等于"无显示"**） |
-     | Windows 桌面 | `scripts/verify/vm-win.sh status` | 域 `jflove-win10` 运行 + QGA 就绪即可做安装/启动/界面/传输全链路 |
+     | Windows 桌面 | `bash scripts/verify/vm-win.sh probe` | `probe.sh` 的 `windows_vm_ready` = `yes`/`recoverable` ⇒ **可自己起**，见 L59 |
      | iOS / 鸿蒙 | `uname -s` = Darwin / 有 `flutter_ohos` 工具链 | 一律跳过 |
 
-   > 本机已打通：锁屏会话用独立 `Xvnc`（L50），Windows 用 KVM 真机 VM（L52）。
-   > 这两项**不再是天然跳过项**；只有 Xvnc 缺失 / VM 域不存在时才允许跳过，并附探测输出。
+   > 本机已打通：锁屏会话用独立 `Xvnc`（L50），Windows 用 KVM 真机 VM（L52），
+   > Android 用 AVD（L50/L59）。**这三项都不是天然跳过项**；
+   > 「没启动」≠「没有」：必须先跑 `probe.sh` 的 `*_ready` 字段，能自启就必须自启。
+   > 只有**磁盘/AVD 真的不存在**时才允许跳过，并附探测输出。
 
   2. **声明**：在回复/报告开头列「本次验证计划」两栏 —— **能做**（附命令）/ **跳过**（附探测结果作为原因）。
   3. **执行**：能做的**必须做**；不能做的**保留"跳过"字样**，不得改写成"通过"。
@@ -167,6 +169,17 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
 - **口径**：Windows 证据一律来自 libvirt 域 `jflove-win10`（Windows 10 22H2），
   入口是 `scripts/verify/windows_vm_e2e.sh`（安装包 → 启动 → 密钥交换 → 登录 → 上传 SHA256 校验）。
   **不做「模拟 Win32」的替代验证** —— 安装器、文件关联、SmartScreen、媒体解码只有真 Windows 能给结论。
+- **★ 通道自动解析（先读这条，能省掉整轮返工）**：
+  - 启停统一走 `scripts/verify/vm-win.sh`（`probe|up|down|status|shot|snap|revert`）。
+    它内部 `source scripts/verify/libvirt_env.sh`，**自动**在
+    `qemu:///system`（需 root 守护进程）与 `qemu:///session`（**无需 root**）之间选择，
+    并在 session 模式下自动完成「原盘 → 用户副本（btrfs reflink，秒级，不改原盘）→ define 域」。
+  - 判断「能不能测 Windows」只看 `bash scripts/verify/probe.sh` 的 **`windows_vm_ready`**：
+    `yes` 直接可跑 / `recoverable` 磁盘在、可自动拉起 / `no` 才是真没有。
+    **禁止**再用 `windows_vm=missing`、`probe.sh` 原始输出或 `sudo -n` 失败来断言「本机没有靶机」。
+  - 手动兜底顺序：`virsh -c qemu:///system list --all` → `virsh -c qemu:///session list --all`
+    → `/dev/kvm` 是否可读写 → `/var/lib/libvirt/images/jflove-win10.qcow2` 或
+    `~/vms/win10/jflove-win10.qcow2` 是否存在。**磁盘在 = 靶机在**。
 - **四条通道**（都已在脚本里封装，不要另造轮子）：
   | 要做什么 | 用什么 |
   | --- | --- |
@@ -256,6 +269,39 @@ description: 跨角色通用经验库（踩坑记录 + 强制自查）。任何�
   算不出来就先别改代码。
 - **反向提醒**：把用例改绿**不等于**修好 —— 必须同时**新增**覆盖反方向的用例，
   否则就是削弱判据。审查时专门核查这一点（见 `code-review` 技能纪律 §3）。
+
+### L59. 本机 KVM 靶机是**常备资产**：先自启，再说“环境不具备”
+- **现象（同一类错误已复发多次）**：开工验证时 `probe.sh` 输出 `windows_vm=missing`、
+  `android=no-device`，就直接向用户宣布「真机环境不具备、Windows/Android 无法覆盖」。
+  实际上：Windows 的 65G 系统盘一直在 `/var/lib/libvirt/images/jflove-win10.qcow2`，
+  Android 的 AVD 一直在 `~/.android/avd/jflove-api36.avd` —— **只是没启动**。
+  更严重的一次：误判后**重新安装了一遍 Windows**，白烧一小时。
+- **根因三层**：
+  1. `probe.sh` 曾用 `virsh ... 2>/dev/null` 把「连不上守护进程」吞成「域不存在」，
+     两种状态处置完全不同（前者可自启，后者才需要重建）；
+  2. `android` 只查 `adb devices`，把「AVD 存在但模拟器未启动」报成 `no-device`；
+  3. 执行者把「探测结果」当成「最终结论」，**没有执行“能自启就自启”这一步**。
+- **正确做法（本机已固化为脚本，直接用，不要另写）**：
+  | 要做的事 | 命令 |
+  | --- | --- |
+  | **一条命令把环境全拉起来** | `bash scripts/verify/env_up.sh up`（显示 + Windows + Android，幂等） |
+  | 只读看各端可用性 | `bash scripts/verify/env_up.sh status` |
+  | 看本机到底能不能跑 Windows | `bash scripts/verify/probe.sh` → 只看 **`windows_vm_ready`** |
+  | 起/停 Windows 靶机 | `bash scripts/verify/vm-win.sh up` / `down` / `status` |
+  | 看 Android 能否跑 | `bash scripts/verify/android_emulator.sh probe` |
+  | 起/停 Android 模拟器 | `bash scripts/verify/android_emulator.sh start` / `stop` |
+  - Windows 通道自动解析：`system` 不行就自动走 **`qemu:///session`（无需 root）**，
+    并自动把 root-only 原盘 reflink 成用户副本（btrfs 秒级，原盘不变）、自动 `define` 域。
+    **前提只有一条**：`/dev/kvm` 可读写 + 磁盘文件在。
+  - 状态语义：`windows_vm_ready` = `yes`（已在跑）/ `recoverable`（磁盘在、能自动拉起）/ `no`（真没有）。
+    **`recoverable` 不是“不具备”**，必须 `vm-win.sh up` 之后再做结论。
+- **禁止**：
+  1. 用 `windows_vm=missing` / `android=no-device` / `sudo -n` 失败 / `adb devices` 空 作为“无法验证”的结论；
+  2. 在磁盘/AVD 存在时重建它们（重装 Windows、重建 AVD）——**先自启，自启失败再查磁盘**；
+  3. 把“没启动”写成“环境不具备”进报告。
+- **判据**：报告里出现“Windows/Android 未覆盖”时，必须同时给出
+  `probe.sh` 的 `windows_vm_ready` / `android` 字段**原文**，以及 `vm-win.sh up` 或
+  `android_emulator.sh start` 的**实际尝试输出**；没尝试过 = 不算跳过理由。
 
 ---
 

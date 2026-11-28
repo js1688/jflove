@@ -28,7 +28,32 @@ import sys
 import time
 
 VM = os.environ.get("JF_WIN_VM", "jflove-win10")
-VIRSH = ["virsh", "-c", "qemu:///system"]
+
+
+def _resolve_uri() -> str:
+    """解析 libvirt 通道：优先显式环境变量，其次 system，再回落 session（无需 root）。
+
+    背景：system 模式需 root 启守护进程，本机 sudo 要密码；session 模式在 /dev/kvm
+    可读写时完全可用。历史上只看 system 就把「守护进程没起」误报成「没有靶机」。
+    与 scripts/verify/libvirt_env.sh 保持同一判定顺序。
+    """
+    explicit = os.environ.get("JF_LIBVIRT_URI")
+    if explicit:
+        return explicit
+    for uri in ("qemu:///system", "qemu:///session"):
+        try:
+            proc = subprocess.run(
+                ["virsh", "-c", uri, "list", "--all"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if proc.returncode == 0:
+            return uri
+    return "qemu:///system"
+
+
+VIRSH = ["virsh", "-c", _resolve_uri()]
 #: QGA 单次消息大小受 virtio-serial 缓冲限制，256KB 分片实测稳定
 CHUNK = 256 * 1024
 

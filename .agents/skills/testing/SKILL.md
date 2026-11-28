@@ -55,10 +55,15 @@ description: "测试工程师，负责编写并维护自动化测试，输出测
    | 桌面端 pytest | `python -m pytest tests/`（`venv-*`） | 退出码 0 |
    | 桌面端实机 | `jf_start_xvnc :99` + `xinput.py` | 窗口 `JFLove` + 点击/输入后接口 200 |
    | 移动端静态/单测 | `dart analyze lib/` / `flutter test` | 零错误 / 全通过 |
-   | 移动端设备级 | `adb devices` | 有 `device` 行（`emulator-` = 模拟器） |
-   | Windows 实机 | `scripts/verify/windows_vm_e2e.sh` | KVM 真机 VM：安装→启动→密钥交换→登录→上传 SHA256 全绿 |
+   | 移动端设备级 | `bash scripts/verify/android_emulator.sh probe` → `start` | AVD 存在 + `/dev/kvm` 可写 ⇒ **自己起**；`adb devices` 出现 `device` |
+   | Windows 实机 | `bash scripts/verify/vm-win.sh probe` → `up` | `probe.sh` 的 `windows_vm_ready` = `yes`/`recoverable` ⇒ **自己起**，再跑 `windows_vm_e2e.sh` |
    | GUI 基础 | `command -v Xvnc kwin_x11 ffmpeg` | 锁屏/无显示时用独立 Xvnc |
    | iOS / 鸿蒙 | `uname -s` = Darwin / 有对应工具链 | 一律跳过 |
+
+   > **「没启动」≠「环境不具备」**（L59）。Windows 走 `vm-win.sh`（自动在 system/session 通道间选择，
+   > 无 root 也能跑）；Android 走 `android_emulator.sh`。只有磁盘/AVD 确实不存在时才允许跳过，
+   > 且必须附 `probe.sh` 字段原文 + 实际尝试 `up`/`start` 的输出。
+   > **禁止**在磁盘/AVD 存在时重建它们（重装 Windows、重建 AVD）。
 
 2. **当前版本产物（硬约束，禁止历史包）**：
    - 实机验证前必须构建**当前工作区**的产物：Android `JAVA_HOME=<jdk> flutter build apk --debug`；

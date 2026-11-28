@@ -8,6 +8,20 @@
 
 > **先跑 `scripts/verify/probe.sh`**：统一探测 Windows VM / Linux 显示 / Android，
 > 再判“能否跳过”。禁止用默认 `virsh list` 或只试 `:99` 就断言“没有实机环境”。
+>
+> **★ 一句话口径（2026-11 起）**：本机 Windows 靶机与 Android AVD 是**常备资产**，
+> 只会「没启动」，不会「没有」。判断能不能测只看 `probe.sh` 的 `windows_vm_ready`
+> 与 `android` 字段：`recoverable` / `avd-not-started` 都**必须先自启**再下结论：
+>
+> ```bash
+> bash scripts/verify/env_up.sh status   # 只读：看各端能不能跑
+> bash scripts/verify/env_up.sh up       # 一条命令把 显示/Windows/Android 全拉到就绪
+> bash scripts/verify/env_up.sh down     # 全部停掉（释放内存）
+> ```
+>
+> 单项操作：`vm-win.sh up|down|status`（Windows）、`android_emulator.sh start|stop`（Android）。
+>
+> **禁止**在磁盘/AVD 存在时重建它们（重装 Windows、重建 AVD）。细节见 `lessons` L59。
 
 ## 先决条件
 
@@ -15,8 +29,8 @@
 | --- | --- | --- |
 | 独立 X 显示 | `Xvnc`、`kwin_x11` | 用户会话锁屏时窗口会被标 HIDDEN，截屏全黑，必须用 Xvnc |
 | 浏览器 | `microsoft-edge` | 无 Chromium/Firefox；Edge 就是 Chromium 内核 |
-| Android | `~/sdk/android-sdk` + AVD `jflove-api36` + KVM | `flutter doctor` 检查 |
-| Windows VM | libvirt 域 `jflove-win10` + `/dev/kvm` | `scripts/verify/vm/` 里的应答文件重建（见下节） |
+| Android | `~/sdk/android-sdk` + AVD `jflove-api36` + KVM | `android_emulator.sh probe`；缺 AVD 才需 `avdmanager` 重建 |
+| Windows VM | libvirt 域 `jflove-win10` + `/dev/kvm` + 磁盘镜像 | `vm-win.sh probe`；**磁盘在即可自动拉起**，无需重建 |
 | 截图 | `ffmpeg`（Xvnc 上可靠） | ImageMagick `import` 本机不可用 |
 
 ## 脚本
@@ -28,7 +42,10 @@
 | `web_shot.mjs` | Edge 无头 + CDP 点击/执行 JS + 截图 | `node scripts/verify/web_shot.mjs --click-text '连接服务端'` |
 | `desktop_shot.py` | 桌面端 Web UI 离屏抓帧 | `jflove-desktop/venv-linux/bin/python scripts/verify/desktop_shot.py` |
 | `android_smoke.sh` | 窗口化模拟器 + 安装 + 启动 + 截图 | `scripts/verify/android_smoke.sh` |
-| `vm-win.sh` | Windows 真机 VM 生命周期（起停/截屏/断网/快照/资源占用） | `scripts/verify/vm-win.sh up` / `down` / `footprint` |
+| `env_up.sh` | **一键编排**：显示 + Windows + Android 全部就绪（幂等） | `scripts/verify/env_up.sh up` / `down` / `status` |
+| `libvirt_env.sh` | 通道自动解析（system ↔ session）+ reflink 备盘 + 自动 define | `source scripts/verify/libvirt_env.sh` |
+| `vm-win.sh` | Windows 真机 VM 生命周期（自动选通道，无需 root） | `scripts/verify/vm-win.sh probe` / `up` / `down` / `shot` |
+| `android_emulator.sh` | Android AVD 自动启停（自动配 Xvnc + `-gpu host`） | `scripts/verify/android_emulator.sh probe` / `start` / `stop` |
 | `windows_vm.py` | 经 QGA 在客机执行命令、传文件、模拟键盘 | `python3 scripts/verify/windows_vm.py exec --ps "ver"` |
 | `windows_vm_ui.mjs` | CDP 驱动 VM 内 QtWebEngine 界面（点击/输入/断言/截图） | `node scripts/verify/windows_vm_ui.mjs --host <ip> --port 9223 --wait-text '连接服务端'` |
 | `windows_vm_e2e.sh` | Windows 端端到端验收（安装→启动→密钥交换→登录→上传校验；启动前清客户端状态强制全新登录） | `scripts/verify/windows_vm_e2e.sh` |

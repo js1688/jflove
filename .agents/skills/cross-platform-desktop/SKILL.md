@@ -170,6 +170,11 @@ scripts/verify/windows_vm_e2e.sh --skip-install --keep
 - 靶机是 libvirt 域 `jflove-win10`（Windows 10 22H2 / 8G 内存 / 6 vCPU），
   通道：`vm-win.sh`（启停/截屏/断网/快照）+ `windows_vm.py`（QGA 执行与传文件）+
   `windows_vm_ui.mjs`（CDP 驱动 QtWebEngine 界面）。
+- **通道自动解析（先读）**：`vm-win.sh` 内部 `source scripts/verify/libvirt_env.sh`，
+  自动在 `qemu:///system`（需 root）与 `qemu:///session`（**无需 root**）之间选择；
+  session 模式下自动把 root-only 原盘 reflink 成用户副本并 `define` 域。**不要手写 virsh 命令绕开它**。
+  能否测只看 `probe.sh` 的 `windows_vm_ready`（`yes` / `recoverable` / `no`），
+  **禁止**用 `windows_vm=missing` 或 `sudo -n` 失败断言“本机没有靶机”（L59）。
 - 判据：安装项与快捷方式就位 → CDP 能 attach → 服务端 `key-exchange 200` + `login 200` →
   上传文件宿主机落盘 SHA256 与客机一致。
 - 界面自动化落地方式：启动时 `QTWEBENGINE_REMOTE_DEBUGGING=9222`，客机 `netsh portproxy`
@@ -195,7 +200,8 @@ scripts/verify/windows_vm_e2e.sh --skip-install --keep
 ## 实机验证入口（强制）
 
 - **先跑 `scripts/verify/probe.sh`**，再判“能否跳过”。禁止用默认命令/默认 URI 直接下结论：
-  - Windows VM 必须用 `virsh -c qemu:///system`（默认 `qemu:///session` 看不到域）；
+  - Windows VM **两条通道都要看**：`qemu:///system`（需守护进程）与 `qemu:///session`（无需 root）；
+    只看 system 会误报“没有靶机”。以 `windows_vm_ready` 为准；
   - Linux 先看 `linux_display` / `linux_wayland`，**不得只试 `:99`** 就断言“无显示”。
 - 桌面端实机证据：Windows 走 `scripts/verify/vm-win.sh up` + `windows_vm_e2e.sh`；
   **Linux 不依赖 X**：`QT_QPA_PLATFORM=offscreen` + `QTWEBENGINE_REMOTE_DEBUGGING=9222`
